@@ -1,0 +1,12 @@
+FROM swarm-formation-upstream:noetic
+
+COPY integration/qn_aav_simulator /workspace/src/src/qn_aav_simulator
+COPY integration/swarm_qn_bridge/simulator.xml \
+  /workspace/src/src/planner/plan_manage/launch/simulator.xml
+
+RUN . /opt/ros/noetic/setup.sh && cd /workspace && catkin_make -j2
+
+RUN echo "source /workspace/devel/setup.bash" >> /root/.bashrc
+
+WORKDIR /workspace
+CMD ["bash"]

@@ -1,0 +1,229 @@
+{
+  "package": "MaritimeCluster_context",
+  "version": "2.0",
+  "date": "2026-09-15",
+  "basis": "2026-09-15 V2 implementation/audit/handoff and latest user decisions; no new online verification",
+  "replaces": "AI context package v1.0 in full; do not overlay old active instructions",
+  "scope": "documentation only; no source-code changes, upstream reproduction, simulation or proof validation",
+  "checks": {
+    "utf8": "passed",
+    "local_markdown_links": "passed",
+    "checked_local_links": 156,
+    "original_v2_source_bytes": "matched",
+    "legacy_huc_active_repository_links": "none",
+    "deprecated_audit_prompt": "redirects to upstream selection only",
+    "markdown_file_count": 40
+  },
+  "files": [
+    {
+      "path": "AGENT.md",
+      "bytes": 6813,
+      "sha256": "efe3a41cde97327b38924d0634fdbe7061f6f44c380e33ac851be672fac1ed05"
+    },
+    {
+      "path": "AGENTS.md",
+      "bytes": 499,
+      "sha256": "711c922d01a9a53ac331a2c3006a69e5fe0fbf8672572ff25bfecbfc4fdf4f2a"
+    },
+    {
+      "path": "CHANGES_V2.md",
+      "bytes": 3650,
+      "sha256": "899fbf352db074794e97e0df2c195a91117ec9c3939b508b76c885085f6e073a"
+    },
+    {
+      "path": "PROJECT_CONTEXT.md",
+      "bytes": 3663,
+      "sha256": "38eb56a348d10a23ff8ed49d1ea337ab0043a82d220da7d934bc24658aeecd33"
+    },
+    {
+      "path": "context/01_project_background.md",
+      "bytes": 3513,
+      "sha256": "02f68ccb80f37a0a541ddaa3f9c9a463608a96a4b65300ef4916f61dd6c0f637"
+    },
+    {
+      "path": "context/02_current_status.md",
+      "bytes": 3304,
+      "sha256": "23890b6294fc79172b374f0014812ff1ad8f1a27f738d2b49cb330353b0da386"
+    },
+    {
+      "path": "context/03_system_architecture.md",
+      "bytes": 4824,
+      "sha256": "170aca7e0d2dc2202d175815c87f610d5115373403305291974d71f31c9b3c3a"
+    },
+    {
+      "path": "context/04_inputs_outputs.md",
+      "bytes": 4536,
+      "sha256": "18a7dfce66b82f85490062fc1e6067784400a90f370a3b9199c4875f0b4b6bec"
+    },
+    {
+      "path": "context/05_state_communication.md",
+      "bytes": 3875,
+      "sha256": "c26fd9c566d3e1e3bb51398ceaaf26d80b10dd8f285c3841bd69a60a2d290210"
+    },
+    {
+      "path": "context/06_dynamics_and_theory.md",
+      "bytes": 4627,
+      "sha256": "1078e2bb1a91d6c5289252d0f91cbb55d15ada33ff0f4f6f860b3f6bf94f8824"
+    },
+    {
+      "path": "context/07_reproduction_integration.md",
+      "bytes": 4275,
+      "sha256": "9810999c69102c1c9c47c2896322bb7c87adfdfecf5e6b8e7d2076f65114d203"
+    },
+    {
+      "path": "context/08_first_scenario_benchmark.md",
+      "bytes": 4080,
+      "sha256": "a1df699f293d8df852db57459a9956b95bc31e16a9e49bd100e22940a0757a41"
+    },
+    {
+      "path": "context/09_implementation_plan.md",
+      "bytes": 3378,
+      "sha256": "a5d7161d23a96b1ef4536ed3707c80519bf8f1158a23bf3def244d45df04cc9c"
+    },
+    {
+      "path": "context/10_research_novelty.md",
+      "bytes": 3465,
+      "sha256": "46be49439bdf9ff6fc56c8918f68e8226a2b3e7c784c3de2b56edad20671bd64"
+    },
+    {
+      "path": "context/11_glossary.md",
+      "bytes": 4936,
+      "sha256": "0e044df43f037174682d7a10f184c9edc0ac2a3eb5585bfba8fa2973d77d5eeb"
+    },
+    {
+      "path": "context/12_literature_review.md",
+      "bytes": 4891,
+      "sha256": "d62d6027447179e066d363857f6b603f4b03d2a340e6b79f22e0a453252b3159"
+    },
+    {
+      "path": "context/13_references.md",
+      "bytes": 7940,
+      "sha256": "b729eea78d6dfefbdd33b2eb8d751743c352ec4e1032170457a500eccaed4219"
+    },
+    {
+      "path": "context/14_decisions_and_unknowns.md",
+      "bytes": 3105,
+      "sha256": "164df9deeeb430c4cdbf33033a70f6f46ec7dbe18902fc7416ae89ffce8c9e7c"
+    },
+    {
+      "path": "context/15_handoff.md",
+      "bytes": 2402,
+      "sha256": "a5512deb570d663d74cab45c4e2f66922508269de771e030d04406032b74ffe1"
+    },
+    {
+      "path": "context/README.md",
+      "bytes": 2807,
+      "sha256": "77e0a02a807d9fddf6df9a13c481e6b40c0e0ca4ec36b8fa145a055ee0bfd3bc"
+    },
+    {
+      "path": "context/sources/README.md",
+      "bytes": 1419,
+      "sha256": "7b8162862e4e88412fa3fc6189af28b532c3404d1db1fc86d395030019cc72ba"
+    },
+    {
+      "path": "context/sources/handoff_v2_2026-09-15.md",
+      "bytes": 1773,
+      "sha256": "78b722834a43ac224bf8968e82a33bd69cdc784e9cd0fce2f2d8aa82b764baf8"
+    },
+    {
+      "path": "context/sources/implementation_plan_v2_2026-09-15.md",
+      "bytes": 27065,
+      "sha256": "b00c4075662fec6e4b36daa39cae501bdd161ab18376efeaecd4f456c0e89f8b"
+    },
+    {
+      "path": "context/sources/literature_audit_2026-09-15.md",
+      "bytes": 16197,
+      "sha256": "0a2c5881b2c75d90a4524ed0179879616b4a8a760b90e2591971be73b6dd34c6"
+    },
+    {
+      "path": "context/sources/report_control_requirements.png",
+      "bytes": 225765,
+      "sha256": "d3042e12dec85a1bbe53706b10382d0b2ffc9d0aefaf9247d958c26cf80f2090"
+    },
+    {
+      "path": "context/sources/report_planning_patent.png",
+      "bytes": 58608,
+      "sha256": "56bc29786a944e91d333c865aefa04185f0d7806f09d7d32b907531fb6aa4932"
+    },
+    {
+      "path": "context/templates/README.md",
+      "bytes": 456,
+      "sha256": "1a80197f3a770396cd82def5f1b6befdeaa943c8bcf5829ae74a1ff3e94b5ca3"
+    },
+    {
+      "path": "context/templates/experiment_report.md",
+      "bytes": 520,
+      "sha256": "026446075a79053b38ac1122307cc3255005bffafe5849c14980ee19fb59dc50"
+    },
+    {
+      "path": "context/templates/research_question.md",
+      "bytes": 635,
+      "sha256": "8505fdc7a52638e3e56d25bcfcbdbb12c6f2f7e6b7d50a32a1dc65d22c983b32"
+    },
+    {
+      "path": "context/templates/upstream_record.md",
+      "bytes": 460,
+      "sha256": "e47e30593f4e98b0fa1b08bc59b3b45b8e830703e48700c12c409335428b6ce6"
+    },
+    {
+      "path": "prompt/00_session_start.md",
+      "bytes": 1299,
+      "sha256": "ca98e2365af00fd819824e268315072fc9183297e3cd0c3afc1387060d30d5c2"
+    },
+    {
+      "path": "prompt/01_repo_audit.md",
+      "bytes": 515,
+      "sha256": "7d10a78fa55813bb76ef04ec6064d05f19e8539cc8d734bed92783dfbe3a83bd"
+    },
+    {
+      "path": "prompt/01_upstream_selection.md",
+      "bytes": 1448,
+      "sha256": "304d7e9769c16e19d6e73886de9c248114fba5395d8d6d09998a9fc35b29e58e"
+    },
+    {
+      "path": "prompt/02_literature_verification.md",
+      "bytes": 1660,
+      "sha256": "2eef1bb5a3200d3f963a32ab7e937a48341d1a2d04c3efceac9ae1783f9f89f3"
+    },
+    {
+      "path": "prompt/03_reproduce_upstream.md",
+      "bytes": 1560,
+      "sha256": "a5b384bd32ac1b91daf0869abe2fd4007ae10217ec016269adb0fc90c5640208"
+    },
+    {
+      "path": "prompt/04_model_and_theory.md",
+      "bytes": 1544,
+      "sha256": "93fb412220ae759c2df7fac47ff4dcfaf0cacd9dd9278a22d048d40fe1881612"
+    },
+    {
+      "path": "prompt/05_implement_slice.md",
+      "bytes": 1505,
+      "sha256": "0ca784f3c9750795351afb7d53e731d2b2f3515dcbc241f203762a14ef7f2aa8"
+    },
+    {
+      "path": "prompt/06_benchmark_experiment.md",
+      "bytes": 1391,
+      "sha256": "047230ba7770836ddc66cee03173ad6e31489ee1873d04eba666db3091b53633"
+    },
+    {
+      "path": "prompt/07_code_and_evidence_review.md",
+      "bytes": 1229,
+      "sha256": "83cab6e50f036a2de53ba15e4b0d73e45ac998b137497d7181efbe8544d11f84"
+    },
+    {
+      "path": "prompt/08_proof_and_novelty_review.md",
+      "bytes": 1394,
+      "sha256": "689008ddd2e6094cd9f2dd7b60c4fdf201a2f8be5ccdd2df5de5d446b46613ae"
+    },
+    {
+      "path": "prompt/09_update_handoff.md",
+      "bytes": 1257,
+      "sha256": "0067b1e3026f905fe928e968a9df4dfd531911103b59ad881a437aadfc3d5507"
+    },
+    {
+      "path": "prompt/README.md",
+      "bytes": 1859,
+      "sha256": "0713243b18eec5bddc47503f6b32d5659f133b5c44e41a8d82493b036ebf413f"
+    }
+  ]
+}
