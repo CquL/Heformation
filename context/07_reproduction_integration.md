@@ -5,12 +5,15 @@
 | 对象 | 原始小例子目标 | 当前状态 |
 |---|---|---|
 | Swarm-Formation [R01] | 保存用户已有编队复现的版本、原生入口和代表结果 | 已在`upstream/Swarm-Formation`用Docker Noetic编译，并完成qn AIR七机闭环 |
-| Primitive-Planner [R03] | 运行官方多机导航例子，理解基元生成、目标与输出 | 待用户本地复现 |
-| Calvo规划/执行 [R09,R10] | 先做最小分配与延迟修复，再查看原生执行入口 | 待用户本地复现 |
-| D-ITAGS [R08] | 运行任务—调度—运动交错小例，检查所需依赖/数据 | 待用户本地复现 |
+| Primitive-Planner [R03] | 运行官方多机导航例子，理解基元生成、目标与输出 | 基元库生成成功；Noetic 临时工作区 18 包编译通过；完整 ROS 启动待继续 |
+| Calvo规划/执行 [R09,R10] | 先做最小分配与延迟修复，再查看原生执行入口 | 已拉取并核查入口；MATLAB/Gurobi 环境阻塞原始运行 |
+| D-ITAGS [R08] | 运行任务—调度—运动交错小例，检查所需依赖/数据 | CMake 已执行；缺少 nlohmann_json 配置包，且完整实验需要 Gurobi/OMPL |
 
 这些是首轮目标，不要求一次在一个环境安装四套系统。Swarm + qn AIR是当前运动基线；一次
 处理一项新增目标，保留上游模型；无法运行就写明缺失依赖/许可/文档，不悄悄重写后声称复现。
+
+本阶段的所有上游复现结果集中记录在[16_upstream_reproduction_status.md](16_upstream_reproduction_status.md)。
+复现阶段不进行跨项目集成。
 
 ## 2. 如何冻结上层
 
