@@ -1,0 +1,9 @@
+**
+!docker/
+!docker/Dockerfile.qn
+!integration/
+!integration/**
+**/__pycache__/
+**/.pytest_cache/
+**/build/
+**/*.egg-info/

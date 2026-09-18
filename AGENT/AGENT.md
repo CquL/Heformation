@@ -1,6 +1,6 @@
 # AGENT.md — 海上异构无人集群项目
 
-> 项目背景包版本：2.0｜2026-09-15。以此次V2调整为依据。本文是AI工作入口，不是已实现系统或理论验收报告。
+> 项目背景包版本：2.0；当前阶段决定更新于2026-09-17。用户最新冻结方案见[plan.md](../plan.md)，优先于V2历史选型建议。本文不是已实现系统或理论验收报告。
 
 ## 1. 项目做什么
 
@@ -26,8 +26,10 @@
 `upstream/Swarm-Formation`，并在Docker Noetic中完成官方编译；qn AIR平台接入已在官方
 七机示例中运行。该证据只覆盖当前AIR闭环，不等于T-RO 2023全部功能或海上异构系统已经完成。
 
-- 优先新增复现：**Primitive-Swarm / Primitive-Planner（T-RO 2025）**。它是UAV多机导航与避让后端，不是严格编队算法的直接替代品。
-- 上层：先分别做**Calvo/Capitán的资源调度与配套执行系统**、**D-ITAGS**的小例子，按任务需求冻结**一个在线主求解器**。能源/长时工作优先时Calvo是V2默认候选；任意任务前置关系需统一优化时优先核对D-ITAGS。不得把两者能力自动相加。
+- 本阶段唯一主链：**Calvo v9 restricted-domain Python port → FormationAction → Swarm七机AIR → PositionCommand → qn → 实际Odometry → DelayEvent → planRepair → 更新Plan**。
+- 原始MATLAB保留在`upstream/Calvo-MRTA/`；受限移植位于`integration/mrta_python/`，不称完整MATLAB等价复现。使用ROS1 Noetic/actionlib，固定七机联盟；`Plan.items`为唯一计划事实源。
+- 本版`wait_time = 0`。保留v9启用奖励与已有协作关系的时间修复；不做v13剩余任务重新分配。电池不构成约束，充电、fragmentation、relay和动态联盟人数关闭；正等待吸收与多个逻辑执行单元资源竞争后续再验收。
+- Primitive、D-ITAGS、OmniPlan ROS2与其他运动后端保留为后续对照或扩展，不是当前选型或集成前置条件。Primitive是UAV多机导航与避让后端，不是严格编队算法的直接替代品。
 - Swarm保留已复现编队基线；T-RO 2023完整后续源码覆盖尚未核实。CAT-ORA仅按适用假设处理编队重排。
 - RMADER、DMPC-Swarm、AMSwarmX为针对性对照，不是必须顺序串接的规划层。RSS 2025 H-LTL/GCS、CoCoPlan等用于模型与查新对照。
 - 海面/水下模型参考Fossen及Stonefish；网络联合仿真按需评估DANCERS。尚不能声称这些与上层、UAV后端已经现成集成。
@@ -62,7 +64,7 @@
 
 ## 6. 工作方式与交付
 
-先完成选定上游的原始小例子，保存必要的版本、配置、命令和结果；再做集成。不要同时迁移ROS/系统、修改算法、重写接口和更换动力学。最终环境尚未冻结，不默认沿用旧HUC的ROS 2环境，也不默认所有新论文的软件都很新。
+原始复现保留上游模型及证据；本轮已获授权实施受限Python移植和ROS1 Noetic闭环，不要求先完成MATLAB或全部候选原例。不要同时迁移ROS/系统、修改运动算法和更换动力学。后续长期部署环境另行决定，不影响当前冻结环境。
 
 不因需要证据而堆积大量必填表或复杂运行日志。一次工作记录清楚来源、改动、实际命令/结果、失败原因和下一步即可。可解问题用工具解决，不重复追问已确认方向，也不以无限调研替代已授权实施。
 

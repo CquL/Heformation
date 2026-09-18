@@ -1,6 +1,6 @@
 # 项目背景索引 V2.0
 
-**2026-09-15。以“退出旧HUC、复现上游、原生接口最小集成、完整协调闭环、问题驱动创新”为当前方向。**
+**2026-09-17。当前按[plan.md](../plan.md)实施Calvo受限v9、ROS1 FormationAction、Swarm七机qn AIR与实际延迟闭环；V2长期研究背景保留。**
 
 ## 主题目录
 
@@ -12,14 +12,14 @@
 | [04 必要输入输出](04_inputs_outputs.md) | 哪些是任务、配置和反馈，已有上游接口是什么？ |
 | [05 状态与通信](05_state_communication.md) | 本机/邻机信息从哪里来，受限通信怎样进入测试？ |
 | [06 动力学与理论](06_dynamics_and_theory.md) | 如何保留上游假设，何时提出新模型和证明？ |
-| [07 复现与集成](07_reproduction_integration.md) | 先复现哪些小例子，怎么选择唯一上层与薄适配？ |
+| [07 复现与集成](07_reproduction_integration.md) | 当前受限移植与原始复现怎样区分，如何完成薄适配？ |
 | [08 第一场景与测试](08_first_scenario_benchmark.md) | 一个场景怎样检验完整任务和运动系统？ |
 | [09 实施计划](09_implementation_plan.md) | 现在先做什么，后续各步以什么可运行结果推进？ |
 | [10 研究问题与创新](10_research_novelty.md) | 旧三条“创新”怎样转为可检验的问题，而非既定结论？ |
 | [11 术语](11_glossary.md) | 任务、编队、路径、轨迹、通信与保证怎样区分？ |
 | [12 文献与选型](12_literature_review.md) | 各论文/项目负责哪层、为什么选、哪些边界不能越过？ |
 | [13 来源目录](13_references.md) | V2中的18项文献和官方源码入口，及本包的整理依据 |
-| [14 决策与未知](14_decisions_and_unknowns.md) | 用户已确定什么，上层/环境等哪些尚未冻结？ |
+| [14 决策与未知](14_decisions_and_unknowns.md) | 本阶段已冻结什么，哪些长期扩展仍待决定？ |
 | [15 最新交接](15_handoff.md) | 当前实际完成了什么，下一次从哪里接续？ |
 | [16 上游独立复现台账](16_upstream_reproduction_status.md) | 每个开源项目拉取版本、原始入口、实际结果和阻塞条件是什么？ |
 
@@ -33,4 +33,4 @@
 
 旧V1中的继承条款已经废止，不能从旧缓存恢复为当前规则。此次不重新定义完整优化问题，也不新增所有平台共用的数据包/控制器。
 
-返回：[总目录](../PROJECT_CONTEXT.md) · [AI入口](../AGENT.md)。
+返回：[总目录](../AGENT/PROJECT_CONTEXT.md) · [AI入口](../AGENT/AGENT.md)。

@@ -1,0 +1,15 @@
+string task_id
+geometry_msgs/PointStamped formation_center
+duration hold_duration
+---
+uint8 NONE=0
+uint8 INVALID_TARGET=1
+uint8 ODOMETRY_TIMEOUT=2
+uint8 EXECUTION_TIMEOUT=3
+time actual_start_time
+time actual_finish_time
+uint8 reason
+---
+uint8 MOVING=0
+uint8 HOLDING=1
+uint8 phase

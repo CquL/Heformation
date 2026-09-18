@@ -1,6 +1,8 @@
-# 上游复现与最小集成策略
+# 当前集成与上游原始复现的边界
 
-## 1. 首轮只建立四个清楚的基线
+**2026-09-17：当前按[plan.md](../plan.md)实施Calvo v9 restricted-domain Python port与ROS1七机AIR闭环。本版wait_time为零，无v13重分配；正等待和多执行单元测试后移。**
+
+## 1. V2原始复现基线记录
 
 | 对象 | 原始小例子目标 | 当前状态 |
 |---|---|---|
@@ -9,21 +11,21 @@
 | Calvo规划/执行 [R09,R10] | 先做最小分配与延迟修复，再查看原生执行入口 | 已拉取并核查入口；MATLAB/Gurobi 环境阻塞原始运行 |
 | D-ITAGS [R08] | 运行任务—调度—运动交错小例，检查所需依赖/数据 | CMake 已执行；缺少 nlohmann_json 配置包，且完整实验需要 Gurobi/OMPL |
 
-这些是首轮目标，不要求一次在一个环境安装四套系统。Swarm + qn AIR是当前运动基线；一次
-处理一项新增目标，保留上游模型；无法运行就写明缺失依赖/许可/文档，不悄悄重写后声称复现。
+这些是原始复现记录，不要求先在一个环境安装四套系统。Swarm + qn AIR是当前运动基线；
+受限Python移植已获用户授权，但仍须与原始MATLAB复现区分，不能声称完整等价。
 
 本阶段的所有上游复现结果集中记录在[16_upstream_reproduction_status.md](16_upstream_reproduction_status.md)。
-复现阶段不进行跨项目集成。
+原始复现实验保持隔离；当前已进入单独授权的Python移植与集成工作。
 
-## 2. 如何冻结上层
+## 2. 本阶段已冻结上层
 
-资源、电池、长时作业和接替为重点：Calvo为V2默认候选。若必须联合优化一般任务先后关系：重点采用D-ITAGS所支持的任务网络。选择前分别用原始小例和第一场景的约束做对照。
+本阶段选择Calvo v9 restricted-domain Python port，禁用电池约束、充电、fragmentation、relay与动态联盟人数，只移植启用奖励和已有协作关系下的时间修复。原MATLAB及D-ITAGS的运行条件不阻塞这项已授权工作。
 
 最终只有一个在线主求解器。另一个可以离线比较或后续替换。Calvo模型不含一般前置关系，D-ITAGS也不自动提供完整电池/充电模型；不能用两个仓库的标题拼出不存在的共同能力。[R08–R10](13_references.md)
 
 ## 3. 如何连接执行器和规划器
 
-优先使用所选上游的执行器和原生任务表示。实际要补的通常是“动作映射到目标”和“运动结果映射到任务反馈”。先对照原消息文件及调用端，不依据聊天中拟定的对象名写新类。
+本阶段采用用户冻结的Python模型与FormationAction，连接Swarm原生组级目标和七台qn Odometry。只补“动作映射到目标”和“实际运动结果映射到DelayEvent”的必要路径，不要求先引入Calvo原生执行框架。
 
 D-ITAGS与Calvo执行器如需结合，属于新适配工作；不能说前者自带后者的Action。原执行器中的Generic任务时长不表示自动支持任意几何。
 
@@ -37,7 +39,7 @@ Primitive负责UAV一般转场和多机避让候选；Swarm负责已有编队基
 
 ## 5. 环境策略
 
-原始复现按上游测试环境隔离。V2记录中Primitive、Swarm、Calvo执行系统有ROS Noetic环境；DANCERS等候选另有ROS 2侧。最终部署环境未冻结，不为沿用旧项目而先强制迁移，也不把Noetic指定为永久目标。
+当前集成固定使用ROS1 Noetic Docker和actionlib；原始候选复现仍按上游测试环境隔离。长期部署环境可后续评估，不在本轮迁移ROS或系统。
 
 MATLAB/Gurobi等许可或依赖要确认。不能把许可证写入仓库，不能把无法运行原版后自行替换求解器记作原始复现。后续移植必须在同一小例对照约束与结果。
 
@@ -62,4 +64,4 @@ maritime_mission_system/
 
 
 ---
-整理依据：[V2实施方案](sources/implementation_plan_v2_2026-09-15.md)与[V2核查记录](sources/literature_audit_2026-09-15.md)。本页是资料重组，不表示新增代码或实验已完成。返回：[资料索引](README.md)。
+整理依据：[V2实施方案](sources/implementation_plan_v2_2026-09-15.md)与[V2核查记录](sources/literature_audit_2026-09-15.md)。V2来源保留为历史依据；当前决定按用户最新冻结方案更新，实验完成情况仅以实际运行记录为准。返回：[资料索引](README.md)。

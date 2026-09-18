@@ -1,0 +1,45 @@
+<launch>
+  <arg name="output_dir" default="/experiments/current"/>
+  <arg name="planner_speed" default="1.5"/>
+  <arg name="run_mission" default="false"/>
+  <arg name="mode" default="mission"/>
+  <arg name="record" default="true"/>
+
+  <include file="$(find ego_planner)/launch/normal_hexagon.launch"/>
+  <rosparam file="$(find qn_aav_simulator)/config/formation_air.yaml"/>
+
+  <!-- Match the initial physical formation to the upstream scale=2 slots. -->
+  <rosparam ns="drone_0_qn_aav">{init_x: -26.0, init_y: 0.0, init_z: 0.5}</rosparam>
+  <rosparam ns="drone_1_qn_aav">{init_x: -22.5358, init_y: -2.0, init_z: 0.5}</rosparam>
+  <rosparam ns="drone_2_qn_aav">{init_x: -26.0, init_y: -4.0, init_z: 0.5}</rosparam>
+  <rosparam ns="drone_3_qn_aav">{init_x: -29.4642, init_y: -2.0, init_z: 0.5}</rosparam>
+  <rosparam ns="drone_4_qn_aav">{init_x: -29.4642, init_y: 2.0, init_z: 0.5}</rosparam>
+  <rosparam ns="drone_5_qn_aav">{init_x: -26.0, init_y: 4.0, init_z: 0.5}</rosparam>
+  <rosparam ns="drone_6_qn_aav">{init_x: -22.5358, init_y: 2.0, init_z: 0.5}</rosparam>
+
+  <!-- Override parameters only; the official planner and qn equations are unchanged. -->
+  <param name="drone_0_ego_planner_node/manager/max_vel" value="$(arg planner_speed)" type="double"/>
+  <param name="drone_0_ego_planner_node/optimization/max_vel" value="$(arg planner_speed)" type="double"/>
+  <param name="drone_1_ego_planner_node/manager/max_vel" value="$(arg planner_speed)" type="double"/>
+  <param name="drone_1_ego_planner_node/optimization/max_vel" value="$(arg planner_speed)" type="double"/>
+  <param name="drone_2_ego_planner_node/manager/max_vel" value="$(arg planner_speed)" type="double"/>
+  <param name="drone_2_ego_planner_node/optimization/max_vel" value="$(arg planner_speed)" type="double"/>
+  <param name="drone_3_ego_planner_node/manager/max_vel" value="$(arg planner_speed)" type="double"/>
+  <param name="drone_3_ego_planner_node/optimization/max_vel" value="$(arg planner_speed)" type="double"/>
+  <param name="drone_4_ego_planner_node/manager/max_vel" value="$(arg planner_speed)" type="double"/>
+  <param name="drone_4_ego_planner_node/optimization/max_vel" value="$(arg planner_speed)" type="double"/>
+  <param name="drone_5_ego_planner_node/manager/max_vel" value="$(arg planner_speed)" type="double"/>
+  <param name="drone_5_ego_planner_node/optimization/max_vel" value="$(arg planner_speed)" type="double"/>
+  <param name="drone_6_ego_planner_node/manager/max_vel" value="$(arg planner_speed)" type="double"/>
+  <param name="drone_6_ego_planner_node/optimization/max_vel" value="$(arg planner_speed)" type="double"/>
+
+  <node pkg="qn_aav_simulator" type="formation_action_server.py" name="formation_action_server" output="screen" required="true">
+    <param name="output_dir" value="$(arg output_dir)"/>
+  </node>
+  <param name="formation_mission_runner/output_dir" value="$(arg output_dir)"/>
+  <param name="formation_mission_runner/mode" value="$(arg mode)"/>
+  <param name="formation_mission_runner/planner_speed" value="$(arg planner_speed)" type="double"/>
+  <node if="$(arg run_mission)" pkg="qn_aav_simulator" type="formation_mission_runner.py" name="formation_mission_runner" output="screen"/>
+  <node if="$(arg record)" pkg="rosbag" type="record" name="formation_recorder" output="screen"
+        args="-O $(arg output_dir)/execution.bag --buffsize=256 --regex /formation_action/.*|/move_base_simple/goal|/drone_[0-6]_visual_slam/odom|/drone_[0-6]_planning/(pos_cmd|trajectory|start|finish)|/drone_[0-6]_qn/medium_flag"/>
+</launch>

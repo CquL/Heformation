@@ -34,7 +34,7 @@
 
 按任务使用：[提示词索引](../prompt/README.md)；按主题阅读：[背景索引](../context/README.md)。
 
-上游选型尚有待冻结项。用户已确认Swarm复现；Primitive、Calvo、D-ITAGS等在V2中被选作优先复现对象，不是已在用户机器运行通过。相关论文能力与源码范围来自V2记录，本次仅重新组织资料，没有重新开展在线查新。
+当前阶段选型已由用户冻结：Calvo v9 restricted-domain Python port、ROS1 FormationAction、Swarm七机qn AIR与实际延迟修复；本版等待为零，正等待、多执行单元及v13重分配不在本轮。详见[实施计划](../plan.md)。Primitive、D-ITAGS等保留为后续对照；相关论文能力与源码范围仍以既有核查记录为准，不表示新增在线查新。
 
 ## 如何安装这份资料
 
@@ -44,8 +44,8 @@
 
 本包没有旧HUC源码、旧V1实施正文、上游源码、模型或运行产物。`context/sources/`中的V2原文完整保留；旧V1只在变更说明中作为被取代的背景提及，不再提供可执行旧计划。
 
-## 第一次可交给AI的任务
+## 当前接续入口
 
-> 阅读AGENT.md、context/02_current_status.md及context/15_handoff.md，再按prompt/01_upstream_selection.md工作。不要读取或审计旧HUC。依据V2候选，识别已复现Swarm与选定上游的原始小例子及运行条件，给出本次最小复现目标和上层选型所需的证据。已经获得实施授权时按上游原例推进，不先设计新的消息体系。
+> 阅读AGENT.md、context/02_current_status.md、context/15_handoff.md与plan.md，继续受限v9小算例、七机Action和实际延迟反馈闭环。不要重复打开已冻结的上层/ROS选型，不读取或审计旧HUC，也不以完成全部候选复现为当前集成前提。
 
 资料更新与工程工作分开：本包的文件完整性检查不代表论文复现、集成或理论证明通过。

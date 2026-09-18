@@ -1,0 +1,33 @@
+formation_action_server:
+  agent_ids: [0, 1, 2, 3, 4, 5, 6]
+  swarm_scale: 2.0
+  relative_slots:
+    "0": [0.0, 0.0, 0.0]
+    "1": [1.7321, -1.0, 0.0]
+    "2": [0.0, -2.0, 0.0]
+    "3": [-1.7321, -1.0, 0.0]
+    "4": [-1.7321, 1.0, 0.0]
+    "5": [0.0, 2.0, 0.0]
+    "6": [1.7321, 1.0, 0.0]
+  epsilon_p: 0.5
+  epsilon_v: 0.25
+  odom_timeout: 0.25
+  execution_timeout: 180.0
+  monitor_rate: 20.0
+  startup_timeout: 60.0
+
+formation_mission_runner:
+  seed: 0
+  nominal_speed_mps: 1.5
+  delay_tolerance: 0.1
+  initial_target_ref: start
+  centers:
+    start: [-26.0, 0.0, 0.5]
+    A: [-24.0, 0.0, 0.5]
+    B: [-22.0, 0.0, 0.5]
+    Return: [-26.0, 0.0, 0.5]
+  # Input order deliberately differs from the v9 allocation order.
+  tasks:
+    - {task_id: T3, required_capabilities: [AAV], required_agent_count: 7, service_time: 5.0, deadline: 100.0, target_ref: Return}
+    - {task_id: T1, required_capabilities: [AAV], required_agent_count: 7, service_time: 5.0, deadline: 7.0, target_ref: A}
+    - {task_id: T2, required_capabilities: [AAV], required_agent_count: 7, service_time: 5.0, deadline: 13.0, target_ref: B}

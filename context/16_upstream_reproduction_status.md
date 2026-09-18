@@ -1,14 +1,14 @@
 # 上游项目独立复现台账
 
-**更新时间：2026-09-15**
+**原始复现台账更新时间：2026-09-15；阶段范围说明更新：2026-09-17。**
 
-本阶段只做一件事：在各上游项目自己的目录、依赖和入口下复现其原始示例。
+本台账只记录各上游项目在自己的目录、依赖和入口下复现原始示例的历史工作。
 不把它们拼进 Heformation 的在线链，不把 qn 控制器或 qn 动力学注入这些上游，
-也不把“源码已拉取”写成“算法已复现”。
+也不把“源码已拉取”写成“算法已复现”。当前另有已授权的Calvo受限Python移植与七机AIR集成，见[plan.md](../plan.md)；本台账不构成其前置门槛。
 
 ## 1. 当前边界
 
-当前 Heformation 在线基线仍是：
+本台账记录的独立运动基线是：
 
 ```text
 Swarm-Formation official source + qn AIR adapter
@@ -128,7 +128,7 @@ cmake --build /tmp/heformation-stonefish-config-1 -j2
 2. 用 Noetic Docker 分别复现 Primitive-Planner、CAT-ORA、AMSwarmX、Calvo-Execution、EGO 的原始入口；每个项目单独工作区。
 3. 补齐 D-ITAGS/GRSTAPS 的第三方依赖后，只运行各自最小测试或单个实验，不跑全量论文 sweep。
 4. 有 MATLAB/Gurobi/MOSEK 或硬件/GUI 条件后再复现对应项目；许可文件不进入仓库。
-5. 全部独立结果完成后，才评估一个上层项目是否值得进入 Heformation。集成前不改 `integration/`。
+5. 以上顺序仅用于独立原始复现。当前Calvo受限Python移植已单独获授权，可修改自己的`integration/`并进行集成，无需等全部候选原例完成；原始复现与移植结果分开记录。
 
 ## 5. 当前未完成事项
 

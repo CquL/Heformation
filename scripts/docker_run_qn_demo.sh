@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+MODE="${1:-manual}"
+case "$MODE" in manual|mission) ;; *) echo "mode must be manual or mission" >&2; exit 2 ;; esac
 if [[ -z "${DISPLAY:-}" ]]; then
   echo "DISPLAY is empty; run this script from an Ubuntu desktop terminal." >&2
   exit 1
@@ -8,15 +10,25 @@ fi
 xhost +local:docker >/dev/null
 trap 'xhost -local:docker >/dev/null 2>&1 || true' EXIT
 
-docker run --rm -it \
-  --env DISPLAY="${DISPLAY}" \
-  --env QT_X11_NO_MITSHM=1 \
-  --volume /tmp/.X11-unix:/tmp/.X11-unix:rw \
-  swarm-formation-qn:noetic \
-  bash -lc '
+if [[ "$MODE" == mission ]]; then
+  ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  ARTIFACT_DIR="${ROOT}/experiments/$(date -u +%Y%m%dT%H%M%SZ)-rviz-mission"
+  mkdir -p "$ARTIFACT_DIR"
+  MOUNT_ARGS=(--volume "$ARTIFACT_DIR:/experiments/current")
+else
+  MOUNT_ARGS=()
+fi
+
+docker run --rm --init -it \
+  --env DISPLAY="${DISPLAY}" --env QT_X11_NO_MITSHM=1 \
+  --volume /tmp/.X11-unix:/tmp/.X11-unix:rw "${MOUNT_ARGS[@]}" \
+  swarm-formation-qn:noetic bash -c '
     source /opt/ros/noetic/setup.bash
     source /workspace/devel/setup.bash
     roslaunch ego_planner rviz.launch &
-    sleep 3
-    roslaunch ego_planner normal_hexagon.launch
-  '
+    if [ "$1" = mission ]; then
+      roslaunch qn_aav_simulator formation_air.launch run_mission:=true
+    else
+      roslaunch ego_planner normal_hexagon.launch
+    fi
+  ' bash "$MODE"
