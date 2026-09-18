@@ -1,0 +1,403 @@
+{
+  "status": "PASS",
+  "check_count": 242,
+  "failure_count": 0,
+  "failures": [],
+  "measurements": [
+    {
+      "name": "odometry_pose_residual_m[0]",
+      "value": 0.0,
+      "detail": "max |standard pose - compatibility pose| over 7278 stamp-matched pairs (1 standard samples had no exact partner)"
+    },
+    {
+      "name": "odometry_snapshot_residual_mps[0]",
+      "value": 2.0032147475588108e-15,
+      "detail": "max |compatibility twist - qn world velocity from the standard body twist|; a wrong-frame velocity would be off by the vehicle speed"
+    },
+    {
+      "name": "odometry_body_to_world_residual_mps[0]",
+      "value": 2.0032147475588108e-15,
+      "detail": "max |R(q)*body twist - world velocity| over stamp-matched pairs; the published attitude/twist pair must satisfy the ROS contract"
+    },
+    {
+      "name": "odometry_pose_velocity_p999_mps[0]",
+      "value": 0.031767579216151094,
+      "detail": "99.9th percentile of the same comparison; the max is a single trajectory-switch transient"
+    },
+    {
+      "name": "odometry_pose_velocity_p99_mps[0]",
+      "value": 0.004687228806355786,
+      "detail": "7274 trapezoidal differences of the published pose against the compatibility twist at the 99th percentile"
+    },
+    {
+      "name": "odometry_pose_velocity_worst_mps[0]",
+      "value": 0.18803591345868453,
+      "detail": "worst of the same 7274 comparisons (qn transients)"
+    },
+    {
+      "name": "odometry_pose_residual_m[1]",
+      "value": 0.0,
+      "detail": "max |standard pose - compatibility pose| over 7280 stamp-matched pairs (0 standard samples had no exact partner)"
+    },
+    {
+      "name": "odometry_snapshot_residual_mps[1]",
+      "value": 2.2220069211745273e-15,
+      "detail": "max |compatibility twist - qn world velocity from the standard body twist|; a wrong-frame velocity would be off by the vehicle speed"
+    },
+    {
+      "name": "odometry_body_to_world_residual_mps[1]",
+      "value": 2.2220069211745273e-15,
+      "detail": "max |R(q)*body twist - world velocity| over stamp-matched pairs; the published attitude/twist pair must satisfy the ROS contract"
+    },
+    {
+      "name": "odometry_pose_velocity_p999_mps[1]",
+      "value": 0.02799764355963878,
+      "detail": "99.9th percentile of the same comparison; the max is a single trajectory-switch transient"
+    },
+    {
+      "name": "odometry_pose_velocity_p99_mps[1]",
+      "value": 0.005864197766686848,
+      "detail": "7277 trapezoidal differences of the published pose against the compatibility twist at the 99th percentile"
+    },
+    {
+      "name": "odometry_pose_velocity_worst_mps[1]",
+      "value": 0.5362053884532596,
+      "detail": "worst of the same 7277 comparisons (qn transients)"
+    },
+    {
+      "name": "odometry_pose_residual_m[2]",
+      "value": 0.0,
+      "detail": "max |standard pose - compatibility pose| over 7269 stamp-matched pairs (0 standard samples had no exact partner)"
+    },
+    {
+      "name": "odometry_snapshot_residual_mps[2]",
+      "value": 2.003214430684646e-15,
+      "detail": "max |compatibility twist - qn world velocity from the standard body twist|; a wrong-frame velocity would be off by the vehicle speed"
+    },
+    {
+      "name": "odometry_body_to_world_residual_mps[2]",
+      "value": 2.003214430684646e-15,
+      "detail": "max |R(q)*body twist - world velocity| over stamp-matched pairs; the published attitude/twist pair must satisfy the ROS contract"
+    },
+    {
+      "name": "odometry_pose_velocity_p999_mps[2]",
+      "value": 0.022124834548463694,
+      "detail": "99.9th percentile of the same comparison; the max is a single trajectory-switch transient"
+    },
+    {
+      "name": "odometry_pose_velocity_p99_mps[2]",
+      "value": 0.006227186146831526,
+      "detail": "7267 trapezoidal differences of the published pose against the compatibility twist at the 99th percentile"
+    },
+    {
+      "name": "odometry_pose_velocity_worst_mps[2]",
+      "value": 0.2507993762716399,
+      "detail": "worst of the same 7267 comparisons (qn transients)"
+    },
+    {
+      "name": "odometry_pose_residual_m[3]",
+      "value": 0.0,
+      "detail": "max |standard pose - compatibility pose| over 7269 stamp-matched pairs (1 standard samples had no exact partner)"
+    },
+    {
+      "name": "odometry_snapshot_residual_mps[3]",
+      "value": 2.223964377791088e-15,
+      "detail": "max |compatibility twist - qn world velocity from the standard body twist|; a wrong-frame velocity would be off by the vehicle speed"
+    },
+    {
+      "name": "odometry_body_to_world_residual_mps[3]",
+      "value": 2.223964377791088e-15,
+      "detail": "max |R(q)*body twist - world velocity| over stamp-matched pairs; the published attitude/twist pair must satisfy the ROS contract"
+    },
+    {
+      "name": "odometry_pose_velocity_p999_mps[3]",
+      "value": 0.08279686746122272,
+      "detail": "99.9th percentile of the same comparison; the max is a single trajectory-switch transient"
+    },
+    {
+      "name": "odometry_pose_velocity_p99_mps[3]",
+      "value": 0.008823650414271958,
+      "detail": "7266 trapezoidal differences of the published pose against the compatibility twist at the 99th percentile"
+    },
+    {
+      "name": "odometry_pose_velocity_worst_mps[3]",
+      "value": 0.25916292790905887,
+      "detail": "worst of the same 7266 comparisons (qn transients)"
+    },
+    {
+      "name": "odometry_pose_residual_m[4]",
+      "value": 0.0,
+      "detail": "max |standard pose - compatibility pose| over 7282 stamp-matched pairs (0 standard samples had no exact partner)"
+    },
+    {
+      "name": "odometry_snapshot_residual_mps[4]",
+      "value": 2.6697343594341415e-15,
+      "detail": "max |compatibility twist - qn world velocity from the standard body twist|; a wrong-frame velocity would be off by the vehicle speed"
+    },
+    {
+      "name": "odometry_body_to_world_residual_mps[4]",
+      "value": 2.6697343594341415e-15,
+      "detail": "max |R(q)*body twist - world velocity| over stamp-matched pairs; the published attitude/twist pair must satisfy the ROS contract"
+    },
+    {
+      "name": "odometry_pose_velocity_p999_mps[4]",
+      "value": 0.03735735873084741,
+      "detail": "99.9th percentile of the same comparison; the max is a single trajectory-switch transient"
+    },
+    {
+      "name": "odometry_pose_velocity_p99_mps[4]",
+      "value": 0.00640259006683005,
+      "detail": "7281 trapezoidal differences of the published pose against the compatibility twist at the 99th percentile"
+    },
+    {
+      "name": "odometry_pose_velocity_worst_mps[4]",
+      "value": 0.33053644928055614,
+      "detail": "worst of the same 7281 comparisons (qn transients)"
+    },
+    {
+      "name": "odometry_pose_residual_m[5]",
+      "value": 0.0,
+      "detail": "max |standard pose - compatibility pose| over 7271 stamp-matched pairs (1 standard samples had no exact partner)"
+    },
+    {
+      "name": "odometry_snapshot_residual_mps[5]",
+      "value": 2.0014999827327387e-15,
+      "detail": "max |compatibility twist - qn world velocity from the standard body twist|; a wrong-frame velocity would be off by the vehicle speed"
+    },
+    {
+      "name": "odometry_body_to_world_residual_mps[5]",
+      "value": 2.0014999827327387e-15,
+      "detail": "max |R(q)*body twist - world velocity| over stamp-matched pairs; the published attitude/twist pair must satisfy the ROS contract"
+    },
+    {
+      "name": "odometry_pose_velocity_p999_mps[5]",
+      "value": 0.048923201450956175,
+      "detail": "99.9th percentile of the same comparison; the max is a single trajectory-switch transient"
+    },
+    {
+      "name": "odometry_pose_velocity_p99_mps[5]",
+      "value": 0.00476774733357353,
+      "detail": "7270 trapezoidal differences of the published pose against the compatibility twist at the 99th percentile"
+    },
+    {
+      "name": "odometry_pose_velocity_worst_mps[5]",
+      "value": 0.45843072941923135,
+      "detail": "worst of the same 7270 comparisons (qn transients)"
+    },
+    {
+      "name": "odometry_pose_residual_m[6]",
+      "value": 0.0,
+      "detail": "max |standard pose - compatibility pose| over 7269 stamp-matched pairs (0 standard samples had no exact partner)"
+    },
+    {
+      "name": "odometry_snapshot_residual_mps[6]",
+      "value": 1.7777124219092787e-15,
+      "detail": "max |compatibility twist - qn world velocity from the standard body twist|; a wrong-frame velocity would be off by the vehicle speed"
+    },
+    {
+      "name": "odometry_body_to_world_residual_mps[6]",
+      "value": 1.7777124219092787e-15,
+      "detail": "max |R(q)*body twist - world velocity| over stamp-matched pairs; the published attitude/twist pair must satisfy the ROS contract"
+    },
+    {
+      "name": "odometry_pose_velocity_p999_mps[6]",
+      "value": 0.0461183919961522,
+      "detail": "99.9th percentile of the same comparison; the max is a single trajectory-switch transient"
+    },
+    {
+      "name": "odometry_pose_velocity_p99_mps[6]",
+      "value": 0.005037445967987067,
+      "detail": "7266 trapezoidal differences of the published pose against the compatibility twist at the 99th percentile"
+    },
+    {
+      "name": "odometry_pose_velocity_worst_mps[6]",
+      "value": 0.21556883653638131,
+      "detail": "worst of the same 7266 comparisons (qn transients)"
+    },
+    {
+      "name": "min_height_m[0]",
+      "value": 0.15354964390406547,
+      "detail": "lowest published height; the AIR floor is hg_m/2"
+    },
+    {
+      "name": "max_medium_flag[0]",
+      "value": 0.0,
+      "detail": "0 means the qn plant stayed in its AIR model"
+    },
+    {
+      "name": "min_height_m[1]",
+      "value": 0.22285487794309528,
+      "detail": "lowest published height; the AIR floor is hg_m/2"
+    },
+    {
+      "name": "max_medium_flag[1]",
+      "value": 0.0,
+      "detail": "0 means the qn plant stayed in its AIR model"
+    },
+    {
+      "name": "min_height_m[2]",
+      "value": 0.09699612343551889,
+      "detail": "lowest published height; the AIR floor is hg_m/2"
+    },
+    {
+      "name": "max_medium_flag[2]",
+      "value": 0.0,
+      "detail": "0 means the qn plant stayed in its AIR model"
+    },
+    {
+      "name": "min_height_m[3]",
+      "value": 0.1777058288721332,
+      "detail": "lowest published height; the AIR floor is hg_m/2"
+    },
+    {
+      "name": "max_medium_flag[3]",
+      "value": 0.0,
+      "detail": "0 means the qn plant stayed in its AIR model"
+    },
+    {
+      "name": "min_height_m[4]",
+      "value": 0.17026216061427793,
+      "detail": "lowest published height; the AIR floor is hg_m/2"
+    },
+    {
+      "name": "max_medium_flag[4]",
+      "value": 0.0,
+      "detail": "0 means the qn plant stayed in its AIR model"
+    },
+    {
+      "name": "min_height_m[5]",
+      "value": 0.13114393774545774,
+      "detail": "lowest published height; the AIR floor is hg_m/2"
+    },
+    {
+      "name": "max_medium_flag[5]",
+      "value": 0.0,
+      "detail": "0 means the qn plant stayed in its AIR model"
+    },
+    {
+      "name": "min_height_m[6]",
+      "value": 0.12960477034476886,
+      "detail": "lowest published height; the AIR floor is hg_m/2"
+    },
+    {
+      "name": "max_medium_flag[6]",
+      "value": 0.0,
+      "detail": "0 means the qn plant stayed in its AIR model"
+    }
+  ],
+  "mode": "mission",
+  "actions": 3,
+  "tasks": [
+    "T1",
+    "T2",
+    "T3"
+  ],
+  "baseline_qualified": true,
+  "time_alignment_summary": {
+    "started_ros_time_s": 1789744904.5153186,
+    "finished_ros_time_s": 1789744977.0153186,
+    "duration_s": 72.5,
+    "agent_ids": [
+      "drone_0",
+      "drone_1",
+      "drone_2",
+      "drone_3",
+      "drone_4",
+      "drone_5",
+      "drone_6"
+    ],
+    "grid_point_count": 726,
+    "aligned_point_count": 726,
+    "alignment_failure_count": 0,
+    "valid_sample_count": 5082,
+    "expected_sample_count": 5082,
+    "valid_sample_ratio": 1.0,
+    "max_abs_model_ros_drift_s": 0.0033031544511850086,
+    "max_cross_agent_drift_s": 0.003356266943146835,
+    "model_ros_rate": {
+      "drone_0": 0.9999999054160571,
+      "drone_1": 1.0000000620420064,
+      "drone_2": 0.9999999335450738,
+      "drone_3": 1.0000001843379431,
+      "drone_4": 0.9999998827051488,
+      "drone_5": 0.9999998867949924,
+      "drone_6": 0.9999999938523405
+    },
+    "model_wall_rate": {
+      "drone_0": 1.000049195704086,
+      "drone_1": 1.0000383848342984,
+      "drone_2": 1.0000466364218479,
+      "drone_3": 1.0000418684700179,
+      "drone_4": 1.0000459508701105,
+      "drone_5": 1.0000502976159116,
+      "drone_6": 1.0000450545841897
+    },
+    "worst_model_ros_rate": 0.9999998827051488,
+    "worst_model_wall_rate": 1.0000383848342984,
+    "reference_speed_mps": 2.297202108574068,
+    "induced_reference_displacement_m": 0.00758801337020802,
+    "baseline_complete": true,
+    "common_start_ros_time_s": 1789744904.5153186,
+    "history_truncated": false,
+    "within_thresholds": true,
+    "reasons": []
+  },
+  "model_time_recomputed_from_bag": {
+    "grid_points": 727,
+    "valid_grid_points": 727,
+    "missing_agent_points": 0,
+    "max_abs_model_ros_drift_s": 0.010000000001042508,
+    "max_cross_agent_drift_s": 0.010000000000019327,
+    "model_ros_rate": {
+      "0": 0.999999743197828,
+      "1": 0.9999997533385475,
+      "2": 0.9999995735934076,
+      "3": 0.9999998300520452,
+      "4": 0.9999996441996843,
+      "5": 0.9999996452853149,
+      "6": 0.9999996514761644
+    },
+    "worst_model_ros_rate": 0.9999995735934076
+  },
+  "test_c": {
+    "repair_mode": "on",
+    "plan_revision": 3,
+    "plan_updated": true,
+    "plan_updated_actions": [
+      "T1",
+      "T2"
+    ],
+    "updated_plan_used": true,
+    "dispatch_changed": false,
+    "dispatch_changed_actions": [],
+    "release_lag_s": {
+      "T1": 0.0005624294281005859,
+      "T2": 0.06295895576477051,
+      "T3": 0.07958602905273438
+    },
+    "notes": "release_lag_s is the dispatch offset from the release boundary it was waiting for; it is a schedule-tracking figure, not a measure of repair.  updated_plan_used reports that each dispatch read the plan revision the completion produced."
+  },
+  "verdicts": [
+    {
+      "task_id": "T1",
+      "task_outcome": 1,
+      "safety_outcome": 1,
+      "experiment_validity": 1,
+      "model_time_hold_seconds": 5.009999999999003
+    },
+    {
+      "task_id": "T2",
+      "task_outcome": 1,
+      "safety_outcome": 1,
+      "experiment_validity": 1,
+      "model_time_hold_seconds": 5.009999999999003
+    },
+    {
+      "task_id": "T3",
+      "task_outcome": 1,
+      "safety_outcome": 1,
+      "experiment_validity": 1,
+      "model_time_hold_seconds": 5.030000000002573
+    }
+  ]
+}

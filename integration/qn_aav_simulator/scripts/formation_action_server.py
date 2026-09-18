@@ -41,7 +41,8 @@ from qn_aav_simulator.action_lifecycle import (
     ACCEPTED, ActionResourceStateMachine, REJECTED_INVALID,
 )
 from qn_aav_simulator.experiment_verdict import (
-    MemberSample, TASK_PASS, build_ledger, compute_metrics, decide, evaluate_safety,
+    MemberSample, SAFETY_PASS, TASK_PASS, VALIDITY_VALID, build_ledger,
+    compute_metrics, decide, evaluate_safety,
 )
 from qn_aav_simulator.formation_monitor import (
     AGENT_IDS, DEFAULT_RELATIVE_SLOTS, GroupCompletionMonitor, OdometrySample,
@@ -117,6 +118,11 @@ class FormationActionServer:
         self.inter_agent_clearance = float(rospy.get_param("~inter_agent_clearance", 0.5))
         self.obstacle_clearance = float(rospy.get_param("~obstacle_clearance", 0.2))
         self.obstacle_sample_period = float(rospy.get_param("~obstacle_sample_period", 1.0))
+        # Physical envelope of one platform and the declared surface plane.
+        # Surface clearance is a centre distance with both envelopes removed;
+        # the AIR floor itself is derived from the qn model, not configured.
+        self.platform_radius_m = float(rospy.get_param("~platform_radius_m", 0.25))
+        self.surface_plane_m = float(rospy.get_param("~surface_plane_m", 0.0))
         self.min_valid_sample_ratio = float(rospy.get_param("~min_valid_sample_ratio", 0.9))
         self.slots = validate_configuration(
             self.agent_ids,
@@ -133,6 +139,12 @@ class FormationActionServer:
                             ("obstacle_sample_period", self.obstacle_sample_period)):
             if not math.isfinite(value) or value <= 0.0:
                 raise ValueError("{} must be finite and positive".format(name))
+        for name, value in (("platform_radius_m", self.platform_radius_m),
+                            ("surface_plane_m", self.surface_plane_m)):
+            if not math.isfinite(value):
+                raise ValueError("{} must be finite".format(name))
+        if self.platform_radius_m < 0.0:
+            raise ValueError("platform_radius_m must be non-negative")
         if self.sensor_backend not in (SENSOR_BACKEND_CPU, SENSOR_BACKEND_CUDA):
             raise ValueError("sensor_backend must be {} or {}".format(
                 SENSOR_BACKEND_CPU, SENSOR_BACKEND_CUDA))
@@ -158,6 +170,10 @@ class FormationActionServer:
         self.map_cloud = None
         self.group_goal_messages = 0
         self.active_diagnostics = None
+        self.baseline_snapshot = None
+        self.air_state = {}
+        self.air_domain_violation = False
+        self.air_floor_m = None
         self.max_diagnostics_callback_lag_s = 0.0
 
         self.state_machine = ActionResourceStateMachine(lock=self.lock)
@@ -284,6 +300,7 @@ class FormationActionServer:
                     "acceleration_directly_consumed"),
                 "inner_backend_update_time_s": received,
             }
+            self._latch_air_domain(agent_id, values)
             diagnostics = self.active_diagnostics
         if diagnostics is not None:
             diagnostics["last_qn_state_update"] = {
@@ -312,6 +329,66 @@ class FormationActionServer:
             entry["velocity"] = (float(message.twist.linear.x),
                                  float(message.twist.linear.y),
                                  float(message.twist.linear.z))
+
+    def _latch_air_domain(self, agent_id: int, values) -> None:
+        """Latch the observed AIR-domain state of one member.
+
+        The qn model switches mass, inertia, damping and actuation by
+        ``medium_flag``, so any non-zero flag means the run is no longer the AIR
+        experiment it claims to be.  The exact duration and minimum are computed
+        offline from the recorded diagnostics; what has to stay online is the
+        fact that a violation happened, before the next task can be dispatched.
+        """
+        def number(key, default=None):
+            try:
+                value = float(values.get(key, "nan"))
+            except (TypeError, ValueError):
+                return default
+            return value if math.isfinite(value) else default
+
+        flag = number("max_medium_flag")
+        height = number("min_height_m")
+        floor = number("air_floor_m")
+        if floor is not None:
+            self.air_floor_m = floor
+        self.air_state[agent_id] = {
+            "max_medium_flag": flag, "min_height_m": height,
+            "air_floor_m": floor,
+            "air_domain_violation": str(
+                values.get("air_domain_violation", "false")).lower() == "true",
+        }
+        if self.air_state[agent_id]["air_domain_violation"]:
+            self.air_domain_violation = True
+        if flag is not None and flag > 0.0:
+            self.air_domain_violation = True
+        if height is not None and floor is not None and height < floor:
+            self.air_domain_violation = True
+
+    def _air_domain_summary(self):
+        """The latched AIR-domain result of the whole coalition."""
+        flags = [entry.get("max_medium_flag") for entry in self.air_state.values()]
+        heights = [entry.get("min_height_m") for entry in self.air_state.values()]
+        floors = [entry.get("air_floor_m") for entry in self.air_state.values()]
+        observed_flags = [value for value in flags if value is not None]
+        observed_heights = [value for value in heights if value is not None]
+        observed_floors = [value for value in floors if value is not None]
+        detail = ""
+        if self.air_domain_violation:
+            detail = (
+                "model domain: the run left the AIR model "
+                "(max_medium_flag={}, min_height_m={}, air_floor_m={})".format(
+                    max(observed_flags) if observed_flags else None,
+                    min(observed_heights) if observed_heights else None,
+                    (0.5 * max(observed_floors) if observed_floors
+                     else (self.air_floor_m if self.air_floor_m is not None else None))))
+        return {
+            "ok": not self.air_domain_violation,
+            "detail": detail,
+            "max_medium_flag": max(observed_flags) if observed_flags else None,
+            "min_height_m": min(observed_heights) if observed_heights else None,
+            "air_floor_m": self.air_floor_m,
+            "members_reporting": len(self.air_state),
+        }
 
     def _feed_adoption(self, agent_id, now_s):
         with self.lock:
@@ -463,6 +540,12 @@ class FormationActionServer:
             for topic in list(self.readiness.topics):
                 self.readiness.note_topic_exists(topic, topic in published)
 
+    def _cached_baseline_report(self):
+        """The baseline the run was admitted with, or a fresh report."""
+        if self.baseline_snapshot is not None:
+            return self.baseline_snapshot
+        return self._baseline_report()
+
     def _baseline_report(self):
         # The monitor protects its own history and copies it before computing;
         # holding the server lock here used to block every subscription
@@ -505,6 +588,17 @@ class FormationActionServer:
         snapshot["ready"] = not reasons
         snapshot["reason"] = "ready" if not reasons else "; ".join(reasons)
         snapshot["time_baseline"] = baseline.as_dict()
+        if snapshot["ready"] and self.baseline_snapshot is None:
+            # The qualification that admitted this run is the one that counts.
+            # The sample history slides, so recomputing it later would report a
+            # shorter window than the one the gate actually accepted.
+            self.baseline_snapshot = baseline
+            rospy.loginfo(
+                "time baseline qualified: %.1f s, max_abs_drift=%.6f s, "
+                "max_cross_agent_drift=%.6f s",
+                baseline.duration_s or 0.0,
+                baseline.max_abs_model_ros_drift_s or 0.0,
+                baseline.max_cross_agent_drift_s or 0.0)
         with self.lock:
             snapshot["topic_ages"] = {
                 topic: (None if topic_health.last_stamp_s is None
@@ -741,7 +835,8 @@ class FormationActionServer:
             diagnostics["formation_center"], goal.hold_duration.to_sec(), start.to_sec(),
             agent_ids=self.agent_ids, relative_slots=self.slots, swarm_scale=self.scale,
             epsilon_p=self.epsilon_p, epsilon_v=self.epsilon_v,
-            odom_timeout=self.odom_timeout, execution_timeout=self.execution_timeout)
+            odom_timeout=self.odom_timeout, execution_timeout=self.execution_timeout,
+            platform_radius_m=self.platform_radius_m)
         alignment = self._new_alignment_monitor()
         with self.lock:
             self._alignment_fed_ros = {
@@ -803,7 +898,10 @@ class FormationActionServer:
                     snapshot = monitor.evaluate(
                         now_s, samples,
                         model_hold_satisfied=lambda a, b: self._model_hold_elapsed(
-                            a, b, diagnostics))
+                            a, b, diagnostics),
+                        hold_not_before_s=adoption.adopted_at_s(),
+                        reference_confirmed=(
+                            adoption.verdict().state == "ADOPTED"))
                     status = self.state_machine.note_phase(snapshot.phase)
                     diagnostics["run_state"] = status
                     if snapshot.phase != previous_phase:
@@ -895,13 +993,18 @@ class FormationActionServer:
                     and abs(reference.get("ros_time_s", -1e9) - now_s) <= 0.1):
                 used_position = reference["position"]
                 used_velocity = reference.get("velocity")
+            with self.lock:
+                source = self.qn_source.get(agent_id) or {}
+            model_step = source.get("used_outer_step")
             member_samples[agent_id].append(MemberSample(
                 agent_id=agent_id, ros_time_s=now_s, position=sample.position,
                 world_velocity=sample.velocity,
                 used_reference_position=used_position,
                 used_reference_velocity=used_velocity,
                 target_position=monitor.targets[agent_id],
-                model_time_s=model_times.get(agent_id)))
+                model_time_s=model_times.get(agent_id),
+                state_stamp_s=sample.stamp,
+                model_step=None if model_step is None else int(model_step)))
 
     def _count_missing_references(self, references):
         missing = 0
@@ -1020,7 +1123,7 @@ class FormationActionServer:
 
         alignment_report = alignment.report(require_baseline=False, min_duration_s=1.0)
         diagnostics["time_alignment"] = alignment_report.as_dict()
-        baseline_report = self._baseline_report()
+        baseline_report = self._cached_baseline_report()
         diagnostics["time_alignment_baseline"] = baseline_report.as_dict()
         time_ok = (baseline_report.within_thresholds
                    and alignment_report.within_thresholds
@@ -1034,19 +1137,38 @@ class FormationActionServer:
                     alignment_report.induced_reference_displacement_m,
                     self.time_reference_displacement_limit))
 
-        grid = sorted({sample.ros_time_s
-                       for series in member_samples.values() for sample in series})
+        # The expected grid is generated from the task window and the nominal
+        # monitor period.  It must not be derived from the samples that were
+        # received, otherwise a missing interval would leave no trace.
+        period = 1.0 / self.monitor_rate
+        window_start = start.to_sec()
+        window_end = max(finish.to_sec(), window_start)
+        count = int(math.floor((window_end - window_start) / period)) + 1
+        grid = [window_start + index * period for index in range(max(count, 1))]
         ledger = build_ledger(self.agent_ids, grid, member_samples,
-                              expected_period_s=0.5 / self.monitor_rate)
+                              expected_period_s=period)
         hold_started = snapshot.hold_started if snapshot else None
         hold_finished = finish.to_sec()
         metrics = compute_metrics(
             member_samples, scale=self.scale, relative_slots=self.slots,
             hold_start_s=hold_started, hold_end_s=hold_finished)
+        air = self._air_domain_summary()
+        diagnostics["air_domain"] = air
+        lowest_height = snapshot.min_height_m if snapshot is not None else None
+        surface_violation = (
+            lowest_height is not None
+            and lowest_height - self.platform_radius_m < self.surface_plane_m)
         safety = evaluate_safety(
             member_samples, obstacle_clearances=obstacle_clearances or None,
             required_inter_agent_clearance_m=self.inter_agent_clearance,
-            required_obstacle_clearance_m=self.obstacle_clearance)
+            required_obstacle_clearance_m=self.obstacle_clearance,
+            platform_radius_m=self.platform_radius_m,
+            surface_clearance_violation=surface_violation,
+            surface_detail=(
+                "member envelope reached {:.3f} m, below the declared surface "
+                "{:.3f} m".format(lowest_height - self.platform_radius_m,
+                                  self.surface_plane_m)
+                if surface_violation else ""))
         model_hold = diagnostics.get("model_hold") or {}
         min_model_hold = model_hold.get("min_model_hold_s")
         model_hold_satisfied = (
@@ -1058,6 +1180,7 @@ class FormationActionServer:
             adoption_state=adoption_verdict.state,
             model_hold_satisfied=model_hold_satisfied,
             time_alignment_ok=time_ok, metrics=metrics, ledger=ledger, safety=safety,
+            air_domain_ok=air["ok"], air_domain_detail=air["detail"],
             hold_duration_s=diagnostics["hold_duration"],
             min_valid_sample_ratio=self.min_valid_sample_ratio)
         diagnostics["verdict"] = verdict.as_dict()
@@ -1081,28 +1204,46 @@ class FormationActionServer:
         if not motion_completed:
             if self.state_machine.unknown_locked_reason:
                 reason = FormationResult.UNKNOWN_LOCKED
+            elif adoption_verdict.state != "ADOPTED":
+                # Waiting for adoption is normal; hitting the execution timeout
+                # while still waiting means this task's reference never arrived.
+                reason = FormationResult.REFERENCE_ADOPTION_UNCONFIRMED
             elif snapshot is not None and snapshot.reason == monitor.ODOMETRY_TIMEOUT:
                 reason = FormationResult.ODOMETRY_TIMEOUT
             else:
                 reason = FormationResult.EXECUTION_TIMEOUT
         elif adoption_verdict.state != "ADOPTED":
             reason = FormationResult.REFERENCE_ADOPTION_UNCONFIRMED
+        elif not air["ok"] or verdict.safety_outcome != SAFETY_PASS:
+            # The task may have reached its slots, but the run violated the
+            # operating or safety envelope.  Lock instead of continuing.
+            reason = FormationResult.UNKNOWN_LOCKED
         elif not time_ok or verdict.task_outcome != TASK_PASS:
             reason = FormationResult.MODEL_TIME_MISMATCH
         diagnostics["reason"] = reason
         diagnostics["reason_text"] = text
 
-        if motion_completed:
-            # The hold physically completed, so the resource is released; the
-            # independent verdict decides whether the task layer accepts it.
+        # The resource is released only for a task the task layer accepts.
+        # Reaching the slots is an observation, not a licence to dispatch the
+        # next task: an unproven reference, a failed time gate, a safety failure
+        # or an AIR-domain violation locks the chain instead.
+        accepted = (
+            motion_completed
+            and adoption_verdict.state == "ADOPTED"
+            and time_ok
+            and air["ok"]
+            and verdict.task_outcome == TASK_PASS
+            and verdict.safety_outcome == SAFETY_PASS
+            and verdict.experiment_validity == VALIDITY_VALID)
+        self.state_machine.ros_time_s = finish.to_sec()
+        if accepted:
             if self.state_machine.state == "HOLDING":
                 self.state_machine.finish_success()
-            self.state_machine.ros_time_s = finish.to_sec()
             if self.state_machine.state == "SUCCEEDED":
                 self.state_machine.release()
         else:
-            self.state_machine.ros_time_s = finish.to_sec()
             self.state_machine.fault(text)
+        diagnostics["accepted_for_dispatch"] = accepted
         # Evidence is written *after* the transition so it records the state the
         # resource is actually in when the Action returns to the caller.
         diagnostics["run_state"] = self.state_machine.state

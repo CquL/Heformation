@@ -8,8 +8,9 @@ touch the qn controller, the actuator loop or the 6DOF dynamics.
 from __future__ import annotations
 
 import math
+from collections import deque
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 Vector3 = Tuple[float, float, float]
 
@@ -176,3 +177,61 @@ class ModelClock:
 def command_flag_name(flag: int) -> str:
     names = {0: "EMPTY", 1: "READY", 3: "COMPLETED", 4: "ABORT"}
     return names.get(int(flag), "UNKNOWN_{}".format(int(flag)))
+
+
+class CommandAdoptionBuffer:
+    """Adopt one command per fixed outer step, never replaying history.
+
+    The outer step is a fixed model interval, so a command is adopted at a step
+    boundary and held for that whole interval.  A command that arrives later is
+    never applied to an interval that has already been integrated, and nothing
+    is recomputed after a stall: the model simply falls behind ROS time and the
+    alignment gate reports it.
+
+    The cache is bounded.  A burst that does not fit, or a command that arrives
+    out of order, is counted as a violation so the experiment can be marked
+    invalid instead of silently losing the input.
+    """
+
+    def __init__(self, maxlen: int = 32) -> None:
+        if int(maxlen) < 1:
+            raise ValueError("maxlen must be a positive integer")
+        self.maxlen = int(maxlen)
+        self._buffer = deque(maxlen=self.maxlen)
+        self._queued: Optional[Dict[str, object]] = None
+        self.dropped_count = 0
+        self.order_violations = 0
+        self.adopted_count = 0
+        self.last_adopted_ros_time_s: Optional[float] = None
+        self.last_adopted_command: Optional[Dict[str, object]] = None
+
+    def note(self, fields: Dict[str, object]) -> None:
+        arrived = float(fields["received_ros_time_s"])
+        if not math.isfinite(arrived):
+            raise ValueError("command arrival time must be finite")
+        if len(self._buffer) == self.maxlen:
+            self.dropped_count += 1
+        if (self.last_adopted_ros_time_s is not None
+                and arrived < self.last_adopted_ros_time_s):
+            self.order_violations += 1
+        self._buffer.append(fields)
+        self._queued = fields
+
+    def adopt(self) -> Optional[Dict[str, object]]:
+        """Take the queued command for the next step, or None to hold."""
+        adopted = self._queued
+        self._queued = None
+        if adopted is None:
+            return None
+        self.adopted_count += 1
+        self.last_adopted_ros_time_s = float(adopted["received_ros_time_s"])
+        self.last_adopted_command = adopted
+        return adopted
+
+    @property
+    def buffered(self) -> int:
+        return len(self._buffer)
+
+    @property
+    def violated(self) -> bool:
+        return bool(self.dropped_count or self.order_violations)

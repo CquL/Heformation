@@ -5,6 +5,13 @@ COPY integration/mrta_python /workspace/integration/mrta_python
 COPY integration/swarm_qn_bridge/simulator.xml \
   /workspace/src/src/planner/plan_manage/launch/simulator.xml
 
+# The upstream CPU renderer latches the first global map and ignores later ones,
+# which would make a deliberately injected obstacle invisible to the planners.
+# The patch is applied here so the upstream snapshot stays untouched.
+COPY integration/swarm_qn_bridge/patches /tmp/swarm_qn_patches
+RUN patch -p1 -d /workspace/src \
+      < /tmp/swarm_qn_patches/pcl_render_node_accept_map_updates.patch
+
 # mrta_python is a path-based package (integration/mrta_python).  The base
 # image ships setuptools 45.2, whose isolated PEP 621 build needs PyPI and
 # whose non-isolated build drops the package metadata; keeping it on

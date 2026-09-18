@@ -5,10 +5,11 @@ The runner owns the scheduler-side ``execution_id`` and maps it onto the native
 Action GoalID.  It also keeps its own trajectory-ownership evidence, so the
 Action server's adoption verdict can be cross-checked instead of trusted.
 
-Test C outputs per action: ``plan_updated``, ``updated_plan_used`` and
-``dispatch_changed``.  In a serial single-resource scenario
-``dispatch_changed=false`` is a correct result: repair changes planned times,
-but every dispatch still waits for the previous action's real completion.
+Test C outputs per action: ``plan_updated``, ``updated_plan_used`` and the
+release lag in seconds.  In a serial single-resource scenario the release lag
+is not a measure of repair: repair changes planned times, while every dispatch
+still waits for the previous action's real completion.  What the runner records
+instead is which plan revision each dispatch actually read.
 """
 
 import json
@@ -55,6 +56,11 @@ class MissionRunner:
         self.seed = int(rospy.get_param("~seed", 0))
         self.tolerance = float(rospy.get_param("~delay_tolerance", 0.1))
         self.speed = float(rospy.get_param("~nominal_speed_mps", 1.5))
+        self.obstacle_scenario = bool(rospy.get_param("~obstacle_scenario", False))
+        self.obstacle_center = [float(value) for value in rospy.get_param(
+            "~obstacle_center", [-23.0, 0.0, 0.5])]
+        self.obstacle_size = [float(value) for value in rospy.get_param(
+            "~obstacle_size", [1.0, 1.0, 1.2])]
         self.centers = rospy.get_param("~centers")
         self.initial_ref = rospy.get_param("~initial_target_ref", "start")
         raw_repair_mode = rospy.get_param("~repair_mode", "on")
@@ -86,6 +92,15 @@ class MissionRunner:
             self.plan = build_plan(self.agents, self.tasks, self.travel,
                                    initial_target_ref=self.initial_ref, seed=self.seed)
         self.tasks_by_id = {t.task_id: t for t in self.tasks}
+        # Static routing: executor -> member list -> Action endpoint.  A unit
+        # without an endpoint can take part in offline planning but is never
+        # dispatched, so it can never produce a fabricated "actual completion".
+        self.routing = self._load_routing()
+        self.online_executor = self._online_executor()
+        # Increments whenever the completion step replaces the plan.  A dispatch
+        # records the revision it read, so "the next action used the updated
+        # plan" is evidenced instead of assumed.
+        self.plan_revision = 0
         self.final_events = {}
         self.goal_ids = {}
         self.native_results = {}
@@ -110,6 +125,9 @@ class MissionRunner:
             "nominal_speed_mps": self.speed,
             "planner_speed_mps": rospy.get_param("~planner_speed", 1.5),
             "delay_tolerance": self.tolerance, "repair_mode": self.repair_mode,
+            "obstacle_scenario": self.obstacle_scenario,
+            "obstacle_center": self.obstacle_center,
+            "obstacle_size": self.obstacle_size,
             "mission_epoch": None,
             "initial_plan": asdict(self.plan), "plan_history": [],
             "executions": [], "events": [], "test_c": {},
@@ -273,6 +291,41 @@ class MissionRunner:
             self.metrics.setdefault("dispatch_attempts", {})[task.task_id] = attempts + 1
             return state, result, dispatch_time, False, attempts + 1
 
+    def _load_routing(self):
+        """Read the static executor routing table from the launch parameters."""
+        configured = rospy.get_param("~executors", None)
+        if configured is None:
+            members = tuple("drone_{}".format(i) for i in range(7))
+            return {"aav_formation": {
+                "executor_id": "aav_formation",
+                "physical_agent_ids": members,
+                "capabilities": ("AIR", "AAV"),
+                "action_endpoint": "/formation_action",
+                "initial_target_ref": self.initial_ref,
+            }}
+        routing = {}
+        for entry in configured:
+            executor_id = str(entry["executor_id"])
+            endpoint = entry.get("action_endpoint")
+            routing[executor_id] = {
+                "executor_id": executor_id,
+                "physical_agent_ids": tuple(entry["physical_agent_ids"]),
+                "capabilities": tuple(entry.get("capabilities", ())),
+                "action_endpoint": None if endpoint in (None, "", "null") else str(endpoint),
+                "initial_target_ref": entry.get("initial_target_ref", self.initial_ref),
+            }
+        return routing
+
+    def _online_executor(self):
+        """The single unit this process can actually dispatch to."""
+        online = [entry for entry in self.routing.values()
+                  if entry["action_endpoint"] is not None]
+        if len(online) != 1:
+            raise RuntimeError(
+                "exactly one executor with a real Action endpoint is required, "
+                "found {}".format(sorted(entry["executor_id"] for entry in online)))
+        return online[0]
+
     def execution_context(self, item, epoch, previous_actual_finish):
         with self.condition:
             pre_trajectory = {
@@ -290,6 +343,17 @@ class MissionRunner:
             "initial_planned_start": item.planned_start,
             "initial_planned_finish": item.planned_finish,
             "previous_actual_finish": previous_actual_finish,
+            # Which plan revision this dispatch actually read, together with the
+            # planned_start it read.  This is the evidence that the next action
+            # used the plan the completion step produced.
+            "plan_revision_at_dispatch": self.plan_revision,
+            "planned_start_read_at_dispatch": item.planned_start,
+            # Routing evidence: which unit the plan selected, which members it
+            # owns and which endpoint the task was actually sent to.
+            "executor_id": self.online_executor["executor_id"],
+            "action_endpoint": self.online_executor["action_endpoint"],
+            "assigned_members": tuple(item.coalition),
+            "executed_members": tuple(self.online_executor["physical_agent_ids"]),
         }
 
     def collect_post_evidence(self, context, dispatch_ros_time_s, result_finish_s):
@@ -338,6 +402,13 @@ class MissionRunner:
                 if rospy.is_shutdown():
                     raise RuntimeError("ROS shutdown before dispatch")
                 context = self.execution_context(item, epoch, previous_actual_finish)
+                if tuple(item.coalition) != tuple(
+                        self.online_executor["physical_agent_ids"]):
+                    raise RuntimeError(
+                        "plan allocated {} to {} but the only dispatchable "
+                        "executor owns {}".format(
+                            item.task_id, tuple(item.coalition),
+                            tuple(self.online_executor["physical_agent_ids"])))
                 dispatched_start, dispatched_finish = item.planned_start, item.planned_finish
                 goal = FormationGoal()
                 goal.task_id = task.task_id
@@ -401,6 +472,8 @@ class MissionRunner:
                     for trajectory_id in ids})
                 execution["runner_adoption_confirmed"] = context[
                     "adoption_confirmed_by_runner"]
+                execution["executor_matches_execution"] = (
+                    execution["assigned_members"] == execution["executed_members"])
                 if state != envelope.status.status:
                     execution["evidence_conflict"] = "Action status/envelope mismatch"
                 if result is None:
@@ -430,9 +503,14 @@ class MissionRunner:
                     expected_release_without_repair=max(
                         previous_actual_finish, context["initial_planned_start"]),
                 )
+                # How far the dispatch landed from the release boundary it was
+                # waiting for.  This is a schedule-tracking figure, not evidence
+                # that repair changed anything.
+                execution["release_lag_s"] = (
+                    execution["dispatch_ros_time_s"]
+                    - execution["expected_release_without_repair"])
                 execution["dispatch_changed"] = (
-                    abs(execution["dispatch_ros_time_s"]
-                        - execution["expected_release_without_repair"]) > self.tolerance)
+                    abs(execution["release_lag_s"]) > self.tolerance)
                 self.metrics["executions"].append(execution)
                 if state != GoalStatus.SUCCEEDED or result.reason != 0:
                     item.status = "FAILED"
@@ -458,17 +536,19 @@ class MissionRunner:
                         self.plan, event, self.final_events, tolerance=self.tolerance,
                         repair_timing=(self.repair_mode == "on"))
                     execution["plan_updated"] = changed
+                    self.plan_revision += 1
+                    execution["plan_revision_after_completion"] = self.plan_revision
                     self.metrics["plan_history"].append({
                         "event_id": event.event_id, "plan_before": before,
-                        "plan": asdict(self.plan), "plan_updated": changed})
-                    execution["updated_plan_used"] = self._plan_in_use(dispatched_start)
+                        "plan": asdict(self.plan), "plan_updated": changed,
+                        "plan_revision": self.plan_revision})
                     execution["plan_before"] = before
                     execution["plan_after"] = asdict(self.plan)
                     execution["repair_timing"] = self.repair_mode == "on"
                 else:
                     item.status = "COMPLETED"
                     execution["plan_updated"] = False
-                    execution["updated_plan_used"] = True
+                    execution["plan_revision_after_completion"] = self.plan_revision
                 rospy.loginfo(
                     "%s complete actual=%.3f planned=%.3f delay=%.3f "
                     "plan_updated=%s dispatch_changed=%s",
@@ -501,8 +581,19 @@ class MissionRunner:
 
     def _summarise_test_c(self):
         executions = self.metrics["executions"]
+        # A dispatch proves it used the updated plan only by having read the
+        # revision the previous completion produced.
+        for index, execution in enumerate(executions):
+            if index == 0:
+                execution["updated_plan_used"] = True
+                continue
+            previous = executions[index - 1]
+            execution["updated_plan_used"] = (
+                execution.get("plan_revision_at_dispatch")
+                == previous.get("plan_revision_after_completion"))
         self.metrics["test_c"] = {
             "repair_mode": self.repair_mode,
+            "plan_revision": self.plan_revision,
             "plan_updated": any(e.get("plan_updated") for e in executions),
             "plan_updated_actions": [e["task_id"] for e in executions
                                      if e.get("plan_updated")],
@@ -510,10 +601,13 @@ class MissionRunner:
             "dispatch_changed": any(e.get("dispatch_changed") for e in executions),
             "dispatch_changed_actions": [e["task_id"] for e in executions
                                          if e.get("dispatch_changed")],
+            "release_lag_s": {e["task_id"]: e.get("release_lag_s")
+                              for e in executions},
             "notes": (
-                "dispatch_changed=false is correct in a serial single-resource "
-                "scenario: repair changes planned times, but every dispatch still "
-                "waits for the previous action's real completion."),
+                "release_lag_s is the dispatch offset from the release boundary "
+                "it was waiting for; it is a schedule-tracking figure, not a "
+                "measure of repair.  updated_plan_used reports that each "
+                "dispatch read the plan revision the completion produced."),
         }
 
 

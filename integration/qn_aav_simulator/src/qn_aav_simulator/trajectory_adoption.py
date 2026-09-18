@@ -196,6 +196,21 @@ class TrajectoryAdoptionTracker:
             evidence.adopted_ros_time_s = float(ros_time_s)
             evidence.adopted_command_stamp_s = float(source_command_stamp_s)
 
+    def adopted_at_s(self) -> Optional[float]:
+        """Latest adoption time over all members, or None if not yet adopted.
+
+        The hold window of the dispatched task may not start before this moment:
+        a member that already sits on the previous target must not bank dwell
+        time for the new reference before it actually uses it.
+        """
+        times = []
+        for agent_id in self.agent_ids:
+            evidence = self.evidence.get(agent_id)
+            if evidence is None or evidence.adopted_ros_time_s is None:
+                return None
+            times.append(float(evidence.adopted_ros_time_s))
+        return max(times) if times else None
+
     def note_group_goal(self, publisher: Optional[str] = None) -> None:
         self.group_goal_publish_count += 1
         if publisher is not None:

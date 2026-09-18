@@ -1,0 +1,1204 @@
+{
+  "runner": {
+    "executors": [
+      {
+        "executor_id": "aav_formation",
+        "physical_agent_ids": [
+          "drone_0",
+          "drone_1",
+          "drone_2",
+          "drone_3",
+          "drone_4",
+          "drone_5",
+          "drone_6"
+        ],
+        "capabilities": [
+          "AIR",
+          "AAV"
+        ],
+        "action_endpoint": "/formation_action",
+        "initial_target_ref": "start"
+      }
+    ],
+    "seed": 0,
+    "nominal_speed_mps": 1.5,
+    "delay_tolerance": 0.1,
+    "initial_target_ref": "start",
+    "repair_mode": "on",
+    "centers": {
+      "start": [
+        -26.0,
+        0.0,
+        0.5
+      ],
+      "A": [
+        -24.0,
+        0.0,
+        0.5
+      ],
+      "B": [
+        -22.0,
+        0.0,
+        0.5
+      ],
+      "Return": [
+        -26.0,
+        0.0,
+        0.5
+      ]
+    },
+    "tasks": [
+      {
+        "task_id": "T3",
+        "required_capabilities": [
+          "AAV"
+        ],
+        "required_agent_count": 7,
+        "service_time": 5.0,
+        "deadline": 100.0,
+        "target_ref": "Return"
+      },
+      {
+        "task_id": "T1",
+        "required_capabilities": [
+          "AAV"
+        ],
+        "required_agent_count": 7,
+        "service_time": 5.0,
+        "deadline": 7.0,
+        "target_ref": "A"
+      },
+      {
+        "task_id": "T2",
+        "required_capabilities": [
+          "AAV"
+        ],
+        "required_agent_count": 7,
+        "service_time": 5.0,
+        "deadline": 13.0,
+        "target_ref": "B"
+      }
+    ],
+    "output_dir": "/experiments/current",
+    "mode": "mission",
+    "planner_speed": 1.5
+  },
+  "monitor": {
+    "agent_ids": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "swarm_scale": 2.0,
+    "relative_slots": {
+      "0": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "1": [
+        1.7321,
+        -1.0,
+        0.0
+      ],
+      "2": [
+        0.0,
+        -2.0,
+        0.0
+      ],
+      "3": [
+        -1.7321,
+        -1.0,
+        0.0
+      ],
+      "4": [
+        -1.7321,
+        1.0,
+        0.0
+      ],
+      "5": [
+        0.0,
+        2.0,
+        0.0
+      ],
+      "6": [
+        1.7321,
+        1.0,
+        0.0
+      ]
+    },
+    "epsilon_p": 0.5,
+    "epsilon_v": 0.25,
+    "odom_timeout": 0.25,
+    "execution_timeout": 180.0,
+    "monitor_rate": 20.0,
+    "startup_timeout": 180.0,
+    "sensor_backend": "CPU_POINTCLOUD",
+    "known_empty_map": true,
+    "cloud_timeout": 3.0,
+    "qn_state_timeout": 1.0,
+    "model_time_window": 0.06,
+    "time_baseline_seconds": 30.0,
+    "time_rate_lower": 0.95,
+    "time_rate_upper": 1.05,
+    "max_model_ros_drift": 0.05,
+    "max_cross_agent_drift": 0.05,
+    "time_reference_displacement_limit": 0.25,
+    "inter_agent_clearance": 0.5,
+    "obstacle_clearance": 0.2,
+    "obstacle_sample_period": 1.0,
+    "platform_radius_m": 0.25,
+    "surface_plane_m": 0.0,
+    "min_valid_sample_ratio": 0.9,
+    "output_dir": "/experiments/current",
+    "ready": true,
+    "readiness_reason": "ready",
+    "missing_topics": [],
+    "stale_topics": [],
+    "invalid_inputs": [],
+    "planner_health": "OK",
+    "runtime_health": {
+      "global_map_initialized": true,
+      "known_empty_sensing": [
+        "/drone_0_pcl_render_node/cloud",
+        "/drone_1_pcl_render_node/cloud",
+        "/drone_2_pcl_render_node/cloud",
+        "/drone_3_pcl_render_node/cloud",
+        "/drone_4_pcl_render_node/cloud",
+        "/drone_5_pcl_render_node/cloud",
+        "/drone_6_pcl_render_node/cloud"
+      ],
+      "local_cloud_fresh": true,
+      "odometry_fresh": true,
+      "planner_healthy": true,
+      "qn_state_updated": true,
+      "stale_odometry_topics": [],
+      "reason": "ready"
+    },
+    "topic_ages": "{\"/drone_0_pcl_render_node/cloud\": null, \"/drone_0_qn/diagnostics\": 0.030910968780517578, \"/drone_0_qn/odometry\": 0.0007681846618652344, \"/drone_1_pcl_render_node/cloud\": null, \"/drone_1_qn/diagnostics\": 0.03009963035583496, \"/drone_1_qn/odometry\": 8.273124694824219e-05, \"/drone_2_pcl_render_node/cloud\": null, \"/drone_2_qn/diagnostics\": 0.027479887008666992, \"/drone_2_qn/odometry\": 0.0074198246002197266, \"/drone_3_pcl_render_node/cloud\": null, \"/drone_3_qn/diagnostics\": 0.0001850128173828125, \"/drone_3_qn/odometry\": -0.0011484622955322266, \"/drone_4_pcl_render_node/cloud\": null, \"/drone_4_qn/diagnostics\": -0.0005578994750976562, \"/drone_4_qn/odometry\": -0.00045418739318847656, \"/drone_5_pcl_render_node/cloud\": null, \"/drone_5_qn/diagnostics\": -0.0009551048278808594, \"/drone_5_qn/odometry\": 0.0008587837219238281, \"/drone_6_pcl_render_node/cloud\": null, \"/drone_6_qn/diagnostics\": 0.03804183006286621, \"/drone_6_qn/odometry\": -0.0016074180603027344, \"/map_generator/global_cloud\": 0.2845118045806885}",
+    "topic_message_counts": "{\"/drone_0_pcl_render_node/cloud\": 0, \"/drone_0_qn/diagnostics\": 3122, \"/drone_0_qn/odometry\": 3125, \"/drone_1_pcl_render_node/cloud\": 0, \"/drone_1_qn/diagnostics\": 3120, \"/drone_1_qn/odometry\": 3124, \"/drone_2_pcl_render_node/cloud\": 0, \"/drone_2_qn/diagnostics\": 3119, \"/drone_2_qn/odometry\": 3121, \"/drone_3_pcl_render_node/cloud\": 0, \"/drone_3_qn/diagnostics\": 3119, \"/drone_3_qn/odometry\": 3120, \"/drone_4_pcl_render_node/cloud\": 0, \"/drone_4_qn/diagnostics\": 3117, \"/drone_4_qn/odometry\": 3117, \"/drone_5_pcl_render_node/cloud\": 0, \"/drone_5_qn/diagnostics\": 3114, \"/drone_5_qn/odometry\": 3116, \"/drone_6_pcl_render_node/cloud\": 0, \"/drone_6_qn/diagnostics\": 3110, \"/drone_6_qn/odometry\": 3114, \"/map_generator/global_cloud\": 31}",
+    "time_alignment_session": "{\"started_ros_time_s\": 1789744904.5153186, \"finished_ros_time_s\": 1789744935.4153185, \"duration_s\": 30.899999856948853, \"agent_ids\": [\"drone_0\", \"drone_1\", \"drone_2\", \"drone_3\", \"drone_4\", \"drone_5\", \"drone_6\"], \"grid_point_count\": 310, \"aligned_point_count\": 310, \"alignment_failure_count\": 0, \"valid_sample_count\": 2170, \"expected_sample_count\": 2170, \"valid_sample_ratio\": 1.0, \"max_abs_model_ros_drift_s\": 0.0033031544511850086, \"max_cross_agent_drift_s\": 0.003356266943146835, \"model_ros_rate\": {\"drone_0\": 1.000000673755179, \"drone_1\": 1.0000007226871, \"drone_2\": 1.0000003128330222, \"drone_3\": 1.0000010083551747, \"drone_4\": 1.0000007760928615, \"drone_5\": 1.0000006625980609, \"drone_6\": 1.0000004324247644}, \"model_wall_rate\": {\"drone_0\": 1.0000370855037943, \"drone_1\": 0.9999937954590348, \"drone_2\": 1.0000023745388473, \"drone_3\": 0.9999839676565703, \"drone_4\": 1.0000158675803599, \"drone_5\": 0.9999921901088155, \"drone_6\": 0.9999797741551539}, \"worst_model_ros_rate\": 1.0000003128330222, \"worst_model_wall_rate\": 0.9999797741551539, \"reference_speed_mps\": null, \"induced_reference_displacement_m\": null, \"baseline_complete\": true, \"common_start_ros_time_s\": 1789744904.5153186, \"history_truncated\": false, \"within_thresholds\": true, \"reasons\": []}"
+  },
+  "agents": [
+    {
+      "id": "drone_0",
+      "capabilities": [
+        "AAV"
+      ],
+      "available_from": 0.0
+    },
+    {
+      "id": "drone_1",
+      "capabilities": [
+        "AAV"
+      ],
+      "available_from": 0.0
+    },
+    {
+      "id": "drone_2",
+      "capabilities": [
+        "AAV"
+      ],
+      "available_from": 0.0
+    },
+    {
+      "id": "drone_3",
+      "capabilities": [
+        "AAV"
+      ],
+      "available_from": 0.0
+    },
+    {
+      "id": "drone_4",
+      "capabilities": [
+        "AAV"
+      ],
+      "available_from": 0.0
+    },
+    {
+      "id": "drone_5",
+      "capabilities": [
+        "AAV"
+      ],
+      "available_from": 0.0
+    },
+    {
+      "id": "drone_6",
+      "capabilities": [
+        "AAV"
+      ],
+      "available_from": 0.0
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "T3",
+      "required_capabilities": [
+        "AAV"
+      ],
+      "required_agent_count": 7,
+      "service_time": 5.0,
+      "deadline": 100.0,
+      "target_ref": "Return"
+    },
+    {
+      "task_id": "T1",
+      "required_capabilities": [
+        "AAV"
+      ],
+      "required_agent_count": 7,
+      "service_time": 5.0,
+      "deadline": 7.0,
+      "target_ref": "A"
+    },
+    {
+      "task_id": "T2",
+      "required_capabilities": [
+        "AAV"
+      ],
+      "required_agent_count": 7,
+      "service_time": 5.0,
+      "deadline": 13.0,
+      "target_ref": "B"
+    }
+  ],
+  "use_sim_time": false,
+  "repair_mode": "on",
+  "planner_parameters": {
+    "0": {
+      "global_goal": {
+        "swarm_central_pos": {
+          "x": 25.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "swarm_scale": 2.0,
+        "relative_pos_0": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "relative_pos_1": {
+          "x": 1.7321,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "relative_pos_2": {
+          "x": 0.0,
+          "y": -2.0,
+          "z": 0.0
+        },
+        "relative_pos_3": {
+          "x": -1.7321,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "relative_pos_4": {
+          "x": -1.7321,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "relative_pos_5": {
+          "x": 0.0,
+          "y": 2.0,
+          "z": 0.0
+        },
+        "relative_pos_6": {
+          "x": 1.7321,
+          "y": 1.0,
+          "z": 0.0
+        }
+      },
+      "optimization": {
+        "formation_type": 1,
+        "weight_obstacle": 50000.0,
+        "weight_swarm": 50000.0,
+        "weight_feasibility": 10000.0,
+        "weight_sqrvariance": 10000.0,
+        "weight_time": 80.0,
+        "weight_formation": 15000.0,
+        "obstacle_clearance": 0.5,
+        "swarm_clearance": 0.5,
+        "constrain_points_perPiece": 3,
+        "max_vel": 1.5,
+        "max_acc": 8.0,
+        "record_opt": true
+      },
+      "fsm": {
+        "replan_trajectory_time": 0.1,
+        "flight_type": 3,
+        "thresh_replan_time": 1.0,
+        "thresh_no_replan_meter": 1.0,
+        "planning_horizon": 7.5,
+        "planning_horizen_time": 3.0,
+        "emergency_time": 1.0,
+        "realworld_experiment": false,
+        "fail_safe": true,
+        "result_file": "/home/zuzu/Documents/report/ego_swarm_1.txt",
+        "waypoint_num": 1,
+        "waypoint0_x": 26.0,
+        "waypoint0_y": 0.0,
+        "waypoint0_z": 0.5,
+        "waypoint1_x": 0.0,
+        "waypoint1_y": 0.0,
+        "waypoint1_z": 0.0,
+        "waypoint2_x": 0.0,
+        "waypoint2_y": 0.0,
+        "waypoint2_z": 0.0,
+        "waypoint3_x": 0.0,
+        "waypoint3_y": 0.0,
+        "waypoint3_z": 0.0
+      },
+      "grid_map": {
+        "resolution": 0.1,
+        "map_size_x": 70.0,
+        "map_size_y": 30.0,
+        "map_size_z": 3.0,
+        "local_update_range_x": 5.5,
+        "local_update_range_y": 5.5,
+        "local_update_range_z": 4.5,
+        "obstacles_inflation": 0.1,
+        "local_map_margin": 10,
+        "ground_height": -0.01,
+        "cx": 321.04638671875,
+        "cy": 243.44969177246094,
+        "fx": 387.229248046875,
+        "fy": 387.229248046875,
+        "use_depth_filter": true,
+        "depth_filter_tolerance": 0.15,
+        "depth_filter_maxdist": 5.0,
+        "depth_filter_mindist": 0.2,
+        "depth_filter_margin": 2,
+        "k_depth_scaling_factor": 1000.0,
+        "skip_pixel": 2,
+        "p_hit": 0.65,
+        "p_miss": 0.35,
+        "p_min": 0.12,
+        "p_max": 0.9,
+        "p_occ": 0.8,
+        "min_ray_length": 0.1,
+        "max_ray_length": 4.5,
+        "virtual_ceil_height": 3.0,
+        "visualization_truncate_height": 2.8,
+        "show_occ_time": false,
+        "pose_type": 1,
+        "frame_id": "world",
+        "local_bound_inflate": 0.0,
+        "show_esdf_time": false,
+        "esdf_slice_height": 0.3
+      },
+      "manager": {
+        "max_vel": 1.5,
+        "max_acc": 8.0,
+        "control_points_distance": 0.4,
+        "polyTraj_piece_length": 2.0,
+        "feasibility_tolerance": 0.05,
+        "planning_horizon": 7.5,
+        "use_distinctive_trajs": false,
+        "drone_id": 0
+      }
+    },
+    "1": {
+      "global_goal": {
+        "swarm_central_pos": {
+          "x": 25.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "swarm_scale": 2.0,
+        "relative_pos_0": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "relative_pos_1": {
+          "x": 1.7321,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "relative_pos_2": {
+          "x": 0.0,
+          "y": -2.0,
+          "z": 0.0
+        },
+        "relative_pos_3": {
+          "x": -1.7321,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "relative_pos_4": {
+          "x": -1.7321,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "relative_pos_5": {
+          "x": 0.0,
+          "y": 2.0,
+          "z": 0.0
+        },
+        "relative_pos_6": {
+          "x": 1.7321,
+          "y": 1.0,
+          "z": 0.0
+        }
+      },
+      "optimization": {
+        "formation_type": 1,
+        "weight_obstacle": 50000.0,
+        "weight_swarm": 50000.0,
+        "weight_feasibility": 10000.0,
+        "weight_sqrvariance": 10000.0,
+        "weight_time": 80.0,
+        "weight_formation": 15000.0,
+        "obstacle_clearance": 0.5,
+        "swarm_clearance": 0.5,
+        "constrain_points_perPiece": 3,
+        "max_vel": 1.5,
+        "max_acc": 8.0,
+        "record_opt": true
+      },
+      "fsm": {
+        "replan_trajectory_time": 0.1,
+        "flight_type": 3,
+        "thresh_replan_time": 1.0,
+        "thresh_no_replan_meter": 1.0,
+        "planning_horizon": 7.5,
+        "planning_horizen_time": 3.0,
+        "emergency_time": 1.0,
+        "realworld_experiment": false,
+        "fail_safe": true,
+        "result_file": "/home/zuzu/Documents/report/ego_swarm_1.txt",
+        "waypoint_num": 1,
+        "waypoint0_x": 28.6,
+        "waypoint0_y": -1.5,
+        "waypoint0_z": 0.5,
+        "waypoint1_x": 0.0,
+        "waypoint1_y": 0.0,
+        "waypoint1_z": 0.0,
+        "waypoint2_x": 0.0,
+        "waypoint2_y": 0.0,
+        "waypoint2_z": 0.0,
+        "waypoint3_x": 0.0,
+        "waypoint3_y": 0.0,
+        "waypoint3_z": 0.0
+      },
+      "grid_map": {
+        "resolution": 0.1,
+        "map_size_x": 70.0,
+        "map_size_y": 30.0,
+        "map_size_z": 3.0,
+        "local_update_range_x": 5.5,
+        "local_update_range_y": 5.5,
+        "local_update_range_z": 4.5,
+        "obstacles_inflation": 0.1,
+        "local_map_margin": 10,
+        "ground_height": -0.01,
+        "cx": 321.04638671875,
+        "cy": 243.44969177246094,
+        "fx": 387.229248046875,
+        "fy": 387.229248046875,
+        "use_depth_filter": true,
+        "depth_filter_tolerance": 0.15,
+        "depth_filter_maxdist": 5.0,
+        "depth_filter_mindist": 0.2,
+        "depth_filter_margin": 2,
+        "k_depth_scaling_factor": 1000.0,
+        "skip_pixel": 2,
+        "p_hit": 0.65,
+        "p_miss": 0.35,
+        "p_min": 0.12,
+        "p_max": 0.9,
+        "p_occ": 0.8,
+        "min_ray_length": 0.1,
+        "max_ray_length": 4.5,
+        "virtual_ceil_height": 3.0,
+        "visualization_truncate_height": 2.8,
+        "show_occ_time": false,
+        "pose_type": 1,
+        "frame_id": "world",
+        "local_bound_inflate": 0.0,
+        "show_esdf_time": false,
+        "esdf_slice_height": 0.3
+      },
+      "manager": {
+        "max_vel": 1.5,
+        "max_acc": 8.0,
+        "control_points_distance": 0.4,
+        "polyTraj_piece_length": 2.0,
+        "feasibility_tolerance": 0.05,
+        "planning_horizon": 7.5,
+        "use_distinctive_trajs": false,
+        "drone_id": 1
+      }
+    },
+    "2": {
+      "global_goal": {
+        "swarm_central_pos": {
+          "x": 25.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "swarm_scale": 2.0,
+        "relative_pos_0": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "relative_pos_1": {
+          "x": 1.7321,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "relative_pos_2": {
+          "x": 0.0,
+          "y": -2.0,
+          "z": 0.0
+        },
+        "relative_pos_3": {
+          "x": -1.7321,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "relative_pos_4": {
+          "x": -1.7321,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "relative_pos_5": {
+          "x": 0.0,
+          "y": 2.0,
+          "z": 0.0
+        },
+        "relative_pos_6": {
+          "x": 1.7321,
+          "y": 1.0,
+          "z": 0.0
+        }
+      },
+      "optimization": {
+        "formation_type": 1,
+        "weight_obstacle": 50000.0,
+        "weight_swarm": 50000.0,
+        "weight_feasibility": 10000.0,
+        "weight_sqrvariance": 10000.0,
+        "weight_time": 80.0,
+        "weight_formation": 15000.0,
+        "obstacle_clearance": 0.5,
+        "swarm_clearance": 0.5,
+        "constrain_points_perPiece": 3,
+        "max_vel": 1.5,
+        "max_acc": 8.0,
+        "record_opt": true
+      },
+      "fsm": {
+        "replan_trajectory_time": 0.1,
+        "flight_type": 3,
+        "thresh_replan_time": 1.0,
+        "thresh_no_replan_meter": 1.0,
+        "planning_horizon": 7.5,
+        "planning_horizen_time": 3.0,
+        "emergency_time": 1.0,
+        "realworld_experiment": false,
+        "fail_safe": true,
+        "result_file": "/home/zuzu/Documents/report/ego_swarm_1.txt",
+        "waypoint_num": 1,
+        "waypoint0_x": 26.0,
+        "waypoint0_y": -3.0,
+        "waypoint0_z": 0.5,
+        "waypoint1_x": 0.0,
+        "waypoint1_y": 0.0,
+        "waypoint1_z": 0.0,
+        "waypoint2_x": 0.0,
+        "waypoint2_y": 0.0,
+        "waypoint2_z": 0.0,
+        "waypoint3_x": 0.0,
+        "waypoint3_y": 0.0,
+        "waypoint3_z": 0.0
+      },
+      "grid_map": {
+        "resolution": 0.1,
+        "map_size_x": 70.0,
+        "map_size_y": 30.0,
+        "map_size_z": 3.0,
+        "local_update_range_x": 5.5,
+        "local_update_range_y": 5.5,
+        "local_update_range_z": 4.5,
+        "obstacles_inflation": 0.1,
+        "local_map_margin": 10,
+        "ground_height": -0.01,
+        "cx": 321.04638671875,
+        "cy": 243.44969177246094,
+        "fx": 387.229248046875,
+        "fy": 387.229248046875,
+        "use_depth_filter": true,
+        "depth_filter_tolerance": 0.15,
+        "depth_filter_maxdist": 5.0,
+        "depth_filter_mindist": 0.2,
+        "depth_filter_margin": 2,
+        "k_depth_scaling_factor": 1000.0,
+        "skip_pixel": 2,
+        "p_hit": 0.65,
+        "p_miss": 0.35,
+        "p_min": 0.12,
+        "p_max": 0.9,
+        "p_occ": 0.8,
+        "min_ray_length": 0.1,
+        "max_ray_length": 4.5,
+        "virtual_ceil_height": 3.0,
+        "visualization_truncate_height": 2.8,
+        "show_occ_time": false,
+        "pose_type": 1,
+        "frame_id": "world",
+        "local_bound_inflate": 0.0,
+        "show_esdf_time": false,
+        "esdf_slice_height": 0.3
+      },
+      "manager": {
+        "max_vel": 1.5,
+        "max_acc": 8.0,
+        "control_points_distance": 0.4,
+        "polyTraj_piece_length": 2.0,
+        "feasibility_tolerance": 0.05,
+        "planning_horizon": 7.5,
+        "use_distinctive_trajs": false,
+        "drone_id": 2
+      }
+    },
+    "3": {
+      "global_goal": {
+        "swarm_central_pos": {
+          "x": 25.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "swarm_scale": 2.0,
+        "relative_pos_0": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "relative_pos_1": {
+          "x": 1.7321,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "relative_pos_2": {
+          "x": 0.0,
+          "y": -2.0,
+          "z": 0.0
+        },
+        "relative_pos_3": {
+          "x": -1.7321,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "relative_pos_4": {
+          "x": -1.7321,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "relative_pos_5": {
+          "x": 0.0,
+          "y": 2.0,
+          "z": 0.0
+        },
+        "relative_pos_6": {
+          "x": 1.7321,
+          "y": 1.0,
+          "z": 0.0
+        }
+      },
+      "optimization": {
+        "formation_type": 1,
+        "weight_obstacle": 50000.0,
+        "weight_swarm": 50000.0,
+        "weight_feasibility": 10000.0,
+        "weight_sqrvariance": 10000.0,
+        "weight_time": 80.0,
+        "weight_formation": 15000.0,
+        "obstacle_clearance": 0.5,
+        "swarm_clearance": 0.5,
+        "constrain_points_perPiece": 3,
+        "max_vel": 1.5,
+        "max_acc": 8.0,
+        "record_opt": true
+      },
+      "fsm": {
+        "replan_trajectory_time": 0.1,
+        "flight_type": 3,
+        "thresh_replan_time": 1.0,
+        "thresh_no_replan_meter": 1.0,
+        "planning_horizon": 7.5,
+        "planning_horizen_time": 3.0,
+        "emergency_time": 1.0,
+        "realworld_experiment": false,
+        "fail_safe": true,
+        "result_file": "/home/zuzu/Documents/report/ego_swarm_1.txt",
+        "waypoint_num": 1,
+        "waypoint0_x": 23.4,
+        "waypoint0_y": -1.5,
+        "waypoint0_z": 0.5,
+        "waypoint1_x": 0.0,
+        "waypoint1_y": 0.0,
+        "waypoint1_z": 0.0,
+        "waypoint2_x": 0.0,
+        "waypoint2_y": 0.0,
+        "waypoint2_z": 0.0,
+        "waypoint3_x": 0.0,
+        "waypoint3_y": 0.0,
+        "waypoint3_z": 0.0
+      },
+      "grid_map": {
+        "resolution": 0.1,
+        "map_size_x": 70.0,
+        "map_size_y": 30.0,
+        "map_size_z": 3.0,
+        "local_update_range_x": 5.5,
+        "local_update_range_y": 5.5,
+        "local_update_range_z": 4.5,
+        "obstacles_inflation": 0.1,
+        "local_map_margin": 10,
+        "ground_height": -0.01,
+        "cx": 321.04638671875,
+        "cy": 243.44969177246094,
+        "fx": 387.229248046875,
+        "fy": 387.229248046875,
+        "use_depth_filter": true,
+        "depth_filter_tolerance": 0.15,
+        "depth_filter_maxdist": 5.0,
+        "depth_filter_mindist": 0.2,
+        "depth_filter_margin": 2,
+        "k_depth_scaling_factor": 1000.0,
+        "skip_pixel": 2,
+        "p_hit": 0.65,
+        "p_miss": 0.35,
+        "p_min": 0.12,
+        "p_max": 0.9,
+        "p_occ": 0.8,
+        "min_ray_length": 0.1,
+        "max_ray_length": 4.5,
+        "virtual_ceil_height": 3.0,
+        "visualization_truncate_height": 2.8,
+        "show_occ_time": false,
+        "pose_type": 1,
+        "frame_id": "world",
+        "local_bound_inflate": 0.0,
+        "show_esdf_time": false,
+        "esdf_slice_height": 0.3
+      },
+      "manager": {
+        "max_vel": 1.5,
+        "max_acc": 8.0,
+        "control_points_distance": 0.4,
+        "polyTraj_piece_length": 2.0,
+        "feasibility_tolerance": 0.05,
+        "planning_horizon": 7.5,
+        "use_distinctive_trajs": false,
+        "drone_id": 3
+      }
+    },
+    "4": {
+      "global_goal": {
+        "swarm_central_pos": {
+          "x": 25.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "swarm_scale": 2.0,
+        "relative_pos_0": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "relative_pos_1": {
+          "x": 1.7321,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "relative_pos_2": {
+          "x": 0.0,
+          "y": -2.0,
+          "z": 0.0
+        },
+        "relative_pos_3": {
+          "x": -1.7321,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "relative_pos_4": {
+          "x": -1.7321,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "relative_pos_5": {
+          "x": 0.0,
+          "y": 2.0,
+          "z": 0.0
+        },
+        "relative_pos_6": {
+          "x": 1.7321,
+          "y": 1.0,
+          "z": 0.0
+        }
+      },
+      "optimization": {
+        "formation_type": 1,
+        "weight_obstacle": 50000.0,
+        "weight_swarm": 50000.0,
+        "weight_feasibility": 10000.0,
+        "weight_sqrvariance": 10000.0,
+        "weight_time": 80.0,
+        "weight_formation": 15000.0,
+        "obstacle_clearance": 0.5,
+        "swarm_clearance": 0.5,
+        "constrain_points_perPiece": 3,
+        "max_vel": 1.5,
+        "max_acc": 8.0,
+        "record_opt": true
+      },
+      "fsm": {
+        "replan_trajectory_time": 0.1,
+        "flight_type": 3,
+        "thresh_replan_time": 1.0,
+        "thresh_no_replan_meter": 1.0,
+        "planning_horizon": 7.5,
+        "planning_horizen_time": 3.0,
+        "emergency_time": 1.0,
+        "realworld_experiment": false,
+        "fail_safe": true,
+        "result_file": "/home/zuzu/Documents/report/ego_swarm_1.txt",
+        "waypoint_num": 1,
+        "waypoint0_x": 23.4,
+        "waypoint0_y": 1.5,
+        "waypoint0_z": 0.5,
+        "waypoint1_x": 0.0,
+        "waypoint1_y": 0.0,
+        "waypoint1_z": 0.0,
+        "waypoint2_x": 0.0,
+        "waypoint2_y": 0.0,
+        "waypoint2_z": 0.0,
+        "waypoint3_x": 0.0,
+        "waypoint3_y": 0.0,
+        "waypoint3_z": 0.0
+      },
+      "grid_map": {
+        "resolution": 0.1,
+        "map_size_x": 70.0,
+        "map_size_y": 30.0,
+        "map_size_z": 3.0,
+        "local_update_range_x": 5.5,
+        "local_update_range_y": 5.5,
+        "local_update_range_z": 4.5,
+        "obstacles_inflation": 0.1,
+        "local_map_margin": 10,
+        "ground_height": -0.01,
+        "cx": 321.04638671875,
+        "cy": 243.44969177246094,
+        "fx": 387.229248046875,
+        "fy": 387.229248046875,
+        "use_depth_filter": true,
+        "depth_filter_tolerance": 0.15,
+        "depth_filter_maxdist": 5.0,
+        "depth_filter_mindist": 0.2,
+        "depth_filter_margin": 2,
+        "k_depth_scaling_factor": 1000.0,
+        "skip_pixel": 2,
+        "p_hit": 0.65,
+        "p_miss": 0.35,
+        "p_min": 0.12,
+        "p_max": 0.9,
+        "p_occ": 0.8,
+        "min_ray_length": 0.1,
+        "max_ray_length": 4.5,
+        "virtual_ceil_height": 3.0,
+        "visualization_truncate_height": 2.8,
+        "show_occ_time": false,
+        "pose_type": 1,
+        "frame_id": "world",
+        "local_bound_inflate": 0.0,
+        "show_esdf_time": false,
+        "esdf_slice_height": 0.3
+      },
+      "manager": {
+        "max_vel": 1.5,
+        "max_acc": 8.0,
+        "control_points_distance": 0.4,
+        "polyTraj_piece_length": 2.0,
+        "feasibility_tolerance": 0.05,
+        "planning_horizon": 7.5,
+        "use_distinctive_trajs": false,
+        "drone_id": 4
+      }
+    },
+    "5": {
+      "global_goal": {
+        "swarm_central_pos": {
+          "x": 25.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "swarm_scale": 2.0,
+        "relative_pos_0": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "relative_pos_1": {
+          "x": 1.7321,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "relative_pos_2": {
+          "x": 0.0,
+          "y": -2.0,
+          "z": 0.0
+        },
+        "relative_pos_3": {
+          "x": -1.7321,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "relative_pos_4": {
+          "x": -1.7321,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "relative_pos_5": {
+          "x": 0.0,
+          "y": 2.0,
+          "z": 0.0
+        },
+        "relative_pos_6": {
+          "x": 1.7321,
+          "y": 1.0,
+          "z": 0.0
+        }
+      },
+      "optimization": {
+        "formation_type": 1,
+        "weight_obstacle": 50000.0,
+        "weight_swarm": 50000.0,
+        "weight_feasibility": 10000.0,
+        "weight_sqrvariance": 10000.0,
+        "weight_time": 80.0,
+        "weight_formation": 15000.0,
+        "obstacle_clearance": 0.5,
+        "swarm_clearance": 0.5,
+        "constrain_points_perPiece": 3,
+        "max_vel": 1.5,
+        "max_acc": 8.0,
+        "record_opt": true
+      },
+      "fsm": {
+        "replan_trajectory_time": 0.1,
+        "flight_type": 3,
+        "thresh_replan_time": 1.0,
+        "thresh_no_replan_meter": 1.0,
+        "planning_horizon": 7.5,
+        "planning_horizen_time": 3.0,
+        "emergency_time": 1.0,
+        "realworld_experiment": false,
+        "fail_safe": true,
+        "result_file": "/home/zuzu/Documents/report/ego_swarm_1.txt",
+        "waypoint_num": 1,
+        "waypoint0_x": 26.0,
+        "waypoint0_y": 3.0,
+        "waypoint0_z": 0.5,
+        "waypoint1_x": 0.0,
+        "waypoint1_y": 0.0,
+        "waypoint1_z": 0.0,
+        "waypoint2_x": 0.0,
+        "waypoint2_y": 0.0,
+        "waypoint2_z": 0.0,
+        "waypoint3_x": 0.0,
+        "waypoint3_y": 0.0,
+        "waypoint3_z": 0.0
+      },
+      "grid_map": {
+        "resolution": 0.1,
+        "map_size_x": 70.0,
+        "map_size_y": 30.0,
+        "map_size_z": 3.0,
+        "local_update_range_x": 5.5,
+        "local_update_range_y": 5.5,
+        "local_update_range_z": 4.5,
+        "obstacles_inflation": 0.1,
+        "local_map_margin": 10,
+        "ground_height": -0.01,
+        "cx": 321.04638671875,
+        "cy": 243.44969177246094,
+        "fx": 387.229248046875,
+        "fy": 387.229248046875,
+        "use_depth_filter": true,
+        "depth_filter_tolerance": 0.15,
+        "depth_filter_maxdist": 5.0,
+        "depth_filter_mindist": 0.2,
+        "depth_filter_margin": 2,
+        "k_depth_scaling_factor": 1000.0,
+        "skip_pixel": 2,
+        "p_hit": 0.65,
+        "p_miss": 0.35,
+        "p_min": 0.12,
+        "p_max": 0.9,
+        "p_occ": 0.8,
+        "min_ray_length": 0.1,
+        "max_ray_length": 4.5,
+        "virtual_ceil_height": 3.0,
+        "visualization_truncate_height": 2.8,
+        "show_occ_time": false,
+        "pose_type": 1,
+        "frame_id": "world",
+        "local_bound_inflate": 0.0,
+        "show_esdf_time": false,
+        "esdf_slice_height": 0.3
+      },
+      "manager": {
+        "max_vel": 1.5,
+        "max_acc": 8.0,
+        "control_points_distance": 0.4,
+        "polyTraj_piece_length": 2.0,
+        "feasibility_tolerance": 0.05,
+        "planning_horizon": 7.5,
+        "use_distinctive_trajs": false,
+        "drone_id": 5
+      }
+    },
+    "6": {
+      "global_goal": {
+        "swarm_central_pos": {
+          "x": 25.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "swarm_scale": 2.0,
+        "relative_pos_0": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "relative_pos_1": {
+          "x": 1.7321,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "relative_pos_2": {
+          "x": 0.0,
+          "y": -2.0,
+          "z": 0.0
+        },
+        "relative_pos_3": {
+          "x": -1.7321,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "relative_pos_4": {
+          "x": -1.7321,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "relative_pos_5": {
+          "x": 0.0,
+          "y": 2.0,
+          "z": 0.0
+        },
+        "relative_pos_6": {
+          "x": 1.7321,
+          "y": 1.0,
+          "z": 0.0
+        }
+      },
+      "optimization": {
+        "formation_type": 1,
+        "weight_obstacle": 50000.0,
+        "weight_swarm": 50000.0,
+        "weight_feasibility": 10000.0,
+        "weight_sqrvariance": 10000.0,
+        "weight_time": 80.0,
+        "weight_formation": 15000.0,
+        "obstacle_clearance": 0.5,
+        "swarm_clearance": 0.5,
+        "constrain_points_perPiece": 3,
+        "max_vel": 1.5,
+        "max_acc": 8.0,
+        "record_opt": true
+      },
+      "fsm": {
+        "replan_trajectory_time": 0.1,
+        "flight_type": 3,
+        "thresh_replan_time": 1.0,
+        "thresh_no_replan_meter": 1.0,
+        "planning_horizon": 7.5,
+        "planning_horizen_time": 3.0,
+        "emergency_time": 1.0,
+        "realworld_experiment": false,
+        "fail_safe": true,
+        "result_file": "/home/zuzu/Documents/report/ego_swarm_1.txt",
+        "waypoint_num": 1,
+        "waypoint0_x": 28.6,
+        "waypoint0_y": 1.5,
+        "waypoint0_z": 0.5,
+        "waypoint1_x": 0.0,
+        "waypoint1_y": 0.0,
+        "waypoint1_z": 0.0,
+        "waypoint2_x": 0.0,
+        "waypoint2_y": 0.0,
+        "waypoint2_z": 0.0,
+        "waypoint3_x": 0.0,
+        "waypoint3_y": 0.0,
+        "waypoint3_z": 0.0
+      },
+      "grid_map": {
+        "resolution": 0.1,
+        "map_size_x": 70.0,
+        "map_size_y": 30.0,
+        "map_size_z": 3.0,
+        "local_update_range_x": 5.5,
+        "local_update_range_y": 5.5,
+        "local_update_range_z": 4.5,
+        "obstacles_inflation": 0.1,
+        "local_map_margin": 10,
+        "ground_height": -0.01,
+        "cx": 321.04638671875,
+        "cy": 243.44969177246094,
+        "fx": 387.229248046875,
+        "fy": 387.229248046875,
+        "use_depth_filter": true,
+        "depth_filter_tolerance": 0.15,
+        "depth_filter_maxdist": 5.0,
+        "depth_filter_mindist": 0.2,
+        "depth_filter_margin": 2,
+        "k_depth_scaling_factor": 1000.0,
+        "skip_pixel": 2,
+        "p_hit": 0.65,
+        "p_miss": 0.35,
+        "p_min": 0.12,
+        "p_max": 0.9,
+        "p_occ": 0.8,
+        "min_ray_length": 0.1,
+        "max_ray_length": 4.5,
+        "virtual_ceil_height": 3.0,
+        "visualization_truncate_height": 2.8,
+        "show_occ_time": false,
+        "pose_type": 1,
+        "frame_id": "world",
+        "local_bound_inflate": 0.0,
+        "show_esdf_time": false,
+        "esdf_slice_height": 0.3
+      },
+      "manager": {
+        "max_vel": 1.5,
+        "max_acc": 8.0,
+        "control_points_distance": 0.4,
+        "polyTraj_piece_length": 2.0,
+        "feasibility_tolerance": 0.05,
+        "planning_horizon": 7.5,
+        "use_distinctive_trajs": false,
+        "drone_id": 6
+      }
+    }
+  }
+}

@@ -221,6 +221,12 @@ def make_server(module, state=READY_IDLE, output_dir=None):
     server.map_cloud = None
     server.group_goal_messages = 0
     server.active_diagnostics = None
+    server.air_state = {}
+    server.baseline_snapshot = None
+    server.air_domain_violation = False
+    server.air_floor_m = None
+    server.platform_radius_m = 0.25
+    server.surface_plane_m = 0.0
     server.max_diagnostics_callback_lag_s = 0.0
     server.session_alignment = server._new_alignment_monitor()
     server.readiness = module.ReadinessEvaluator(
@@ -369,6 +375,38 @@ def test_odometry_and_diagnostics_mark_readiness_messages(server_module):
     sample = server.session_alignment.latest_observation("drone_0")
     assert sample[0] == 7.5
     assert sample[1] == 1.0
+
+
+def test_air_domain_violation_is_latched_from_qn_diagnostics(server_module):
+    """A member that entered the transition/water model must be remembered.
+
+    The formation can still reach its slots in the blended model, so the fact
+    that the AIR assumption was broken has to be latched online rather than
+    discovered after the next task has already been dispatched.
+    """
+    server = make_server(server_module, state=READY_IDLE)
+    server._latch_air_domain(3, {"max_medium_flag": "0.165", "min_height_m": "0.057",
+                                 "air_floor_m": "0.085",
+                                 "air_domain_violation": "true"})
+    summary = server._air_domain_summary()
+    assert not summary["ok"]
+    assert summary["max_medium_flag"] == pytest.approx(0.165)
+    assert summary["min_height_m"] == pytest.approx(0.057)
+    assert "model domain" in summary["detail"]
+    assert server.air_floor_m == pytest.approx(0.085)
+
+
+def test_air_domain_stays_clean_when_every_member_stays_airborne(server_module):
+    server = make_server(server_module, state=READY_IDLE)
+    for agent_id in range(7):
+        server._latch_air_domain(agent_id, {"max_medium_flag": "0.0",
+                                            "min_height_m": "0.412",
+                                            "air_floor_m": "0.085",
+                                            "air_domain_violation": "false"})
+    summary = server._air_domain_summary()
+    assert summary["ok"]
+    assert summary["detail"] == ""
+    assert summary["members_reporting"] == 7
 
 
 def test_message_age_uses_a_clock_read_after_the_planner_probe(server_module,

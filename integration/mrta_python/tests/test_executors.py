@@ -112,17 +112,61 @@ def test_competition_is_avoided_when_a_second_eligible_unit_exists():
 
 
 def test_available_from_delays_only_the_owning_executor():
-    a = air_executor("A", ("d0", "d1"), available=4.0, speed=1.0)
+    """One unit's availability does not delay another unit's task."""
+    a = Executor("A", ("d0", "d1"), frozenset({"AIR", "DEEP"}), 4.0, 1.0)
+    b = Executor("B", ("d2", "d3"), frozenset({"AIR", "SHALLOW"}), 0.0, 1.0)
+    only_a = Task("only_a", frozenset({"AIR", "DEEP"}), 2, 4.0, 1000.0, "near")
+    only_b = Task("only_b", frozenset({"AIR", "SHALLOW"}), 2, 4.0, 1000.0, "near")
+    plan = build_executor_plan([a, b], [only_a, only_b],
+                               provider({"A": 1.0, "B": 1.0}),
+                               initial_target_ref="base")
+    by_task = {item.task_id: item for item in plan.items}
+    assert by_task["only_a"].executor_id == "A"
+    assert by_task["only_a"].planned_start == pytest.approx(4.0)
+    assert by_task["only_b"].executor_id == "B"
+    assert by_task["only_b"].planned_start == pytest.approx(0.0)
+    validate_executor_plan(plan, [a, b], [only_a, only_b])
+
+
+def test_each_executor_keeps_its_own_current_position():
+    """A unit keeps its own transition reference, not another unit's target."""
+    a = Executor("A", ("d0", "d1"), frozenset({"AIR"}), available_from=4.0,
+                 nominal_speed_mps=1.0, initial_target_ref="near")
     b = air_executor("B", ("d2", "d3"), available=0.0, speed=1.0)
-    tasks = [task("early", target="near"), task("late", target="far")]
+    tasks = [task("early", target="near"), task("late", target="near")]
     plan = build_executor_plan([a, b], tasks, provider({"A": 1.0, "B": 1.0}),
                                initial_target_ref="base")
     by_task = {item.task_id: item for item in plan.items}
     assert by_task["early"].executor_id == "B"
-    assert by_task["early"].planned_start == 0.0
+    # A starts next to "near" and only becomes available at t=4, so it takes the
+    # remaining task without paying a transit it never made.
     assert by_task["late"].executor_id == "A"
+    assert by_task["late"].travel_time == pytest.approx(0.0)
     assert by_task["late"].planned_start == pytest.approx(4.0)
     validate_executor_plan(plan, [a, b], tasks)
+
+
+def test_a_stationary_unit_is_not_charged_for_another_unit_travel():
+    """Counter-example for the shared-transition-position error.
+
+    A flies a long urgent mission to P; B stays at the start.  B's own task next
+    to the start must still cost its real transit, not A's distance from P.
+    """
+    centers = {"start": (0.0, 0.0, 0.5), "P": (100.0, 0.0, 0.5),
+               "Q": (1.0, 0.0, 0.5)}
+    travel = ExecutorTravelTimeProvider(centers, {"A": 1.0, "B": 1.0})
+    a = Executor("A", ("d0",), frozenset({"AIR", "LONG"}), 0.0, 1.0)
+    b = Executor("B", ("d1",), frozenset({"AIR", "SHORT"}), 0.0, 1.0)
+    long_task = Task("TA", frozenset({"AIR", "LONG"}), 1, 4.0, 5.0, "P")
+    short_task = Task("TB", frozenset({"AIR", "SHORT"}), 1, 4.0, 1000.0, "Q")
+    plan = build_executor_plan([a, b], [long_task, short_task], travel,
+                               initial_target_ref="start")
+    by_task = {item.task_id: item for item in plan.items}
+    assert by_task["TA"].executor_id == "A"
+    assert by_task["TB"].executor_id == "B"
+    # B never moved: 1 m at 1 m/s.  The shared-position error made this 99 s.
+    assert by_task["TB"].travel_time == pytest.approx(1.0)
+    assert by_task["TB"].planned_start == pytest.approx(0.0)
 
 
 def test_service_time_and_required_size_are_respected():

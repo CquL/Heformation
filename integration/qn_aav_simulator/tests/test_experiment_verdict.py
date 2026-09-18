@@ -3,6 +3,7 @@
 import math
 
 import pytest
+from dataclasses import replace
 
 from qn_aav_simulator.experiment_verdict import (
     DISCRETE_SAMPLED, MemberSample, SAFETY_FAIL, SAFETY_NOT_VERIFIED, SAFETY_PASS,
@@ -104,6 +105,78 @@ def test_missing_samples_are_counted_instead_of_silently_dropped():
     assert "valid sample ratio" in " ".join(verdict.reasons)
 
 
+def test_expected_grid_is_independent_of_the_samples_that_were_received():
+    """A hole in the middle of a run must appear in the ledger.
+
+    The grid comes from the experiment window and the nominal period, so the
+    samples that never arrived still occupy their expected slots.  Deriving the
+    grid from the received samples would make both the hole and the ratio
+    disappear.  One nominal period is the matching tolerance, so a hole of four
+    samples removes three grid points (the two edges are still covered).
+    """
+    samples = settled_series(count=20)
+    period = 0.05
+    for series in samples.values():
+        del series[8:12]
+    grid = [index * period for index in range(20)]
+    ledger = build_ledger(sorted(SLOTS), grid, samples, expected_period_s=period)
+    assert ledger.expected_sample_count == 20 * 7
+    assert ledger.valid_sample_count == 18 * 7
+    assert ledger.alignment_failure_count == 2 * 7
+    assert ledger.valid_sample_ratio == pytest.approx(0.9)
+    assert ledger.max_middle_gap_s == pytest.approx(0.15)
+    assert ledger.leading_missing_s == pytest.approx(0.0)
+    assert ledger.trailing_missing_s == pytest.approx(0.0)
+
+
+def test_a_late_but_present_monitor_tick_is_not_a_missing_sample():
+    """Monitor jitter must not be reported as absent data.
+
+    The loop runs late here (60 ms ticks against a 50 ms nominal period).  Every
+    observation is real, so the ledger reports full coverage and exposes the
+    slower achieved period separately instead of blaming alignment.
+    """
+    samples = settled_series(count=8)
+    nominal = 0.05
+    for series in samples.values():
+        for index, sample in enumerate(series):
+            series[index] = replace(sample, ros_time_s=0.06 * index,
+                                    state_stamp_s=0.06 * index)
+    grid = [index * nominal for index in range(8)]
+    ledger = build_ledger(sorted(SLOTS), grid, samples, expected_period_s=nominal)
+    assert ledger.valid_sample_ratio == pytest.approx(1.0)
+    assert ledger.alignment_failure_count == 0
+    assert ledger.observed_period_s == pytest.approx(0.06)
+
+
+def test_ledger_separates_leading_and_trailing_missing_samples():
+    samples = settled_series(count=20)
+    period = 0.05
+    for series in samples.values():
+        del series[:3]
+        del series[-2:]
+    grid = [index * period for index in range(20)]
+    ledger = build_ledger(sorted(SLOTS), grid, samples, expected_period_s=period)
+    assert ledger.leading_missing_s == pytest.approx(2 * period)
+    assert ledger.trailing_missing_s == pytest.approx(period)
+    assert ledger.max_middle_gap_s == pytest.approx(period)
+
+
+def test_ledger_matches_on_the_state_stamp_not_the_monitor_tick():
+    """The sample's own message time decides alignment, not the tick time."""
+    samples = settled_series(count=4)
+    period = 0.05
+    for series in samples.values():
+        for index, sample in enumerate(series):
+            # Every tick ran late; the observation timestamps are what count.
+            series[index] = replace(sample, ros_time_s=100.0 + index,
+                                    state_stamp_s=index * period)
+    grid = [index * period for index in range(4)]
+    ledger = build_ledger(sorted(SLOTS), grid, samples, expected_period_s=period)
+    assert ledger.valid_sample_ratio == pytest.approx(1.0)
+    assert ledger.alignment_failure_count == 0
+
+
 def test_model_time_hold_shorter_than_requested_fails_the_task():
     verdict = verdict_for(settled_series(), model_hold_satisfied=False)
     assert verdict.task_outcome == TASK_FAIL
@@ -150,3 +223,44 @@ def test_aligned_settled_run_is_valid_and_passing():
     assert verdict.experiment_validity == VALIDITY_VALID
     assert not verdict.reasons
     assert math.isfinite(verdict.metrics.final_slot_error_m)
+
+
+def test_leaving_the_air_domain_invalidates_the_experiment():
+    """Reaching the slots in water dynamics is not a valid AIR result."""
+    verdict = verdict_for(
+        settled_series(), air_domain_ok=False,
+        air_domain_detail="model domain: max_medium_flag=1.000")
+    assert verdict.task_outcome == TASK_PASS
+    assert verdict.safety_outcome == SAFETY_PASS
+    assert verdict.experiment_validity == VALIDITY_INVALID
+    assert not verdict.air_domain_ok
+    assert "model domain" in " ".join(verdict.reasons)
+
+
+def test_surface_clearance_subtracts_the_platform_envelope():
+    """Two members 0.6 m apart with 0.25 m radii are 0.1 m apart in surface terms."""
+    samples = settled_series(count=2)
+    samples[0][0] = MemberSample(
+        agent_id=0, ros_time_s=samples[0][0].ros_time_s, position=(0.0, 0.0, 0.5),
+        world_velocity=(0.0, 0.0, 0.0), target_position=(0.0, 0.0, 0.5))
+    samples[1][0] = MemberSample(
+        agent_id=1, ros_time_s=samples[1][0].ros_time_s, position=(0.6, 0.0, 0.5),
+        world_velocity=(0.0, 0.0, 0.0), target_position=(0.6, 0.0, 0.5))
+    centre_only = evaluate_safety(samples, obstacle_clearances=[5.0],
+                                  required_inter_agent_clearance_m=0.5)
+    surface = evaluate_safety(samples, obstacle_clearances=[5.0],
+                              required_inter_agent_clearance_m=0.5,
+                              platform_radius_m=0.25)
+    assert centre_only.outcome == SAFETY_PASS
+    assert surface.outcome == SAFETY_FAIL
+    assert surface.min_inter_agent_surface_clearance_m == pytest.approx(0.1)
+
+
+def test_observed_surface_violation_fails_safety_even_when_slots_are_met():
+    safety = evaluate_safety(settled_series(), obstacle_clearances=[5.0],
+                             surface_clearance_violation=True,
+                             surface_detail="member below the surface plane")
+    assert safety.outcome == SAFETY_FAIL
+    verdict = verdict_for(settled_series(), safety=safety)
+    assert verdict.task_outcome == TASK_PASS
+    assert verdict.safety_outcome == SAFETY_FAIL

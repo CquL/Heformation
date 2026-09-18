@@ -88,6 +88,8 @@ class MonitorSnapshot:
     stale_agent_ids: Tuple[int, ...]
     hold_started: Optional[float]
     hold_elapsed: float
+    min_inter_agent_surface_distance: Optional[float] = None
+    min_height_m: Optional[float] = None
     terminal_state: Optional[str] = None
     reason: int = 0
     model_hold_elapsed_s: Optional[float] = None
@@ -108,7 +110,8 @@ class GroupCompletionMonitor:
 
     def __init__(self, center, hold_duration, start_time, *, agent_ids=AGENT_IDS,
                  relative_slots=None, swarm_scale=2.0, epsilon_p=0.5,
-                 epsilon_v=0.25, odom_timeout=0.25, execution_timeout=180.0):
+                 epsilon_v=0.25, odom_timeout=0.25, execution_timeout=180.0,
+                 platform_radius_m=0.0):
         self.center = validate_target("world", center, hold_duration)
         self.slots = validate_configuration(
             agent_ids, DEFAULT_RELATIVE_SLOTS if relative_slots is None else relative_slots,
@@ -127,6 +130,9 @@ class GroupCompletionMonitor:
         self.epsilon_v = epsilon_v
         self.odom_timeout = odom_timeout
         self.execution_timeout = execution_timeout
+        if not math.isfinite(platform_radius_m) or platform_radius_m < 0.0:
+            raise ValueError("platform_radius_m must be finite and non-negative")
+        self.platform_radius_m = float(platform_radius_m)
         self.hold_started = None
         self.last_evaluation = None
         self.snapshot = None
@@ -139,12 +145,24 @@ class GroupCompletionMonitor:
 
     def evaluate(self, now: float, samples: Mapping[int, OdometrySample], *,
                  cancelled: bool = False,
-                 model_hold_satisfied=None) -> MonitorSnapshot:
+                 model_hold_satisfied=None,
+                 hold_not_before_s: Optional[float] = None,
+                 reference_confirmed: bool = True) -> MonitorSnapshot:
         """One completion evaluation.
 
         ``model_hold_satisfied(hold_start_ros, now_ros)`` optionally gates the
         SUCCEEDED transition on the qn *model* time actually advanced during the
         hold window.  ROS dwell time alone never completes a task.
+
+        ``hold_not_before_s`` is the moment the last member adopted this task's
+        reference.  The hold window may not start earlier than that: a member
+        still settled on the previous target must not accumulate dwell time for
+        the new one.
+
+        ``reference_confirmed`` is False while the members have not yet adopted
+        this task's reference.  Waiting for adoption is normal and is not a
+        fault; the hold window simply does not run, and the existing execution
+        timeout is what eventually locks a run whose reference never arrives.
         """
         if self.snapshot is not None and self.snapshot.terminal_state is not None:
             return self.snapshot
@@ -171,9 +189,16 @@ class GroupCompletionMonitor:
         latest = [window[-1] for window in fresh.values()]
         distances = [math.dist(first.position, second.position)
                      for first, second in combinations(latest, 2)]
+        # Surface clearance subtracts both envelopes: a centre distance is not
+        # a clearance between two bodies.
+        surface_distances = [
+            distance - 2.0 * self.platform_radius_m for distance in distances]
         max_error = max(position_errors, default=None)
         max_speed = max(speeds, default=None)
         min_distance = min(distances, default=None)
+        min_surface_distance = min(surface_distances, default=None)
+        min_height = min((min(sample.position[2] for sample in window)
+                          for window in fresh.values()), default=None)
         terminal = None
         reason = 0
         if cancelled:
@@ -191,9 +216,13 @@ class GroupCompletionMonitor:
                    and max_error <= self.epsilon_p and max_speed <= self.epsilon_v)
         model_hold_elapsed = None
         model_hold_pending = False
-        if settled:
+        if settled and reference_confirmed:
             if self.hold_started is None:
                 self.hold_started = now
+            if hold_not_before_s is not None:
+                # Adoption happened after this window began: the window may not
+                # count dwell time from before the reference was in use.
+                self.hold_started = max(self.hold_started, float(hold_not_before_s))
             if now - self.hold_started >= self.hold_duration:
                 if model_hold_satisfied is None:
                     terminal = "SUCCEEDED"
@@ -216,6 +245,8 @@ class GroupCompletionMonitor:
             min_inter_agent_distance=min_distance, fresh_agent_count=len(fresh),
             stale_agent_ids=stale, hold_started=self.hold_started,
             hold_elapsed=0.0 if self.hold_started is None else now - self.hold_started,
+            min_inter_agent_surface_distance=min_surface_distance,
+            min_height_m=min_height,
             terminal_state=terminal, reason=reason,
             model_hold_elapsed_s=model_hold_elapsed,
             model_hold_pending=model_hold_pending)

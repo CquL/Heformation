@@ -31,6 +31,60 @@ def test_all_seven_members_must_hold_their_own_scaled_slots():
     assert final.min_inter_agent_distance == pytest.approx(4.0, abs=1e-4)
 
 
+def test_hold_window_cannot_start_before_the_reference_was_adopted():
+    """A member still settled on the old target must not bank dwell time.
+
+    The formation is already inside epsilon_p at t=10.0, but the new reference
+    is only adopted at t=10.4.  The hold may therefore start at 10.4, so the
+    earliest possible completion is 10.9 and not 10.5.
+    """
+    subject = monitor(hold=0.5)
+    adopted_at = 10.4
+    early = subject.evaluate(10.0, samples(subject, 10.0),
+                             hold_not_before_s=adopted_at)
+    assert early.hold_started == pytest.approx(adopted_at)
+    for now in (10.1, 10.2, 10.3):
+        assert subject.evaluate(now, samples(subject, now),
+                                hold_not_before_s=adopted_at).terminal_state is None
+    for now in (10.5, 10.6, 10.7, 10.8):
+        assert subject.evaluate(now, samples(subject, now),
+                                hold_not_before_s=adopted_at).terminal_state is None
+    final = subject.evaluate(10.9, samples(subject, 10.9),
+                             hold_not_before_s=adopted_at)
+    assert final.terminal_state == "SUCCEEDED"
+
+
+def test_surface_clearance_subtracts_both_platform_radii():
+    subject = monitor(platform_radius_m=0.25)
+    snapshot = subject.evaluate(10.0, samples(subject, 10.0))
+    assert snapshot.min_inter_agent_distance == pytest.approx(4.0, abs=1e-4)
+    assert snapshot.min_inter_agent_surface_distance == pytest.approx(
+        4.0 - 2 * 0.25, abs=1e-4)
+
+
+def test_waiting_for_reference_adoption_is_not_a_completion():
+    """A settled formation keeps waiting instead of banking dwell time."""
+    subject = monitor(hold=0.5)
+    for now in (10.0, 10.2, 10.4, 10.6):
+        snapshot = subject.evaluate(now, samples(subject, now),
+                                    reference_confirmed=False)
+        assert snapshot.terminal_state is None
+        assert snapshot.hold_started is None
+    # Once the reference is confirmed the window starts from that moment.
+    assert subject.evaluate(10.8, samples(subject, 10.8),
+                            reference_confirmed=False).hold_started is None
+    first = subject.evaluate(10.9, samples(subject, 10.9))
+    assert first.hold_started == pytest.approx(10.9)
+
+
+def test_monitor_reports_the_lowest_member_height():
+    subject = monitor()
+    window = samples(subject, 10.0)
+    window[3] = OdometrySample(10.0, (subject.targets[3][0], subject.targets[3][1],
+                                      0.21), (0.0, 0.0, 0.0))
+    assert subject.evaluate(10.0, window).min_height_m == pytest.approx(0.21)
+
+
 @pytest.mark.parametrize("failure", ["position", "velocity"])
 def test_one_unsettled_member_resets_the_entire_hold_window(failure):
     subject = monitor(0.3)

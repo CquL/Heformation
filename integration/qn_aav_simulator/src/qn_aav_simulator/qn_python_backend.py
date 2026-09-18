@@ -343,6 +343,15 @@ class QnPythonClosedLoopBackend:
                 "acceleration_directly_consumed": False,
                 "reference_position_m": reference_position,
                 "reference_velocity_mps": reference_velocity,
+                # The reference the controller actually used this step.  The
+                # publisher records this instead of recomputing a second,
+                # possibly diverging derivation of the same quantity.
+                "reference_yaw_rad": reference.yaw_rad,
+                "reference_used": {
+                    "position_m": reference.position_m,
+                    "velocity_mps": reference.velocity_mps,
+                    "yaw_rad": reference.yaw_rad,
+                },
                 "reference_lead_m": self._reference_lead_m,
                 "reference_lead_limit_m": self.max_reference_lead_m,
                 "reference_lead_clamped": self._reference_lead_clamped,

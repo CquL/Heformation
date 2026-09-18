@@ -108,6 +108,8 @@
         <param name="init_y" value="$(arg init_y_)"/>
         <param name="init_z" value="$(arg init_z_)"/>
         <param name="drone_id" value="$(arg drone_id)"/>
+        <!-- Fixed outer step: the single authority for the qn control rate. -->
+        <param name="outer_dt_s" value="0.01"/>
         <remap from="~command" to="drone_$(arg drone_id)_planning/pos_cmd"/>
         <!-- Swarm compatibility input: world-frame linear velocity.  It keeps
              the topic the Swarm planners already consume and is NOT a general

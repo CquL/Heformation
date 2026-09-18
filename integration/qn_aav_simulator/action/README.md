@@ -54,6 +54,8 @@ The node reads private parameters:
 | `obstacle_clearance` | `0.2` m |
 | `obstacle_sample_period` | `1.0` s |
 | `min_valid_sample_ratio` | `0.9` |
+| `platform_radius_m` | `0.25` m |
+| `surface_plane_m` | `0.0` m |
 | `output_dir` | `/experiments/current` |
 
 Exactly the seven IDs above are supported. The offsets have zero relative height.

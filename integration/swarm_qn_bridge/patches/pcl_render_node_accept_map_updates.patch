@@ -1,0 +1,23 @@
+Upstream local_sensing latches the first global map and ignores every later one
+(`if (has_global_map) return;`).  That makes the rendered local cloud a function
+of the very first map message only, so a deliberate obstacle published later can
+never reach the planners.
+
+M2 needs a deterministic obstacle that the planners actually see, so the map is
+refreshed instead of latched: each message replaces the voxelised map and the
+k-d tree.  The upstream file is not modified in the repository; this patch is
+applied at image build time and is recorded here.
+
+--- a/src/uav_simulator/local_sensing/src/pointcloud_render_node.cpp
++++ b/src/uav_simulator/local_sensing/src/pointcloud_render_node.cpp
+@@ -79,9 +79,7 @@
+ 
+ void rcvGlobalPointCloudCallBack(
+     const sensor_msgs::PointCloud2& pointcloud_map) {
+-  if (has_global_map) return;
+-
+-  ROS_WARN("Global Pointcloud received..");
++  ROS_WARN_ONCE("Global Pointcloud received; map updates are accepted.");
+ 
+   pcl::PointCloud<pcl::PointXYZ> cloud_input;
+   pcl::fromROSMsg(pointcloud_map, cloud_input);

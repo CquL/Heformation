@@ -5,8 +5,59 @@ import math
 import pytest
 
 from qn_aav_simulator.qn_telemetry import (
-    CommandSnapshot, ModelClock, ReferenceUsageTracker,
+    CommandAdoptionBuffer, CommandSnapshot, ModelClock, ReferenceUsageTracker,
 )
+
+
+def command(arrived, trajectory_id=1, position=(0.0, 0.0, 0.5)):
+    return {"received_ros_time_s": arrived, "trajectory_id": trajectory_id,
+            "position": position, "stamp_s": arrived}
+
+
+def test_one_command_is_adopted_per_fixed_step_and_then_held():
+    """A command applies at the next step boundary and holds for that step."""
+    commands = CommandAdoptionBuffer(8)
+    commands.note(command(1.000, trajectory_id=1))
+    adopted = commands.adopt()
+    assert adopted["trajectory_id"] == 1
+    # No new command in the following steps: the node holds the previous one.
+    assert commands.adopt() is None
+    assert commands.adopt() is None
+    commands.note(command(1.030, trajectory_id=2))
+    assert commands.adopt()["trajectory_id"] == 2
+    assert commands.adopted_count == 2
+
+
+def test_a_later_command_is_never_applied_to_an_earlier_interval():
+    """After a stall the model just falls behind; history is not replayed."""
+    commands = CommandAdoptionBuffer(8)
+    commands.note(command(1.000, trajectory_id=1))
+    assert commands.adopt()["trajectory_id"] == 1
+    # The loop stalls for 0.2 s and two commands arrive while it is blocked.
+    commands.note(command(1.100, trajectory_id=2))
+    commands.note(command(1.200, trajectory_id=3))
+    # Exactly one step happens next, and it uses the newest command; the
+    # skipped interval is reported as model/ROS lag, not integrated twice.
+    assert commands.adopt()["trajectory_id"] == 3
+    assert commands.adopt() is None
+    assert commands.dropped_count == 0
+
+
+def test_a_burst_beyond_the_cache_is_latched_not_silently_dropped():
+    commands = CommandAdoptionBuffer(2)
+    for index in range(3):
+        commands.note(command(1.0 + 0.01 * index, trajectory_id=index))
+    assert commands.dropped_count == 1
+    assert commands.violated
+
+
+def test_out_of_order_delivery_is_latched():
+    commands = CommandAdoptionBuffer(8)
+    commands.note(command(2.000, trajectory_id=1))
+    commands.adopt()
+    commands.note(command(1.500, trajectory_id=2))
+    assert commands.order_violations == 1
+    assert commands.violated
 
 
 def snapshot(step, position, trajectory_id=1, stamp=0.0, velocity=(0, 0, 0),

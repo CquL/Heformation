@@ -17,6 +17,7 @@ import math
 import random
 from dataclasses import dataclass, field
 from typing import Callable, Dict, FrozenSet, List, Mapping, Sequence, Tuple
+from typing import Optional
 
 from .validation import identifier, nonnegative
 
@@ -97,6 +98,7 @@ class Executor:
     capabilities: FrozenSet[str]
     available_from: float = 0.0
     nominal_speed_mps: float = 1.5
+    initial_target_ref: Optional[str] = None
 
 
 @dataclass
@@ -212,9 +214,14 @@ def build_executor_plan(executors: Sequence[Executor], tasks: Sequence,
     if not callable(travel_time_provider):
         raise ValueError("travel_time_provider must be callable")
     rng = random.Random(seed)
+    # Each unit keeps its own availability *and* its own current position.  A
+    # single shared position would move every unit to whichever target the last
+    # allocation happened to visit.
     queue_finish = {executor.executor_id: executor.available_from
                     for executor in executors}
-    current_target_ref = initial_target_ref
+    current_target_ref = {
+        executor.executor_id: (executor.initial_target_ref or initial_target_ref)
+        for executor in executors}
     remaining = list(tasks)
     plan = ExecutorPlan()
     while remaining:
@@ -225,7 +232,8 @@ def build_executor_plan(executors: Sequence[Executor], tasks: Sequence,
         for task in candidates:
             for executor in eligible_executors(executors, task):
                 transit = travel_time_provider(
-                    executor.executor_id, current_target_ref, task.target_ref)
+                    executor.executor_id,
+                    current_target_ref[executor.executor_id], task.target_ref)
                 nonnegative(transit, "travel_time_provider result")
                 start = queue_finish[executor.executor_id]
                 finish = start + transit + task.service_time
@@ -245,7 +253,7 @@ def build_executor_plan(executors: Sequence[Executor], tasks: Sequence,
             travel_time=transit, wait_time=0.0, service_time=selected.service_time,
         ))
         queue_finish[executor.executor_id] = finish
-        current_target_ref = selected.target_ref
+        current_target_ref[executor.executor_id] = selected.target_ref
         remaining.remove(selected)
     validate_executor_plan(plan, executors, tasks)
     return plan

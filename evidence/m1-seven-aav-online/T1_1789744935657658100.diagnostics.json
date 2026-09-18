@@ -1,0 +1,507 @@
+{
+  "task_id": "T1",
+  "goal_id": "/formation_mission_runner-1-1789744935.657",
+  "evidence_file": "T1_1789744935657658100.diagnostics.json",
+  "formation_center": [
+    -24.0,
+    0.0,
+    0.5
+  ],
+  "hold_duration": 5.0,
+  "actual_start_time": 1789744935.657658,
+  "goal_publish_count": 1,
+  "topic_group_goal_count": 1,
+  "group_goal_publisher": "/formation_action_server",
+  "dispatch_ros_time_s": 1789744935.6587832,
+  "planner_nominal_finish_times": {
+    "0": 1789744937.741641,
+    "2": 1789744937.8645337,
+    "5": 1789744937.8822799,
+    "1": 1789744937.8912973,
+    "4": 1789744941.399912,
+    "3": 1789744941.4078119
+  },
+  "max_position_error": 2.3278152958666176,
+  "max_velocity": 1.6896308418161756,
+  "min_inter_agent_distance": 2.289379606450671,
+  "position_not_settled": true,
+  "velocity_not_settled": true,
+  "successful_hold_window": {
+    "start": 1789744943.8096817,
+    "end": 1789744948.862025,
+    "duration": 5.052343368530273,
+    "required_duration": 5.0,
+    "min_model_hold_s": 5.009999999999003
+  },
+  "model_hold": {
+    "min_model_hold_s": 5.009999999999003,
+    "per_agent_s": {
+      "0": 5.029999999998999,
+      "1": 5.039999999998997,
+      "2": 5.039999999998997,
+      "3": 5.039999999998997,
+      "4": 5.039999999998997,
+      "5": 5.009999999999003,
+      "6": 5.039999999998997
+    },
+    "required_s": 5.0
+  },
+  "run_state": "READY_IDLE",
+  "last_qn_state_update": {
+    "agent_id": 5,
+    "ros_time_s": 1789744948.8619294,
+    "message_stamp_s": 1789744948.8552966,
+    "model_time_s": 44.599999999999696
+  },
+  "min_obstacle_clearance": 3.296109384263952,
+  "actual_finish_time": 1789744948.862025,
+  "final_phase": "HOLDING",
+  "failed_agent_ids": [],
+  "planner_finish_to_actual_seconds": {
+    "0": 11.120383977890015,
+    "2": 10.997491359710693,
+    "5": 10.979745149612427,
+    "1": 10.970727682113647,
+    "4": 7.462112903594971,
+    "3": 7.4542131423950195
+  },
+  "odom_sample_counts": {
+    "0": 1321,
+    "1": 1319,
+    "2": 1320,
+    "3": 1320,
+    "4": 1319,
+    "5": 1321,
+    "6": 1320
+  },
+  "odom_sample_rates": {
+    "0": 100.04266071712922,
+    "1": 99.89119567440835,
+    "2": 99.96692819576879,
+    "3": 99.96692819576879,
+    "4": 99.89119567440835,
+    "5": 100.04266071712922,
+    "6": 99.96692819576879
+  },
+  "reference_missing_samples": 0,
+  "odometry_contract_errors": {},
+  "max_diagnostics_callback_lag_s": 0.05073261260986328,
+  "adoption_verdict": {
+    "state": "ADOPTED",
+    "execution_id": "T1",
+    "goal_id": "/formation_mission_runner-1-1789744935.657",
+    "dispatch_ros_time_s": 1789744935.6587832,
+    "group_goal_publish_count": 1,
+    "group_goal_publisher": "/formation_action_server",
+    "group_goal_authorized": true,
+    "per_agent": [
+      {
+        "agent_id": 0,
+        "pre_dispatch_trajectory_id": null,
+        "pre_dispatch_qn_source_trajectory_id": 0,
+        "pre_dispatch_used_outer_step": 3147,
+        "post_dispatch_trajectory_ids": [
+          1,
+          2
+        ],
+        "qn_source_trajectory_ids": [
+          0,
+          1,
+          2
+        ],
+        "adopted_trajectory_id": 1,
+        "adopted_used_outer_step": 3152,
+        "adopted_ros_time_s": 1789744935.6830533,
+        "adopted_command_stamp_s": 1789744935.66587,
+        "new_trajectory_observed": true,
+        "qn_source_matches": true,
+        "stamp_only_evidence_seen": false,
+        "failure_reason": ""
+      },
+      {
+        "agent_id": 1,
+        "pre_dispatch_trajectory_id": null,
+        "pre_dispatch_qn_source_trajectory_id": 0,
+        "pre_dispatch_used_outer_step": 3149,
+        "post_dispatch_trajectory_ids": [
+          1,
+          2
+        ],
+        "qn_source_trajectory_ids": [
+          0,
+          1,
+          2
+        ],
+        "adopted_trajectory_id": 1,
+        "adopted_used_outer_step": 3156,
+        "adopted_ros_time_s": 1789744935.72447,
+        "adopted_command_stamp_s": 1789744935.7089539,
+        "new_trajectory_observed": true,
+        "qn_source_matches": true,
+        "stamp_only_evidence_seen": false,
+        "failure_reason": ""
+      },
+      {
+        "agent_id": 2,
+        "pre_dispatch_trajectory_id": null,
+        "pre_dispatch_qn_source_trajectory_id": 0,
+        "pre_dispatch_used_outer_step": 3137,
+        "post_dispatch_trajectory_ids": [
+          1,
+          2
+        ],
+        "qn_source_trajectory_ids": [
+          0,
+          1,
+          2
+        ],
+        "adopted_trajectory_id": 1,
+        "adopted_used_outer_step": 3146,
+        "adopted_ros_time_s": 1789744935.7282884,
+        "adopted_command_stamp_s": 1789744935.7110014,
+        "new_trajectory_observed": true,
+        "qn_source_matches": true,
+        "stamp_only_evidence_seen": false,
+        "failure_reason": ""
+      },
+      {
+        "agent_id": 3,
+        "pre_dispatch_trajectory_id": null,
+        "pre_dispatch_qn_source_trajectory_id": 0,
+        "pre_dispatch_used_outer_step": 3137,
+        "post_dispatch_trajectory_ids": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "qn_source_trajectory_ids": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ],
+        "adopted_trajectory_id": 1,
+        "adopted_used_outer_step": 3142,
+        "adopted_ros_time_s": 1789744935.6916656,
+        "adopted_command_stamp_s": 1789744935.6855352,
+        "new_trajectory_observed": true,
+        "qn_source_matches": true,
+        "stamp_only_evidence_seen": false,
+        "failure_reason": ""
+      },
+      {
+        "agent_id": 4,
+        "pre_dispatch_trajectory_id": null,
+        "pre_dispatch_qn_source_trajectory_id": 0,
+        "pre_dispatch_used_outer_step": 3141,
+        "post_dispatch_trajectory_ids": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "qn_source_trajectory_ids": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ],
+        "adopted_trajectory_id": 1,
+        "adopted_used_outer_step": 3147,
+        "adopted_ros_time_s": 1789744935.7113008,
+        "adopted_command_stamp_s": 1789744935.7036152,
+        "new_trajectory_observed": true,
+        "qn_source_matches": true,
+        "stamp_only_evidence_seen": false,
+        "failure_reason": ""
+      },
+      {
+        "agent_id": 5,
+        "pre_dispatch_trajectory_id": null,
+        "pre_dispatch_qn_source_trajectory_id": 0,
+        "pre_dispatch_used_outer_step": 3137,
+        "post_dispatch_trajectory_ids": [
+          1,
+          2
+        ],
+        "qn_source_trajectory_ids": [
+          0,
+          1,
+          2
+        ],
+        "adopted_trajectory_id": 1,
+        "adopted_used_outer_step": 3147,
+        "adopted_ros_time_s": 1789744935.7424738,
+        "adopted_command_stamp_s": 1789744935.7322924,
+        "new_trajectory_observed": true,
+        "qn_source_matches": true,
+        "stamp_only_evidence_seen": false,
+        "failure_reason": ""
+      },
+      {
+        "agent_id": 6,
+        "pre_dispatch_trajectory_id": null,
+        "pre_dispatch_qn_source_trajectory_id": 0,
+        "pre_dispatch_used_outer_step": 3137,
+        "post_dispatch_trajectory_ids": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "qn_source_trajectory_ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "adopted_trajectory_id": 1,
+        "adopted_used_outer_step": 3147,
+        "adopted_ros_time_s": 1789744935.7554898,
+        "adopted_command_stamp_s": 1789744935.7427495,
+        "new_trajectory_observed": true,
+        "qn_source_matches": true,
+        "stamp_only_evidence_seen": false,
+        "failure_reason": ""
+      }
+    ],
+    "failures": [],
+    "fallback_used": false
+  },
+  "state_machine": {
+    "state": "READY_IDLE",
+    "goal_id": null,
+    "execution_id": null,
+    "reserved_at_s": null,
+    "cancel_requested": false,
+    "cancel_ignored_while_running": false,
+    "unknown_locked_reason": null,
+    "events": [
+      {
+        "ros_time_s": 1789744935.529858,
+        "monotonic_s": 39316.2553725,
+        "state": "READY_IDLE",
+        "event": "readiness_satisfied",
+        "detail": ""
+      },
+      {
+        "ros_time_s": 1789744935.529858,
+        "monotonic_s": 39316.348256239,
+        "state": "ACTIVE",
+        "event": "resource_reserved",
+        "detail": "/formation_mission_runner-1-1789744935.657"
+      },
+      {
+        "ros_time_s": 1789744943.6741657,
+        "monotonic_s": 39324.502022072,
+        "state": "HOLDING",
+        "event": "hold_started",
+        "detail": ""
+      },
+      {
+        "ros_time_s": 1789744948.862025,
+        "monotonic_s": 39329.588891622,
+        "state": "SUCCEEDED",
+        "event": "hold_completed",
+        "detail": ""
+      },
+      {
+        "ros_time_s": 1789744948.862025,
+        "monotonic_s": 39329.588896014,
+        "state": "READY_IDLE",
+        "event": "resource_released",
+        "detail": ""
+      }
+    ]
+  },
+  "time_alignment": {
+    "started_ros_time_s": 1789744935.760493,
+    "finished_ros_time_s": 1789744948.760493,
+    "duration_s": 13.0,
+    "agent_ids": [
+      "drone_0",
+      "drone_1",
+      "drone_2",
+      "drone_3",
+      "drone_4",
+      "drone_5",
+      "drone_6"
+    ],
+    "grid_point_count": 131,
+    "aligned_point_count": 131,
+    "alignment_failure_count": 0,
+    "valid_sample_count": 917,
+    "expected_sample_count": 917,
+    "valid_sample_ratio": 1.0,
+    "max_abs_model_ros_drift_s": 0.002165165078050535,
+    "max_cross_agent_drift_s": 0.0021655768007917686,
+    "model_ros_rate": {
+      "drone_0": 1.0000024649930137,
+      "drone_1": 1.000002471695407,
+      "drone_2": 1.000000907770718,
+      "drone_3": 1.0000030459840483,
+      "drone_4": 0.9999983616541999,
+      "drone_5": 1.000000089513732,
+      "drone_6": 1.0000009027935846
+    },
+    "model_wall_rate": {
+      "drone_0": 0.9999344633051293,
+      "drone_1": 0.9998771744751337,
+      "drone_2": 0.9998846826408908,
+      "drone_3": 0.9999675164167288,
+      "drone_4": 0.9998282521105795,
+      "drone_5": 1.0000717296744037,
+      "drone_6": 1.0000409344690082
+    },
+    "worst_model_ros_rate": 0.9999983616541999,
+    "worst_model_wall_rate": 0.9998282521105795,
+    "reference_speed_mps": 1.560154315345683,
+    "induced_reference_displacement_m": 0.0033779916399563144,
+    "baseline_complete": false,
+    "common_start_ros_time_s": 1789744935.760493,
+    "history_truncated": false,
+    "within_thresholds": true,
+    "reasons": []
+  },
+  "time_alignment_baseline": {
+    "started_ros_time_s": 1789744904.5153186,
+    "finished_ros_time_s": 1789744935.4153185,
+    "duration_s": 30.899999856948853,
+    "agent_ids": [
+      "drone_0",
+      "drone_1",
+      "drone_2",
+      "drone_3",
+      "drone_4",
+      "drone_5",
+      "drone_6"
+    ],
+    "grid_point_count": 310,
+    "aligned_point_count": 310,
+    "alignment_failure_count": 0,
+    "valid_sample_count": 2170,
+    "expected_sample_count": 2170,
+    "valid_sample_ratio": 1.0,
+    "max_abs_model_ros_drift_s": 0.0033031544511850086,
+    "max_cross_agent_drift_s": 0.003356266943146835,
+    "model_ros_rate": {
+      "drone_0": 1.000000673755179,
+      "drone_1": 1.0000007226871,
+      "drone_2": 1.0000003128330222,
+      "drone_3": 1.0000010083551747,
+      "drone_4": 1.0000007760928615,
+      "drone_5": 1.0000006625980609,
+      "drone_6": 1.0000004324247644
+    },
+    "model_wall_rate": {
+      "drone_0": 1.0000370855037943,
+      "drone_1": 0.9999937954590348,
+      "drone_2": 1.0000023745388473,
+      "drone_3": 0.9999839676565703,
+      "drone_4": 1.0000158675803599,
+      "drone_5": 0.9999921901088155,
+      "drone_6": 0.9999797741551539
+    },
+    "worst_model_ros_rate": 1.0000003128330222,
+    "worst_model_wall_rate": 0.9999797741551539,
+    "reference_speed_mps": null,
+    "induced_reference_displacement_m": null,
+    "baseline_complete": true,
+    "common_start_ros_time_s": 1789744904.5153186,
+    "history_truncated": false,
+    "within_thresholds": true,
+    "reasons": []
+  },
+  "air_domain": {
+    "ok": true,
+    "detail": "",
+    "max_medium_flag": 0.0,
+    "min_height_m": 0.17026216061427793,
+    "air_floor_m": 0.085,
+    "members_reporting": 7
+  },
+  "verdict": {
+    "task_outcome": "PASS",
+    "safety_outcome": "PASS",
+    "experiment_validity": "VALID",
+    "max_position_error_m": 0.15778713905800884,
+    "hold_duration_required_s": 5.0,
+    "model_hold_satisfied": true,
+    "adoption_state": "ADOPTED",
+    "time_alignment_ok": true,
+    "air_domain_ok": true,
+    "metrics": {
+      "final_slot_error_m": 0.15778713905800884,
+      "trajectory_tracking_error_m": 1.112673722311143,
+      "velocity_tracking_error_mps": 1.6884920716913459,
+      "hold_velocity_mps": 0.23754686952545473,
+      "formation_shape_error_m": 0.15831143512191567
+    },
+    "sample_ledger": {
+      "expected_sample_count": 1855,
+      "valid_sample_count": 1855,
+      "valid_sample_ratio": 1.0,
+      "alignment_failure_count": 0,
+      "max_continuous_gap_s": 0.05000019073486328,
+      "leading_missing_s": 0.0,
+      "trailing_missing_s": 0.0,
+      "max_middle_gap_s": 0.05000019073486328,
+      "observed_period_s": 0.050000270207722984,
+      "agent_expected_counts": {
+        "0": 265,
+        "1": 265,
+        "2": 265,
+        "3": 265,
+        "4": 265,
+        "5": 265,
+        "6": 265
+      },
+      "agent_valid_counts": {
+        "0": 265,
+        "1": 265,
+        "2": 265,
+        "3": 265,
+        "4": 265,
+        "5": 265,
+        "6": 265
+      },
+      "agent_max_gaps_s": {
+        "0": 0.05000019073486328,
+        "1": 0.05000019073486328,
+        "2": 0.05000019073486328,
+        "3": 0.05000019073486328,
+        "4": 0.05000019073486328,
+        "5": 0.05000019073486328,
+        "6": 0.05000019073486328
+      }
+    },
+    "safety": {
+      "outcome": "PASS",
+      "evidence_kind": "DISCRETE_SAMPLED",
+      "min_inter_agent_distance_m": 2.289379606450671,
+      "min_obstacle_clearance_m": 3.296109384263952,
+      "min_inter_agent_surface_clearance_m": 1.7893796064506708,
+      "platform_radius_m": 0.25,
+      "check_resolution": "DISCRETE_SAMPLED",
+      "required_inter_agent_clearance_m": 0.5,
+      "required_obstacle_clearance_m": 0.2,
+      "collision_pairs": [],
+      "reasons": []
+    },
+    "reasons": []
+  },
+  "task_outcome": "PASS",
+  "safety_outcome": "PASS",
+  "experiment_validity": "VALID",
+  "safety_evidence_kind": "DISCRETE_SAMPLED",
+  "reason": 0,
+  "reason_text": "task_outcome=PASS safety_outcome=PASS experiment_validity=VALID",
+  "accepted_for_dispatch": true,
+  "resource_released": true
+}

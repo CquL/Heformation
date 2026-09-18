@@ -1,0 +1,1292 @@
+{
+  "mode": "mission",
+  "status": "FAILED",
+  "seed": 0,
+  "nominal_speed_mps": 1.5,
+  "planner_speed_mps": 1.5,
+  "delay_tolerance": 0.1,
+  "repair_mode": "on",
+  "obstacle_scenario": true,
+  "obstacle_center": [
+    -23.0,
+    0.0,
+    0.5
+  ],
+  "obstacle_size": [
+    1.0,
+    1.0,
+    1.2
+  ],
+  "mission_epoch": 1789745190.3294766,
+  "initial_plan": {
+    "items": [
+      {
+        "execution_id": "exec-0000-T1",
+        "task_id": "T1",
+        "coalition": [
+          "drone_0",
+          "drone_1",
+          "drone_2",
+          "drone_3",
+          "drone_4",
+          "drone_5",
+          "drone_6"
+        ],
+        "planned_start": 0.0,
+        "planned_finish": 6.333333333333333,
+        "travel_time": 1.3333333333333333,
+        "wait_time": 0.0,
+        "service_time": 5.0,
+        "status": "PLANNED"
+      },
+      {
+        "execution_id": "exec-0001-T2",
+        "task_id": "T2",
+        "coalition": [
+          "drone_0",
+          "drone_1",
+          "drone_2",
+          "drone_3",
+          "drone_4",
+          "drone_5",
+          "drone_6"
+        ],
+        "planned_start": 6.333333333333333,
+        "planned_finish": 12.666666666666666,
+        "travel_time": 1.3333333333333333,
+        "wait_time": 0.0,
+        "service_time": 5.0,
+        "status": "PLANNED"
+      },
+      {
+        "execution_id": "exec-0002-T3",
+        "task_id": "T3",
+        "coalition": [
+          "drone_0",
+          "drone_1",
+          "drone_2",
+          "drone_3",
+          "drone_4",
+          "drone_5",
+          "drone_6"
+        ],
+        "planned_start": 12.666666666666666,
+        "planned_finish": 20.333333333333332,
+        "travel_time": 2.6666666666666665,
+        "wait_time": 0.0,
+        "service_time": 5.0,
+        "status": "PLANNED"
+      }
+    ]
+  },
+  "plan_history": [
+    {
+      "event_id": "/formation_mission_runner-1-1789745190.330:completion",
+      "plan_before": {
+        "items": [
+          {
+            "execution_id": "exec-0000-T1",
+            "task_id": "T1",
+            "coalition": [
+              "drone_0",
+              "drone_1",
+              "drone_2",
+              "drone_3",
+              "drone_4",
+              "drone_5",
+              "drone_6"
+            ],
+            "planned_start": 0.0,
+            "planned_finish": 6.333333333333333,
+            "travel_time": 1.3333333333333333,
+            "wait_time": 0.0,
+            "service_time": 5.0,
+            "status": "RUNNING"
+          },
+          {
+            "execution_id": "exec-0001-T2",
+            "task_id": "T2",
+            "coalition": [
+              "drone_0",
+              "drone_1",
+              "drone_2",
+              "drone_3",
+              "drone_4",
+              "drone_5",
+              "drone_6"
+            ],
+            "planned_start": 6.333333333333333,
+            "planned_finish": 12.666666666666666,
+            "travel_time": 1.3333333333333333,
+            "wait_time": 0.0,
+            "service_time": 5.0,
+            "status": "PLANNED"
+          },
+          {
+            "execution_id": "exec-0002-T3",
+            "task_id": "T3",
+            "coalition": [
+              "drone_0",
+              "drone_1",
+              "drone_2",
+              "drone_3",
+              "drone_4",
+              "drone_5",
+              "drone_6"
+            ],
+            "planned_start": 12.666666666666666,
+            "planned_finish": 20.333333333333332,
+            "travel_time": 2.6666666666666665,
+            "wait_time": 0.0,
+            "service_time": 5.0,
+            "status": "PLANNED"
+          }
+        ]
+      },
+      "plan": {
+        "items": [
+          {
+            "execution_id": "exec-0000-T1",
+            "task_id": "T1",
+            "coalition": [
+              "drone_0",
+              "drone_1",
+              "drone_2",
+              "drone_3",
+              "drone_4",
+              "drone_5",
+              "drone_6"
+            ],
+            "planned_start": 0.0,
+            "planned_finish": 6.333333333333333,
+            "travel_time": 1.3333333333333333,
+            "wait_time": 0.0,
+            "service_time": 5.0,
+            "status": "COMPLETED"
+          },
+          {
+            "execution_id": "exec-0001-T2",
+            "task_id": "T2",
+            "coalition": [
+              "drone_0",
+              "drone_1",
+              "drone_2",
+              "drone_3",
+              "drone_4",
+              "drone_5",
+              "drone_6"
+            ],
+            "planned_start": 13.206415891647339,
+            "planned_finish": 19.539749224980675,
+            "travel_time": 1.3333333333333333,
+            "wait_time": 0.0,
+            "service_time": 5.0,
+            "status": "PLANNED"
+          },
+          {
+            "execution_id": "exec-0002-T3",
+            "task_id": "T3",
+            "coalition": [
+              "drone_0",
+              "drone_1",
+              "drone_2",
+              "drone_3",
+              "drone_4",
+              "drone_5",
+              "drone_6"
+            ],
+            "planned_start": 19.539749224980675,
+            "planned_finish": 27.206415891647342,
+            "travel_time": 2.6666666666666665,
+            "wait_time": 0.0,
+            "service_time": 5.0,
+            "status": "PLANNED"
+          }
+        ]
+      },
+      "plan_updated": true,
+      "plan_revision": 1
+    }
+  ],
+  "executions": [
+    {
+      "execution_id": "exec-0000-T1",
+      "pre_dispatch_trajectory_ids": {
+        "0": null,
+        "1": null,
+        "2": null,
+        "3": null,
+        "4": null,
+        "5": null,
+        "6": null
+      },
+      "pre_dispatch_qn_source_trajectory_ids": {
+        "0": 0,
+        "1": 0,
+        "2": 0,
+        "3": 0,
+        "4": 0,
+        "5": 0,
+        "6": 0
+      },
+      "initial_planned_start": 0.0,
+      "initial_planned_finish": 6.333333333333333,
+      "previous_actual_finish": 0.0,
+      "plan_revision_at_dispatch": 0,
+      "planned_start_read_at_dispatch": 0.0,
+      "executor_id": "aav_formation",
+      "action_endpoint": "/formation_action",
+      "assigned_members": [
+        "drone_0",
+        "drone_1",
+        "drone_2",
+        "drone_3",
+        "drone_4",
+        "drone_5",
+        "drone_6"
+      ],
+      "executed_members": [
+        "drone_0",
+        "drone_1",
+        "drone_2",
+        "drone_3",
+        "drone_4",
+        "drone_5",
+        "drone_6"
+      ],
+      "task_id": "T1",
+      "goal_id": "/formation_mission_runner-1-1789745190.330",
+      "terminal_status": 3,
+      "envelope_status": 3,
+      "goal_dispatch_ros_time_s": 1789745190.3299525,
+      "dispatch_ros_time_s": 0.00047588348388671875,
+      "planned_start_at_dispatch": 0.0,
+      "planned_finish_at_dispatch": 6.333333333333333,
+      "action_reason": 0,
+      "action_task_outcome": 1,
+      "action_safety_outcome": 1,
+      "action_experiment_validity": 1,
+      "model_time_hold_seconds": 5.019999999999001,
+      "planner_nominal_finish_times": {
+        "0": 1789745192.412992,
+        "2": 1789745192.536107,
+        "1": 1789745192.5461774,
+        "5": 1789745192.5521672,
+        "4": 1789745196.073746,
+        "3": 1789745196.0785222
+      },
+      "adoption_verdict": {
+        "state": "ADOPTED",
+        "execution_id": "T1",
+        "goal_id": "/formation_mission_runner-1-1789745190.330",
+        "dispatch_ros_time_s": 1789745190.3319893,
+        "group_goal_publish_count": 1,
+        "group_goal_publisher": "/formation_action_server",
+        "group_goal_authorized": true,
+        "per_agent": [
+          {
+            "agent_id": 0,
+            "pre_dispatch_trajectory_id": null,
+            "pre_dispatch_qn_source_trajectory_id": 0,
+            "pre_dispatch_used_outer_step": 3148,
+            "post_dispatch_trajectory_ids": [
+              1,
+              2
+            ],
+            "qn_source_trajectory_ids": [
+              0,
+              1,
+              2
+            ],
+            "adopted_trajectory_id": 1,
+            "adopted_used_outer_step": 3153,
+            "adopted_ros_time_s": 1789745190.3844268,
+            "adopted_command_stamp_s": 1789745190.3636615,
+            "new_trajectory_observed": true,
+            "qn_source_matches": true,
+            "stamp_only_evidence_seen": false,
+            "failure_reason": ""
+          },
+          {
+            "agent_id": 1,
+            "pre_dispatch_trajectory_id": null,
+            "pre_dispatch_qn_source_trajectory_id": 0,
+            "pre_dispatch_used_outer_step": 3142,
+            "post_dispatch_trajectory_ids": [
+              1,
+              2
+            ],
+            "qn_source_trajectory_ids": [
+              0,
+              1,
+              2
+            ],
+            "adopted_trajectory_id": 1,
+            "adopted_used_outer_step": 3146,
+            "adopted_ros_time_s": 1789745190.3673413,
+            "adopted_command_stamp_s": 1789745190.358988,
+            "new_trajectory_observed": true,
+            "qn_source_matches": true,
+            "stamp_only_evidence_seen": false,
+            "failure_reason": ""
+          },
+          {
+            "agent_id": 2,
+            "pre_dispatch_trajectory_id": null,
+            "pre_dispatch_qn_source_trajectory_id": 0,
+            "pre_dispatch_used_outer_step": 3148,
+            "post_dispatch_trajectory_ids": [
+              1,
+              2
+            ],
+            "qn_source_trajectory_ids": [
+              0,
+              1,
+              2
+            ],
+            "adopted_trajectory_id": 1,
+            "adopted_used_outer_step": 3153,
+            "adopted_ros_time_s": 1789745190.3757598,
+            "adopted_command_stamp_s": 1789745190.3590202,
+            "new_trajectory_observed": true,
+            "qn_source_matches": true,
+            "stamp_only_evidence_seen": false,
+            "failure_reason": ""
+          },
+          {
+            "agent_id": 3,
+            "pre_dispatch_trajectory_id": null,
+            "pre_dispatch_qn_source_trajectory_id": 0,
+            "pre_dispatch_used_outer_step": 3142,
+            "post_dispatch_trajectory_ids": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "qn_source_trajectory_ids": [
+              0,
+              1,
+              2,
+              3,
+              4
+            ],
+            "adopted_trajectory_id": 1,
+            "adopted_used_outer_step": 3148,
+            "adopted_ros_time_s": 1789745190.3696098,
+            "adopted_command_stamp_s": 1789745190.356544,
+            "new_trajectory_observed": true,
+            "qn_source_matches": true,
+            "stamp_only_evidence_seen": false,
+            "failure_reason": ""
+          },
+          {
+            "agent_id": 4,
+            "pre_dispatch_trajectory_id": null,
+            "pre_dispatch_qn_source_trajectory_id": 0,
+            "pre_dispatch_used_outer_step": 3125,
+            "post_dispatch_trajectory_ids": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "qn_source_trajectory_ids": [
+              0,
+              1,
+              2,
+              3,
+              4
+            ],
+            "adopted_trajectory_id": 1,
+            "adopted_used_outer_step": 3135,
+            "adopted_ros_time_s": 1789745190.405518,
+            "adopted_command_stamp_s": 1789745190.3944502,
+            "new_trajectory_observed": true,
+            "qn_source_matches": true,
+            "stamp_only_evidence_seen": false,
+            "failure_reason": ""
+          },
+          {
+            "agent_id": 5,
+            "pre_dispatch_trajectory_id": null,
+            "pre_dispatch_qn_source_trajectory_id": 0,
+            "pre_dispatch_used_outer_step": 3130,
+            "post_dispatch_trajectory_ids": [
+              1,
+              2
+            ],
+            "qn_source_trajectory_ids": [
+              0,
+              1,
+              2
+            ],
+            "adopted_trajectory_id": 1,
+            "adopted_used_outer_step": 3137,
+            "adopted_ros_time_s": 1789745190.3937643,
+            "adopted_command_stamp_s": 1789745190.3837457,
+            "new_trajectory_observed": true,
+            "qn_source_matches": true,
+            "stamp_only_evidence_seen": false,
+            "failure_reason": ""
+          },
+          {
+            "agent_id": 6,
+            "pre_dispatch_trajectory_id": null,
+            "pre_dispatch_qn_source_trajectory_id": 0,
+            "pre_dispatch_used_outer_step": 3127,
+            "post_dispatch_trajectory_ids": [
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            "qn_source_trajectory_ids": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            "adopted_trajectory_id": 1,
+            "adopted_used_outer_step": 3135,
+            "adopted_ros_time_s": 1789745190.4078789,
+            "adopted_command_stamp_s": 1789745190.3955824,
+            "new_trajectory_observed": true,
+            "qn_source_matches": true,
+            "stamp_only_evidence_seen": false,
+            "failure_reason": ""
+          }
+        ],
+        "failures": [],
+        "fallback_used": false
+      },
+      "verdict": {
+        "task_outcome": "PASS",
+        "safety_outcome": "PASS",
+        "experiment_validity": "VALID",
+        "max_position_error_m": 0.1570491203156331,
+        "hold_duration_required_s": 5.0,
+        "model_hold_satisfied": true,
+        "adoption_state": "ADOPTED",
+        "time_alignment_ok": true,
+        "air_domain_ok": true,
+        "metrics": {
+          "final_slot_error_m": 0.1570491203156331,
+          "trajectory_tracking_error_m": 1.1134606701685827,
+          "velocity_tracking_error_mps": 1.6900979386267496,
+          "hold_velocity_mps": 0.23783184792167586,
+          "formation_shape_error_m": 0.157579015360244
+        },
+        "sample_ledger": {
+          "expected_sample_count": 1855,
+          "valid_sample_count": 1855,
+          "valid_sample_ratio": 1.0,
+          "alignment_failure_count": 0,
+          "max_continuous_gap_s": 0.05000019073486328,
+          "leading_missing_s": 0.0,
+          "trailing_missing_s": 0.0,
+          "max_middle_gap_s": 0.05000019073486328,
+          "observed_period_s": 0.050000131130218506,
+          "agent_expected_counts": {
+            "0": 265,
+            "1": 265,
+            "2": 265,
+            "3": 265,
+            "4": 265,
+            "5": 265,
+            "6": 265
+          },
+          "agent_valid_counts": {
+            "0": 265,
+            "1": 265,
+            "2": 265,
+            "3": 265,
+            "4": 265,
+            "5": 265,
+            "6": 265
+          },
+          "agent_max_gaps_s": {
+            "0": 0.05000019073486328,
+            "1": 0.05000019073486328,
+            "2": 0.05000019073486328,
+            "3": 0.05000019073486328,
+            "4": 0.05000019073486328,
+            "5": 0.05000019073486328,
+            "6": 0.05000019073486328
+          }
+        },
+        "safety": {
+          "outcome": "PASS",
+          "evidence_kind": "DISCRETE_SAMPLED",
+          "min_inter_agent_distance_m": 2.28857821694232,
+          "min_obstacle_clearance_m": 0.22410181323417358,
+          "min_inter_agent_surface_clearance_m": 1.7885782169423199,
+          "platform_radius_m": 0.25,
+          "check_resolution": "DISCRETE_SAMPLED",
+          "required_inter_agent_clearance_m": 0.5,
+          "required_obstacle_clearance_m": 0.2,
+          "collision_pairs": [],
+          "reasons": []
+        },
+        "reasons": []
+      },
+      "evidence_file": "T1_1789745190330850839.diagnostics.json",
+      "trajectory_ids": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "runner_adoption_confirmed": true,
+      "executor_matches_execution": true,
+      "planner_nominal_finish": 5.7490456104278564,
+      "actual_start": 0.0013742446899414062,
+      "actual_finish": 13.206415891647339,
+      "delay_seconds": 6.873082558314006,
+      "deadline_lateness": 6.206415891647339,
+      "scheduled_start_at_dispatch": 0.0,
+      "expected_release_without_repair": 0.0,
+      "release_lag_s": 0.00047588348388671875,
+      "dispatch_changed": false,
+      "plan_updated": true,
+      "plan_revision_after_completion": 1,
+      "plan_before": {
+        "items": [
+          {
+            "execution_id": "exec-0000-T1",
+            "task_id": "T1",
+            "coalition": [
+              "drone_0",
+              "drone_1",
+              "drone_2",
+              "drone_3",
+              "drone_4",
+              "drone_5",
+              "drone_6"
+            ],
+            "planned_start": 0.0,
+            "planned_finish": 6.333333333333333,
+            "travel_time": 1.3333333333333333,
+            "wait_time": 0.0,
+            "service_time": 5.0,
+            "status": "RUNNING"
+          },
+          {
+            "execution_id": "exec-0001-T2",
+            "task_id": "T2",
+            "coalition": [
+              "drone_0",
+              "drone_1",
+              "drone_2",
+              "drone_3",
+              "drone_4",
+              "drone_5",
+              "drone_6"
+            ],
+            "planned_start": 6.333333333333333,
+            "planned_finish": 12.666666666666666,
+            "travel_time": 1.3333333333333333,
+            "wait_time": 0.0,
+            "service_time": 5.0,
+            "status": "PLANNED"
+          },
+          {
+            "execution_id": "exec-0002-T3",
+            "task_id": "T3",
+            "coalition": [
+              "drone_0",
+              "drone_1",
+              "drone_2",
+              "drone_3",
+              "drone_4",
+              "drone_5",
+              "drone_6"
+            ],
+            "planned_start": 12.666666666666666,
+            "planned_finish": 20.333333333333332,
+            "travel_time": 2.6666666666666665,
+            "wait_time": 0.0,
+            "service_time": 5.0,
+            "status": "PLANNED"
+          }
+        ]
+      },
+      "plan_after": {
+        "items": [
+          {
+            "execution_id": "exec-0000-T1",
+            "task_id": "T1",
+            "coalition": [
+              "drone_0",
+              "drone_1",
+              "drone_2",
+              "drone_3",
+              "drone_4",
+              "drone_5",
+              "drone_6"
+            ],
+            "planned_start": 0.0,
+            "planned_finish": 6.333333333333333,
+            "travel_time": 1.3333333333333333,
+            "wait_time": 0.0,
+            "service_time": 5.0,
+            "status": "COMPLETED"
+          },
+          {
+            "execution_id": "exec-0001-T2",
+            "task_id": "T2",
+            "coalition": [
+              "drone_0",
+              "drone_1",
+              "drone_2",
+              "drone_3",
+              "drone_4",
+              "drone_5",
+              "drone_6"
+            ],
+            "planned_start": 13.206415891647339,
+            "planned_finish": 19.539749224980675,
+            "travel_time": 1.3333333333333333,
+            "wait_time": 0.0,
+            "service_time": 5.0,
+            "status": "PLANNED"
+          },
+          {
+            "execution_id": "exec-0002-T3",
+            "task_id": "T3",
+            "coalition": [
+              "drone_0",
+              "drone_1",
+              "drone_2",
+              "drone_3",
+              "drone_4",
+              "drone_5",
+              "drone_6"
+            ],
+            "planned_start": 19.539749224980675,
+            "planned_finish": 27.206415891647342,
+            "travel_time": 2.6666666666666665,
+            "wait_time": 0.0,
+            "service_time": 5.0,
+            "status": "PLANNED"
+          }
+        ]
+      },
+      "repair_timing": true,
+      "updated_plan_used": true
+    },
+    {
+      "execution_id": "exec-0001-T2",
+      "pre_dispatch_trajectory_ids": {
+        "0": 2,
+        "1": 2,
+        "2": 2,
+        "3": 4,
+        "4": 4,
+        "5": 2,
+        "6": 5
+      },
+      "pre_dispatch_qn_source_trajectory_ids": {
+        "0": 2,
+        "1": 2,
+        "2": 2,
+        "3": 4,
+        "4": 4,
+        "5": 2,
+        "6": 5
+      },
+      "initial_planned_start": 13.206415891647339,
+      "initial_planned_finish": 19.539749224980675,
+      "previous_actual_finish": 13.206415891647339,
+      "plan_revision_at_dispatch": 1,
+      "planned_start_read_at_dispatch": 13.206415891647339,
+      "executor_id": "aav_formation",
+      "action_endpoint": "/formation_action",
+      "assigned_members": [
+        "drone_0",
+        "drone_1",
+        "drone_2",
+        "drone_3",
+        "drone_4",
+        "drone_5",
+        "drone_6"
+      ],
+      "executed_members": [
+        "drone_0",
+        "drone_1",
+        "drone_2",
+        "drone_3",
+        "drone_4",
+        "drone_5",
+        "drone_6"
+      ],
+      "task_id": "T2",
+      "goal_id": "/formation_mission_runner-2-1789745203.610",
+      "terminal_status": 4,
+      "envelope_status": 4,
+      "goal_dispatch_ros_time_s": 1789745203.6099374,
+      "dispatch_ros_time_s": 13.280460834503174,
+      "planned_start_at_dispatch": 13.206415891647339,
+      "planned_finish_at_dispatch": 19.539749224980675,
+      "action_reason": 6,
+      "action_task_outcome": 1,
+      "action_safety_outcome": 2,
+      "action_experiment_validity": 1,
+      "model_time_hold_seconds": 5.019999999999001,
+      "planner_nominal_finish_times": {
+        "6": 1789745214.8427567,
+        "1": 1789745218.1950824,
+        "0": 1789745220.0273213,
+        "5": 1789745220.45416,
+        "2": 1789745220.6356335
+      },
+      "adoption_verdict": {
+        "state": "ADOPTED",
+        "execution_id": "T2",
+        "goal_id": "/formation_mission_runner-2-1789745203.610",
+        "dispatch_ros_time_s": 1789745203.6117668,
+        "group_goal_publish_count": 1,
+        "group_goal_publisher": "/formation_action_server",
+        "group_goal_authorized": true,
+        "per_agent": [
+          {
+            "agent_id": 0,
+            "pre_dispatch_trajectory_id": 2,
+            "pre_dispatch_qn_source_trajectory_id": 2,
+            "pre_dispatch_used_outer_step": 4476,
+            "post_dispatch_trajectory_ids": [
+              2,
+              1,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ],
+            "qn_source_trajectory_ids": [
+              2,
+              1,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ],
+            "adopted_trajectory_id": 1,
+            "adopted_used_outer_step": 4481,
+            "adopted_ros_time_s": 1789745203.6538079,
+            "adopted_command_stamp_s": 1789745203.6436398,
+            "new_trajectory_observed": true,
+            "qn_source_matches": true,
+            "stamp_only_evidence_seen": true,
+            "failure_reason": ""
+          },
+          {
+            "agent_id": 1,
+            "pre_dispatch_trajectory_id": 2,
+            "pre_dispatch_qn_source_trajectory_id": 2,
+            "pre_dispatch_used_outer_step": 4467,
+            "post_dispatch_trajectory_ids": [
+              2,
+              1,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ],
+            "qn_source_trajectory_ids": [
+              2,
+              1,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ],
+            "adopted_trajectory_id": 1,
+            "adopted_used_outer_step": 4475,
+            "adopted_ros_time_s": 1789745203.6573467,
+            "adopted_command_stamp_s": 1789745203.6489933,
+            "new_trajectory_observed": true,
+            "qn_source_matches": true,
+            "stamp_only_evidence_seen": true,
+            "failure_reason": ""
+          },
+          {
+            "agent_id": 2,
+            "pre_dispatch_trajectory_id": 2,
+            "pre_dispatch_qn_source_trajectory_id": 2,
+            "pre_dispatch_used_outer_step": 4476,
+            "post_dispatch_trajectory_ids": [
+              2,
+              1,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ],
+            "qn_source_trajectory_ids": [
+              2,
+              1,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ],
+            "adopted_trajectory_id": 1,
+            "adopted_used_outer_step": 4482,
+            "adopted_ros_time_s": 1789745203.665373,
+            "adopted_command_stamp_s": 1789745203.6490264,
+            "new_trajectory_observed": true,
+            "qn_source_matches": true,
+            "stamp_only_evidence_seen": true,
+            "failure_reason": ""
+          },
+          {
+            "agent_id": 3,
+            "pre_dispatch_trajectory_id": 4,
+            "pre_dispatch_qn_source_trajectory_id": 4,
+            "pre_dispatch_used_outer_step": 4471,
+            "post_dispatch_trajectory_ids": [
+              4,
+              1,
+              2,
+              3,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            "qn_source_trajectory_ids": [
+              4,
+              1,
+              2,
+              3,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            "adopted_trajectory_id": 1,
+            "adopted_used_outer_step": 4477,
+            "adopted_ros_time_s": 1789745203.664992,
+            "adopted_command_stamp_s": 1789745203.6465187,
+            "new_trajectory_observed": true,
+            "qn_source_matches": true,
+            "stamp_only_evidence_seen": true,
+            "failure_reason": ""
+          },
+          {
+            "agent_id": 4,
+            "pre_dispatch_trajectory_id": 4,
+            "pre_dispatch_qn_source_trajectory_id": 4,
+            "pre_dispatch_used_outer_step": 4455,
+            "post_dispatch_trajectory_ids": [
+              4,
+              1,
+              2,
+              3,
+              5,
+              6,
+              7,
+              8
+            ],
+            "qn_source_trajectory_ids": [
+              4,
+              1,
+              2,
+              3,
+              5,
+              6,
+              7,
+              8
+            ],
+            "adopted_trajectory_id": 1,
+            "adopted_used_outer_step": 4461,
+            "adopted_ros_time_s": 1789745203.666938,
+            "adopted_command_stamp_s": 1789745203.6544416,
+            "new_trajectory_observed": true,
+            "qn_source_matches": true,
+            "stamp_only_evidence_seen": true,
+            "failure_reason": ""
+          },
+          {
+            "agent_id": 5,
+            "pre_dispatch_trajectory_id": 2,
+            "pre_dispatch_qn_source_trajectory_id": 2,
+            "pre_dispatch_used_outer_step": 4458,
+            "post_dispatch_trajectory_ids": [
+              2,
+              1,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ],
+            "qn_source_trajectory_ids": [
+              2,
+              1,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ],
+            "adopted_trajectory_id": 1,
+            "adopted_used_outer_step": 4464,
+            "adopted_ros_time_s": 1789745203.6655548,
+            "adopted_command_stamp_s": 1789745203.6537468,
+            "new_trajectory_observed": true,
+            "qn_source_matches": true,
+            "stamp_only_evidence_seen": true,
+            "failure_reason": ""
+          },
+          {
+            "agent_id": 6,
+            "pre_dispatch_trajectory_id": 5,
+            "pre_dispatch_qn_source_trajectory_id": 5,
+            "pre_dispatch_used_outer_step": 4455,
+            "post_dispatch_trajectory_ids": [
+              5,
+              1,
+              2,
+              3,
+              4,
+              6,
+              7
+            ],
+            "qn_source_trajectory_ids": [
+              5,
+              1,
+              2,
+              3,
+              4,
+              6,
+              7
+            ],
+            "adopted_trajectory_id": 1,
+            "adopted_used_outer_step": 4469,
+            "adopted_ros_time_s": 1789745203.7494843,
+            "adopted_command_stamp_s": 1789745203.7355864,
+            "new_trajectory_observed": true,
+            "qn_source_matches": true,
+            "stamp_only_evidence_seen": true,
+            "failure_reason": ""
+          }
+        ],
+        "failures": [],
+        "fallback_used": false
+      },
+      "verdict": {
+        "task_outcome": "PASS",
+        "safety_outcome": "FAIL",
+        "experiment_validity": "VALID",
+        "max_position_error_m": 0.03167202734007801,
+        "hold_duration_required_s": 5.0,
+        "model_hold_satisfied": true,
+        "adoption_state": "ADOPTED",
+        "time_alignment_ok": true,
+        "air_domain_ok": true,
+        "metrics": {
+          "final_slot_error_m": 0.03167202734007801,
+          "trajectory_tracking_error_m": 0.2739549455715068,
+          "velocity_tracking_error_mps": 0.8467186022648145,
+          "hold_velocity_mps": 0.17244181556859656,
+          "formation_shape_error_m": 0.04447756586916419
+        },
+        "sample_ledger": {
+          "expected_sample_count": 2464,
+          "valid_sample_count": 2464,
+          "valid_sample_ratio": 1.0,
+          "alignment_failure_count": 0,
+          "max_continuous_gap_s": 0.05000019073486328,
+          "leading_missing_s": 0.0,
+          "trailing_missing_s": 0.0,
+          "max_middle_gap_s": 0.05000019073486328,
+          "observed_period_s": 0.050000003260425016,
+          "agent_expected_counts": {
+            "0": 352,
+            "1": 352,
+            "2": 352,
+            "3": 352,
+            "4": 352,
+            "5": 352,
+            "6": 352
+          },
+          "agent_valid_counts": {
+            "0": 352,
+            "1": 352,
+            "2": 352,
+            "3": 352,
+            "4": 352,
+            "5": 352,
+            "6": 352
+          },
+          "agent_max_gaps_s": {
+            "0": 0.05000019073486328,
+            "1": 0.05000019073486328,
+            "2": 0.05000019073486328,
+            "3": 0.05000019073486328,
+            "4": 0.05000019073486328,
+            "5": 0.05000019073486328,
+            "6": 0.05000019073486328
+          }
+        },
+        "safety": {
+          "outcome": "FAIL",
+          "evidence_kind": "DISCRETE_SAMPLED",
+          "min_inter_agent_distance_m": 3.8918133463674476,
+          "min_obstacle_clearance_m": 0.10751336252324485,
+          "min_inter_agent_surface_clearance_m": 3.3918133463674476,
+          "platform_radius_m": 0.25,
+          "check_resolution": "DISCRETE_SAMPLED",
+          "required_inter_agent_clearance_m": 0.5,
+          "required_obstacle_clearance_m": 0.2,
+          "collision_pairs": [],
+          "reasons": [
+            "obstacle clearance 0.108 m below 0.20 m"
+          ]
+        },
+        "reasons": [
+          "obstacle clearance 0.108 m below 0.20 m"
+        ]
+      },
+      "evidence_file": "T2_1789745203610716342.diagnostics.json",
+      "trajectory_ids": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "runner_adoption_confirmed": true,
+      "executor_matches_execution": true,
+      "planner_nominal_finish": 30.306156873703003,
+      "actual_start": 13.281239748001099,
+      "actual_finish": 30.83542561531067,
+      "delay_seconds": 11.295676390329994,
+      "deadline_lateness": 17.83542561531067,
+      "scheduled_start_at_dispatch": 13.206415891647339,
+      "expected_release_without_repair": 13.206415891647339,
+      "release_lag_s": 0.07404494285583496,
+      "dispatch_changed": false,
+      "updated_plan_used": true
+    }
+  ],
+  "events": [
+    {
+      "event_id": "/formation_mission_runner-1-1789745190.330:completion",
+      "execution_id": "exec-0000-T1",
+      "task_id": "T1",
+      "planned_finish": 6.333333333333333,
+      "actual_finish": 13.206415891647339
+    }
+  ],
+  "test_c": {
+    "repair_mode": "on",
+    "plan_revision": 1,
+    "plan_updated": true,
+    "plan_updated_actions": [
+      "T1"
+    ],
+    "updated_plan_used": true,
+    "dispatch_changed": false,
+    "dispatch_changed_actions": [],
+    "release_lag_s": {
+      "T1": 0.00047588348388671875,
+      "T2": 0.07404494285583496
+    },
+    "notes": "release_lag_s is the dispatch offset from the release boundary it was waiting for; it is a schedule-tracking figure, not a measure of repair.  updated_plan_used reports that each dispatch read the plan revision the completion produced."
+  },
+  "time_alignment_summary": {
+    "started_ros_time_s": 1789745159.1681046,
+    "finished_ros_time_s": 1789745220.7681048,
+    "duration_s": 61.60000014305115,
+    "agent_ids": [
+      "drone_0",
+      "drone_1",
+      "drone_2",
+      "drone_3",
+      "drone_4",
+      "drone_5",
+      "drone_6"
+    ],
+    "grid_point_count": 617,
+    "aligned_point_count": 617,
+    "alignment_failure_count": 0,
+    "valid_sample_count": 4319,
+    "expected_sample_count": 4319,
+    "valid_sample_ratio": 1.0,
+    "max_abs_model_ros_drift_s": 0.0031771034833951717,
+    "max_cross_agent_drift_s": 0.0032131693860293353,
+    "model_ros_rate": {
+      "drone_0": 1.0000008585843094,
+      "drone_1": 1.0000003348885829,
+      "drone_2": 1.0000004469225436,
+      "drone_3": 1.0000001428786491,
+      "drone_4": 1.0000002300300812,
+      "drone_5": 1.0000000161725153,
+      "drone_6": 0.9999999586824889
+    },
+    "model_wall_rate": {
+      "drone_0": 1.000065340282888,
+      "drone_1": 1.000055744007174,
+      "drone_2": 1.0000709396796934,
+      "drone_3": 1.0000647487946608,
+      "drone_4": 1.0000786511174755,
+      "drone_5": 1.000056333372148,
+      "drone_6": 1.0000595025759071
+    },
+    "worst_model_ros_rate": 0.9999999586824889,
+    "worst_model_wall_rate": 1.000055744007174,
+    "reference_speed_mps": 1.5673569641342968,
+    "induced_reference_displacement_m": 0.004979655270474756,
+    "baseline_complete": true,
+    "common_start_ros_time_s": 1789745159.1681046,
+    "history_truncated": false,
+    "within_thresholds": true,
+    "reasons": []
+  },
+  "final_plan": {
+    "items": [
+      {
+        "execution_id": "exec-0000-T1",
+        "task_id": "T1",
+        "coalition": [
+          "drone_0",
+          "drone_1",
+          "drone_2",
+          "drone_3",
+          "drone_4",
+          "drone_5",
+          "drone_6"
+        ],
+        "planned_start": 0.0,
+        "planned_finish": 6.333333333333333,
+        "travel_time": 1.3333333333333333,
+        "wait_time": 0.0,
+        "service_time": 5.0,
+        "status": "COMPLETED"
+      },
+      {
+        "execution_id": "exec-0001-T2",
+        "task_id": "T2",
+        "coalition": [
+          "drone_0",
+          "drone_1",
+          "drone_2",
+          "drone_3",
+          "drone_4",
+          "drone_5",
+          "drone_6"
+        ],
+        "planned_start": 13.206415891647339,
+        "planned_finish": 19.539749224980675,
+        "travel_time": 1.3333333333333333,
+        "wait_time": 0.0,
+        "service_time": 5.0,
+        "status": "FAILED"
+      },
+      {
+        "execution_id": "exec-0002-T3",
+        "task_id": "T3",
+        "coalition": [
+          "drone_0",
+          "drone_1",
+          "drone_2",
+          "drone_3",
+          "drone_4",
+          "drone_5",
+          "drone_6"
+        ],
+        "planned_start": 19.539749224980675,
+        "planned_finish": 27.206415891647342,
+        "travel_time": 2.6666666666666665,
+        "wait_time": 0.0,
+        "service_time": 5.0,
+        "status": "PLANNED"
+      }
+    ]
+  },
+  "planned_makespan": 27.206415891647342,
+  "processed_events": [
+    "/formation_mission_runner-1-1789745190.330:completion"
+  ],
+  "ready_ros_time_s": 1789745190.3179638,
+  "baseline_qualification": {
+    "started_ros_time_s": 1789745159.1681046,
+    "finished_ros_time_s": 1789745190.1681046,
+    "duration_s": 31.0,
+    "agent_ids": [
+      "drone_0",
+      "drone_1",
+      "drone_2",
+      "drone_3",
+      "drone_4",
+      "drone_5",
+      "drone_6"
+    ],
+    "grid_point_count": 311,
+    "aligned_point_count": 311,
+    "alignment_failure_count": 0,
+    "valid_sample_count": 2177,
+    "expected_sample_count": 2177,
+    "valid_sample_ratio": 1.0,
+    "max_abs_model_ros_drift_s": 0.0031771034833951717,
+    "max_cross_agent_drift_s": 0.0032131693860293353,
+    "model_ros_rate": {
+      "drone_0": 1.0000013371338805,
+      "drone_1": 1.0000010497177438,
+      "drone_2": 1.0000006378840112,
+      "drone_3": 1.0000003960953685,
+      "drone_4": 1.0000004811046512,
+      "drone_5": 1.000000779896571,
+      "drone_6": 1.0000003134857611
+    },
+    "model_wall_rate": {
+      "drone_0": 0.9999961998832402,
+      "drone_1": 0.9999801404876915,
+      "drone_2": 0.9999829939432011,
+      "drone_3": 1.000012877833649,
+      "drone_4": 0.9999971711960811,
+      "drone_5": 0.9999819681727831,
+      "drone_6": 1.0000029340629286
+    },
+    "worst_model_ros_rate": 1.0000003134857611,
+    "worst_model_wall_rate": 0.9999801404876915,
+    "reference_speed_mps": null,
+    "induced_reference_displacement_m": null,
+    "baseline_complete": true,
+    "common_start_ros_time_s": 1789745159.1681046,
+    "history_truncated": false,
+    "within_thresholds": true,
+    "reasons": []
+  },
+  "dispatch_attempts": {
+    "T1": 1,
+    "T2": 1
+  },
+  "failure": "T2 ended with status=4 reason=6"
+}

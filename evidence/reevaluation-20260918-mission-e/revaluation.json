@@ -1,0 +1,60 @@
+{
+  "agents": {
+    "0": {
+      "air_domain_violation": false,
+      "air_floor_m": 0.085,
+      "duration_s": 72.55999517440796,
+      "max_medium_flag": 0.0,
+      "min_height_m": 0.1668345833688053
+    },
+    "1": {
+      "air_domain_violation": false,
+      "air_floor_m": 0.085,
+      "duration_s": 72.54997777938843,
+      "max_medium_flag": 0.0,
+      "min_height_m": 0.11021306875352627
+    },
+    "2": {
+      "air_domain_violation": false,
+      "air_floor_m": 0.085,
+      "duration_s": 72.55996751785278,
+      "max_medium_flag": 0.0,
+      "min_height_m": 0.1763871149077633
+    },
+    "3": {
+      "air_domain_violation": false,
+      "air_floor_m": 0.085,
+      "duration_s": 72.54999566078186,
+      "max_medium_flag": 0.0,
+      "min_height_m": 0.14768682297446625
+    },
+    "4": {
+      "air_domain_violation": true,
+      "air_floor_m": 0.085,
+      "duration_s": 72.52994441986084,
+      "max_medium_flag": 0.005643199567099744,
+      "min_height_m": 0.08404065607359305
+    },
+    "5": {
+      "air_domain_violation": true,
+      "air_floor_m": 0.085,
+      "duration_s": 72.54998874664307,
+      "max_medium_flag": 0.16455475307423106,
+      "min_height_m": 0.05702569197738072
+    },
+    "6": {
+      "air_domain_violation": false,
+      "air_floor_m": 0.085,
+      "duration_s": 72.55005669593811,
+      "max_medium_flag": 0.0,
+      "min_height_m": 0.16326373074544884
+    }
+  },
+  "air_domain_ok": false,
+  "air_domain_violation": true,
+  "air_floor_m": 0.085,
+  "experiment": "20260918-mission-e",
+  "note": "Recorded before the M1 fix, decoded with the message semantics of that recording.  The original verification.json is unchanged; this adds the AIR-domain check the run never had.",
+  "result": "the run left the AIR model (non-zero medium_flag or member below hg_m/2), so it cannot be counted as an AIR verification",
+  "tool": "reevaluate_air_domain"
+}

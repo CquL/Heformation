@@ -15,6 +15,7 @@ model-time bookkeeping on ``~used_reference_pose``, ``~used_reference_twist``
 and ``~diagnostics``.  No qn controller, actuator or 6DOF equation is changed.
 """
 
+import math
 import threading
 
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
@@ -32,7 +33,9 @@ from qn_aav_simulator.contracts import (
     PlatformAdapterCmd,
 )
 from qn_aav_simulator.qn_python_backend import QnPythonClosedLoopBackend
+from qn_aav_simulator.odometry import ros_odometry_fields
 from qn_aav_simulator.qn_telemetry import (
+    CommandAdoptionBuffer,
     CommandSnapshot,
     ModelClock,
     ReferenceUsageTracker,
@@ -44,18 +47,24 @@ class QnAavNode:
     def __init__(self):
         self.drone_id = int(rospy.get_param("~drone_id", 0))
         self.agent_id = "drone_{}".format(self.drone_id)
-        self.rate_hz = float(rospy.get_param("~rate", 100.0))
-        if not self.rate_hz > 0.0:
-            raise ValueError("~rate must be positive")
-        self.dt = 1.0 / self.rate_hz
-        # The outer step is driven by the observed ROS elapsed time so that the
-        # accumulated *model* time tracks planner time (plan.md P0.4).  It is
-        # quantised to whole qn integration sub-steps.
-        self.max_outer_dt = float(rospy.get_param("~max_outer_dt", 0.1))
-        self.min_outer_dt = float(rospy.get_param("~min_outer_dt", 0.001))
-        self.clamped_outer_steps = 0
-        self.max_observed_outer_dt_s = 0.0
-        self.outer_dt_residual_s = 0.0
+        # One authoritative outer-step configuration.  The control rate is
+        # derived from it, so no second rate parameter can disagree with it.
+        self.outer_dt_s = float(rospy.get_param("~outer_dt_s", 0.01))
+        if not self.outer_dt_s > 0.0:
+            raise ValueError("~outer_dt_s must be positive")
+        self.rate_hz = 1.0 / self.outer_dt_s
+        # The model clock is driven by completed outer steps only.  A stalled
+        # loop therefore shows up as model/ROS lag instead of being hidden by
+        # replaying history, and a later command is never applied to an earlier
+        # model interval.
+        self.command_buffer_size = int(rospy.get_param("~command_buffer_size", 32))
+        if self.command_buffer_size < 1:
+            raise ValueError("~command_buffer_size must be positive")
+        self.commands = CommandAdoptionBuffer(self.command_buffer_size)
+        self.min_height_m = float("inf")
+        self.max_medium_flag = 0.0
+        self.air_domain_violation = False
+        self.max_loop_ros_gap_s = 0.0
         self.last_step_ros_time_s = None
         self.max_speed_mps = float(rospy.get_param("~max_speed_mps", 2.0))
         self.max_acc_mps2 = float(rospy.get_param("~max_acc_mps2", 8.0))
@@ -65,7 +74,6 @@ class QnAavNode:
             float(rospy.get_param("~init_z", 0.5)),
         )
         self.lock = threading.Lock()
-        self.pending_command = None
         self.latest_command = None
         self.step_index = 0
         self.usage = ReferenceUsageTracker(self.agent_id)
@@ -123,28 +131,31 @@ class QnAavNode:
             "yaw_rad": float(message.yaw),
             "received_ros_time_s": rospy.Time.now().to_sec(),
         }
+        self.commands.note(snapshot_fields)
         with self.lock:
-            self.pending_command = snapshot_fields
             self.latest_command = snapshot_fields
 
     def _freeze_snapshot(self):
-        """Copy the pending command into an immutable per-step snapshot."""
-        with self.lock:
-            pending = self.pending_command
-            self.pending_command = None
-        if pending is None:
+        """Copy the command adopted for this step into an immutable snapshot.
+
+        The adopted command is the newest one that had already arrived when the
+        step began; it is then held for the whole step.  Nothing is adopted from
+        the future and no past interval is recomputed.
+        """
+        adopted = self.commands.adopt()
+        if adopted is None:
             return None
         return CommandSnapshot(
             agent_id=self.agent_id,
             outer_step_index=self.usage.used_outer_step_count,
-            received_ros_time_s=pending["received_ros_time_s"],
-            stamp_s=pending["stamp_s"],
-            trajectory_id=pending["trajectory_id"],
-            trajectory_flag=pending["trajectory_flag"],
-            position=pending["position"],
-            velocity=pending["velocity"],
-            acceleration=pending["acceleration"],
-            yaw_rad=pending["yaw_rad"],
+            received_ros_time_s=adopted["received_ros_time_s"],
+            stamp_s=adopted["stamp_s"],
+            trajectory_id=adopted["trajectory_id"],
+            trajectory_flag=adopted["trajectory_flag"],
+            position=adopted["position"],
+            velocity=adopted["velocity"],
+            acceleration=adopted["acceleration"],
+            yaw_rad=adopted["yaw_rad"],
         )
 
     # -- control loop ------------------------------------------------------
@@ -169,34 +180,8 @@ class QnAavNode:
             "received_ros_time_s": rospy.Time.now().to_sec(),
         }
 
-    def _outer_dt(self, elapsed_s):
-        """Quantise the observed ROS elapsed time to integration sub-steps.
-
-        The qn backend integrates whole ``model_step_s`` sub-steps, so the outer
-        step is a multiple of that sub-step.  The leftover below one sub-step is
-        carried into the next step instead of being dropped: dropping it turns
-        the model/ROS clock difference into an unbiased random walk (~27 ms per
-        30 s at 100 Hz, 1 ms sub-steps), which is the same order as the P0.4
-        drift gate.  A *clamped* step is different: a real stall must show up as
-        accumulated model/ROS drift, so its excess is not carried.
-        """
-        substep = float(self.backend.model_step_s)
-        stalled = float(elapsed_s) > self.max_outer_dt
-        target = float(elapsed_s) + self.outer_dt_residual_s
-        if target > self.max_outer_dt:
-            target = self.max_outer_dt
-        if target < self.min_outer_dt:
-            target = self.min_outer_dt
-        substeps = max(1, int(round(target / substep)))
-        dt = substeps * substep
-        self.outer_dt_residual_s = 0.0 if stalled else (target - dt)
-        if stalled:
-            self.clamped_outer_steps += 1
-        self.max_observed_outer_dt_s = max(self.max_observed_outer_dt_s, dt)
-        return dt
-
-    def step(self, dt_s=None):
-        dt_s = self.dt if dt_s is None else float(dt_s)
+    def step(self):
+        dt_s = self.outer_dt_s
         now = rospy.Time.now()
         snapshot = self._freeze_snapshot()
         if snapshot is None:
@@ -256,17 +241,37 @@ class QnAavNode:
             body_angular_velocity_radps=result.body_angular_velocity_radps,
             medium_flag=result.medium_flag,
         )
+        self._latch_air_domain()
         self.publish(now, usage, result, model_time_s, integration_step_s)
 
+    def _latch_air_domain(self):
+        """Latch the observed AIR-domain violation instead of only averaging it.
+
+        The model switches its mass, inertia, damping and actuation by
+        ``medium_flag``, so any non-zero flag means the run left the AIR model.
+        The latch is cheap, stays online, and the exact duration and minimum are
+        computed offline from the recorded diagnostics.
+        """
+        height = float(self.state.position[2])
+        flag = float(self.state.medium_flag or 0.0)
+        self.min_height_m = min(self.min_height_m, height)
+        self.max_medium_flag = max(self.max_medium_flag, flag)
+        if flag > 0.0 or height < self.air_floor_m:
+            self.air_domain_violation = True
+
+    @property
+    def air_floor_m(self):
+        """The AIR boundary of the qn model: ``hg_m / 2``, derived not stored."""
+        return 0.5 * float(self.backend.constants.hg_m)
+
     # -- publication -------------------------------------------------------
-    def _fill_pose(self, message, stamp):
-        state = self.state
+    def _fill_pose(self, message, stamp, fields):
         message.header.stamp = stamp
         message.header.frame_id = "world"
-        message.pose.pose.position.x = state.position[0]
-        message.pose.pose.position.y = state.position[1]
-        message.pose.pose.position.z = state.position[2]
-        w, x, y, z = state.orientation_quat_wxyz
+        message.pose.pose.position.x = fields.position[0]
+        message.pose.pose.position.y = fields.position[1]
+        message.pose.pose.position.z = fields.position[2]
+        w, x, y, z = fields.orientation_quat_wxyz
         message.pose.pose.orientation.w = w
         message.pose.pose.orientation.x = x
         message.pose.pose.orientation.y = y
@@ -275,44 +280,68 @@ class QnAavNode:
     def publish(self, stamp, usage, result, model_time_s, integration_step_s):
         state = self.state
 
+        # One state snapshot, one coordinate mapping, two topics.  The mapping
+        # lives in qn_aav_simulator.odometry so no consumer repeats it.
+        fields = ros_odometry_fields(
+            position=state.position,
+            quaternion=state.orientation_quat_wxyz,
+            world_velocity=state.velocity,
+            body_angular_velocity=state.body_angular_velocity_radps,
+        )
+
         standard = Odometry()
-        self._fill_pose(standard, stamp)
+        self._fill_pose(standard, stamp, fields)
         standard.child_frame_id = self.agent_id + "/base_link"
-        standard.twist.twist.linear.x = state.body_linear_velocity_mps[0]
-        standard.twist.twist.linear.y = state.body_linear_velocity_mps[1]
-        standard.twist.twist.linear.z = state.body_linear_velocity_mps[2]
-        standard.twist.twist.angular.x = state.body_angular_velocity_radps[0]
-        standard.twist.twist.angular.y = state.body_angular_velocity_radps[1]
-        standard.twist.twist.angular.z = state.body_angular_velocity_radps[2]
+        standard.twist.twist.linear.x = fields.linear_body_velocity[0]
+        standard.twist.twist.linear.y = fields.linear_body_velocity[1]
+        standard.twist.twist.linear.z = fields.linear_body_velocity[2]
+        standard.twist.twist.angular.x = fields.angular_body_velocity[0]
+        standard.twist.twist.angular.y = fields.angular_body_velocity[1]
+        standard.twist.twist.angular.z = fields.angular_body_velocity[2]
         self.odom_pub.publish(standard)
 
         compat = Odometry()
-        self._fill_pose(compat, stamp)
+        self._fill_pose(compat, stamp, fields)
         compat.child_frame_id = self.agent_id + "/swarm_compat"
-        compat.twist.twist.linear.x = state.velocity[0]
-        compat.twist.twist.linear.y = state.velocity[1]
-        compat.twist.twist.linear.z = state.velocity[2]
+        compat.twist.twist.linear.x = fields.world_velocity[0]
+        compat.twist.twist.linear.y = fields.world_velocity[1]
+        compat.twist.twist.linear.z = fields.world_velocity[2]
         compat.twist.twist.angular = standard.twist.twist.angular
         self.compat_pub.publish(compat)
+
+        # Telemetry records the reference the backend actually used, taken from
+        # its own result.  It is not a second derivation of the same quantity.
+        used = dict(result.diagnostics.get("reference_used") or {})
+        reference_position = tuple(
+            used.get("position_m") or result.diagnostics.get(
+                "reference_position_m") or usage.position)
+        reference_velocity = tuple(
+            used.get("velocity_mps") or result.diagnostics.get(
+                "reference_velocity_mps") or usage.velocity)
+        reference_yaw = float(used.get("yaw_rad", 0.0))
 
         pose = PoseStamped()
         pose.header.stamp = stamp
         pose.header.frame_id = "world"
-        pose.pose.position.x, pose.pose.position.y, pose.pose.position.z = usage.position
-        pose.pose.orientation.w = 1.0
+        pose.pose.position.x, pose.pose.position.y, pose.pose.position.z = reference_position
+        # The used reference attitude is a yaw-only rotation: the task boundary
+        # commands yaw and holds roll/pitch at zero.
+        pose.pose.orientation.z = math.sin(0.5 * reference_yaw)
+        pose.pose.orientation.w = math.cos(0.5 * reference_yaw)
         self.used_pose_pub.publish(pose)
 
         twist = TwistStamped()
         twist.header.stamp = stamp
         twist.header.frame_id = "world"
-        twist.twist.linear.x, twist.twist.linear.y, twist.twist.linear.z = usage.velocity
+        twist.twist.linear.x, twist.twist.linear.y, twist.twist.linear.z = reference_velocity
         self.used_twist_pub.publish(twist)
 
         self.diagnostics_pub.publish(self._diagnostics(
-            stamp, usage, result, model_time_s, integration_step_s))
+            stamp, usage, result, model_time_s, integration_step_s, reference_yaw))
         self.medium_pub.publish(Float64(data=float(state.medium_flag or 0.0)))
 
-    def _diagnostics(self, stamp, usage, result, model_time_s, integration_step_s):
+    def _diagnostics(self, stamp, usage, result, model_time_s, integration_step_s,
+                     reference_yaw):
         state = self.state
         medium_active = float(state.medium_flag or 0.0) > 0.0
         entries = [
@@ -321,10 +350,10 @@ class QnAavNode:
             ("source_command_stamp", repr(usage.source_command_stamp)),
             ("used_outer_step", str(usage.used_outer_step)),
             ("outer_dt_s", repr(usage.outer_dt_s)),
-            ("nominal_outer_dt_s", repr(self.dt)),
-            ("max_observed_outer_dt_s", repr(self.max_observed_outer_dt_s)),
-            ("clamped_outer_steps", str(self.clamped_outer_steps)),
-            ("outer_dt_residual_s", repr(self.outer_dt_residual_s)),
+            ("fixed_outer_dt_s", repr(self.outer_dt_s)),
+            ("max_loop_ros_gap_s", repr(self.max_loop_ros_gap_s)),
+            ("command_dropped_count", str(self.commands.dropped_count)),
+            ("command_order_violations", str(self.commands.order_violations)),
             ("integration_step_s", repr(integration_step_s)),
             ("outer_step_count", str(self.clock.outer_step_count)),
             ("integration_step_count", str(self.clock.integration_step_count)),
@@ -345,6 +374,7 @@ class QnAavNode:
             ("used_reference_velocity_x", repr(usage.velocity[0])),
             ("used_reference_velocity_y", repr(usage.velocity[1])),
             ("used_reference_velocity_z", repr(usage.velocity[2])),
+            ("used_reference_yaw_rad", repr(float(reference_yaw))),
             ("position_x", repr(state.position[0])),
             ("position_y", repr(state.position[1])),
             ("position_z", repr(state.position[2])),
@@ -355,6 +385,10 @@ class QnAavNode:
             ("body_velocity_y", repr(state.body_linear_velocity_mps[1])),
             ("body_velocity_z", repr(state.body_linear_velocity_mps[2])),
             ("medium_flag", repr(float(state.medium_flag or 0.0))),
+            ("min_height_m", repr(self.min_height_m)),
+            ("max_medium_flag", repr(self.max_medium_flag)),
+            ("air_floor_m", repr(self.air_floor_m)),
+            ("air_domain_violation", "true" if self.air_domain_violation else "false"),
         ]
         status = DiagnosticStatus()
         status.name = "{}/qn_reference".format(self.agent_id)
@@ -372,9 +406,13 @@ class QnAavNode:
         self.last_step_ros_time_s = rospy.Time.now().to_sec()
         while not rospy.is_shutdown():
             now_s = rospy.Time.now().to_sec()
-            dt_s = self._outer_dt(now_s - self.last_step_ros_time_s)
+            # Diagnostic only: how far ROS wall time ran between two fixed
+            # model steps.  A real stall shows up here and in the model/ROS
+            # alignment gate; it is never compensated by extra model time.
+            self.max_loop_ros_gap_s = max(
+                self.max_loop_ros_gap_s, now_s - self.last_step_ros_time_s)
             self.last_step_ros_time_s = now_s
-            self.step(dt_s)
+            self.step()
             rate.sleep()
 
 

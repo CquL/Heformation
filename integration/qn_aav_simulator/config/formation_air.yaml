@@ -35,9 +35,26 @@ formation_action_server:
   inter_agent_clearance: 0.5
   obstacle_clearance: 0.2
   obstacle_sample_period: 1.0
+  # Physical envelope of one AAV and the surface plane used for geometric
+  # safety.  The AIR floor is not configured here: it is derived from the qn
+  # model as hg_m / 2, so it cannot drift out of step with the plant.
+  platform_radius_m: 0.25
+  surface_plane_m: 0.0
   min_valid_sample_ratio: 0.9
 
 formation_mission_runner:
+  # M2 scenario marker: the offline verifier uses this to know whether the run
+  # must show that the obstacle reached the planners.
+  obstacle_scenario: false
+  # Static routing: the online scenario has exactly one dispatchable execution
+  # unit.  Units without an action_endpoint may take part in offline planning
+  # but are never dispatched.
+  executors:
+    - executor_id: aav_formation
+      physical_agent_ids: [drone_0, drone_1, drone_2, drone_3, drone_4, drone_5, drone_6]
+      capabilities: [AIR, AAV]
+      action_endpoint: /formation_action
+      initial_target_ref: start
   seed: 0
   nominal_speed_mps: 1.5
   delay_tolerance: 0.1

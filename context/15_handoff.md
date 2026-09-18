@@ -73,6 +73,62 @@
   `safety_outcome`（并重跑受影响运行）需要用户确认后再改。
 - P3多执行单元、多资源竞争尚未开始（plan.md明确要求在P0–P2通过后单独增加离线模型）。
 
+## M1–M3 收敛版实施结果（2026-09-18）
+
+按冻结的《Heformation 框架验证实施基线》实施，结论按里程碑分开陈述。
+
+**M1（正确性修复）：完成并通过验收。**
+`experiments/20260918-mission-m1` 七机在线任务链三任务全部
+`task_outcome=PASS` / `safety_outcome=PASS` / `experiment_validity=VALID`，
+独立验证器 **242 项检查 0 失败**。要点与证据：
+
+- 坐标映射集中在 `odometry.py` 一处：保留模型姿态与机体角速度，发布
+  `R(q)^T v_world` 作为机体系线速度，使标准消费者精确满足 `dp/dt = R(q)v`；
+  8 项确定性反例（单位四元数纯轴 + 非零 roll/pitch/yaw、姿态导数与 ω 一致）
+  通过。判定依据来自实测：前飞加速时 pitch 为低头，且机体角速度与 `R(q)^T dR/dt`
+  一致，说明模型姿态与角速度是物理量，只有机体线速度需要修正。
+- 恢复固定外层步长（`outer_dt_s` 唯一权威，默认 10 ms），模型时钟自驱；
+  命令在步边界采用并有界缓存，突发/乱序锁存。实测模型-ROS 累计偏差 0.0033 s
+  （门槛 0.05 s），该数字现在是真实测量而非由驱动方式决定。
+- AIR 域在线锁存：本运行三任务 `max_medium_flag=0.0`，最低高度
+  0.170/0.170/0.097 m，均高于 `hg_m/2 = 0.085 m`。
+- 净距改为表面净距（减去 `platform_radius_m`），机间表面净距 1.79–3.07 m。
+- 样本台账期望网格独立生成，`valid_sample_ratio=1.0`，实测采样周期 0.0500 s。
+- 异常不释放：任务未被接受时不释放资源、不派发下一任务。
+- `release_lag_s` / `plan_revision` / 派发实际读到的 `planned_start` 已记录，
+  `executor_id=aav_formation` 与派发端点一致。
+- 基线资格改为记录"准入时的那一份快照"（30.9 s，完整），修掉了历史上因样本
+  窗口滑动导致记录值缩短的问题。
+
+**M1 旧数据复评**：三个旧 bag 用 `reevaluate_air_domain.py` 按录制时的消息语义
+解码、只补 AIR 域检查，结果均为 `air_domain_ok=false`：
+`mission-e` `max_flag=0.165 / min_height=0.057`，`mission-f` `0.005 / 0.084`，
+`mission-g-fault` `1.000 / -1.276`。原 `verification.json` 未被改写，复评写入
+`revaluation.json` 并复制到 `evidence/`。
+
+**M3（静态路由 + 离线算例）：完成。**
+`formation_air.yaml` 增加 `executors` 静态路由（一个在线单元 + Action 端点），
+runner 校验计划联盟与在线单元成员一致、记录分配与实际执行一致；`executors.py`
+改为每个单元独立维护转场位置与可用时刻（含"A 去远处、B 留在原地"的反例测试）。
+离线五平台（3 AAV + 1 USV + 1 UUV）用三个单平台 AAV 做三类算例
+（只有 USV 合格 / 三台 AAV 都合格但代价不同 / 两个 AIR 任务竞争），
+新增 5 项测试。**不宣称**物理资源竞争已验证。
+
+**M2（有障碍闭环）：未通过，如实记录。**
+`experiments/20260918-mission-m2`（obstacle on，障碍在编队路径上 x=-23, y=0）：
+T1 通过；T2 `task_outcome=PASS` 但 `safety_outcome=FAIL`
+（障碍净距 0.108 m < 0.20 m），随后资源被锁存、不再派发 T3；
+本地点云对七台中的三台确有消息（说明感知链在补丁后确实接通），
+但成员到障碍盒的最近距离为 **0.0 m**，即实际穿过了障碍。
+结论：本配置下尚未证明规避能力，M2 不能算通过。
+根因之一已定位并修复：上游 CPU 渲染器只接受第一条全局地图
+（`if (has_global_map) return;`），后注入的障碍永远进不了规划器；
+现以构建期补丁 `integration/swarm_qn_bridge/patches/pcl_render_node_accept_map_updates.patch`
+在镜像构建时应用（`upstream/` 快照未改，补丁已记录）。
+
+**证据**：`evidence/` 下按运行保存 config/metrics/verification/逐动作诊断与复评，
+rosbag 不入库（记录绝对路径与大小）。
+
 ## P3 离线多资源扩展（2026-09-18 完成）
 
 plan.md 的 P3 要求在 P0–P2 通过后**单独**增加离线执行单元模型。本轮按其定义实现：

@@ -76,6 +76,52 @@ This validates the software, nominal AIR execution chain, and final formation po
 yet validate minimum obstacle clearance under qn tracking error, actuator saturation margins, or
 cross-medium formation flight.
 
+## M1 correctness: state, time and domain
+
+These are the semantics the current code implements; they supersede the earlier
+description in this file where the two disagree.
+
+**One coordinate mapping, one place.** `qn_aav_simulator/odometry.py` maps one
+qn state snapshot to the ROS fields both odometry topics publish.  The model's
+position derivative is `dp/dt = S R(q) v_model` with `S = diag(1, 1, -1)`, and
+no unit quaternion expresses `S R(q)`; measured on a recorded run the model's
+*attitude* and *body angular velocity* are the physical ones (pitch is nose-down
+under forward acceleration, and the body rate matches `R(q)^T dR/dt`), while
+`v_model` is not the physical body velocity.  The publisher therefore keeps the
+native attitude and body rate and publishes `R(q)^T v_world` as the body twist,
+so a standard consumer recovers `dp/dt = R(q) v_body` exactly.  Consumers do not
+repeat the transform.  `conventions_consistent` compares the three-dimensional
+velocity, not its norm.
+
+**Fixed outer step.** `outer_dt_s` (default 10 ms) is the single authority; the
+control rate is derived from it.  The model clock advances by whole fixed steps
+and is never replayed or extrapolated to catch up with ROS time, so model/ROS
+drift is a real measurement again.  A command is adopted at the next step
+boundary and held for that whole step; the bounded cache latches a burst or an
+out-of-order arrival as a violation instead of silently dropping input.
+
+**AIR domain and geometric safety.** The AIR floor is derived from the model as
+`hg_m / 2 = 0.085 m`; it is not a configurable constant, and any non-zero
+`medium_flag` means the run left the AIR model (the flag changes mass, inertia,
+damping and actuation).  The violation is latched online and makes
+`experiment_validity = INVALID`.  A member envelope reaching the declared
+surface plane makes `safety_outcome = FAIL`.  Inter-agent clearance is a surface
+clearance (`|p_i - p_j| - 2 * platform_radius_m`), and the check is labelled
+`DISCRETE_SAMPLED` because it samples states rather than proving continuous-time
+safety.
+
+**Reference adoption waits, then locks.** After dispatch the run waits for every
+member to adopt the new reference; the hold window cannot start before that, and
+the resource stays occupied meanwhile.  Waiting is normal; only the existing
+execution timeout or an explicit ownership conflict locks the run.  A task the
+task layer does not accept does not release the resource and does not dispatch
+the next one.
+
+**Sampling ledger.** The expected grid is generated from the task window and the
+nominal monitor period, never from the samples that arrived.  A sample is matched
+on its own message stamp within one nominal period, so a late but real monitor
+tick is not reported as missing; the achieved period is reported separately.
+
 ## Odometry semantics after the task-layer integration
 
 The qn node publishes two odometry streams from **one** state snapshot. They are
@@ -165,6 +211,36 @@ median 0.010 s, 99th percentile 0.0101 s, worst 0.013 s, zero clamped outer step
 bound (about 60 % of one core each), so the loop rate is a load-dependent result
 rather than a configured guarantee; the time-alignment gate is what makes that
 tolerable or not.
+
+## Perception chain and the M2 obstacle scenario
+
+The upstream CPU renderer (`local_sensing_node`) builds each drone's local cloud
+from the first global map message only (`if (has_global_map) return;`) and
+publishes a point only when it is inside the sensing horizon *and* within about
+60 degrees of the body x axis.  Two consequences had to be handled:
+
+- The random forest map has no obstacles in the x in [-30, -22] corridor, so the
+  local cloud legitimately stays empty there; that is why the baseline declares
+  `known_empty_map: true` rather than treating silence as a trusted measurement.
+- An obstacle injected later could never reach the planners, because the map was
+  latched.  `integration/swarm_qn_bridge/patches/pcl_render_node_accept_map_updates.patch`
+  is applied at image build time so map updates are accepted; the upstream
+  snapshot in `upstream/` is untouched and the patch is recorded here.
+
+`obstacle_injector.py` publishes a deterministic box into
+`/map_generator/global_cloud`, and `docker_test_qn_formation_action.sh` takes a
+fifth argument (`on|off`) for the scenario.  The verifier requires, when the
+scenario is on, that the local cloud actually delivered points and that the
+members kept clear of the declared box.
+
+Result from `experiments/20260918-mission-m2` (obstacle on, on the formation's
+path at x = -23, y = 0): the local cloud delivered points for three of the seven
+members, the members' closest approach to the box was 0.0 m, the safety check
+reported an obstacle clearance of 0.108 m against the required 0.20 m, and the
+task layer then refused to release the resource or dispatch the next task.  The
+obstacle reached the perception chain, and the formation still flew into it --
+this scenario is **not** a pass, and the honest summary is that the stack does
+not yet demonstrate obstacle avoidance in this configuration.
 
 ## Rendering a recorded run
 

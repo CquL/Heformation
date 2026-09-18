@@ -54,6 +54,11 @@ class MemberSample:
     used_reference_velocity: Optional[Vector3] = None
     target_position: Optional[Vector3] = None
     model_time_s: Optional[float] = None
+    # The state's own message stamp is kept next to the monitor tick that
+    # recorded it: the ledger matches expected samples on the real observation
+    # time, not on the time the monitor happened to run.
+    state_stamp_s: Optional[float] = None
+    model_step: Optional[int] = None
 
 
 @dataclass
@@ -62,6 +67,10 @@ class SampleLedger:
     valid_sample_count: int = 0
     alignment_failure_count: int = 0
     max_continuous_gap_s: float = 0.0
+    leading_missing_s: float = 0.0
+    trailing_missing_s: float = 0.0
+    max_middle_gap_s: float = 0.0
+    observed_period_s: Optional[float] = None
     agent_expected_counts: Dict[int, int] = field(default_factory=dict)
     agent_valid_counts: Dict[int, int] = field(default_factory=dict)
     agent_max_gaps_s: Dict[int, float] = field(default_factory=dict)
@@ -79,6 +88,10 @@ class SampleLedger:
             "valid_sample_ratio": self.valid_sample_ratio,
             "alignment_failure_count": self.alignment_failure_count,
             "max_continuous_gap_s": self.max_continuous_gap_s,
+            "leading_missing_s": self.leading_missing_s,
+            "trailing_missing_s": self.trailing_missing_s,
+            "max_middle_gap_s": self.max_middle_gap_s,
+            "observed_period_s": self.observed_period_s,
             "agent_expected_counts": {str(k): v for k, v in
                                       sorted(self.agent_expected_counts.items())},
             "agent_valid_counts": {str(k): v for k, v in
@@ -90,8 +103,21 @@ class SampleLedger:
 
 def build_ledger(agent_ids: Iterable[int], grid_times: Sequence[float],
                  samples: Dict[int, Sequence[MemberSample]],
-                 *, expected_period_s: float) -> SampleLedger:
-    """Account for every expected sample of every member."""
+                 *, expected_period_s: float,
+                 tolerance_s: Optional[float] = None) -> SampleLedger:
+    """Account for every expected sample of every member.
+
+    ``grid_times`` must be generated independently of the samples that were
+    received (from the experiment window and the nominal period).  Deriving the
+    expected grid from the collected samples would make every missing interval
+    disappear from the denominator and inflate the valid ratio.
+
+    ``tolerance_s`` defaults to one nominal period.  A monitor tick that runs
+    late still produced a real observation of the state, so it must not be
+    reported as a missing sample; a genuine hole leaves whole grid points with
+    no observation at all.  The achieved tick rate is reported separately so a
+    slow monitor is visible instead of being disguised as bad alignment.
+    """
     agent_ids = tuple(agent_ids)
     ledger = SampleLedger()
     for agent_id in agent_ids:
@@ -99,29 +125,64 @@ def build_ledger(agent_ids: Iterable[int], grid_times: Sequence[float],
         ledger.agent_valid_counts[agent_id] = 0
         ledger.agent_max_gaps_s[agent_id] = 0.0
     ledger.expected_sample_count = len(grid_times) * len(agent_ids)
+    if not grid_times:
+        ledger.alignment_failure_count = 0
+        return ledger
+    window = grid_times[-1] - grid_times[0]
+    tolerance = expected_period_s if tolerance_s is None else float(tolerance_s)
+    if not math.isfinite(tolerance) or tolerance <= 0.0:
+        raise ValueError("tolerance_s must be finite and positive")
+    # The grid and the stamps are both built from multiples of the period, so a
+    # sample exactly one period away must not fail on floating-point residue.
+    limit = tolerance + 1e-9
     for agent_id in agent_ids:
-        series = sorted(samples.get(agent_id, ()), key=lambda item: item.ros_time_s)
-        valid_times: List[float] = []
+        series = sorted(
+            samples.get(agent_id, ()),
+            key=lambda item: (item.state_stamp_s
+                              if item.state_stamp_s is not None else item.ros_time_s))
+        stamps = [(item.state_stamp_s if item.state_stamp_s is not None
+                   else item.ros_time_s) for item in series]
+        matched: List[float] = []
+        expected_matched: List[float] = []
+        if len(stamps) >= 2:
+            span = stamps[-1] - stamps[0]
+            if span > 0.0:
+                observed = span / float(len(stamps) - 1)
+                if ledger.observed_period_s is None:
+                    ledger.observed_period_s = observed
+                else:
+                    ledger.observed_period_s = max(
+                        ledger.observed_period_s, observed)
         for expected in grid_times:
             nearest = None
             best = None
-            for sample in series:
-                distance = abs(sample.ros_time_s - expected)
+            for stamp in stamps:
+                distance = abs(stamp - expected)
                 if best is None or distance < best:
-                    best, nearest = distance, sample
-            if nearest is None or best > expected_period_s:
-                ledger.alignment_failure_count += 1
+                    best, nearest = distance, stamp
+                if best <= limit:
+                    break
+            if nearest is None or best > limit:
                 continue
             ledger.valid_sample_count += 1
             ledger.agent_valid_counts[agent_id] += 1
-            valid_times.append(nearest.ros_time_s)
-        for first, second in zip(valid_times, valid_times[1:]):
-            gap = second - first
-            ledger.agent_max_gaps_s[agent_id] = max(
-                ledger.agent_max_gaps_s[agent_id], gap)
+            matched.append(nearest)
+            expected_matched.append(expected)
+        ledger.alignment_failure_count += len(grid_times) - len(matched)
+        # Lead-in and tail-out are reported separately from an interior gap: a
+        # run that only lost its first samples is a different problem.
+        leading = (expected_matched[0] - grid_times[0]) if expected_matched else window
+        trailing = (grid_times[-1] - expected_matched[-1]) if expected_matched else window
+        ledger.leading_missing_s = max(ledger.leading_missing_s, leading)
+        ledger.trailing_missing_s = max(ledger.trailing_missing_s, trailing)
+        interior = 0.0
+        for first, second in zip(expected_matched, expected_matched[1:]):
+            interior = max(interior, second - first)
+        ledger.max_middle_gap_s = max(ledger.max_middle_gap_s, interior)
+        ledger.agent_max_gaps_s[agent_id] = interior
         ledger.max_continuous_gap_s = max(
-            ledger.max_continuous_gap_s, ledger.agent_max_gaps_s[agent_id],
-            *([0.0] if not valid_times else []))
+            ledger.max_continuous_gap_s,
+            ledger.agent_max_gaps_s[agent_id], leading, trailing)
     return ledger
 
 
@@ -195,6 +256,10 @@ class SafetyResult:
     min_obstacle_clearance_m: Optional[float] = None
     required_inter_agent_clearance_m: float = _MIN_INTER_AGENT_CLEARANCE_M
     required_obstacle_clearance_m: float = _OBSTACLE_CLEARANCE_M
+    # A centre-to-centre distance is not a clearance between two bodies, so the
+    # published figure subtracts both envelopes.
+    min_inter_agent_surface_clearance_m: Optional[float] = None
+    platform_radius_m: float = 0.0
     collision_pairs: Tuple[Tuple[int, int], ...] = ()
     reasons: Tuple[str, ...] = ()
 
@@ -204,6 +269,10 @@ class SafetyResult:
             "evidence_kind": self.evidence_kind,
             "min_inter_agent_distance_m": self.min_inter_agent_distance_m,
             "min_obstacle_clearance_m": self.min_obstacle_clearance_m,
+            "min_inter_agent_surface_clearance_m":
+                self.min_inter_agent_surface_clearance_m,
+            "platform_radius_m": self.platform_radius_m,
+            "check_resolution": self.evidence_kind,
             "required_inter_agent_clearance_m": self.required_inter_agent_clearance_m,
             "required_obstacle_clearance_m": self.required_obstacle_clearance_m,
             "collision_pairs": [list(pair) for pair in self.collision_pairs],
@@ -214,25 +283,36 @@ class SafetyResult:
 def evaluate_safety(samples: Dict[int, Sequence[MemberSample]], *,
                     obstacle_clearances: Optional[Sequence[float]] = None,
                     required_inter_agent_clearance_m: float = _MIN_INTER_AGENT_CLEARANCE_M,
-                    required_obstacle_clearance_m: float = _OBSTACLE_CLEARANCE_M
+                    required_obstacle_clearance_m: float = _OBSTACLE_CLEARANCE_M,
+                    platform_radius_m: float = 0.0,
+                    surface_clearance_violation: bool = False,
+                    surface_detail: str = ""
                     ) -> SafetyResult:
     """Discrete-sample collision and obstacle-separation check.
 
     ``obstacle_clearances`` is the set of sampled minimum distances between any
     member and the static global cloud.  ``None`` means the check could not be
     performed and yields ``NOT_VERIFIED`` rather than a silent pass.
+
+    The inter-agent figure is a surface clearance: both platform radii are
+    subtracted from the centre distance.  ``surface_clearance_violation``
+    carries an observed geometric violation (for example a member below the
+    declared surface plane) that the sampled distances cannot express.
     """
     samples_by_time: Dict[float, List[MemberSample]] = {}
     for series in samples.values():
         for sample in series:
             samples_by_time.setdefault(sample.ros_time_s, []).append(sample)
     min_distance: Optional[float] = None
+    min_surface: Optional[float] = None
     collisions: List[Tuple[int, int]] = []
     for _time, group in sorted(samples_by_time.items()):
         for first, second in combinations(sorted(group, key=lambda s: s.agent_id), 2):
             distance = math.dist(first.position, second.position)
             min_distance = distance if min_distance is None else min(min_distance, distance)
-            if distance < required_inter_agent_clearance_m:
+            surface = distance - 2.0 * float(platform_radius_m)
+            min_surface = surface if min_surface is None else min(min_surface, surface)
+            if surface < required_inter_agent_clearance_m:
                 pair = (first.agent_id, second.agent_id)
                 if pair not in collisions:
                     collisions.append(pair)
@@ -240,9 +320,11 @@ def evaluate_safety(samples: Dict[int, Sequence[MemberSample]], *,
         min(obstacle_clearances) if obstacle_clearances else None)
     reasons: List[str] = []
     if collisions:
-        reasons.append("inter-agent distance below {:.2f} m: {}".format(
+        reasons.append("inter-agent surface clearance below {:.2f} m: {}".format(
             required_inter_agent_clearance_m,
             ", ".join("({},{})".format(a, b) for a, b in collisions)))
+    if surface_clearance_violation:
+        reasons.append(surface_detail or "observed surface clearance violation")
     if min_obstacle is not None and min_obstacle < required_obstacle_clearance_m:
         reasons.append("obstacle clearance {:.3f} m below {:.2f} m".format(
             min_obstacle, required_obstacle_clearance_m))
@@ -257,6 +339,8 @@ def evaluate_safety(samples: Dict[int, Sequence[MemberSample]], *,
         outcome=outcome,
         evidence_kind=DISCRETE_SAMPLED,
         min_inter_agent_distance_m=min_distance,
+        min_inter_agent_surface_clearance_m=min_surface,
+        platform_radius_m=float(platform_radius_m),
         min_obstacle_clearance_m=min_obstacle,
         required_inter_agent_clearance_m=required_inter_agent_clearance_m,
         required_obstacle_clearance_m=required_obstacle_clearance_m,
@@ -275,6 +359,7 @@ class ExperimentVerdict:
     model_hold_satisfied: bool
     adoption_state: str
     time_alignment_ok: bool
+    air_domain_ok: bool
     metrics: MetricSet
     ledger: SampleLedger
     safety: SafetyResult
@@ -290,6 +375,7 @@ class ExperimentVerdict:
             "model_hold_satisfied": self.model_hold_satisfied,
             "adoption_state": self.adoption_state,
             "time_alignment_ok": self.time_alignment_ok,
+            "air_domain_ok": self.air_domain_ok,
             "metrics": self.metrics.as_dict(),
             "sample_ledger": self.ledger.as_dict(),
             "safety": self.safety.as_dict(),
@@ -302,6 +388,8 @@ def decide(*, epsilon_p: float, epsilon_v: float,
            model_hold_satisfied: bool, time_alignment_ok: bool,
            metrics: MetricSet, ledger: SampleLedger,
            safety: SafetyResult,
+           air_domain_ok: bool = True,
+           air_domain_detail: str = "",
            max_position_error_m: Optional[float] = None,
            hold_duration_s: float = 0.0,
            min_valid_sample_ratio: float = 0.9,
@@ -337,6 +425,12 @@ def decide(*, epsilon_p: float, epsilon_v: float,
         validity_reasons.append("model/ROS time alignment outside engineering gate")
     if not model_hold_satisfied:
         validity_reasons.append("model-time hold evidence missing")
+    if not air_domain_ok:
+        # The model switches mass, inertia, damping and actuation by medium, so
+        # leaving the AIR domain means the run was not the AIR experiment it
+        # claims to be -- even if the formation still reached its slots.
+        validity_reasons.append(
+            air_domain_detail or "model domain: the run left the AIR model")
     if any(reason.startswith("REFERENCE_ADOPTION_UNCONFIRMED") for reason in validity_reasons):
         experiment_validity = VALIDITY_INCOMPLETE
     elif validity_reasons:
@@ -360,6 +454,7 @@ def decide(*, epsilon_p: float, epsilon_v: float,
         model_hold_satisfied=model_hold_satisfied,
         adoption_state=adoption_state,
         time_alignment_ok=time_alignment_ok,
+        air_domain_ok=bool(air_domain_ok),
         metrics=metrics,
         ledger=ledger,
         safety=safety,
