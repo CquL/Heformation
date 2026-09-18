@@ -122,6 +122,64 @@ nominal monitor period, never from the samples that arrived.  A sample is matche
 on its own message stamp within one nominal period, so a late but real monitor
 tick is not reported as missing; the achieved period is reported separately.
 
+## Tests
+
+Three levels, cheapest first.  Everything below was run against the current
+commit.
+
+**Unit tests (seconds, no ROS).** 160 tests cover the coordinate mapping, the
+fixed-step command adoption, the AIR/surface rules, the sample ledger, the
+adoption gate, the executor state and the offline fleet cases.
+
+```bash
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -B -m pytest -q \
+  -p no:cacheprovider integration/qn_aav_simulator/tests integration/mrta_python/tests
+```
+
+`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` keeps unrelated host ROS plugins out of the
+run; `-p no:cacheprovider` avoids writing a cache into the tree.
+
+**Simulation smoke tests (about a minute each).** Build the image once, then:
+
+```bash
+./scripts/docker_build_qn.sh
+./scripts/docker_test_qn_single.sh     # one AAV tracking a commanded reference
+./scripts/docker_test_qn_swarm.sh      # seven AAVs reaching the formation slots
+```
+
+**End-to-end task chain (several minutes).** The launcher starts the isolated
+simulation, waits for `READY_IDLE`, runs A -> B -> Return, and then runs the
+independent verifier; the last two arguments select the repair mode and the
+obstacle scenario, and the experiment directory must be empty.
+
+```bash
+./scripts/docker_test_qn_formation_action.sh mission 1.5 <empty-dir> on off
+./scripts/docker_test_qn_formation_action.sh mission 1.5 <empty-dir> off off
+./scripts/docker_test_qn_formation_action.sh mission 1.5 <empty-dir> on on
+```
+
+A run counts as verified when `verification.json` reports `status: PASS`.  The
+tooling below runs inside the image; mount the experiment directory at
+`/experiments/current` (which is what the launcher does).
+
+```bash
+rosrun qn_aav_simulator verify_formation_experiment.py /experiments/current
+rosrun qn_aav_simulator plot_formation_experiment.py /experiments/current
+rosrun qn_aav_simulator reevaluate_air_domain.py /experiments/current --label <run>
+```
+
+`reevaluate_air_domain.py` is the one-off re-check of runs recorded before the
+M1 AIR rule existed; it reads the bag with that recording's message semantics and
+writes `revaluation.json` without touching the original verdict.
+
+**Odometry-loss injection (manual).** Start a mission, then kill one qn node
+while a task is running; the run must end in `UNKNOWN_LOCKED` with
+`resource_released=false` and no further dispatch.
+
+```bash
+docker exec <container> bash -c 'pkill -f "__name:=drone_3_qn_aav"'
+```
+
 ## Odometry semantics after the task-layer integration
 
 The qn node publishes two odometry streams from **one** state snapshot. They are
