@@ -21,7 +21,7 @@ generate_messages(DEPENDENCIES actionlib_msgs geometry_msgs)
 catkin_package(CATKIN_DEPENDS actionlib_msgs diagnostic_msgs geometry_msgs message_runtime nav_msgs quadrotor_msgs rospy sensor_msgs std_msgs)
 
 catkin_install_python(
-  PROGRAMS scripts/qn_aav_node.py scripts/formation_action_server.py scripts/formation_mission_runner.py scripts/verify_formation_experiment.py
+  PROGRAMS scripts/qn_aav_node.py scripts/formation_action_server.py scripts/formation_mission_runner.py scripts/verify_formation_experiment.py scripts/plot_formation_experiment.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

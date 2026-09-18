@@ -165,3 +165,41 @@ median 0.010 s, 99th percentile 0.0101 s, worst 0.013 s, zero clamped outer step
 bound (about 60 % of one core each), so the loop rate is a load-dependent result
 rather than a configured guarantee; the time-alignment gate is what makes that
 tolerable or not.
+
+## Rendering a recorded run
+
+`plot_formation_experiment.py` reads one experiment directory and renders what the
+simulation actually did. It is read-only: it never touches the planner, the plant
+or the recorded bag.
+
+```bash
+docker run --rm -v "$PWD/experiments/<run>:/experiments/current" \
+  swarm-formation-qn:noetic bash -c \
+  'source /opt/ros/noetic/setup.bash && rosrun qn_aav_simulator \
+   plot_formation_experiment.py /experiments/current'
+```
+
+Three figures land in `<run>/figures/`:
+
+| Figure | Shows |
+| --- | --- |
+| `trajectories.png` | world XY path of all seven members with the published task goals, plus altitude over time |
+| `slot_error.png` | per-member distance to its current slot target with `epsilon_p`, and member speed inside the accepted task windows with `epsilon_v` |
+| `time_alignment.png` | qn model clock minus ROS clock against the ±0.05 s gate, and the same signal with each member's initial offset removed |
+
+From `experiments/20260918-mission-e` (repair on, three tasks all PASS/PASS/VALID):
+
+![Flown trajectories](figures/formation_trajectories.png)
+
+![Slot error and hold speed](figures/formation_slot_error.png)
+
+![Model clock against the time gate](figures/formation_time_alignment.png)
+
+The slot-error panel is the visual form of the completion rule: each accepted
+window (shaded) has to end with all seven members inside `epsilon_p`, and the
+speed panel shows the transit spikes decaying back under `epsilon_v`. The time
+panel shows the whole run inside the gate with a constant offset of about
+-9 ms and a peak-to-peak variation of 0.61 ms.
+
+For the live three-dimensional view, run the demo from a desktop terminal with a
+display and use RViz: `./scripts/docker_run_qn_demo.sh`.
