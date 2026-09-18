@@ -49,8 +49,14 @@ cd ~/Swarm-Formation
 
 ```bash
 cd ~/Swarm-Formation
-./scripts/docker_run_qn_demo.sh
+./scripts/docker_run_qn_demo.sh manual   # 手动点击 2D Nav Goal
+./scripts/docker_run_qn_demo.sh mission  # 直接跑 A -> B -> Return
 ```
+
+容器里的`roscore`由脚本自己启动并持有，RViz 只是旁边的另一个进程。这样关掉 RViz
+窗口不会再连带杀掉 ROS master（旧写法里`rviz.launch`先启动、又带着
+`required="true"`的 rviz 节点，关窗即结束该 launch，master 随之消失，还在跑的
+七机节点会一直刷`XmlRpcClient::writeRequest: Connection refused`）。
 
 RViz打开后使用`2D Nav Goal`点击目标。官方`normal_hexagon.launch`实际创建`drone_0`至
 `drone_6`，即中心节点加六边形节点，共7台qn AAV。

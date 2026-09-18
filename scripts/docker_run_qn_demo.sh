@@ -25,7 +25,22 @@ docker run --rm --init -it \
   swarm-formation-qn:noetic bash -c '
     source /opt/ros/noetic/setup.bash
     source /workspace/devel/setup.bash
+    # The master belongs to this shell, not to a launch file.  Starting
+    # rviz.launch first made that launch own the master, and its rviz node is
+    # required="true": closing the RViz window ended the launch, took the
+    # master with it, and left the simulation nodes spamming
+    # "XmlRpcClient::writeRequest: Connection refused" until they died.
+    roscore > /tmp/roscore.log 2>&1 &
+    core_pid=$!
+    finish() {
+      kill -INT "$core_pid" 2>/dev/null || true
+      kill -INT "$rviz_pid" 2>/dev/null || true
+    }
+    trap finish EXIT
+    sleep 3
+    # RViz runs beside the simulation: closing its window no longer ends the run.
     roslaunch ego_planner rviz.launch &
+    rviz_pid=$!
     if [ "$1" = mission ]; then
       roslaunch qn_aav_simulator formation_air.launch run_mission:=true
     else
