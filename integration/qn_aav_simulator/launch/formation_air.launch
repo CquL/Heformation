@@ -4,6 +4,9 @@
   <arg name="run_mission" default="false"/>
   <arg name="mode" default="mission"/>
   <arg name="record" default="true"/>
+  <!-- Test C control: repair_mode=off keeps the same schedule with planRepair
+       disabled; it must NOT be used to make repair-off skip a real completion. -->
+  <arg name="repair_mode" default="on"/>
 
   <include file="$(find ego_planner)/launch/normal_hexagon.launch"/>
   <rosparam file="$(find qn_aav_simulator)/config/formation_air.yaml"/>
@@ -38,8 +41,9 @@
   </node>
   <param name="formation_mission_runner/output_dir" value="$(arg output_dir)"/>
   <param name="formation_mission_runner/mode" value="$(arg mode)"/>
+  <param name="formation_mission_runner/repair_mode" value="$(arg repair_mode)" type="str"/>
   <param name="formation_mission_runner/planner_speed" value="$(arg planner_speed)" type="double"/>
   <node if="$(arg run_mission)" pkg="qn_aav_simulator" type="formation_mission_runner.py" name="formation_mission_runner" output="screen"/>
   <node if="$(arg record)" pkg="rosbag" type="record" name="formation_recorder" output="screen"
-        args="-O $(arg output_dir)/execution.bag --buffsize=256 --regex /formation_action/.*|/move_base_simple/goal|/drone_[0-6]_visual_slam/odom|/drone_[0-6]_planning/(pos_cmd|trajectory|start|finish)|/drone_[0-6]_qn/medium_flag"/>
+        args="-O $(arg output_dir)/execution.bag --buffsize=256 --regex /formation_action/.*|/move_base_simple/goal|/drone_[0-6]_visual_slam/odom|/drone_[0-6]_planning/(pos_cmd|trajectory|start|finish)|/drone_[0-6]_qn/(odometry|used_reference_pose|used_reference_twist|diagnostics|medium_flag)"/>
 </launch>

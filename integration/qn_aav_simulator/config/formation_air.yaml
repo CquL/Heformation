@@ -14,13 +14,37 @@ formation_action_server:
   odom_timeout: 0.25
   execution_timeout: 180.0
   monitor_rate: 20.0
-  startup_timeout: 60.0
+  startup_timeout: 180.0
+  # CPU build of the upstream renderer publishes a point cloud, not a depth image.
+  sensor_backend: CPU_POINTCLOUD
+  # The upstream map_generator only creates obstacles inside x in [-17, 17],
+  # y in [-7.5, 7.5]; this test corridor is x in [-30, -22].  The CPU renderer
+  # publishes pcl_render_node/cloud only when points are inside the sensing
+  # horizon, so the operating region is declared known-empty explicitly instead
+  # of treating a silent sensor as a trusted empty measurement.
+  known_empty_map: true
+  cloud_timeout: 3.0
+  qn_state_timeout: 1.0
+  model_time_window: 0.06
+  time_baseline_seconds: 30.0
+  time_rate_lower: 0.95
+  time_rate_upper: 1.05
+  max_model_ros_drift: 0.05
+  max_cross_agent_drift: 0.05
+  time_reference_displacement_limit: 0.25
+  inter_agent_clearance: 0.5
+  obstacle_clearance: 0.2
+  obstacle_sample_period: 1.0
+  min_valid_sample_ratio: 0.9
 
 formation_mission_runner:
   seed: 0
   nominal_speed_mps: 1.5
   delay_tolerance: 0.1
   initial_target_ref: start
+  # repair_mode: on -> planRepair updates the remaining Plan (Test C, repair-on)
+  # repair_mode: off -> identical schedule, repair disabled (Test C, control)
+  repair_mode: "on"
   centers:
     start: [-26.0, 0.0, 0.5]
     A: [-24.0, 0.0, 0.5]

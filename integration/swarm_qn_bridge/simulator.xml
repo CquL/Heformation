@@ -79,7 +79,7 @@
         <param name="simulator/init_state_y" value="$(arg init_y_)"/>
         <param name="simulator/init_state_z" value="$(arg init_z_)"/>
 
-        <remap from="~odom" to="drone_$(arg drone_id)_visual_slam/odom"/>
+        <remap from="~odom" to="/drone_$(arg drone_id)_qn/odometry"/>
         <remap from="~cmd" to="drone_$(arg drone_id)_so3_cmd"/>
         <remap from="~force_disturbance" to="drone_$(arg drone_id)_force_disturbance"/>    
         <remap from="~moment_disturbance" to="drone_$(arg drone_id)_moment_disturbance"/>        
@@ -89,7 +89,7 @@
         <param name="so3_control/init_state_x" value="$(arg init_x_)"/>
         <param name="so3_control/init_state_y" value="$(arg init_y_)"/>
         <param name="so3_control/init_state_z" value="$(arg init_z_)"/>
-        <remap from="~odom" to="drone_$(arg drone_id)_visual_slam/odom"/>
+        <remap from="~odom" to="/drone_$(arg drone_id)_qn/odometry"/>
         <remap from="~position_cmd" to="drone_$(arg drone_id)_planning/pos_cmd"/>
         <remap from="~motors" to="drone_$(arg drone_id)_motors"/>
         <remap from="~corrections" to="drone_$(arg drone_id)_corrections"/>
@@ -109,12 +109,20 @@
         <param name="init_z" value="$(arg init_z_)"/>
         <param name="drone_id" value="$(arg drone_id)"/>
         <remap from="~command" to="drone_$(arg drone_id)_planning/pos_cmd"/>
-        <remap from="~odometry" to="drone_$(arg drone_id)_$(arg odometry_topic)"/>
+        <!-- Swarm compatibility input: world-frame linear velocity.  It keeps
+             the topic the Swarm planners already consume and is NOT a general
+             ROS Odometry. -->
+        <remap from="~odometry_swarm_compat" to="drone_$(arg drone_id)_$(arg odometry_topic)"/>
+        <!-- Standard ROS qn Odometry: world pose/attitude, body twist. -->
+        <remap from="~odometry" to="drone_$(arg drone_id)_qn/odometry"/>
+        <remap from="~used_reference_pose" to="drone_$(arg drone_id)_qn/used_reference_pose"/>
+        <remap from="~used_reference_twist" to="drone_$(arg drone_id)_qn/used_reference_twist"/>
+        <remap from="~diagnostics" to="drone_$(arg drone_id)_qn/diagnostics"/>
         <remap from="~medium_flag" to="drone_$(arg drone_id)_qn/medium_flag"/>
   </node>
   
   <node pkg="odom_visualization" name="drone_$(arg drone_id)_odom_visualization" type="odom_visualization" output="screen">
-        <remap from="~odom" to="drone_$(arg drone_id)_visual_slam/odom"/>
+        <remap from="~odom" to="/drone_$(arg drone_id)_qn/odometry"/>
         <param name="color/a" value="1.0"/>    
         <param name="color/r" value="0.0"/>        
         <param name="color/g" value="0.0"/>        
@@ -136,7 +144,7 @@
         <param name="map/z_size"     value="$(arg map_size_z_)"/>
 
         <remap from="~global_map" to="/map_generator/global_cloud"/>
-        <remap from="~odometry"   to="/drone_$(arg drone_id)_$(arg odometry_topic)"/>
+        <remap from="~odometry"   to="/drone_$(arg drone_id)_qn/odometry"/>
         <remap from="~pcl_render_node/cloud"   to="/drone_$(arg drone_id)_pcl_render_node/cloud"/>
   </node>
 

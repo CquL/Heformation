@@ -5,7 +5,11 @@ COPY integration/mrta_python /workspace/integration/mrta_python
 COPY integration/swarm_qn_bridge/simulator.xml \
   /workspace/src/src/planner/plan_manage/launch/simulator.xml
 
-RUN python3 -m pip install --no-cache-dir /workspace/integration/mrta_python
+# mrta_python is a path-based package (integration/mrta_python).  The base
+# image ships setuptools 45.2, whose isolated PEP 621 build needs PyPI and
+# whose non-isolated build drops the package metadata; keeping it on
+# PYTHONPATH makes the image build offline-friendly and deterministic.
+ENV PYTHONPATH=/workspace/integration
 RUN . /opt/ros/noetic/setup.sh && cd /workspace && catkin_make -j2
 
 RUN echo "source /workspace/devel/setup.bash" >> /root/.bashrc

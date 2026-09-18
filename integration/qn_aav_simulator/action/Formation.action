@@ -6,9 +6,29 @@ uint8 NONE=0
 uint8 INVALID_TARGET=1
 uint8 ODOMETRY_TIMEOUT=2
 uint8 EXECUTION_TIMEOUT=3
+uint8 REFERENCE_ADOPTION_UNCONFIRMED=4
+uint8 MODEL_TIME_MISMATCH=5
+uint8 UNKNOWN_LOCKED=6
+
+uint8 TASK_PASS=1
+uint8 TASK_FAIL=2
+uint8 SAFETY_PASS=1
+uint8 SAFETY_FAIL=2
+uint8 SAFETY_NOT_VERIFIED=3
+uint8 VALIDITY_VALID=1
+uint8 VALIDITY_INVALID=2
+uint8 VALIDITY_INCOMPLETE=3
+
+string task_id
+string goal_id
+string evidence_file
 time actual_start_time
 time actual_finish_time
 uint8 reason
+uint8 task_outcome
+uint8 safety_outcome
+uint8 experiment_validity
+float64 model_time_hold_seconds
 ---
 uint8 MOVING=0
 uint8 HOLDING=1

@@ -172,3 +172,82 @@ C becomes urgent at M=10 and finishes late without being rejected. Other tests
 cover reproducible ties, capability rejection, plan views, temporal invariants,
 history protection, terminal-result conflicts and repeated-delay prevention.
 These checks do not establish ROS motion completion or full MATLAB equivalence.
+
+## Observed repair behaviour in the ROS mission (Test C)
+
+`./scripts/docker_test_qn_formation_action.sh mission 1.5 <dir> on|off` runs the
+`A -> B -> Return` chain with `planRepair` enabled or disabled and records both the
+plan history and the actual dispatch times. The two runs below differ **only** in
+`repair_mode`:
+
+| Run | `plan_updated` | `plan_updated_actions` | `updated_plan_used` | `dispatch_changed` |
+| --- | --- | --- | --- | --- |
+| `experiments/20260918-mission-e` (on) | `true` | `T1`, `T2` | `true` | `T2`, `T3` |
+| `experiments/20260918-mission-f` (off) | `false` | — | `true` | `T2`, `T3` |
+
+Both runs waited for each action's real completion before dispatching the next one
+(T2 dispatched 0.14 s after T1 finished, T3 0.17 s after T2, in the repair-off run);
+repair-off never skipped a real completion to manufacture a difference. Every
+`DelayEvent` is registered once (`events == processed_events`, three events), each
+plan history entry keeps the pre-repair plan (`plan_before`), and the dispatch of
+each successor matches the `planned_start` of the plan the runner last read.
+
+`dispatch_changed` is therefore **not** a measure of repair's effect in this serial
+single-resource scenario: it is `true` whenever the actual release of the resource
+lands away from the plan's own `planned_start`, which happens with or without
+repair. Repair's effect is visible in `plan_updated` and in the repaired
+`planned_start` values, not in whether the physical dispatch moved.
+
+## Offline executor layer (plan.md P3)
+
+`executors.py` adds the offline multi-resource model that plan.md places after
+P0–P2. It is a **planning-layer** addition: it selects which pre-defined execution
+unit runs a task and how tasks compete for one unit. It does not split the
+seven-member physical formation the ROS mission uses, and it claims no
+multi-coalition physical closed loop.
+
+| Field | Meaning |
+| --- | --- |
+| `executor_id` | the bookable unit |
+| `physical_agent_ids` | the unit's fixed membership; never split or reshuffled |
+| `capabilities` | what the unit can do |
+| `available_from` | when the unit becomes bookable |
+| `nominal_speed_mps` | the unit's travel speed, so two eligible units cost differently |
+
+```python
+from mrta_python import Executor, ExecutorTravelTimeProvider, Task, build_executor_plan
+
+units = [Executor("A", ("d0", "d1"), frozenset({"AIR"}), 0.0, 1.0),
+         Executor("B", ("d2", "d3"), frozenset({"AIR"}), 0.0, 2.0)]
+tasks = [Task("survey", frozenset({"AIR"}), 2, 4.0, 1000.0, "far")]
+travel = ExecutorTravelTimeProvider({"base": (0, 0, 0.5), "far": (10, 0, 0.5)},
+                                    {"A": 1.0, "B": 2.0})
+plan = build_executor_plan(units, tasks, travel, initial_target_ref="base")
+assert plan.assignments == {"survey": "B"}   # the cheaper capable unit wins
+```
+
+Selection reuses the ported v9 reward order. The one generalization is that each
+unit keeps its own queue finishing time, so a candidate's earliest start is *that
+unit's* queue end — identical to the single global queue when only one unit
+exists. Capability and size decide eligibility; cost decides between eligible
+units; the same unit's queue serializes competing tasks. Ties break on
+`executor_id`, so the result does not depend on input order.
+
+The three scenarios plan.md requires are regression tests:
+
+| Scenario | Test |
+| --- | --- |
+| Only unit A is eligible | `test_only_the_eligible_executor_is_selected`, `test_ineligible_executor_cannot_be_forced_into_the_plan` |
+| A and B are both eligible at different cost | `test_lower_cost_wins_between_two_eligible_executors`, `test_selection_compares_the_same_task_between_units` |
+| Two tasks compete for one unit | `test_two_tasks_compete_for_one_executor_and_serialize`, `test_competition_is_avoided_when_a_second_eligible_unit_exists` |
+
+```bash
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=integration python -B -m pytest -q \
+  -p no:cacheprovider integration/mrta_python/tests/test_executors.py
+```
+
+`validate_executor_plan` rejects an ineligible unit, a coalition that differs
+from the unit's membership, overlapping tasks on one unit, and a task list that
+is not allocated exactly once. Completion/repair for this layer is deliberately
+out of scope at this stage: the ported `process_completion`/`plan_repair` remain
+the fixed-coalition semantics and are not duplicated here.

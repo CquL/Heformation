@@ -66,3 +66,25 @@ RViz打开后使用`2D Nav Goal`点击目标。官方`normal_hexagon.launch`实�
 - 当前先复现官方AIR场景；跨介质编队还需要把Swarm-Formation的速度、加速度可行性约束
   扩展为介质感知约束，不能只靠替换plant就宣称完成。
 - 详细接口与验证见`docs/QN_INTEGRATION.md`。
+
+## 七机编队动作实验（FormationAction）
+
+```bash
+cd ~/Swarm-Formation
+./scripts/docker_test_qn_single.sh                 # 单机命令跟踪
+./scripts/docker_test_qn_swarm.sh                  # 七机编队位置
+./scripts/docker_test_qn_formation_action.sh mission 1.5 <空的实验目录> on
+```
+
+第三条命令运行七机 `A -> B -> Return` 任务链：启动隔离仿真、等待 Action server
+进入 `READY_IDLE`、执行任务、再运行独立验证器，并把 `metrics.json`、`config.json`、
+`execution.bag`、逐动作诊断和 `verification.json` 写进实验目录。第四个参数
+`on|off` 只控制是否调用 `planRepair`，不会让 repair-off 跳过对真实动作完成的等待。
+
+本次记录（`experiments/20260918-mission-e`，CPU 点云后端）：三个任务全部
+`task_outcome=PASS`、`safety_outcome=PASS`、`experiment_validity=VALID`，模型时间驻留
+5.02/5.01/5.03 s（要求 5.0 s），`verification.json` 220 项检查 0 失败；任务前基线为
+30.1 s 连续七机对齐，`valid_sample_ratio=1.0`，模型-ROS 累计偏差 0.00054 s。
+`experiments/20260918-mission-f` 是同一链路的 repair-off 对照。
+
+边界未变：仍是 AIR 单介质、固定七机单一联盟，不代表跨介质或完整联合协调闭环。

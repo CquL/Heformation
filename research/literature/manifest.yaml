@@ -1,0 +1,138 @@
+# Swarm-Formation 文献清单（plan.md「文献研究」优先级顺序）
+# 生成日期：2026-09-18
+#
+# 约定：
+#   - 本目录只做文献记录，不改代码、不改 plan.md。
+#   - PDF 只作为本地阅读副本，不提交 git；仓库 .gitignore 已含
+#     research/literature/papers/*.pdf（规则见 .gitignore）。
+#   - pdf_status: downloaded = 已用 curl -L 下载且 file 认定为 PDF、大小 > 50 kB；
+#                  not-available = 付费墙/无开放版本，只读摘要或落地页。
+#   - read_scope 说明笔记实际读到什么，未读正文的条目不得引用正文定理或数字。
+
+version: 1
+generated: "2026-09-18"
+policy:
+  pdfs_committed: false
+  gitignore_rule: "research/literature/papers/*.pdf"
+  download_command: "curl -sL --max-time 120 -A 'Mozilla/5.0 (research lit fetch)' -o <file> <url>"
+  pdf_acceptance: "file <path> 报告 PDF 且 size > 50 kB，否则删除并记 not-available"
+
+papers:
+  - key: calvo-2024-delay-propagation
+    title: "Heterogeneous Multi-robot Task Allocation for Long-Endurance Missions in Dynamic Scenarios"
+    authors: ["Álvaro Calvo", "Jesús Capitán"]
+    year: 2024
+    venue: "arXiv preprint arXiv:2411.02062 [cs.RO]（v3, 2025-11-26）"
+    url: "https://arxiv.org/abs/2411.02062"
+    pdf_file: "papers/calvo-2024-delay-propagation.pdf"
+    pdf_status: downloaded
+    pdf_size_bytes: 10224834
+    pdf_sha256: "4ca83f3239730a365e9cecd7a86e1b6fd365b35ce0884f2364503670a78bbeaf"
+    read_scope: full-text
+    relevance_to_interface:
+      - "DelayEvent / planRepair：repair 先吸收等待时间、再沿协调点传播；repair 失败才允许全量重规划"
+      - "executor/resource model：每机器人 slot/队列时间与等待时间，而非单一 execution 级时间"
+    notes: "notes/calvo-2024-delay-propagation.md"
+
+  - key: swarm-formation-2022
+    title: "Robust and Efficient Trajectory Planning for Formation Flight in Dense Environments"
+    authors: ["Lun Quan", "Longji Yin", "Tingrui Zhang", "Mingyang Wang", "Ruilin Wang", "Sheng Zhong", "Xin Zhou", "Yanjun Cao", "Chao Xu", "Fei Gao"]
+    year: 2023
+    venue: "IEEE Transactions on Robotics (T-RO) 2023；arXiv:2210.04048 (2022)"
+    url: "https://arxiv.org/abs/2210.04048"
+    pdf_file: "papers/swarm-formation-2022.pdf"
+    pdf_status: downloaded
+    pdf_size_bytes: 17807767
+    pdf_sha256: "6a4e6b1a1e67600aa9591afc8a1ad9623f2cedb016f3a5ce82a5d44bf92900d7"
+    read_scope: full-text
+    relevance_to_interface:
+      - "FormationAction：单个 formation_center + hold_duration 不能表达尺度/旋转/编队形状，也不能表达 ALAS 式槽位重分配"
+      - "group-level completion：完成判定要对当前采用的编队目标，而不是派发前的固定槽位；任务中局部重排保留同一 execution 上下文"
+      - "used_reference / trajectory_id：编队重组会产生新局部轨迹但不产生新任务"
+    notes: "notes/swarm-formation-2022.md"
+
+  - key: fastrack-2017
+    title: "FaSTrack: a Modular Framework for Fast and Guaranteed Safe Motion Planning"
+    authors: ["Sylvia L. Herbert", "Mo Chen", "SooJean Han", "Somil Bansal", "Jaime F. Fisac", "Claire J. Tomlin"]
+    year: 2017
+    venue: "IEEE Conference on Decision and Control (CDC) 2017；arXiv:1703.07373"
+    url: "https://arxiv.org/abs/1703.07373"
+    pdf_file: "papers/fastrack-2017.pdf"
+    pdf_status: downloaded
+    pdf_size_bytes: 2363148
+    pdf_sha256: "d070eb7b6bd1dd7c5ef95e0cd36812661e24cd1e1afd8d16172ae52f09460de5"
+    read_scope: full-text
+    relevance_to_interface:
+      - "safety/validity verdicts：轨迹误差界是离线 HJ 计算＋安全控制器下的相对界，不是 qn 闭环的现成保证"
+      - "PositionCommand / used_reference：规划参考与真实跟踪状态必须分开；完成阈值应计入跟踪误差界"
+    notes: "notes/fastrack-2017.md"
+
+  - key: apex-mr-2025
+    title: "APEX-MR: Multi-Robot Asynchronous Planning and Execution for Cooperative Assembly"
+    authors: ["Philip Huang", "Ruixuan Liu", "Shobhit Aggarwal", "Changliu Liu", "Jiaoyang Li"]
+    year: 2025
+    venue: "Robotics: Science and Systems (RSS) 2025；arXiv:2503.15836"
+    url: "https://arxiv.org/abs/2503.15836"
+    pdf_file: "papers/apex-mr-2025.pdf"
+    pdf_status: downloaded
+    pdf_size_bytes: 15267831
+    pdf_sha256: "49973e78e03e2af901b085facb3830d1cb99de2b32d83945f7ac98d93f226ab0"
+    read_scope: full-text
+    relevance_to_interface:
+      - "FormationAction 释放条件：动作只有在所有前驱节点执行完成后才可派发，计划时间戳不构成释放条件"
+      - "DelayEvent/planRepair：延迟可由偏序吸收，不必时间平移；需要比组级事件更细的依赖粒度"
+    notes: "notes/apex-mr-2025.md"
+
+  - key: grstaps-2021
+    title: "GRSTAPS: Graphically Recursive Simultaneous Task Allocation, Planning, and Scheduling"
+    authors: ["Andrew Messing", "Glen Neville", "Seth Hutchinson", "Sonia Chernova", "Harish Ravichandar"]
+    year: 2022
+    venue: "The International Journal of Robotics Research (IJRR), 2022 (online 2021)"
+    url: "https://star-lab.cc.gatech.edu/papers/messing-grstaps/"
+    doi: "10.1177/02783649211052066"
+    pdf_file: null
+    pdf_status: not-available
+    not_available_reason: "付费墙（SAGE）；Unpaywall 与 OpenAlex 均确认无开放版本（oa_status=closed）"
+    landing_page: "https://star-lab.cc.gatech.edu/papers/messing-grstaps/"
+    read_scope: abstract-only
+    relevance_to_interface:
+      - "travel_time_provider / used_reference：任务分配-调度-运动可行性需要双向信息交换，单一标称旅行时间不能证明可执行"
+      - "PlanItem 时间语义：调度在运动可行性确认前是暂定值，必须能回传不可行/修正"
+    notes: "notes/grstaps-2021.md"
+
+  - key: hltl-gcs-2025
+    title: "Hierarchical Temporal Logic Task and Motion Planning for Multi-Robot Systems"
+    authors: ["Zhongqi Wei", "Xusheng Luo", "Changliu Liu"]
+    year: 2025
+    venue: "Robotics: Science and Systems (RSS) XXI, 2025"
+    url: "https://www.roboticsproceedings.org/rss21/p099.html"
+    doi: "10.15607/RSS.2025.XXI.099"
+    pdf_file: "papers/hltl-gcs-2025.pdf"
+    pdf_status: downloaded
+    pdf_size_bytes: 8077812
+    pdf_sha256: "b556f92e0b7f1772cb491ed34698ea07a6c6d8872e416d6a7a6bdc1d9ecb87d1"
+    text_layer: false
+    reading_copy: "https://arxiv.org/abs/2504.18899（同一论文 v2，有文本层；笔记正文按该版本阅读）"
+    read_scope: full-text-via-arxiv-copy
+    relevance_to_interface:
+      - "PlanItem 依赖：显式时序规范与分配要进入同一搜索，target_ref/时间字段本身不表达依赖"
+      - "group-level completion / experiment_validity：完备性只在规格相容且空间分解/轨迹参数化足够时成立"
+      - "travel_time_provider：运动可行性应与任务层联合判定，而不是事后标量估计"
+    notes: "notes/hltl-gcs-2025.md"
+
+  - key: robust-mader-2023
+    title: "Robust MADER: Decentralized Multiagent Trajectory Planner Robust to Communication Delay in Dynamic Environments"
+    authors: ["Kota Kondo", "Reinaldo Figueroa", "Juan Rached", "Jesus Tordesillas", "Parker C. Lusk", "Jonathan P. How"]
+    year: 2024
+    venue: "IEEE Robotics and Automation Letters (RA-L) 9(2):1476-1483, 2024（accepted 2023-11）；arXiv:2303.06222"
+    url: "https://arxiv.org/abs/2303.06222"
+    pdf_file: "papers/robust-mader-2023.pdf"
+    pdf_status: downloaded
+    pdf_size_bytes: 5798090
+    pdf_sha256: "8779863a046392fceb8136ac5509fb078da62e627e42ca31ecf11b2641b7151f"
+    read_scope: full-text
+    relevance_to_interface:
+      - "used_reference / source_trajectory_id：只有 committed 轨迹才是实际执行参考；optimized 与 committed 必须区分"
+      - "safety/validity verdicts：安全性依赖已知延迟上界 δmax 与 δDC ≥ δmax；无延迟契约时安全结论只能是 NOT_VERIFIED"
+      - "通信假设：处理延迟，不处理完全丢包"
+    notes: "notes/robust-mader-2023.md"

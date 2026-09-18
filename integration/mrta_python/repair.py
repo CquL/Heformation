@@ -72,7 +72,8 @@ def plan_repair(plan: Plan, event: DelayEvent) -> Tuple[Plan, bool]:
 
 def process_completion(plan: Plan, event: DelayEvent,
                        final_events: MutableMapping[str, DelayEvent], *,
-                       tolerance: float = 0.1) -> Tuple[Plan, bool]:
+                       tolerance: float = 0.1,
+                       repair_timing: bool = True) -> Tuple[Plan, bool]:
     """Validate one terminal result, freeze history, then gate temporal repair.
 
     final_events belongs to the caller, keyed by execution_id. Its event IDs
@@ -80,6 +81,11 @@ def process_completion(plan: Plan, event: DelayEvent,
     A new delivery ID for the same execution/result remains a duplicate.
     The bool reports changes to remaining timing, not the COMPLETED transition.
     Invalid/conflicting events change neither the input plan nor the ledger.
+
+    ``repair_timing=False`` is the repair-off control of Test C: the completion
+    event is still validated, deduplicated and registered exactly once, but the
+    successor timing is deliberately left untouched.  Neither mode changes when
+    the next action is dispatched: both wait for the real previous completion.
     """
     nonnegative(tolerance, "tolerance")
     validate_plan(plan)
@@ -101,7 +107,7 @@ def process_completion(plan: Plan, event: DelayEvent,
     changed = False
     # Compare the threshold as a timestamp to avoid cancellation turning an
     # exact boundary such as 1.1 - 1.0 into a delay slightly greater than 0.1.
-    if event.actual_finish > event.planned_finish + tolerance:
+    if repair_timing and event.actual_finish > event.planned_finish + tolerance:
         updated, changed = plan_repair(updated, event)
     final_events[event.execution_id] = event
     return updated, changed

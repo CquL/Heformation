@@ -11,12 +11,13 @@
   <depend>actionlib_msgs</depend>
   <depend>actionlib</depend>
   <depend>rospy</depend>
+  <depend>diagnostic_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>nav_msgs</depend>
   <depend>std_msgs</depend>
   <depend>quadrotor_msgs</depend>
+  <depend>sensor_msgs</depend>
   <exec_depend>rosbag</exec_depend>
   <exec_depend>rosgraph</exec_depend>
-  <exec_depend>sensor_msgs</exec_depend>
   <export/>
 </package>

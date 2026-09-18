@@ -22,3 +22,6 @@ data/manifests/*
 !data/manifests/.gitkeep
 experiments/*
 !experiments/README.md
+
+# Literature PDFs are local reading copies, not repository artifacts.
+research/literature/papers/*.pdf

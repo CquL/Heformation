@@ -55,10 +55,20 @@ def validate_configuration(agent_ids, relative_slots, scale, epsilon_p,
 
 @dataclass(frozen=True)
 class OdometrySample:
+    """One member state.
+
+    ``velocity`` is always the world-frame linear velocity, whatever convention
+    the source message used.  ``body_velocity`` keeps the body-frame value from
+    the standard qn Odometry so consumers can tell the two conventions apart.
+    """
+
     stamp: float
     position: Vector3
     velocity: Vector3
     frame_id: str = "world"
+    body_velocity: Vector3 = (0.0, 0.0, 0.0)
+    orientation_quat_wxyz: Tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0)
+    child_frame_id: str = ""
 
     def is_fresh(self, now, timeout):
         return (self.frame_id == "world" and math.isfinite(self.stamp)
@@ -80,6 +90,8 @@ class MonitorSnapshot:
     hold_elapsed: float
     terminal_state: Optional[str] = None
     reason: int = 0
+    model_hold_elapsed_s: Optional[float] = None
+    model_hold_pending: bool = False
 
 
 class GroupCompletionMonitor:
@@ -92,6 +104,7 @@ class GroupCompletionMonitor:
     INVALID_TARGET = 1
     ODOMETRY_TIMEOUT = 2
     EXECUTION_TIMEOUT = 3
+    MODEL_HOLD_PENDING = 4
 
     def __init__(self, center, hold_duration, start_time, *, agent_ids=AGENT_IDS,
                  relative_slots=None, swarm_scale=2.0, epsilon_p=0.5,
@@ -118,20 +131,46 @@ class GroupCompletionMonitor:
         self.last_evaluation = None
         self.snapshot = None
 
+    def _fresh_window(self, value, now):
+        """Fresh samples for one member, newest last."""
+        window = [value] if isinstance(value, OdometrySample) else list(value)
+        return [sample for sample in window
+                if sample.is_fresh(now, self.odom_timeout)]
+
     def evaluate(self, now: float, samples: Mapping[int, OdometrySample], *,
-                 cancelled: bool = False) -> MonitorSnapshot:
+                 cancelled: bool = False,
+                 model_hold_satisfied=None) -> MonitorSnapshot:
+        """One completion evaluation.
+
+        ``model_hold_satisfied(hold_start_ros, now_ros)`` optionally gates the
+        SUCCEEDED transition on the qn *model* time actually advanced during the
+        hold window.  ROS dwell time alone never completes a task.
+        """
         if self.snapshot is not None and self.snapshot.terminal_state is not None:
             return self.snapshot
-        fresh = {agent_id: samples[agent_id] for agent_id in self.agent_ids
-                 if agent_id in samples
-                 and samples[agent_id].is_fresh(now, self.odom_timeout)}
+        # ``samples`` is either the latest state per member or every state
+        # received since the previous evaluation.  The settled condition is
+        # evaluated over the whole fresh window: "the seven dynamics states
+        # continuously satisfy the completion conditions" cannot be verified
+        # from one sample per 50 ms monitor tick when odometry arrives at
+        # 100 Hz.
+        fresh = {}
+        for agent_id in self.agent_ids:
+            value = samples.get(agent_id) if agent_id in samples else None
+            if value is None:
+                continue
+            window = self._fresh_window(value, now)
+            if window:
+                fresh[agent_id] = window
         stale = tuple(agent_id for agent_id in self.agent_ids if agent_id not in fresh)
         position_errors = [math.dist(sample.position, self.targets[agent_id])
-                           for agent_id, sample in fresh.items()]
+                           for agent_id, window in fresh.items()
+                           for sample in window]
         speeds = [math.sqrt(sum(value * value for value in sample.velocity))
-                  for sample in fresh.values()]
+                  for window in fresh.values() for sample in window]
+        latest = [window[-1] for window in fresh.values()]
         distances = [math.dist(first.position, second.position)
-                     for first, second in combinations(fresh.values(), 2)]
+                     for first, second in combinations(latest, 2)]
         max_error = max(position_errors, default=None)
         max_speed = max(speeds, default=None)
         min_distance = min(distances, default=None)
@@ -150,11 +189,24 @@ class GroupCompletionMonitor:
             self.hold_started = None
         settled = (terminal is None and not stale
                    and max_error <= self.epsilon_p and max_speed <= self.epsilon_v)
+        model_hold_elapsed = None
+        model_hold_pending = False
         if settled:
             if self.hold_started is None:
                 self.hold_started = now
             if now - self.hold_started >= self.hold_duration:
-                terminal = "SUCCEEDED"
+                if model_hold_satisfied is None:
+                    terminal = "SUCCEEDED"
+                else:
+                    model_hold_elapsed = model_hold_satisfied(self.hold_started, now)
+                    if model_hold_elapsed is None:
+                        model_hold_pending = True
+                        reason = self.MODEL_HOLD_PENDING
+                    elif model_hold_elapsed + 1e-9 < self.hold_duration:
+                        model_hold_pending = True
+                        reason = self.MODEL_HOLD_PENDING
+                    else:
+                        terminal = "SUCCEEDED"
         else:
             self.hold_started = None
         self.last_evaluation = now
@@ -164,5 +216,7 @@ class GroupCompletionMonitor:
             min_inter_agent_distance=min_distance, fresh_agent_count=len(fresh),
             stale_agent_ids=stale, hold_started=self.hold_started,
             hold_elapsed=0.0 if self.hold_started is None else now - self.hold_started,
-            terminal_state=terminal, reason=reason)
+            terminal_state=terminal, reason=reason,
+            model_hold_elapsed_s=model_hold_elapsed,
+            model_hold_pending=model_hold_pending)
         return self.snapshot
