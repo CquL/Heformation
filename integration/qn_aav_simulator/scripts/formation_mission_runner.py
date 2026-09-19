@@ -223,6 +223,8 @@ class MissionRunner:
                     raise RuntimeError("Action endpoint must have exactly one owner: " + endpoint)
                 node = nodes[0]
                 self.server_nodes[unit.executor_id] = node
+                if rospy.get_param(node + "/safety_latched_members", []):
+                    raise RuntimeError("physical member safety hold locked: " + endpoint)
                 if rospy.get_param(node + "/ready", False):
                     declared = rospy.get_param(node + "/agent_ids")
                     if {"drone_{}".format(a) for a in declared} != unit.members():
@@ -307,6 +309,7 @@ class MissionRunner:
             "observed_fraction", "delivered_fraction", "results_received", "failure_reason",
             "observation_model", "payload_quality", "updated_at_ros_s")}
         state["current_action"] = self.metrics.get("current_action")
+        state["safety_disposition"] = self.metrics.get("safety_disposition")
         rospy.set_param("~task_state", json.dumps(state, default=json_default, allow_nan=False))
         rospy.set_param("~resource_locks", sorted(self.active_executor_ids))
 
@@ -364,10 +367,16 @@ class MissionRunner:
             self.metrics["current_action"]["phase"] = "HOLDING" if message.phase == 1 else "MOVING"
         client.send_goal(goal, feedback_cb=feedback)
         node = self.server_nodes[unit.executor_id]
-        deadline = time.monotonic() + float(rospy.get_param(node + "/execution_timeout", 180)) + 10.0
+        disposition_budget = (float(rospy.get_param(node + "/safety_hold_timeout_s", 180))
+                              if rospy.get_param(node + "/safety_hold_enabled", False) else 0.0)
+        deadline = time.monotonic() + float(rospy.get_param(node + "/execution_timeout", 180)) + disposition_budget + 10.0
         while not rospy.is_shutdown():
             if client.wait_for_result(rospy.Duration(.5)):
                 break
+            disposition = rospy.get_param(node + "/safety_disposition", None)
+            if disposition is not None:
+                self.metrics["current_action"]["phase"] = "SAFETY_HOLD"
+                self.metrics["safety_disposition"] = json.loads(disposition)
             self._save_executor()
             if time.monotonic() >= deadline:
                 raise RuntimeError("result timeout; endpoint={} client_state={} server_state={}".format(
@@ -384,6 +393,8 @@ class MissionRunner:
                     failed_evidence = json.loads(evidence_path.read_text())
                     if failed_evidence.get("goal_id") == result.goal_id:
                         detail += "; " + failed_evidence.get("reason_text", "")
+                        if failed_evidence.get("safety_hold"):
+                            self.metrics["safety_disposition"] = failed_evidence["safety_hold"]
                 self.metrics["executions"].append({"task_id": item.task_id,
                     "execution_id": item.execution_id, "endpoint": unit.action_endpoint,
                     "goal_id": result.goal_id, "result_received_at": rospy.Time.now().to_sec(),

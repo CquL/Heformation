@@ -26,6 +26,7 @@ import math
 import json
 import sys
 import threading
+import textwrap
 from collections import deque
 from pathlib import Path
 
@@ -441,10 +442,14 @@ class MissionDashboard:
         axis.axis("off")
         age = now - state.get("updated_at_ros_s", now)
         action = state.get("current_action") or {}
+        disposition = state.get("safety_disposition") or {}
         lines = ["TASK AUTHORITY — " + state.get("request_id", "waiting for runner"),
                  "Status: {}   update age: {:.1f}s".format(state.get("status", "UNAVAILABLE"), age),
                  "Current action: {} / {}".format(action.get("task_id", "none"), action.get("phase", "-")),
                  "Selected endpoint: " + action.get("endpoint", "-"),
+                 "Safety disposition: {} / {} (original task remains unsuccessful)".format(
+                     disposition.get("reason", "none"), disposition.get("outcome", "observing")
+                     ) if disposition else "Safety disposition: none",
                  "Occupied / locked units: " + str(state.get("resource_locks", [])),
                  "Observed geometry: {}   Received observations: {}".format(
                      state.get("observed_fraction", "unknown"), state.get("delivered_fraction", "unknown")),
@@ -462,7 +467,8 @@ class MissionDashboard:
             lines.append("{}: observed={} received={} member={} dwell={:.2f}s".format(
                 point, observation["observed"], point in received,
                 observation["member_id"], observation["dwell_s"]))
-        axis.text(.01, .99, "\n".join(lines), transform=axis.transAxes, va="top",
+        wrapped = "\n".join(textwrap.fill(line, width=115, subsequent_indent="  ") for line in lines)
+        axis.text(.01, .99, wrapped, transform=axis.transAxes, va="top",
                   fontsize=10, family="monospace", wrap=True)
         self.figure.tight_layout()
         return self.render()

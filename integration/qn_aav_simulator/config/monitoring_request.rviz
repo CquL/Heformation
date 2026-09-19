@@ -2,6 +2,8 @@ Panels:
 - Class: rviz/Displays
   Name: Displays
   Tree Height: 900
+- Class: rviz/Views
+  Name: Views
 Visualization Manager:
   Class: ''
   Displays:
@@ -359,7 +361,11 @@ Visualization Manager:
     Fixed Frame: world
     Frame Rate: 15
   Name: root
-  Tools: []
+  Tools:
+  - Class: rviz/MoveCamera
+  - Class: rviz/Interact
+  - Class: rviz/Select
+  - Class: rviz/FocusCamera
   Value: true
   Views:
     Current:

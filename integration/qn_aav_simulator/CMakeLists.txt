@@ -12,13 +12,14 @@ find_package(catkin REQUIRED COMPONENTS
   rospy
   sensor_msgs
   std_msgs
+  std_srvs
 )
 
 catkin_python_setup()
 
 add_action_files(DIRECTORY action FILES Formation.action)
 generate_messages(DEPENDENCIES actionlib_msgs geometry_msgs)
-catkin_package(CATKIN_DEPENDS actionlib_msgs diagnostic_msgs geometry_msgs message_runtime nav_msgs quadrotor_msgs rospy sensor_msgs std_msgs)
+catkin_package(CATKIN_DEPENDS actionlib_msgs diagnostic_msgs geometry_msgs message_runtime nav_msgs quadrotor_msgs rospy sensor_msgs std_msgs std_srvs)
 
 catkin_install_python(
   PROGRAMS scripts/qn_aav_node.py scripts/formation_action_server.py
@@ -27,6 +28,7 @@ catkin_install_python(
   scripts/animate_mission_replay.py scripts/mission_dashboard.py
   scripts/scene_publisher.py
   scripts/locate_failure_layer.py
+  scripts/probe_safety_hold.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

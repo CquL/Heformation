@@ -11,6 +11,7 @@
   <arg name="output_dir" default="/experiments/current"/>
   <arg name="planner_speed" default="1.5"/>
   <arg name="record" default="false"/>
+  <arg name="safety_hold_timeout_s" default="180.0"/>
   <arg name="obstacle" default="false"/>
   <arg name="obstacle_center" default="[-24.0, 6.0, 0.5]"/>
   <arg name="obstacle_size" default="[1.0, 1.0, 1.2]"/>
@@ -111,6 +112,7 @@
        only on their goal topics, so a command addressed to one AAV cannot reach
        the other two. -->
   <node pkg="qn_aav_simulator" type="formation_action_server.py" name="aav_1_action_server" output="screen">
+    <param name="safety_hold_timeout_s" value="$(arg safety_hold_timeout_s)"/>
     <param name="output_dir" value="$(arg output_dir)"/>
     <param name="action_name" value="/aav_1/formation_action"/>
     <rosparam param="agent_ids">[0]</rosparam>
@@ -122,6 +124,7 @@
     <param name="member_goal_topic_format" value="/drone_{}_member_goal"/>
   </node>
   <node pkg="qn_aav_simulator" type="formation_action_server.py" name="aav_2_action_server" output="screen">
+    <param name="safety_hold_timeout_s" value="$(arg safety_hold_timeout_s)"/>
     <param name="output_dir" value="$(arg output_dir)"/>
     <param name="action_name" value="/aav_2/formation_action"/>
     <rosparam param="agent_ids">[1]</rosparam>
@@ -133,6 +136,7 @@
     <param name="member_goal_topic_format" value="/drone_{}_member_goal"/>
   </node>
   <node pkg="qn_aav_simulator" type="formation_action_server.py" name="aav_3_action_server" output="screen">
+    <param name="safety_hold_timeout_s" value="$(arg safety_hold_timeout_s)"/>
     <param name="output_dir" value="$(arg output_dir)"/>
     <param name="action_name" value="/aav_3/formation_action"/>
     <rosparam param="agent_ids">[2]</rosparam>
@@ -144,6 +148,7 @@
     <param name="member_goal_topic_format" value="/drone_{}_member_goal"/>
   </node>
   <node pkg="qn_aav_simulator" type="formation_action_server.py" name="aav_formation_action_server" output="screen">
+    <param name="safety_hold_timeout_s" value="$(arg safety_hold_timeout_s)"/>
     <param name="output_dir" value="$(arg output_dir)"/>
     <param name="action_name" value="/aav_formation/formation_action"/>
     <rosparam param="agent_ids">[0, 1, 2]</rosparam>
@@ -162,5 +167,5 @@
     <rosparam param="obstacle" subst_value="true">$(arg obstacle)</rosparam>
   </node>
   <node if="$(arg record)" pkg="rosbag" type="record" name="formation_recorder" output="screen"
-        args="-O $(arg output_dir)/execution.bag --buffsize=256 --regex /aav_(1|2|3|formation)/formation_action/.*|/drone_[0-2]_(member|formation)_goal|/drone_[0-2]_planning/(pos_cmd|trajectory|start|finish)|/drone_[0-2]_qn/(odometry|used_reference_pose|used_reference_twist|diagnostics|medium_flag)|/scene/global_cloud|/drone_[0-2]_pcl_render_node/cloud|/mission_dashboard/image/compressed"/>
+        args="-O $(arg output_dir)/execution.bag --buffsize=256 --regex /aav_(1|2|3|formation)/formation_action/.*|/drone_[0-2]_(member|formation)_goal|/drone_[0-2]_planning/(pos_cmd|trajectory|start|finish|safety_status)|/drone_[0-2]_qn/(odometry|used_reference_pose|used_reference_twist|diagnostics|medium_flag)|/scene/global_cloud|/drone_[0-2]_pcl_render_node/cloud|/mission_dashboard/image/compressed"/>
 </launch>

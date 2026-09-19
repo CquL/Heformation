@@ -108,9 +108,12 @@ papers:
   doi: 10.1177/02783649211052066
   pdf_file: null
   pdf_status: not-available
-  not_available_reason: 付费墙（SAGE）；Unpaywall 与 OpenAlex 均确认无开放版本（oa_status=closed）
+  not_available_reason: 本地仍无PDF；2026-09-19本轮已访问SAGE在线正文，旧付费墙记录不再表示当前HTML不可访问
   landing_page: https://star-lab.cc.gatech.edu/papers/messing-grstaps/
-  read_scope: abstract-only
+  read_scope: selected-full-text-sections-online
+  online_reading_url: https://journals.sagepub.com/doi/full/10.1177/02783649211052066
+  online_reading_sections: ["4.4", "4.5", "5 (experimental setup)", "6.1"]
+  online_access_checked: '2026-09-19'
   relevance_to_interface:
   - travel_time_provider / used_reference：任务分配-调度-运动可行性需要双向信息交换，单一标称旅行时间不能证明可执行
   - PlanItem 时间语义：调度在运动可行性确认前是暂定值，必须能回传不可行/修正

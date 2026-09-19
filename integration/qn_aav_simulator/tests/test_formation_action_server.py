@@ -184,6 +184,9 @@ def make_server(module, state=READY_IDLE, output_dir=None):
     elif state == UNKNOWN_LOCKED:
         server.state_machine.fault("odometry loss")
     server.work_queue = queue.Queue()
+    server.terminal_lock = threading.RLock()
+    server.terminal_goals = set()
+    server.cancelled_goals = set()
     server.agent_ids = list(range(7))
     server.slots = dict(DEFAULT_RELATIVE_SLOTS)
     server.scale = 2.0
@@ -592,3 +595,114 @@ def test_startup_timeout_does_not_kill_previously_ready_server(server_module, mo
     server._readiness_loop()
     assert bool(shutdowns) is (not was_ready)
     assert observed == ([True, False, True] if was_ready else [False])
+
+
+def test_hold_status_is_required_and_latch_survives_healthy_status(server_module, monkeypatch):
+    server = make_server(server_module, state=READY_IDLE)
+    server.safety_hold_enabled = True
+    server.terminal_lock = threading.RLock()
+    server.safety_status = {}
+    server.latched_members = set()
+    server.agent_ids = [1]
+    server.qn_state_timeout = 1.
+    assert "unavailable" in server._safety_dispatch_block()
+    values = {"latched": "true", "reason": "LOCAL_CLOUD_STALE", "trajectory_id": "10",
+              "reference_published": "true", "point_valid": "true", "hold_x": "1",
+              "hold_y": "2", "hold_z": ".8", "latched_at_s": "0", "last_cloud_stamp_s": "0"}
+    message = SimpleNamespace(header=SimpleNamespace(stamp=server_module.rospy.Time.now()),
+        status=[SimpleNamespace(name="local_safety_hold", hardware_id="drone_1",
+                values=[SimpleNamespace(key=k,value=v) for k,v in values.items()])])
+    monkeypatch.setattr(server_module.rospy, "set_param", lambda *a: None, raising=False)
+    server._safety_status_callback(message, 1)
+    assert "latched" in server._safety_dispatch_block()
+    assert server.state_machine.state == UNKNOWN_LOCKED
+    message.status[0].values[0].value = "false"
+    server._safety_status_callback(message, 1)
+    assert "latched" in server._safety_dispatch_block()
+
+
+def test_hold_cancel_is_scoped_to_goal_and_never_reopens_terminal(server_module):
+    server = make_server(server_module, state=READY_IDLE)
+    server.safety_hold_enabled = True
+    server.terminal_lock = threading.RLock()
+    server.cancelled_goals, server.terminal_goals = set(), {"old"}
+    server.state_machine.request_goal("new")
+    handle = lambda name: SimpleNamespace(get_goal_id=lambda: SimpleNamespace(id=name))
+    server._cancel_callback(handle("old"))
+    assert server.state_machine.state == ACTIVE
+    server._cancel_callback(handle("new"))
+    server._cancel_callback(handle("new"))
+    assert server.cancelled_goals == {"new"}
+    assert server.state_machine.state == UNKNOWN_LOCKED
+
+
+@pytest.mark.parametrize("failed_spawn", [None, 1])
+def test_hung_hold_rpcs_share_one_monotonic_deadline(server_module, monkeypatch, failed_spawn):
+    server = make_server(server_module, state=READY_IDLE)
+    server.agent_ids = [0, 1, 2]
+    server.safety_hold_timeout, server.monitor_rate = .15, 20.
+    server.safety_status, server.qn_source, server.command_trajectory = {}, {}, {}
+    server.used_reference = {}
+    server.odom_history = {a: [] for a in server.agent_ids}
+    server._safety_trigger = lambda _: "CANCEL_REQUEST"
+    server._stale_local_scans = lambda _: []
+    server._note_alignment = lambda _: None
+    server._fleet_safety = lambda _: {"ok": True}
+    clock, processes, attempts = [0.], [], []
+    class Hung:
+        def __init__(self, *args, **kwargs):
+            attempts.append(args[0])
+            if len(attempts)-1 == failed_spawn:
+                raise OSError("injected RPC process start failure")
+            self.killed = False
+            processes.append(self)
+        def poll(self): return -9 if self.killed else None
+        def kill(self): self.killed = True
+        def communicate(self): return b"", b""
+    monkeypatch.setattr(server_module.subprocess, "Popen", Hung)
+    monkeypatch.setattr(server_module.time, "monotonic", lambda: clock[0])
+    def advance(dt):
+        assert len(attempts) == 3  # peers attempted before waiting for any one
+        clock[0] += dt
+    monkeypatch.setattr(server_module.time, "sleep", advance)
+    monkeypatch.setattr(server_module.rospy, "is_shutdown", lambda: False, raising=False)
+    monkeypatch.setattr(server_module.rospy, "set_param", lambda *a: None, raising=False)
+    d = {"goal_id": "goal", "violation_reason": "inter-agent clearance already violated"}
+    server._observe_safety_hold(None, d, None, {})
+    assert d["safety_hold"]["observed_wall_s"] == pytest.approx(.15)
+    assert not d["safety_hold"]["verified"]
+    assert d["safety_hold"]["reason"] == "TASK_FAULT_BEFORE_CANCEL"
+    assert all(p.killed for p in processes)
+    server._observe_safety_hold(None, d, None, {})
+    assert len(attempts) == 3  # duplicate disposition cannot reset the budget
+
+
+def test_stop_monitor_uses_actual_height_and_starts_after_adoption(server_module):
+    Monitor, Sample = server_module.GroupCompletionMonitor, server_module.OdometrySample
+    monitor = Monitor((0,0,.8), 4., 0., agent_ids=[1], relative_slots={1:(0,0,0)},
+                      swarm_scale=1., target_z=.8, member_targets={1:(1.,2.,.92)})
+    for t in [i/10 for i in range(60)]:
+        snapshot = monitor.evaluate(t, {1:Sample(t,(1.,2.,.92),(0,0,0))},
+                                    reference_confirmed=t>=2.,hold_not_before_s=2.)
+        assert snapshot.terminal_state != "SUCCEEDED"
+    snapshot = monitor.evaluate(6.,{1:Sample(6.,(1.,2.,.92),(0,0,0))},hold_not_before_s=2.)
+    assert snapshot.terminal_state == "SUCCEEDED"
+
+
+def test_accepted_cancel_before_worker_never_publishes_ordinary_goal(server_module, monkeypatch, tmp_path):
+    server = make_server(server_module, state=READY_IDLE, output_dir=tmp_path)
+    handle = FakeGoalHandle()
+    server._goal_callback(handle)
+    work = server.work_queue.get_nowait()
+    server.safety_hold_enabled = True
+    server._cancel_callback(handle)
+    server._safety_trigger = lambda _: "CANCEL_REQUEST"
+    server._publish_routed_goal = lambda _: pytest.fail("canceled queued work published an ordinary goal")
+    observed = []
+    server._observe_safety_hold = lambda *a: observed.append(a[0])
+    server._finalize = lambda *a: True
+    monkeypatch.setattr(server_module.rospy, "is_shutdown", lambda: False, raising=False)
+    monkeypatch.setattr(server_module.rospy, "Rate", lambda _: SimpleNamespace(sleep=lambda: None), raising=False)
+    server._run_task(work)
+    assert observed == [work]
+    assert server.state_machine.state == UNKNOWN_LOCKED

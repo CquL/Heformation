@@ -126,7 +126,7 @@ class GroupCompletionMonitor:
     def __init__(self, center, hold_duration, start_time, *, agent_ids=AGENT_IDS,
                  relative_slots=None, swarm_scale=2.0, epsilon_p=0.5,
                  epsilon_v=0.25, odom_timeout=0.25, execution_timeout=180.0,
-                 platform_radius_m=0.0, target_z=0.5):
+                 platform_radius_m=0.0, target_z=0.5, member_targets=None):
         self.target_z = float(target_z)
         self.center = validate_target("world", center, hold_duration, self.target_z)
         self.slots = validate_configuration(
@@ -140,6 +140,12 @@ class GroupCompletionMonitor:
                             for axis in range(3))
             for agent_id in self.agent_ids
         }
+        if member_targets is not None:
+            if set(member_targets) != set(self.agent_ids) or any(
+                    len(p) != 3 or not all(math.isfinite(x) for x in p)
+                    for p in member_targets.values()):
+                raise ValueError("explicit member targets must be finite and match members")
+            self.targets = {a: tuple(member_targets[a]) for a in self.agent_ids}
         self.hold_duration = hold_duration
         self.start_time = start_time
         self.epsilon_p = epsilon_p

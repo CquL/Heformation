@@ -6,8 +6,9 @@ Design notes (plan.md P0/P1):
 * the process starts immediately, but only ``READY_IDLE`` accepts a Goal; the
   goal callback validates, reserves the group resource atomically and hands the
   work to a single execution loop, then returns,
-* a running task is never preempted by a new goal, and a cancel request never
-  releases resources or ends the physical task,
+* a running task is never preempted by a new goal; opt-in cancellation requests
+  local holding and observes qn before returning a non-success terminal Result,
+  while retaining resources (the seven-member default only records cancel),
 * odometry loss, execution timeout and result timeout enter ``UNKNOWN_LOCKED``,
 * task outcome, safety outcome and experiment validity are reported separately,
 * the new task reference must be proven by ``trajectory_id`` ownership.
@@ -18,6 +19,7 @@ from collections import deque
 import json
 import math
 import queue
+import subprocess
 import re
 import threading
 import time
@@ -113,6 +115,10 @@ class FormationActionServer:
         self.epsilon_v = float(rospy.get_param("~epsilon_v", 0.25))
         self.odom_timeout = float(rospy.get_param("~odom_timeout", 0.25))
         self.execution_timeout = float(rospy.get_param("~execution_timeout", 180.0))
+        self.safety_hold_enabled = bool(rospy.get_param("~safety_hold_enabled", False))
+        self.safety_hold_timeout = float(rospy.get_param("~safety_hold_timeout_s", 180.0))
+        if not math.isfinite(self.safety_hold_timeout) or self.safety_hold_timeout <= 0:
+            raise ValueError("safety_hold_timeout_s must be finite and positive")
         self.monitor_rate = float(rospy.get_param("~monitor_rate", 20.0))
         self.startup_timeout = float(rospy.get_param("~startup_timeout", 120.0))
         self.sensor_backend = str(rospy.get_param("~sensor_backend", SENSOR_BACKEND_CPU)).upper()
@@ -185,6 +191,11 @@ class FormationActionServer:
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         self.lock = threading.RLock()
+        self.terminal_lock = threading.RLock()
+        self.cancelled_goals = set()
+        self.terminal_goals = set()
+        self.safety_status = {}
+        self.latched_members = set()
         self.odom = {}
         # Recent per-member odometry (about 2 s at 100 Hz).  The completion
         # monitor evaluates the settled condition over this window instead of
@@ -258,6 +269,10 @@ class FormationActionServer:
         sensing_type = (PointCloud2 if self.sensor_backend == SENSOR_BACKEND_CPU
                         else Image)
         for agent_id in self.agent_ids:
+            if self.safety_hold_enabled:
+                self.subscribers.append(rospy.Subscriber(
+                    "/drone_{}_planning/safety_status".format(agent_id), DiagnosticArray,
+                    self._safety_status_callback, callback_args=agent_id, queue_size=1))
             sensing_topic = (local_cloud_topic(agent_id)
                              if self.sensor_backend == SENSOR_BACKEND_CPU
                              else depth_topic(agent_id))
@@ -741,6 +756,10 @@ class FormationActionServer:
         reasons = []
         if not status.ready:
             reasons.append(status.reason)
+        if getattr(self, "safety_hold_enabled", False):
+            safety_reason = self._safety_dispatch_block()
+            if safety_reason:
+                reasons.append(safety_reason)
         if planner_health != "OK":
             reasons.append("planner_health: " + planner_health)
         if not baseline.within_thresholds:
@@ -813,6 +832,8 @@ class FormationActionServer:
                     self._json_safe(snapshot.get("time_baseline", {}))))
                 rospy.set_param("~time_alignment_baseline", json.dumps(
                     self._json_safe(self._cached_baseline_report().as_dict())))
+                if getattr(self, "safety_disposition_payload", None) is not None:
+                    rospy.set_param("~safety_disposition", self.safety_disposition_payload)
             except Exception as error:
                 rospy.logwarn_throttle(
                     5.0, "could not publish readiness parameters: %s", error)
@@ -851,8 +872,17 @@ class FormationActionServer:
             self._validate_goal(goal)
         except (ValueError, TypeError) as error:
             validation_error = str(error)
-        status, reason, _ = self.state_machine.request_goal(
-            goal_handle.get_goal_id().id, validation_error=validation_error)
+        # The same boundary orders cancellation, local latch and terminal commit.
+        with getattr(self, "terminal_lock", self.lock):
+            safety_block = None
+            if getattr(self, "safety_hold_enabled", False):
+                safety_block = self._safety_dispatch_block()
+                if safety_block:
+                    self.state_machine.note_readiness(False)
+            status, reason, _ = self.state_machine.request_goal(
+                goal_handle.get_goal_id().id, validation_error=validation_error)
+            if safety_block and not validation_error and status != ACCEPTED:
+                reason = safety_block
         if status == ACCEPTED:
             goal_handle.set_accepted()
             self.work_queue.put(WorkItem(goal_handle, goal, received))
@@ -870,7 +900,15 @@ class FormationActionServer:
                           goal.task_id, status, reason)
 
     def _cancel_callback(self, goal_handle):
-        """A cancel request never releases resources or ends the physics."""
+        """Scope cancellation to its Goal; the worker observes opt-in holding."""
+        if getattr(self, "safety_hold_enabled", False):
+            goal_id = goal_handle.get_goal_id().id
+            with self.terminal_lock:
+                if goal_id in self.terminal_goals or goal_id != self.state_machine.goal_id:
+                    return
+                self.cancelled_goals.add(goal_id)
+                self.state_machine.note_cancel_request(goal_id, stop_and_lock=True)
+            return
         self.state_machine.ros_time_s = rospy.Time.now().to_sec()
         running = goal_handle.get_goal_status().status in _ACTIVE_STATUS
         self.state_machine.note_cancel_request()
@@ -878,6 +916,208 @@ class FormationActionServer:
             "FormationAction cancel request observed for %s; running=%s "
             "(actionlib may show PREEMPTING, the physical task is not cancelled)",
             goal_handle.get_goal_id().id, running)
+
+    def _safety_status_callback(self, message, agent_id):
+        entries = [s for s in message.status if s.name == "local_safety_hold"
+                   and s.hardware_id == "drone_{}".format(agent_id)]
+        if len(entries) != 1:
+            return
+        values = {v.key: v.value for v in entries[0].values}
+        try:
+            if values["latched"] not in ("true", "false"):
+                return
+            row = {"latched": values["latched"] == "true", "reason": values["reason"],
+                   "trajectory_id": int(values["trajectory_id"]),
+                   "reference_published": values["reference_published"] == "true",
+                   "point_valid": values["point_valid"] == "true",
+                   "hold_point": tuple(float(values["hold_"+a]) for a in "xyz"),
+                   "latched_at_s": float(values["latched_at_s"]),
+                   "last_cloud_stamp_s": float(values["last_cloud_stamp_s"]),
+                   "stamp_s": message.header.stamp.to_sec(), "received_monotonic": time.monotonic()}
+            if not all(math.isfinite(v) for v in row["hold_point"] + (
+                    row["latched_at_s"], row["last_cloud_stamp_s"], row["stamp_s"])):
+                return
+        except (KeyError, TypeError, ValueError):
+            return
+        with self.terminal_lock:
+            with self.lock:
+                newly_latched = row["latched"] and agent_id not in self.latched_members
+                self.safety_status[agent_id] = row
+                if row["latched"]:
+                    self.latched_members.add(agent_id)
+                self._readiness_cache = None
+            if newly_latched:
+                self.state_machine.fault("physical member drone_{} safety hold latched".format(agent_id))
+                rospy.set_param("~ready", False)
+                rospy.set_param("~safety_latched_members", sorted(self.latched_members))
+
+    def _safety_dispatch_block(self):
+        if not getattr(self, "safety_hold_enabled", False):
+            return None
+        now, wall = rospy.Time.now().to_sec(), time.monotonic()
+        with self.lock:
+            for a in self.agent_ids:
+                if a in self.latched_members:
+                    return "physical member drone_{} safety hold latched".format(a)
+                status = self.safety_status.get(a)
+                if (status is None or wall-status["received_monotonic"] > self.qn_state_timeout
+                        or not 0 <= now-status["stamp_s"] <= self.qn_state_timeout):
+                    return "drone_{} safety status unavailable/stale".format(a)
+        return None
+
+    def _safety_trigger(self, goal_id):
+        if not getattr(self, "safety_hold_enabled", False):
+            return None
+        with self.lock:
+            if any(s["latched"] and s["reason"] == "LOCAL_CLOUD_STALE"
+                   for s in self.safety_status.values()):
+                return "GROUP_MEMBER_SENSOR_FAILURE"
+        if self._stale_local_scans(rospy.Time.now().to_sec()):
+            return "GROUP_MEMBER_SENSOR_FAILURE"
+        if goal_id in self.cancelled_goals:
+            return "CANCEL_REQUEST"
+        return "LOCAL_HOLD_OR_STATUS_FAILURE" if self._safety_dispatch_block() else None
+
+    def _observe_safety_hold(self, work, diagnostics, alignment, member_samples):
+        """Bounded observation in this worker; local holding outlives the worker."""
+        goal_id = diagnostics["goal_id"]
+        existing = diagnostics.get("safety_hold")
+        if existing is not None:
+            return  # One disposition and one deadline per Goal, including retries.
+        started_wall = time.monotonic()
+        end_wall = started_wall + self.safety_hold_timeout
+        hold = {"reason": self._safety_trigger(goal_id) or "CANCEL_REQUEST",
+                "started_ros_s": rospy.Time.now().to_sec(), "timeout_s": self.safety_hold_timeout,
+                "deadline_monotonic": end_wall, "verified": False, "members": {},
+                "hold_duration": 4.0, "request_results": {}}
+        if diagnostics.get("violation_reason"):
+            hold["original_violation_reason"] = diagnostics["violation_reason"]
+            if hold["reason"] == "CANCEL_REQUEST":
+                hold["reason"] = "TASK_FAULT_BEFORE_CANCEL"
+        diagnostics["safety_hold"] = hold
+        diagnostics["violation_reason"] = hold["reason"]
+        self.state_machine.fault(hold["reason"] + "; observing local holding")
+        calls = {}
+        # Subprocesses provide a cancellable bound for the entire blocking RPC,
+        # including services that exist but never return. All requests start first.
+        local_faults = {a for a in self.agent_ids
+                        if any(topic == local_cloud_topic(a) for topic, _ in
+                               self._stale_local_scans(rospy.Time.now().to_sec()))}
+        with self.lock:
+            local_faults.update(a for a, s in self.safety_status.items()
+                                if s["latched"] and s["reason"] == "LOCAL_CLOUD_STALE")
+        try:
+            for a in self.agent_ids:
+                if a in local_faults:
+                    hold["request_results"][str(a)] = "LOCAL_WATCHDOG_EXPECTED"
+                    continue
+                try:
+                    calls[a] = subprocess.Popen(
+                        ["rosservice", "call", "/drone_{}_planning/safety_hold".format(a)],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                except OSError as error:
+                    hold["request_results"][str(a)] = {"error": str(error)}
+            stop_monitor = None
+            adopted = {}
+            points = {}
+            while not rospy.is_shutdown() and time.monotonic() < end_wall:
+                now = rospy.Time.now().to_sec()
+                trigger = self._safety_trigger(goal_id)
+                if trigger == "GROUP_MEMBER_SENSOR_FAILURE":
+                    hold["reason"] = trigger  # A sensor fault dominates cancellation.
+                for a, process in calls.items():
+                    if process.poll() is not None and str(a) not in hold["request_results"]:
+                        out, err = process.communicate()
+                        hold["request_results"][str(a)] = {
+                            "returncode": process.returncode,
+                            "response": out.decode(errors="replace"), "error": err.decode(errors="replace")}
+                with self.lock:
+                    statuses = {a: dict(s) for a, s in self.safety_status.items()}
+                    sources = {a: dict(s) for a, s in self.qn_source.items()}
+                    commands = dict(self.command_trajectory)
+                    references = {a: dict(s) for a, s in self.used_reference.items()}
+                    samples = {a: list(self.odom_history[a]) for a in self.agent_ids}
+                for a in self.agent_ids:
+                    status, source = statuses.get(a), sources.get(a)
+                    if not status:
+                        continue
+                    hold["members"][str(a)] = dict(status)
+                    if status["point_valid"] and status["latched"]:
+                        points.setdefault(a, status["hold_point"])
+                    reliable = (time.monotonic()-status["received_monotonic"] <= self.qn_state_timeout
+                                and 0 <= now-status["stamp_s"] <= self.qn_state_timeout)
+                    ref = references.get(a) or {}
+                    if (reliable and status["latched"] and status["reference_published"]
+                            and source and 0 <= now-source["stamp_s"] <= self.qn_state_timeout
+                            and source["source_trajectory_id"] == status["trajectory_id"]
+                            and commands.get(a, (-1,))[0] == status["trajectory_id"]
+                            and source["stamp_s"] >= status["latched_at_s"]
+                            and now-ref.get("ros_time_s", 0) <= self.odom_timeout):
+                        adopted.setdefault(a, source["stamp_s"])
+                    else:
+                        adopted.pop(a, None)
+                hold["adopted_at_s"] = dict(adopted)
+                if len(points) == len(self.agent_ids) and stop_monitor is None:
+                    stop_monitor = GroupCompletionMonitor(
+                        (0., 0., self.cruise_altitude_m), 4.0, now, agent_ids=self.agent_ids,
+                        relative_slots={a: (0., 0., 0.) for a in points}, member_targets=points,
+                        swarm_scale=1., epsilon_p=self.epsilon_p, epsilon_v=self.epsilon_v,
+                        odom_timeout=self.odom_timeout, execution_timeout=self.safety_hold_timeout,
+                        platform_radius_m=self.platform_radius_m, target_z=self.cruise_altitude_m)
+                self._note_alignment(alignment)
+                fleet = self._fleet_safety(now)
+                minimum = fleet.get("min_surface_clearance_m")
+                if minimum is not None:
+                    old = diagnostics.get("min_inter_agent_distance")
+                    distance = minimum + 2*self.platform_radius_m
+                    diagnostics["min_inter_agent_distance"] = distance if old is None else min(old, distance)
+                if not fleet["ok"]:
+                    hold.setdefault("safety_failures", []).append({"time": now, "reason": fleet["reason"]})
+                    if minimum is not None and minimum < self.inter_agent_clearance:
+                        hold["reason"] = "ACTUAL_SAFETY_VIOLATION"
+                if stop_monitor:
+                    stop_monitor.start_time = now  # Only the monotonic deadline limits observation.
+                    time_ok = alignment.report(require_baseline=False).within_thresholds
+                    snapshot = stop_monitor.evaluate(
+                        now, samples, reference_confirmed=len(adopted) == len(self.agent_ids) and time_ok,
+                        hold_not_before_s=max(adopted.values()) if len(adopted) == len(self.agent_ids) else now,
+                        model_hold_satisfied=lambda begin, end: self._model_hold_elapsed(begin, end, hold))
+                    self._record_member_samples(member_samples, samples, references, stop_monitor, now)
+                    height = snapshot.min_height_m
+                    if height is not None:
+                        previous = diagnostics.get("min_member_height_m")
+                        diagnostics["min_member_height_m"] = height if previous is None else min(previous, height)
+                    clearance = self._box_clearance(samples)
+                    if clearance is not None:
+                        previous = diagnostics.get("min_box_surface_clearance_m")
+                        diagnostics["min_box_surface_clearance_m"] = clearance if previous is None else min(previous, clearance)
+                    if ((clearance is not None and clearance < self.obstacle_clearance) or
+                            (height is not None and height-self.platform_radius_m < self.surface_plane_m)):
+                        hold["reason"] = "ACTUAL_SAFETY_VIOLATION"
+                    hold["last_snapshot"] = asdict(snapshot)
+                    if snapshot.terminal_state == "SUCCEEDED" and time_ok:
+                        hold["verified"] = True
+                        break
+                self.safety_disposition_payload = json.dumps(self._json_safe(hold))
+                time.sleep(min(1.0/self.monitor_rate, max(0., end_wall-time.monotonic())))
+        finally:
+            for a, process in calls.items():
+                if process.poll() is None:
+                    process.kill()
+                    process.communicate()
+                    hold["request_results"][str(a)] = "OBSERVATION_DEADLINE_OR_END"
+            hold["finished_ros_s"] = rospy.Time.now().to_sec()
+            hold["observed_wall_s"] = time.monotonic()-started_wall
+            last = hold.get("last_snapshot") or {}
+            observed_not_settled = (time.monotonic() >= end_wall
+                                   and len(hold.get("adopted_at_s", {})) == len(self.agent_ids)
+                                   and last.get("fresh_agent_count") == len(self.agent_ids)
+                                   and (last.get("max_position_error", 0) > self.epsilon_p
+                                        or last.get("max_velocity", 0) > self.epsilon_v))
+            hold["outcome"] = ("VERIFIED" if hold["verified"] else
+                               "FAILED" if observed_not_settled else "UNVERIFIED")
+            diagnostics["violation_reason"] = hold["reason"]
+            self.safety_disposition_payload = json.dumps(self._json_safe(hold))
 
     # --------------------------------------------------------------- worker
     def _worker_loop(self):
@@ -899,14 +1139,26 @@ class FormationActionServer:
                 self.work_queue.task_done()
 
     def _fail_task(self, work, text):
-        diagnostics = self.active_diagnostics
-        if diagnostics is None:
-            diagnostics = self._new_diagnostics(work, rospy.Time.now())
-        self.state_machine.fault(text)
-        diagnostics["reason_text"] = text
-        self._write_diagnostics(diagnostics)
-        result = self._result_message(diagnostics, FormationResult.UNKNOWN_LOCKED)
-        work.goal_handle.set_aborted(result, text)
+        with self.terminal_lock:
+            goal_id = work.goal_handle.get_goal_id().id
+            if goal_id in self.terminal_goals:
+                return
+            diagnostics = self.active_diagnostics or getattr(self, "executing_diagnostics", None)
+            if diagnostics is None or diagnostics["goal_id"] != goal_id:
+                diagnostics = self._new_diagnostics(work, rospy.Time.now())
+            self.state_machine.fault(text)
+            diagnostics["reason_text"] = text
+            diagnostics["run_state"] = "UNKNOWN_LOCKED"
+            diagnostics["state_machine"] = self.state_machine.snapshot()
+            diagnostics["resource_released"] = False
+            diagnostics["accepted_for_dispatch"] = False
+            diagnostics["actual_finish_time"] = rospy.Time.now().to_sec()
+            if diagnostics.get("safety_hold"):
+                diagnostics["safety_hold"].update(verified=False, outcome="UNVERIFIED", error=text)
+            self._write_diagnostics(diagnostics)
+            result = self._result_message(diagnostics, FormationResult.UNKNOWN_LOCKED)
+            self.terminal_goals.add(goal_id)
+            work.goal_handle.set_aborted(result, text)
 
     def _new_diagnostics(self, work, start):
         goal_id = work.goal_handle.get_goal_id().id
@@ -1000,6 +1252,7 @@ class FormationActionServer:
         goal = work.goal
         start = rospy.Time.now()
         diagnostics = self._new_diagnostics(work, start)
+        self.executing_diagnostics = diagnostics
         monitor = GroupCompletionMonitor(
             diagnostics["formation_center"], goal.hold_duration.to_sec(), start.to_sec(),
             agent_ids=self.agent_ids, relative_slots=self.slots, swarm_scale=self.scale,
@@ -1043,7 +1296,11 @@ class FormationActionServer:
         #   several      -> a formation centre               (each member offsets)
         # The planner enforces the same split on its side, so the two entries must
         # stay in step; see plan_manage_member_goal_entry.patch.
-        semantics, route, published_topics = self._publish_routed_goal(command)
+        with self.terminal_lock:
+            if self._safety_trigger(diagnostics["goal_id"]):
+                semantics, route, published_topics = "SAFETY_BEFORE_DISPATCH", [], set()
+            else:
+                semantics, route, published_topics = self._publish_routed_goal(command)
         diagnostics["goal_semantics"] = semantics
         diagnostics["goal_publish_count"] = 1
         diagnostics["goal_messages_published"] = len(published_topics)
@@ -1068,6 +1325,9 @@ class FormationActionServer:
                 writer.writeheader()
                 rate = rospy.Rate(round(self.monitor_rate))
                 while not rospy.is_shutdown():
+                    if self._safety_trigger(diagnostics["goal_id"]):
+                        self._observe_safety_hold(work, diagnostics, alignment, member_samples)
+                        break
                     with self.lock:
                         samples = {agent_id: list(self.odom_history[agent_id])
                                    for agent_id in self.agent_ids}
@@ -1154,6 +1414,8 @@ class FormationActionServer:
                     if violation:
                         diagnostics["violation_latched_at_s"] = now_s
                         diagnostics["violation_reason"] = violation
+                        if self._safety_trigger(diagnostics["goal_id"]):
+                            self._observe_safety_hold(work, diagnostics, alignment, member_samples)
                         break
                     if snapshot.terminal_state:
                         break
@@ -1163,9 +1425,14 @@ class FormationActionServer:
                 self.active_diagnostics = None
 
         finish = rospy.Time.now()
-        self._finalize(diagnostics, work, monitor, adoption, alignment,
-                       member_samples, obstacle_clearances, reference_missing,
-                       start, finish, counts_start, group_goal_start)
+        committed = self._finalize(diagnostics, work, monitor, adoption, alignment,
+                                  member_samples, obstacle_clearances, reference_missing,
+                                  start, finish, counts_start, group_goal_start)
+        if not committed:
+            self._observe_safety_hold(work, diagnostics, alignment, member_samples)
+            self._finalize(diagnostics, work, monitor, adoption, alignment,
+                           member_samples, obstacle_clearances, reference_missing,
+                           start, rospy.Time.now(), counts_start, group_goal_start)
 
     # ------------------------------------------------------------- sampling
     @staticmethod
@@ -1493,6 +1760,12 @@ class FormationActionServer:
             required_box_clearance_m=self.obstacle_clearance,
             obstacle_check_expected=self.obstacle_present)
         self._merge_online_safety(safety, diagnostics)
+        hold_gaps = [row["reason"] for row in (diagnostics.get("safety_hold") or {}).get("safety_failures", [])
+                     if row["reason"] in ("missing or stale fleet odometry", "fleet odometry not time aligned")]
+        if hold_gaps:
+            if safety.outcome != "FAIL":
+                safety.outcome = "NOT_VERIFIED"
+            safety.reasons += tuple(sorted(set(hold_gaps)))
         # Persist the existing sample ledger inputs, not a second telemetry protocol.
         diagnostics["member_samples"] = {
             str(a): [asdict(row) for row in rows] for a, rows in member_samples.items()}
@@ -1510,6 +1783,8 @@ class FormationActionServer:
                     sample_timeout_s=self.odom_timeout)
             except ValueError as error:
                 diagnostics["formation_geometry"] = {"data_valid": False, "reason": str(error)}
+        if diagnostics.get("safety_hold"):
+            motion_completed = False
         model_hold = diagnostics.get("model_hold") or {}
         min_model_hold = model_hold.get("min_model_hold_s")
         model_hold_satisfied = (
@@ -1581,28 +1856,41 @@ class FormationActionServer:
             and verdict.task_outcome == TASK_PASS
             and verdict.safety_outcome == SAFETY_PASS
             and verdict.experiment_validity == VALIDITY_VALID)
-        self.state_machine.ros_time_s = finish.to_sec()
-        if accepted:
-            if self.state_machine.state == "HOLDING":
-                self.state_machine.finish_success()
-            if self.state_machine.state == "SUCCEEDED":
-                self.state_machine.release()
-        else:
-            self.state_machine.fault(text)
-        diagnostics["accepted_for_dispatch"] = accepted
-        # Evidence is written *after* the transition so it records the state the
-        # resource is actually in when the Action returns to the caller.
-        diagnostics["run_state"] = self.state_machine.state
-        diagnostics["state_machine"] = self.state_machine.snapshot()
-        diagnostics["resource_released"] = (
-            self.state_machine.state == "READY_IDLE")
-        self._write_diagnostics(diagnostics)
-        result = self._result_message(diagnostics, reason)
-        if reason == FormationResult.NONE:
-            work.goal_handle.set_succeeded(result, text)
-        else:
-            work.goal_handle.set_aborted(result, text)
+        with self.terminal_lock:
+            if diagnostics["goal_id"] in self.terminal_goals:
+                return True
+            final_trigger = self._safety_trigger(diagnostics["goal_id"])
+            if final_trigger and not diagnostics.get("safety_hold"):
+                return False
+            if final_trigger == "GROUP_MEMBER_SENSOR_FAILURE" and diagnostics["safety_hold"]["reason"] == "CANCEL_REQUEST":
+                diagnostics["safety_hold"]["reason"] = final_trigger
+                diagnostics["violation_reason"] = final_trigger
+                text += "; " + final_trigger
+                diagnostics["reason_text"] = text
+            self.state_machine.ros_time_s = finish.to_sec()
+            if accepted:
+                if self.state_machine.state == "HOLDING":
+                    self.state_machine.finish_success()
+                if self.state_machine.state == "SUCCEEDED":
+                    self.state_machine.release()
+            else:
+                self.state_machine.fault(text)
+            diagnostics["accepted_for_dispatch"] = accepted
+            diagnostics["run_state"] = self.state_machine.state
+            diagnostics["state_machine"] = self.state_machine.snapshot()
+            diagnostics["resource_released"] = self.state_machine.state == "READY_IDLE"
+            self._write_diagnostics(diagnostics)
+            result = self._result_message(diagnostics, reason)
+            hold = diagnostics.get("safety_hold") or {}
+            self.terminal_goals.add(diagnostics["goal_id"])
+            if reason == FormationResult.NONE:
+                work.goal_handle.set_succeeded(result, text)
+            elif hold.get("reason") == "CANCEL_REQUEST" and hold.get("verified"):
+                work.goal_handle.set_canceled(result, text)
+            else:
+                work.goal_handle.set_aborted(result, text)
         rospy.loginfo("FormationAction %s: %s", diagnostics["task_id"], text)
+        return True
 
 
 def main():

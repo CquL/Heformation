@@ -3,15 +3,15 @@
     BOOTING -> READY_IDLE -> ACTIVE -> HOLDING -> SUCCEEDED -> READY_IDLE
                                      \\-> UNKNOWN_LOCKED
 
-Rules from plan.md P1:
+Original P1 defaults, with an opt-in local safety disposition:
 
 * the goal callback only validates, reserves and hands over; it never runs the
   task loop,
 * the idle check and the resource reservation are one atomic operation,
 * a running task refuses new goals,
-* cancelling a running task never calls ``set_preempted()`` and never releases
-  resources, never overwrites the current reference and never dispatches the
-  next task,
+* cancellation never releases resources or dispatches the next task. The
+  original path only records cancellation. With ``stop_and_lock=True`` the
+  Action worker must observe the local reference takeover before terminating,
 * odometry loss, execution timeout and result timeout all enter
   ``UNKNOWN_LOCKED``, which can only be left by restarting the whole execution
   chain (old trajectory servers, qn nodes and this Action server included).
@@ -63,7 +63,7 @@ class LifecycleEvent:
 
 
 class ActionResourceStateMachine:
-    """Owns the single group resource of the fixed seven-member coalition."""
+    """Resource lifecycle for one configured Action executor."""
 
     def __init__(self, clock: Optional[Callable[[], float]] = None,
                  lock: Optional[threading.RLock] = None) -> None:
@@ -179,9 +179,18 @@ class ActionResourceStateMachine:
                     self._set_state(ACTIVE, "hold_interrupted")
             return self._state
 
-    def note_cancel_request(self) -> bool:
-        """Cancel during a run is observed but never ends the physical task."""
+    def note_cancel_request(self, goal_id=None, *, stop_and_lock=False) -> bool:
+        """Record legacy cancellation, or lock the matching Goal for disposition."""
         with self._lock:
+            if stop_and_lock:
+                if goal_id != self._goal_id or self._state not in (ACTIVE, HOLDING, UNKNOWN_LOCKED):
+                    return False
+                if not self._cancel_requested:
+                    self._cancel_requested = True
+                    self._cancel_ignored = False
+                    self.unknown_locked_reason = "cancel requested; awaiting local safety disposition"
+                    self._set_state(UNKNOWN_LOCKED, "cancel_requires_hold", str(goal_id))
+                return True
             if self._state in _RESERVING_STATES:
                 self._cancel_requested = True
                 self._cancel_ignored = True

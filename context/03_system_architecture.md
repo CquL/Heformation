@@ -104,13 +104,16 @@ Geometric observation / Delivery / Formation diagnostics
 - 条件复测；
 - 原生 Swarm 编队图指标的区间诊断（无任意业务阈值）。
 
-### 本轮已接线，完整请求实跑待验收
+### 已于 main@1840b08 完成完整请求实跑
 
 - runner 的 Executor 规划模式；
 - PlanItem → 选中 endpoint 的完整派发；
 - 用户确认开始；
-- 请求→执行→观测→复测的一次完整运行；
+- 请求→执行→观测→结果接收的一次完整运行；条件复测已实现，本次正例无需触发；
 - dashboard 的任务层权威状态。
+
+本轮增量为现有本地 FSM 的固定参考锁存、Action 内的停止观察及共享成员不可调度判断。
+需求基线见 `docs/requirements/layered-monitoring-and-safety-hold.md`；它不新增安全协调层、控制器或数据系统。
 
 ## 3. 七机链路的位置
 

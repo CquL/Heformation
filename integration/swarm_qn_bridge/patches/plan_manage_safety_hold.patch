@@ -1,0 +1,299 @@
+diff -ruN before/src/planner/plan_manage/CMakeLists.txt after/src/planner/plan_manage/CMakeLists.txt
+--- before/src/planner/plan_manage/CMakeLists.txt	2026-09-07 07:18:41.000000000 -0400
++++ after/src/planner/plan_manage/CMakeLists.txt	2026-09-19 09:52:41.576536854 -0400
+@@ -12,6 +12,8 @@
+ find_package(catkin REQUIRED COMPONENTS
+   roscpp
+   std_msgs
++  std_srvs
++  diagnostic_msgs
+   geometry_msgs
+   quadrotor_msgs
+   plan_env
+@@ -53,4 +55,3 @@
+ target_link_libraries(traj_server ${catkin_LIBRARIES})
+ # add_dependencies(traj_server ${${PROJECT_NAME}_EXPORTED_TARGETS})
+ 
+-
+diff -ruN before/src/planner/plan_manage/include/plan_manage/ego_replan_fsm.h after/src/planner/plan_manage/include/plan_manage/ego_replan_fsm.h
+--- before/src/planner/plan_manage/include/plan_manage/ego_replan_fsm.h	2026-09-19 08:49:24.000000000 -0400
++++ after/src/planner/plan_manage/include/plan_manage/ego_replan_fsm.h	2026-09-19 09:53:24.395364804 -0400
+@@ -9,6 +9,12 @@
+ #include <ros/ros.h>
+ #include <std_msgs/Empty.h>
+ #include <std_msgs/Bool.h>
++#include <std_srvs/Trigger.h>
++#include <diagnostic_msgs/DiagnosticArray.h>
++#include <sensor_msgs/PointCloud2.h>
++#include <mutex>
++#include <iomanip>
++#include <sstream>
+ #include <vector>
+ #include <visualization_msgs/Marker.h>
+ 
+@@ -108,6 +114,26 @@
+     bool member_entry_enabled_ = false;
+     bool publishStationaryReference();
+     ros::Subscriber broadcast_ploytraj_sub_;
++    // One latch owns all trajectory commits. It is cleared only by process restart.
++    bool safety_hold_enabled_ = false, safety_hold_latched_ = false;
++    bool safety_hold_armed_ = false, safety_hold_published_ = false;
++    bool safety_hold_point_valid_ = false;
++    double safety_cloud_timeout_ = 3.0, safety_odom_timeout_ = 0.25;
++    ros::Time last_safety_cloud_, last_safety_odom_, safety_latched_at_;
++    Eigen::Vector3d safety_hold_point_ = Eigen::Vector3d::Zero();
++    int safety_trajectory_id_ = -1;
++    std::string safety_reason_, safety_publication_error_;
++    std::recursive_mutex reference_mutex_;
++    ros::ServiceServer safety_hold_service_;
++    ros::Subscriber safety_cloud_sub_;
++    ros::Publisher safety_status_pub_;
++    ros::WallTimer safety_hold_timer_;
++    void safetyHoldTick(const ros::WallTimerEvent &);
++    void safetyCloudCallback(const sensor_msgs::PointCloud2ConstPtr &);
++    bool safetyHoldRequest(std_srvs::Trigger::Request &, std_srvs::Trigger::Response &);
++    void latchSafetyHold(const std::string &reason);
++    void publishSafetyStatus();
++    bool ordinaryReferenceAllowed();
+     // result file and file name
+     string result_fn_;
+     fstream result_file_;
+@@ -152,4 +178,4 @@
+ 
+ } // namespace ego_planner
+ 
+-#endif
+\ No newline at end of file
++#endif
+diff -ruN before/src/planner/plan_manage/package.xml after/src/planner/plan_manage/package.xml
+--- before/src/planner/plan_manage/package.xml	2026-09-07 07:18:41.000000000 -0400
++++ after/src/planner/plan_manage/package.xml	2026-09-19 09:52:41.576536854 -0400
+@@ -49,6 +49,8 @@
+   <!-- Use doc_depend for packages you need only for building documentation: -->
+   <!--   <doc_depend>doxygen</doc_depend> -->
+   <buildtool_depend>catkin</buildtool_depend>
++  <depend>std_srvs</depend>
++  <depend>diagnostic_msgs</depend>
+   <build_depend>roscpp</build_depend>
+   <build_depend>std_msgs</build_depend>
+   
+diff -ruN before/src/planner/plan_manage/src/ego_replan_fsm.cpp after/src/planner/plan_manage/src/ego_replan_fsm.cpp
+--- before/src/planner/plan_manage/src/ego_replan_fsm.cpp	2026-09-19 08:49:24.000000000 -0400
++++ after/src/planner/plan_manage/src/ego_replan_fsm.cpp	2026-09-19 09:52:41.576536854 -0400
+@@ -79,6 +79,19 @@
+                                                                  ros::TransportHints().tcpNoDelay());
+ 
+     poly_traj_pub_ = nh.advertise<traj_utils::PolyTraj>("planning/trajectory", 10);
++    nh.param("fsm/safety_hold_enabled", safety_hold_enabled_, false);
++    if (safety_hold_enabled_)
++    {
++      nh.param("fsm/safety_cloud_timeout", safety_cloud_timeout_, 3.0);
++      nh.param("fsm/safety_odom_timeout", safety_odom_timeout_, 0.25);
++      if (safety_cloud_timeout_ <= 0 || safety_odom_timeout_ <= 0)
++        throw std::runtime_error("invalid safety hold freshness limits");
++      const std::string prefix = "/drone_" + std::to_string(planner_manager_->pp_.drone_id);
++      safety_status_pub_ = nh.advertise<diagnostic_msgs::DiagnosticArray>(prefix + "_planning/safety_status", 1, true);
++      safety_hold_service_ = nh.advertiseService(prefix + "_planning/safety_hold", &EGOReplanFSM::safetyHoldRequest, this);
++      safety_cloud_sub_ = nh.subscribe(prefix + "_pcl_render_node/cloud", 1, &EGOReplanFSM::safetyCloudCallback, this);
++      safety_hold_timer_ = nh.createWallTimer(ros::WallDuration(0.05), &EGOReplanFSM::safetyHoldTick, this);
++    }
+     data_disp_pub_ = nh.advertise<traj_utils::DataDisp>("planning/data_display", 100);
+ 
+     start_pub_ = nh.advertise<std_msgs::Bool>("planning/start", 1);
+@@ -138,6 +151,7 @@
+ 
+   void EGOReplanFSM::execFSMCallback(const ros::TimerEvent &e)
+   {
++    if (!ordinaryReferenceAllowed()) return;
+     exec_timer_.stop(); // To avoid blockage
+ 
+     static int fsm_num = 0;
+@@ -299,6 +313,7 @@
+ 
+   void EGOReplanFSM::checkCollisionCallback(const ros::TimerEvent &e)
+   {
++    if (!ordinaryReferenceAllowed()) return;
+ 
+     LocalTrajData *info = &planner_manager_->traj_.local_traj;
+     auto map = planner_manager_->grid_map_;
+@@ -395,6 +410,7 @@
+ 
+   void EGOReplanFSM::triggerCallback(const geometry_msgs::PoseStampedPtr &msg)
+   {
++    if (!ordinaryReferenceAllowed()) return;
+     have_trigger_ = true;
+     cout << "Triggered!" << endl;
+     init_pt_ = odom_pos_;
+@@ -402,6 +418,8 @@
+ 
+   void EGOReplanFSM::waypointCallback(const geometry_msgs::PoseStampedPtr &msg)
+   {
++    if (!ordinaryReferenceAllowed()) return;
++    safety_hold_armed_ = true;
+     if (msg->pose.position.z < -0.1)
+       return;
+ 
+@@ -453,6 +471,7 @@
+ 
+   void EGOReplanFSM::odometryCallback(const nav_msgs::OdometryConstPtr &msg)
+   {
++    last_safety_odom_ = msg->header.stamp;
+     odom_pos_(0) = msg->pose.pose.position.x;
+     odom_pos_(1) = msg->pose.pose.position.y;
+     odom_pos_(2) = msg->pose.pose.position.z;
+@@ -648,6 +667,8 @@
+   
+   void EGOReplanFSM::formationWaypointCallback(const geometry_msgs::PoseStampedPtr &msg)
+   {
++    if (!ordinaryReferenceAllowed()) return;
++    safety_hold_armed_ = true;
+     if (msg->pose.position.z < -0.1)
+       return;
+ 
+@@ -731,6 +752,8 @@
+   // Restricted to the opt-in member entry; the seven-member path is unchanged.
+   bool EGOReplanFSM::publishStationaryReference()
+   {
++    std::lock_guard<std::recursive_mutex> guard(reference_mutex_);
++    if (safety_hold_latched_) return true;
+     if (!member_entry_enabled_ || !have_odom_ ||
+         (end_pt_ - odom_pos_).norm() >= 0.1 || odom_vel_.norm() >= 0.1)
+       return false;
+@@ -750,6 +773,8 @@
+ 
+   void EGOReplanFSM::memberWaypointCallback(const geometry_msgs::PoseStampedPtr &msg)
+   {
++    if (!ordinaryReferenceAllowed()) return;
++    safety_hold_armed_ = true;
+     if (msg->pose.position.z < -0.1)
+       return;
+ 
+@@ -805,6 +830,8 @@
+ 
+   void EGOReplanFSM::planGlobalTrajbyGivenWps()
+   {
++    if (!ordinaryReferenceAllowed()) return;
++    safety_hold_armed_ = true;
+     std::vector<Eigen::Vector3d> wps;
+     if (target_type_ == TARGET_TYPE::PRESET_TARGET)
+     {
+@@ -896,6 +923,7 @@
+ 
+   bool EGOReplanFSM::callReboundReplan(bool flag_use_poly_init, bool flag_randomPolyTraj, bool use_formation)
+   {
++    if (!ordinaryReferenceAllowed()) return false;
+ 
+     planner_manager_->getLocalTarget(
+         planning_horizen_, start_pt_, end_pt_,
+@@ -931,6 +959,8 @@
+     {
+       traj_utils::PolyTraj msg;
+       polyTraj2ROSMsg(msg);
++      std::lock_guard<std::recursive_mutex> guard(reference_mutex_);
++      if (safety_hold_latched_) return false;
+       poly_traj_pub_.publish(msg);
+       broadcast_ploytraj_pub_.publish(msg);
+       have_local_traj_ = true;
+@@ -941,6 +971,8 @@
+ 
+   bool EGOReplanFSM::callEmergencyStop(Eigen::Vector3d stop_pos)
+   {
++    std::lock_guard<std::recursive_mutex> guard(reference_mutex_);
++    if (safety_hold_latched_) return false;
+     planner_manager_->EmergencyStop(stop_pos);
+ 
+     traj_utils::PolyTraj msg;
+@@ -950,4 +982,93 @@
+     return true;
+   }
+ 
++  bool EGOReplanFSM::ordinaryReferenceAllowed()
++  {
++    std::lock_guard<std::recursive_mutex> guard(reference_mutex_);
++    return !safety_hold_latched_;
++  }
++
++  void EGOReplanFSM::safetyCloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg)
++  {
++    // A stamped, well-framed empty scan is a completed sensor observation.
++    const double age = (ros::Time::now() - msg->header.stamp).toSec();
++    if (msg->header.frame_id == "world" && !msg->header.stamp.isZero() &&
++        age >= 0.0 && age <= safety_cloud_timeout_ && msg->header.stamp >= last_safety_cloud_)
++      last_safety_cloud_ = msg->header.stamp;
++  }
++
++  void EGOReplanFSM::latchSafetyHold(const std::string &reason)
++  {
++    std::lock_guard<std::recursive_mutex> guard(reference_mutex_);
++    if (safety_hold_latched_) return;
++    safety_hold_latched_ = true;
++    safety_reason_ = reason;
++    safety_latched_at_ = ros::Time::now();
++    enable_fail_safe_ = false;
++    have_target_ = false;
++    have_new_target_ = false;
++    const double age = (safety_latched_at_ - last_safety_odom_).toSec();
++    safety_hold_point_valid_ = have_odom_ && !last_safety_odom_.isZero() &&
++        age >= 0.0 && age <= safety_odom_timeout_ && odom_pos_.allFinite() && odom_vel_.allFinite();
++    if (safety_hold_point_valid_)
++    {
++      safety_hold_point_ = odom_pos_;
++      // Use the upstream stationary polynomial without modifying qn control.
++      planner_manager_->EmergencyStop(safety_hold_point_);
++      traj_utils::PolyTraj msg;
++      polyTraj2ROSMsg(msg);
++      safety_trajectory_id_ = msg.traj_id;
++      poly_traj_pub_.publish(msg);
++      broadcast_ploytraj_pub_.publish(msg);
++      safety_hold_published_ = true;
++    }
++    else safety_publication_error_ = "ODOMETRY_UNRELIABLE";
++    changeFSMExecState(EMERGENCY_STOP, "LATCHED_SAFETY_HOLD");
++    publishSafetyStatus();
++  }
++
++  bool EGOReplanFSM::safetyHoldRequest(std_srvs::Trigger::Request &, std_srvs::Trigger::Response &res)
++  {
++    latchSafetyHold("EXTERNAL_HOLD_REQUEST");
++    res.success = true; // Acceptance only. diagnostics and qn prove publication/adoption.
++    res.message = "safety hold latched; resource recovery requires whole-chain restart";
++    return true;
++  }
++
++  void EGOReplanFSM::safetyHoldTick(const ros::WallTimerEvent &)
++  {
++    if (safety_hold_armed_ && !last_safety_cloud_.isZero() &&
++        (ros::Time::now() - last_safety_cloud_).toSec() > safety_cloud_timeout_)
++      latchSafetyHold("LOCAL_CLOUD_STALE");
++    publishSafetyStatus();
++  }
++
++  void EGOReplanFSM::publishSafetyStatus()
++  {
++    diagnostic_msgs::DiagnosticArray array;
++    array.header.stamp = ros::Time::now();
++    diagnostic_msgs::DiagnosticStatus status;
++    status.name = "local_safety_hold";
++    status.hardware_id = "drone_" + std::to_string(planner_manager_->pp_.drone_id);
++    status.level = safety_hold_latched_ ? diagnostic_msgs::DiagnosticStatus::WARN : diagnostic_msgs::DiagnosticStatus::OK;
++    status.message = safety_reason_;
++    auto add = [&status](const std::string &key, const std::string &value) {
++      diagnostic_msgs::KeyValue entry; entry.key = key; entry.value = value; status.values.push_back(entry);
++    };
++    auto number = [](double value) { std::ostringstream stream; stream << std::setprecision(17) << value; return stream.str(); };
++    add("latched", safety_hold_latched_ ? "true" : "false");
++    add("armed", safety_hold_armed_ ? "true" : "false");
++    add("reason", safety_reason_);
++    add("latched_at_s", number(safety_latched_at_.toSec()));
++    add("last_cloud_stamp_s", number(last_safety_cloud_.toSec()));
++    add("last_odom_stamp_s", number(last_safety_odom_.toSec()));
++    add("point_valid", safety_hold_point_valid_ ? "true" : "false");
++    add("reference_published", safety_hold_published_ ? "true" : "false");
++    add("trajectory_id", std::to_string(safety_trajectory_id_));
++    add("hold_x", number(safety_hold_point_.x())); add("hold_y", number(safety_hold_point_.y())); add("hold_z", number(safety_hold_point_.z()));
++    add("publication_error", safety_publication_error_);
++    array.status.push_back(status);
++    safety_status_pub_.publish(array);
++  }
++
+ } // namespace ego_planner

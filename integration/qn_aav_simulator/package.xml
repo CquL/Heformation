@@ -6,6 +6,7 @@
   <maintainer email="147257503+CquL@users.noreply.github.com">CquL</maintainer>
   <license>GPL-3.0-only</license>
   <buildtool_depend>catkin</buildtool_depend>
+  <depend>std_srvs</depend>
   <build_depend>message_generation</build_depend>
   <exec_depend>message_runtime</exec_depend>
   <depend>actionlib_msgs</depend>

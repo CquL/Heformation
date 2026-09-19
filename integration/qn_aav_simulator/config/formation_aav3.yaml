@@ -7,6 +7,15 @@
 #
 # Slot layout and shape must agree with the action server's relative_slots for
 # these members, which the server checks at readiness.
+aav_1_action_server: &safety_action
+  safety_hold_enabled: true
+  cloud_timeout: &cloud_timeout 3.0
+  odom_timeout: &odom_timeout 0.25
+  safety_hold_timeout_s: 180.0
+aav_2_action_server: *safety_action
+aav_3_action_server: *safety_action
+aav_formation_action_server: *safety_action
+
 global_goal:
   swarm_central_pos: {x: -30.0, y: 6.0, z: 0.8}
   swarm_scale: 1.0
@@ -41,4 +50,7 @@ optimization:
   swarm_clearance: 0.6666666666666667
 
 fsm:
+  safety_hold_enabled: true
+  safety_cloud_timeout: *cloud_timeout
+  safety_odom_timeout: *odom_timeout
   replan_trajectory_time: 0.1

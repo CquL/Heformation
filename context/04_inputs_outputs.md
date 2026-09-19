@@ -1,5 +1,7 @@
 # 当前必要输入输出
 
+本轮新增最小接口：每机 `/drone_i_planning/safety_hold`（标准 Trigger，响应只代表接纳）与 `/drone_i_planning/safety_status`（标准 diagnostics，锁存、原因、固定保持点、轨迹ID、发布状态）。Formation.action结构不变；停止处置证据进入原evidence及任务层状态。共享成员本地锁存和状态缺失均阻止对应Action接纳。详见停止保持实施报告。
+
 **更新：2026-09-19**
 
 本项目不预设“大一统全能消息”。当前只定义真实连接所必需的输入、状态和结果。
