@@ -21,6 +21,14 @@
 | `Stonefish/` | Stonefish marine simulator | https://github.com/patrykcieslak/Stonefish |
 | `Fossen/` | Python Vehicle Simulator | https://github.com/cybergalactic/PythonVehicleSimulator |
 | `EGO-Planner-v2/` | Swarm Playground / EGO-related source | https://github.com/ZJU-FAST-Lab/EGO-Planner-v2 |
+| `GCOPTER/` | GCOPTER 轨迹优化器（内含 `minco.hpp`，即 MINCO 轨迹表示） | https://github.com/ZJU-FAST-Lab/GCOPTER |
+| `libMultiRobotPlanning/` | CBS / ECBS 等 MAPF 参考实现 | https://github.com/whoenig/libMultiRobotPlanning |
+| `stonefish_ros/` | Stonefish 的 ROS 桥（未来 USV/UUV 后端接入候选） | https://github.com/patrykcieslak/stonefish_ros |
+| `CARIC/` | CARIC 官方站点/文档仓库（评分规则与文档入口；**不是**评测用仿真栈） | https://github.com/ntu-aris/caric |
+
+> 上面最后四行（`GCOPTER/`、`libMultiRobotPlanning/`、`stonefish_ros/`、`CARIC/`）是 2026-09-19
+> 按 `prompt/wenxianSKILL.md` 的 P0/P1 清单补拉的**本地参考副本**，目前在 `.gitignore` 中，
+> 未提交（四者合计约 190 MB）。需要入库时删掉 .gitignore 里对应四行即可。
 
 每个目录都是独立上游副本，复现时使用其自己的依赖、入口和配置。当前 `Swarm-Formation`
 基于提交 `967a4bdfae949e994691f8ffc87dbb0147cb7`。这些副本暂不直接混入当前在线运行链；

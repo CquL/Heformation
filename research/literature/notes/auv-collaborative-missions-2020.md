@@ -6,7 +6,7 @@
 - 年份：2020
 - 发表：Applied Sciences（MDPI，开放获取）10(4):1256，DOI 10.3390/app10041256
 - 链接：https://www.mdpi.com/2076-3417/10/4/1256
-- 本地 PDF：`papers/auv-collaborative-missions-2020.pdf`（3,943,740 B，37 页，sha256 `8932d434c4e30cf5…`）
+- 本地 PDF：`papers/maritime/auv-collaborative-missions-2020.pdf`（3,943,740 B，37 页，sha256 `8932d434c4e30cf5…`）
 - 阅读范围：全文（pdftotext 正文，重点 §3 Collaborative AUVs）
 
 ## 它解决什么问题

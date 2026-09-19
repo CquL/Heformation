@@ -6,7 +6,7 @@
 - 年份：2025（arXiv v2；比赛在 IEEE CDC 2023 与 IROS 2024 Workshop 举办）
 - 发表：arXiv:2501.06566 [cs.RO]
 - 链接：https://arxiv.org/abs/2501.06566 ；官方框架 https://ntu-aris.github.io/caric/
-- 本地 PDF：`papers/caric-2025.pdf`（3,603,818 B，9 页，sha256 `c4c2ab5724f25699…`）
+- 本地 PDF：`papers/benchmark/caric-2025.pdf`（3,603,818 B，9 页，sha256 `c4c2ab5724f25699…`）
 - 阅读范围：全文（pdftotext 正文）
 
 ## 它解决什么问题

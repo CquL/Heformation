@@ -6,7 +6,7 @@
 - 年份：2024（RA-L 9(2):1476–1483；accepted 2023-11；arXiv:2303.06222, 2023）
 - 发表：IEEE Robotics and Automation Letters (RA-L)
 - 链接：https://arxiv.org/abs/2303.06222
-- 本地 PDF：`papers/robust-mader-2023.pdf`（5,798,090 B，sha256 `8779863…7151f`）
+- 本地 PDF：`papers/safety/robust-mader-2023.pdf`（5,798,090 B，sha256 `8779863…7151f`）
 - 阅读范围：全文（pdftotext 正文）
 
 ## 该文献的保证与成立假设

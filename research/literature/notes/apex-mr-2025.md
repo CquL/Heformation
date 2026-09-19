@@ -6,7 +6,7 @@
 - 年份：2025
 - 发表：Robotics: Science and Systems (RSS) 2025, DOI 10.15607/RSS.2025.XXI.098；arXiv:2503.15836（v3, 2025-08）
 - 链接：https://arxiv.org/abs/2503.15836
-- 本地 PDF：`papers/apex-mr-2025.pdf`（15,267,831 B，sha256 `49973e7…6ab0`）
+- 本地 PDF：`papers/mrta/apex-mr-2025.pdf`（15,267,831 B，sha256 `49973e7…6ab0`）
 - 阅读范围：全文（pdftotext 正文）
 
 ## 该文献的保证与成立假设

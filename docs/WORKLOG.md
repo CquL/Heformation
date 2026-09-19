@@ -13,6 +13,38 @@
 
 ---
 
+## 2026-09-19 · 按 wenxianSKILL 补齐文献与参考源码（提交待补）
+
+- **计划**：按 `prompt/wenxianSKILL.md` 把 P0/P1 里还缺的全文补齐、把有源码的项目拉到 `upstream/` 下参考，
+  并按 Skill 推荐的 `papers/<category>/` 结构 + `RESEARCH_MAP.md` 整理。
+- **实际**：
+  - 补齐 P0 缺口：**Swarm-Formation ICRA 2022**（真名 `Distributed Swarm Trajectory Optimization for
+    Formation Flight in Dense Environments`，arXiv **2109.07682**——与当前源码直接对应的就是这一篇；
+    我们此前拿的是 T-RO 版 2210.04048）。另补 `minco-2022`（GCOPTER 的轨迹表示，Swarm-Formation README 自述建立其上）
+    与 `usv-uuv-integrated-system-2020`（USV–UUV **有线缆绳**耦合，第三种形态）。
+  - 按要求重组为 `papers/{mrta,task_motion,formation,safety,maritime,benchmark}/`，笔记里的本地 PDF 行同步更新。
+  - 新增 `research/literature/RESEARCH_MAP.md`：按 Skill 的七类状态标签（已采用/已复现/已全文阅读/已重点参考/
+    候选/Benchmark·工具/历史参考）维护，并列出"尚未取得全文的已知缺口"。
+  - 拉取 4 个参考源码到 `upstream/`：`GCOPTER`（内含 `minco.hpp`）、`libMultiRobotPlanning`、
+    `stonefish_ros`、`CARIC`（官方站点/文档仓库，**不是**评测仿真栈）。MINCO 独立仓库不存在（已在 GCOPTER 内）。
+  - **踩到并修掉的两个坑**：
+    1. 把 PDF 移进子目录后，原 `.gitignore` 的 `papers/*.pdf` **只匹配顶层**，PDF 一度被 `git add` 暂存；
+       已改为 `papers/**/*.pdf` 并确认重新被忽略。
+    2. 四个新克隆合计约 190 MB（既有 15 个 `upstream/` 副本是当作普通文件提交的）。
+       本轮**没有**把它们入库，加入 `.gitignore` 并在 `upstream/README.md` 里写明是本地参考副本、
+       删掉四行即可入库——这个体量决定应由用户拍板，不擅自把仓库再撑大。
+  - `prompt/wenxianSKILL.md` 本身也纳入版本管理（`prompt/` 其余文件本就在库内）。
+- **效果**：manifest 16 条（14 全文 + 2 摘要级），`pdf_file`/`notes` 路径脚本校验无断链；
+  新增 3 篇 4 段式笔记（问题 / 任务·资源·通信·运动模型 / 影响的接口 / 要求的反例实验）。
+  最有价值的一条：`weight_formation` 的语义被原论文钉死为"集群图与期望队形的可微相似度距离"，
+  这**从原理上解释了**阶段 1 探针里"单独一台成员被拉向原点"的现象，而不是把它当成偶发 bug。
+- **证据**：`research/literature/RESEARCH_MAP.md`、`manifest.yaml`、`notes/*.md`（16 篇）、
+  `upstream/README.md`；`git check-ignore` 确认 PDF 与四个新副本均未入库。
+- **未完成**：USV–AUV TMC 2025 多轮检索未命中，已记入 RESEARCH_MAP 的缺口表，不据此写任何结论；
+  MIMRee / SeaClear / Stonefish·VRX·DAVE 文档等 P1 项留到对应功能实现时再取。
+
+---
+
 ## 2026-09-19 · 文献全文补充：巡检完成判据、海上协同、任务—通信耦合（提交 `116fe5c`）
 
 - **计划**：把与接口直接相关的文献补到全文级——CARIC（巡检任务定义与观测完成判据）、Xiroi II（USV 中继）、

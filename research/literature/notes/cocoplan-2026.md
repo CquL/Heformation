@@ -6,7 +6,7 @@
 - 年份：2026（2025-08 投稿，2025-12 录用）
 - 发表：IEEE Robotics and Automation Letters (RA-L)，DOI 10.1109/LRA.2026.3656769
 - 链接：https://arxiv.org/abs/2601.10116
-- 本地 PDF：`papers/cocoplan-2026.pdf`（3,682,925 B，8 页，sha256 `d48b17ece5d18f48…`）
+- 本地 PDF：`papers/task_motion/cocoplan-2026.pdf`（3,682,925 B，8 页，sha256 `d48b17ece5d18f48…`）
 - 阅读范围：全文（pdftotext 正文，重点 §II-B/II-C/II-D）
 
 ## 它解决什么问题

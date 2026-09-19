@@ -6,7 +6,7 @@
 - 年份：2024（arXiv:2411.02062v1；本笔记读的是 v3, 2025-11-26）
 - 发表：arXiv preprint arXiv:2411.02062 [cs.RO]（尚未见正式会议/期刊出处）
 - 链接：https://arxiv.org/abs/2411.02062
-- 本地 PDF：`papers/calvo-2024-delay-propagation.pdf`（10,224,834 B，sha256 `4ca83f3…bbeaf`）
+- 本地 PDF：`papers/mrta/calvo-2024-delay-propagation.pdf`（10,224,834 B，sha256 `4ca83f3…bbeaf`）
 - 阅读范围：全文（pdftotext 正文；本笔记不引用未读内容）
 
 ## 该文献的保证与成立假设

@@ -6,7 +6,7 @@
 - 年份：2023（Sensors 23(1):109，2022-12 投稿）
 - 发表：Sensors（MDPI，开放获取），DOI 10.3390/s23010109
 - 链接：https://www.mdpi.com/1424-8220/23/1/109
-- 本地 PDF：`papers/xiroi-ii-2023.pdf`（2,980,494 B，23 页，sha256 `fcdc1e18849ad5c8…`）
+- 本地 PDF：`papers/maritime/xiroi-ii-2023.pdf`（2,980,494 B，23 页，sha256 `fcdc1e18849ad5c8…`）
 - 阅读范围：全文（pdftotext 正文，重点 §5 Marine Multirobot Coordination 与 §8）
 
 ## 它解决什么问题

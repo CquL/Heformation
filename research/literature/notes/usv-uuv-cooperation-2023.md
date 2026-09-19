@@ -6,7 +6,7 @@
 - 年份：2023
 - 发表：Sensors（MDPI，开放获取）23(10):4643，DOI 10.3390/s23104643
 - 链接：https://www.mdpi.com/1424-8220/23/10/4643
-- 本地 PDF：`papers/usv-uuv-cooperation-2023.pdf`（1,254,753 B，36 页，sha256 `acd55d929714e0c7…`）
+- 本地 PDF：`papers/maritime/usv-uuv-cooperation-2023.pdf`（1,254,753 B，36 页，sha256 `acd55d929714e0c7…`）
 - 阅读范围：全文（pdftotext 正文，重点 §5 Swarm and Cooperation 与 §6 Discussion）
 
 ## 它解决什么问题

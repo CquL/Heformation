@@ -24,4 +24,14 @@ experiments/*
 !experiments/README.md
 
 # Literature PDFs are local reading copies, not repository artifacts.
-research/literature/papers/*.pdf
+# Recursive: PDFs live in per-category subdirectories (see prompt/wenxianSKILL.md).
+research/literature/papers/**/*.pdf
+
+# Reference clones added 2026-09-19 (prompt/wenxianSKILL.md P0/P1 list).  Kept as
+# local reading copies: the four trees are ~190 MB together, and the earlier
+# upstream/ copies were committed before that became a concern.  Remove these
+# lines to commit them the same way.
+upstream/GCOPTER/
+upstream/libMultiRobotPlanning/
+upstream/stonefish_ros/
+upstream/CARIC/

@@ -6,7 +6,7 @@
 - 年份：2017
 - 发表：IEEE Conference on Decision and Control (CDC) 2017, DOI 10.1109/CDC.2017.8263867；arXiv:1703.07373（v2, 2021）
 - 链接：https://arxiv.org/abs/1703.07373
-- 本地 PDF：`papers/fastrack-2017.pdf`（2,363,148 B，sha256 `d070eb7…460de5`）
+- 本地 PDF：`papers/safety/fastrack-2017.pdf`（2,363,148 B，sha256 `d070eb7…460de5`）
 - 阅读范围：全文（pdftotext 正文）
 
 ## 该文献的保证与成立假设

@@ -6,7 +6,7 @@
 - 年份：2025
 - 发表：Robotics: Science and Systems (RSS) XXI, 2025，DOI 10.15607/RSS.2025.XXI.099
 - 链接：https://www.roboticsproceedings.org/rss21/p099.html
-- 本地 PDF：`papers/hltl-gcs-2025.pdf`（8,077,812 B，sha256 `b556f92…b87d1`）
+- 本地 PDF：`papers/task_motion/hltl-gcs-2025.pdf`（8,077,812 B，sha256 `b556f92…b87d1`）
   - 注意：RSS 官方 PDF 是**无文本层的图像版**（`pdftotext` 输出为空，`pdffonts` 无字体）。正文阅读使用同一论文的 arXiv 版本 v2（https://arxiv.org/abs/2504.18899，有文本层）；本地保存的仍是 RSS 官方开放版。
 - 阅读范围：全文（通过 arXiv:2504.18899v2 文本版逐段阅读；标题、作者、摘要与 RSS 页面一致）
 

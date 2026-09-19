@@ -6,7 +6,7 @@
 - 年份：2022（arXiv:2210.04048；本笔记读的是 v2, 2023-08-07），期刊版 2023
 - 发表：IEEE Transactions on Robotics (T-RO) 2023；完整标题为 “Robust and Efficient Trajectory Planning for Formation Flight in Dense Environments”
 - 链接：https://arxiv.org/abs/2210.04048
-- 本地 PDF：`papers/swarm-formation-2022.pdf`（17,807,767 B，sha256 `6a4e6b1…900d7`）
+- 本地 PDF：`papers/formation/swarm-formation-2022.pdf`（17,807,767 B，sha256 `6a4e6b1…900d7`）
 - 阅读范围：全文（pdftotext 正文）
 
 ## 该文献的保证与成立假设
