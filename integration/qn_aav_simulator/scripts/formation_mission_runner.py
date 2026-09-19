@@ -28,6 +28,10 @@ from mrta_python import (
     Agent, DelayEvent, Plan, PlanItem, Task, TravelTimeProvider,
     build_plan, process_completion,
 )
+from qn_aav_simulator.executor_routing import (
+    ExecutionUnit, conflicting_active_unit, dispatchable_units, load_routing,
+    unit_for_coalition,
+)
 from qn_aav_simulator.msg import (
     FormationAction, FormationActionGoal, FormationActionResult, FormationGoal,
 )
@@ -102,7 +106,10 @@ class MissionRunner:
         # without an endpoint can take part in offline planning but is never
         # dispatched, so it can never produce a fabricated "actual completion".
         self.routing = self._load_routing()
-        self.online_executor = self._online_executor()
+        self.online_executors = self._online_executors()
+        # Units currently occupied.  Registration may overlap on purpose; being
+        # occupied at the same time may not.
+        self.active_executor_ids = set()
         # Increments whenever the completion step replaces the plan.  A dispatch
         # records the revision it read, so "the next action used the updated
         # plan" is evidenced instead of assumed.
@@ -311,39 +318,24 @@ class MissionRunner:
     def _load_routing(self):
         """Read the static executor routing table from the launch parameters."""
         configured = rospy.get_param("~executors", None)
-        if configured is None:
-            members = tuple("drone_{}".format(i) for i in range(7))
-            return {"aav_formation": {
-                "executor_id": "aav_formation",
-                "physical_agent_ids": members,
-                "capabilities": ("AIR", "AAV"),
-                "action_endpoint": "/formation_action",
-                "initial_target_ref": self.initial_ref,
-            }}
-        routing = {}
-        for entry in configured:
-            executor_id = str(entry["executor_id"])
-            endpoint = entry.get("action_endpoint")
-            routing[executor_id] = {
-                "executor_id": executor_id,
-                "physical_agent_ids": tuple(entry["physical_agent_ids"]),
-                "capabilities": tuple(entry.get("capabilities", ())),
-                "action_endpoint": None if endpoint in (None, "", "null") else str(endpoint),
-                "initial_target_ref": entry.get("initial_target_ref", self.initial_ref),
-            }
-        return routing
+        return load_routing(
+            configured,
+            default_members=("drone_{}".format(i) for i in range(7)),
+            default_initial_target_ref=self.initial_ref)
 
-    def _online_executor(self):
-        """The single unit this process can actually dispatch to."""
-        online = [entry for entry in self.routing.values()
-                  if entry["action_endpoint"] is not None]
-        if len(online) != 1:
-            raise RuntimeError(
-                "exactly one executor with a real Action endpoint is required, "
-                "found {}".format(sorted(entry["executor_id"] for entry in online)))
-        return online[0]
+    def _online_executors(self):
+        """Every unit this process can dispatch to.
 
-    def execution_context(self, item, epoch, previous_actual_finish):
+        Units without an Action endpoint stay in the routing table - they may be
+        planned for - but are never dispatched, so a target-fleet platform with
+        no backend cannot produce a completion event.
+        """
+        online = dispatchable_units(self.routing)
+        if not online:
+            raise RuntimeError("no executor with a real Action endpoint is configured")
+        return online
+
+    def execution_context(self, item, epoch, previous_actual_finish, unit):
         with self.condition:
             pre_trajectory = {
                 agent_id: (self.command_trajectory[agent_id][-1][0]
@@ -367,10 +359,10 @@ class MissionRunner:
             "planned_start_read_at_dispatch": item.planned_start,
             # Routing evidence: which unit the plan selected, which members it
             # owns and which endpoint the task was actually sent to.
-            "executor_id": self.online_executor["executor_id"],
-            "action_endpoint": self.online_executor["action_endpoint"],
+            "executor_id": unit.executor_id,
+            "action_endpoint": unit.action_endpoint,
             "assigned_members": tuple(item.coalition),
-            "executed_members": tuple(self.online_executor["physical_agent_ids"]),
+            "executed_members": tuple(unit.physical_agent_ids),
         }
 
     def collect_post_evidence(self, context, dispatch_ros_time_s, result_finish_s):
@@ -418,14 +410,20 @@ class MissionRunner:
                         0.0, epoch + item.planned_start - rospy.Time.now().to_sec())))
                 if rospy.is_shutdown():
                     raise RuntimeError("ROS shutdown before dispatch")
-                context = self.execution_context(item, epoch, previous_actual_finish)
-                if tuple(item.coalition) != tuple(
-                        self.online_executor["physical_agent_ids"]):
+                unit = unit_for_coalition(self.routing, item.coalition)
+                if unit is None:
                     raise RuntimeError(
-                        "plan allocated {} to {} but the only dispatchable "
-                        "executor owns {}".format(
-                            item.task_id, tuple(item.coalition),
-                            tuple(self.online_executor["physical_agent_ids"])))
+                        "no dispatchable executor owns the coalition the plan "
+                        "allocated to {}: {}".format(item.task_id, tuple(item.coalition)))
+                conflict = conflicting_active_unit(
+                    self.routing, self.active_executor_ids, unit.executor_id)
+                if conflict is not None:
+                    raise RuntimeError(
+                        "{} cannot be dispatched while {} is active: they share "
+                        "physical members {}".format(
+                            unit.executor_id, conflict.executor_id,
+                            sorted(conflict.members() & unit.members())))
+                context = self.execution_context(item, epoch, previous_actual_finish, unit)
                 dispatched_start, dispatched_finish = item.planned_start, item.planned_finish
                 goal = FormationGoal()
                 goal.task_id = task.task_id
@@ -435,8 +433,15 @@ class MissionRunner:
                 point.x, point.y, point.z = self.centers[task.target_ref]
                 goal.hold_duration = rospy.Duration.from_sec(task.service_time)
                 item.status = "RUNNING"
-                state, result, dispatch_ros_time_s, timed_out, attempts = \
-                    self.dispatch_goal_with_retry(goal, task)
+                # Occupancy starts here and ends when this dispatch is resolved,
+                # whatever the outcome: a unit that shares members with another
+                # may not be entered while this one is still occupied.
+                self.active_executor_ids.add(unit.executor_id)
+                try:
+                    state, result, dispatch_ros_time_s, timed_out, attempts = \
+                        self.dispatch_goal_with_retry(goal, task)
+                finally:
+                    self.active_executor_ids.discard(unit.executor_id)
                 if timed_out:
                     item.status = "UNKNOWN_LOCKED"
                     self.metrics["status"] = "UNKNOWN_LOCKED"

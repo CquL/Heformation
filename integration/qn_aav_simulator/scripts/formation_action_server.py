@@ -280,8 +280,11 @@ class FormationActionServer:
                                  self._sensing_callback,
                                  callback_args=agent_id, queue_size=1),
             ])
+        # One node per execution unit, so the Action name has to be a parameter:
+        # four units sharing "formation_action" would collide.
+        self.action_name = str(rospy.get_param("~action_name", "formation_action"))
         self.action_server = actionlib.ActionServer(
-            "formation_action", FormationAction,
+            self.action_name, FormationAction,
             self._goal_callback, self._cancel_callback, auto_start=False)
         self.work_queue = queue.Queue()
         self.worker = threading.Thread(target=self._worker_loop, daemon=True)

@@ -13,6 +13,32 @@
 
 ---
 
+## 2026-09-19 · 阶段 2 下半：多单元路由与活跃互斥（提交待补）
+
+- **计划**：阶段 2 的剩余部分 + §一.2"runner 的成员互斥必须与底层参考互斥一致"。
+- **实际**：
+  - 新增纯模块 `qn_aav_simulator/executor_routing.py`：`ExecutionUnit` / `load_routing` /
+    `dispatchable_units` / `unit_for_coalition` / `conflicting_active_unit`。
+    **不含 ROS**，因此可以直接单测（runner 是 ROS 节点，此前**没有任何 runner 测试**）。
+  - 无执行端点的单元**不再是错误**：它留在路由表里可以参与规划，但永远不可派发——
+    与计划第六节"USV/UUV 保留在离线任务模型、无执行端点、不产生实际完成事件"一致。
+  - runner 改为多单元：`unit_for_coalition()` 按**成员集合**把计划项映射到拥有这些成员的端点
+    （不是按名字匹配），派发前用 `conflicting_active_unit()` 拒绝"共享成员的另一个单元仍在活跃"。
+    占用从派发开始、到该次派发有结论为止（`try/finally`），无论成败都释放。
+  - Action 名参数化（原本硬编码 `formation_action`）：四个单元共用一个名字会冲突。
+  - `formation_aav3.launch` 注册 4 个执行单元与 4 个 Action server
+    （`aav_1/aav_2/aav_3` 各一台 + `aav_formation` 拥有三台），并给每台同时配置
+    **编队入口与成员入口**两个话题——单机单元走成员入口，组级单元走编队入口。
+- **效果**：192 项测试通过（新增 10 项路由测试）：默认七机单单元不变；无端点单元不可派发；
+  单机与组单元的静态重叠合法；按成员集合正确映射（含顺序无关）；共享成员互相阻塞、
+  不共享不阻塞；未知单元报错而不是静默放行。
+- **证据**：`integration/qn_aav_simulator/{src/qn_aav_simulator/executor_routing.py,tests/test_executor_routing.py,
+  scripts/formation_action_server.py,scripts/formation_mission_runner.py,launch/formation_aav3.launch}`。
+- **未完成**：四单元三机配置**尚未实跑验证**（launch 与路由已就位，但还没跑一次带 Action 的任务）；
+  阶段 3（作业请求→展开→覆盖/交付→复测→实时展示）与阶段 4（M2 收尾、口径、文档）未开始。
+
+---
+
 ## 2026-09-19 · 阶段 1 下半：三机在线配置与组级目标验证（提交 `ea02797`）
 
 - **计划**：修正上一轮的过早结论——计划第五节的**阶段 1 交付包含两次探针**：

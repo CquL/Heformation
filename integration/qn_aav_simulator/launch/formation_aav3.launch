@@ -29,12 +29,36 @@
 
   <rosparam file="$(find qn_aav_simulator)/config/formation_aav3.yaml"/>
 
+  <!-- Four execution units over three physical AAVs.  aav_1..aav_3 each own one,
+       aav_formation owns all three: the same fleet used two ways.  Static
+       overlap is allowed; the planner and the runner both forbid occupying
+       overlapping units at the same time. -->
+  <rosparam param="formation_mission_runner/executors" subst_value="true">
+    - {executor_id: aav_1, physical_agent_ids: [drone_0], capabilities: [AIR, AAV],
+       action_endpoint: /aav_1/formation_action, initial_target_ref: start}
+    - {executor_id: aav_2, physical_agent_ids: [drone_1], capabilities: [AIR, AAV],
+       action_endpoint: /aav_2/formation_action, initial_target_ref: start}
+    - {executor_id: aav_3, physical_agent_ids: [drone_2], capabilities: [AIR, AAV],
+       action_endpoint: /aav_3/formation_action, initial_target_ref: start}
+    - {executor_id: aav_formation, physical_agent_ids: [drone_0, drone_1, drone_2],
+       capabilities: [AIR, AAV], action_endpoint: /aav_formation/formation_action,
+       initial_target_ref: start}
+    - {executor_id: usv_1, physical_agent_ids: [usv_1], capabilities: [SURFACE],
+       action_endpoint: null, initial_target_ref: suface_start}
+  </rosparam>
+
   <!-- Goal routing: one formation-centre topic per member.  With the upstream
        default every member subscribes to the same global topic and a command
        cannot be addressed to a subset. -->
   <param name="/drone_0_ego_planner_node/fsm/goal_topic" value="/drone_0_formation_goal"/>
   <param name="/drone_1_ego_planner_node/fsm/goal_topic" value="/drone_1_formation_goal"/>
   <param name="/drone_2_ego_planner_node/fsm/goal_topic" value="/drone_2_formation_goal"/>
+  <!-- The member entry takes the position as-is: no slot offset, no waiting for
+       a predecessor trajectory, and no formation cost.  A single-platform unit
+       uses it; the group unit uses the centre entry above. -->
+  <param name="/drone_0_ego_planner_node/fsm/member_goal_topic" value="/drone_0_member_goal"/>
+  <param name="/drone_1_ego_planner_node/fsm/member_goal_topic" value="/drone_1_member_goal"/>
+  <param name="/drone_2_ego_planner_node/fsm/member_goal_topic" value="/drone_2_member_goal"/>
 
   <!-- Line abreast at the corridor start, matching the slots above. -->
   <rosparam ns="drone_0_qn_aav">{init_x: -30.0, init_y: 6.0, init_z: 0.8}</rosparam>
@@ -78,6 +102,47 @@
     <arg name="odom_topic" value="$(arg odom_topic)"/>
     <arg name="formation_config" value="$(arg formation_config)"/>
   </include>
+
+
+  <!-- One Action server per unit.  Each owns only its own members and publishes
+       only on their goal topics, so a command addressed to one AAV cannot reach
+       the other two. -->
+  <node pkg="qn_aav_simulator" type="formation_action_server.py" name="aav_1_action_server" output="screen">
+    <param name="output_dir" value="$(arg output_dir)"/>
+    <param name="action_name" value="/aav_1/formation_action"/>
+    <rosparam param="agent_ids">[0]</rosparam>
+    <rosparam param="relative_slots">{"0": [0.0, 0.0, 0.0]}</rosparam>
+    <param name="swarm_scale" value="1.0"/>
+    <param name="goal_topic_format" value="/drone_{}_formation_goal"/>
+    <param name="member_goal_topic_format" value="/drone_{}_member_goal"/>
+  </node>
+  <node pkg="qn_aav_simulator" type="formation_action_server.py" name="aav_2_action_server" output="screen">
+    <param name="output_dir" value="$(arg output_dir)"/>
+    <param name="action_name" value="/aav_2/formation_action"/>
+    <rosparam param="agent_ids">[1]</rosparam>
+    <rosparam param="relative_slots">{"1": [0.0, 0.0, 0.0]}</rosparam>
+    <param name="swarm_scale" value="1.0"/>
+    <param name="goal_topic_format" value="/drone_{}_formation_goal"/>
+    <param name="member_goal_topic_format" value="/drone_{}_member_goal"/>
+  </node>
+  <node pkg="qn_aav_simulator" type="formation_action_server.py" name="aav_3_action_server" output="screen">
+    <param name="output_dir" value="$(arg output_dir)"/>
+    <param name="action_name" value="/aav_3/formation_action"/>
+    <rosparam param="agent_ids">[2]</rosparam>
+    <rosparam param="relative_slots">{"2": [0.0, 0.0, 0.0]}</rosparam>
+    <param name="swarm_scale" value="1.0"/>
+    <param name="goal_topic_format" value="/drone_{}_formation_goal"/>
+    <param name="member_goal_topic_format" value="/drone_{}_member_goal"/>
+  </node>
+  <node pkg="qn_aav_simulator" type="formation_action_server.py" name="aav_formation_action_server" output="screen">
+    <param name="output_dir" value="$(arg output_dir)"/>
+    <param name="action_name" value="/aav_formation/formation_action"/>
+    <rosparam param="agent_ids">[0, 1, 2]</rosparam>
+    <rosparam param="relative_slots">{"0": [0.0, 0.0, 0.0], "1": [0.0, -2.0, 0.0], "2": [0.0, 2.0, 0.0]}</rosparam>
+    <param name="swarm_scale" value="1.0"/>
+    <param name="goal_topic_format" value="/drone_{}_formation_goal"/>
+    <param name="member_goal_topic_format" value="/drone_{}_member_goal"/>
+  </node>
 
   <rosparam param="scene" subst_value="true">{topic: $(arg scene_topic), frame_id: world, obstacle_present: $(arg obstacle), obstacle_center: $(arg obstacle_center), obstacle_size: $(arg obstacle_size), resolution: 0.2}</rosparam>
   <node pkg="qn_aav_simulator" type="scene_publisher.py" name="scene_publisher" output="screen">
