@@ -13,6 +13,38 @@
 
 ---
 
+## 2026-09-19 · 全量推送核查：发现本地克隆是 shallow（提交待补）
+
+- **计划**：用户要求"把整个项目 push 到 GitHub"。先核查再推，不假设已经推过了。
+- **实际**：
+  - `main` 与 `origin/main` 完全一致（`4c4611ba`），逐个确认本轮新增文件都在远端
+    （两个渲染器、仪表盘、`experiment.rviz`、`docker_render_figures.sh`、`docs/figures/mission_overview.png`、
+    `docs/WORKLOG.md`、`docs/QN_INTEGRATION.md`）。`git lfs push --dry-run origin main` 空输出 → LFS 齐全。
+  - 发现两个本地分支**从未推送**，推送被 GitHub 拒绝：
+    `remote: fatal: did not receive expected object 9219fcab...`
+  - 排查结论：
+    1. `backup/independent-reproduction-799dcde` 用 **`git push --no-thin`** 推送成功——默认的 thin pack
+       会以 shallow 边界作为 delta 基点，而远端没有那个对象。
+    2. **本仓库是 shallow 克隆**：`.git/shallow` 里只有 1 个边界提交 `967a4bdf`
+       （`Merge pull request #24 from avcuenes/main`）。`pre-heformation-upload` 本地**只有 2 个提交**，
+       且 `967a4bd` 不在 `origin/main` 的历史里 → 被截断的祖先在 origin 上根本不存在，
+       无法用 `--unshallow` 从 origin 恢复，因此这个分支推不上去。
+  - 顺带确认：仓库用 **git-lfs**（`git lfs ls-files` 在 main 上有 62 个文件），
+    两个已推分支的 LFS 对象在远端都齐全。
+- **效果**：GitHub 上现有 `main`（4c4611ba）与 `backup/independent-reproduction-799dcde`（799dcde2），
+  均含完整 LFS；`pre-heformation-upload` 只能留在本地。
+- **证据**：`git ls-remote --heads origin`；`git lfs push --dry-run origin <branch>` 空输出；
+  `.git/shallow` 内容。
+- **未完成与下一步**：
+  - 若确实要 `pre-heformation-upload`，需要从**原始远程/上游仓库**取回被截断的历史
+    （origin 上不存在），或改为"内容快照"新分支推送——但那不是原历史，不应伪装成原分支。
+  - `local-codex-remote-ssh-workspace-SKILL.md` 未提交：它是 Codex 远程 SSH 工作方式的**个人笔记**，
+    不是本项目内容。要入库需要用户明确同意。
+  - `experiments/`（含 192 MB 的 `execution.bag`）、`data/`、`research/literature/papers/*.pdf`
+    按 `.gitignore` 不入库，这是既定设计。
+
+---
+
 ## 2026-09-19 · 核对上游随机森林环境：还在发，但没人用（提交 `3efdeb2`）
 
 - **计划**：用户问"Swarm-Formation 当时的仿真环境很好啊，我们不用了吗？是随机生成的吗？"
