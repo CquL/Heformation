@@ -44,12 +44,20 @@ def validate_target(frame_id, center, hold_duration, target_z=0.5):
 def validate_configuration(agent_ids, relative_slots, scale, epsilon_p,
                            epsilon_v, odom_timeout, execution_timeout):
     ids = tuple(agent_ids)
-    if (len(ids) != 7 or set(ids) != set(AGENT_IDS)
-            or any(type(agent_id) is not int for agent_id in ids)):
-        raise ValueError("this action requires exactly agent_ids 0 through 6")
+    # A unit owns a *subset* of the fleet: one AAV on its own, or a group of
+    # three, alongside a group that owns all of them.  What must hold is that the
+    # slot table describes exactly the members of this unit - no member without a
+    # slot and no slot for a member that is not in the unit - not that the unit is
+    # the whole seven-member coalition.
+    if (not ids or len(set(ids)) != len(ids)
+            or any(type(agent_id) is not int or agent_id < 0 for agent_id in ids)):
+        raise ValueError(
+            "agent_ids must be a non-empty set of distinct non-negative integers")
     slots = {int(key): _vector(value) for key, value in relative_slots.items()}
-    if len(relative_slots) != 7 or set(slots) != set(ids):
-        raise ValueError("relative_slots must contain exactly the seven agent IDs")
+    if set(slots) != set(ids):
+        raise ValueError(
+            "relative_slots must contain exactly this unit's agent IDs: "
+            "unit {} has slots {}".format(sorted(ids), sorted(slots)))
     if any(abs(slot[2]) > 1e-9 for slot in slots.values()):
         raise ValueError("all AIR slots must have zero relative height")
     for name, value in (("swarm_scale", scale), ("epsilon_p", epsilon_p),

@@ -13,6 +13,39 @@
 
 ---
 
+## 2026-09-19 · 四单元三机配置端到端：Action 路由实跑通过（提交待补）
+
+- **计划**：阶段 1 与阶段 2 都依赖"三机在线配置"，此前只验证过"直接发目标话题"，
+  **没有走过 Action 接口**。本轮补上。
+- **实际（一路四个真实缺陷，全部是"七机假设藏在错误的层"）**：
+  1. **launch 直接崩溃**：路由表里 `action_endpoint: null`，roslaunch **不能 marshal None**，
+     整个 rosparam 加载失败。改为空字符串（runner 本就把 `""` 当无端点）。
+  2. **monitor 拒绝任何非满编单元**：`validate_configuration` 要求 `agent_ids` 恰好是 0..6。
+     改为"非空、无重复、且槽位表恰好覆盖本单元成员"——这才是真正要保的不变式。
+  3. **单机单元的槽位校验自相矛盾**：单机单元声明成员槽位为原点，而规划器里该成员仍有
+     编队槽位 (0,-2,0)，配置一致性检查因此永远失败。改为：**使用成员入口的单元不校验编队槽位**，
+     因为成员入口根本不加偏移，规划器的编队槽位对该单元无关。
+  4. **readiness 的订阅检查写错了**：我要求"所有成员的规划器都订阅每一条目标话题"，
+     而按成员分话题时每台只订阅自己的。改为**逐成员**校验其规划器订阅自己的话题——
+     广播（七机）与分话题（三机）两种形态都能通过。
+  5. 另有一处我的 launch 漏配：四个 Action server 没有 `cruise_altitude_m`，
+     于是按默认 0.5 校验目标，而我发的是 0.8 → 目标被 `REJECTED_INVALID`。
+- **效果（实测，`./scripts/docker_probe_action_routing.sh`）**：
+  - 四个 Action server 全部 `ready=true`；
+  - **单机单元** `/aav_2/formation_action`（只拥有 drone_1）：终态 **SUCCEEDED**，
+    drone_1 到指令位置误差 **0.002 m**，drone_0/drone_2 位移 **0.0/0.0**；
+  - **组级单元** `/aav_formation/formation_action`（拥有三台）：三台对 `centre + slot` 误差均 **0.000 m**。
+  - 探针自身留了一个小瑕疵：组级目标的客户端等待超时（240 s）先于结果返回，
+    所以那一步打印 `no result`；但三个落点是精确正确的，位置判据才是这一步要证明的东西。
+    已如实记录，不当作"结果确认"的证据。
+- **证据**：`integration/qn_aav_simulator/{src/qn_aav_simulator/formation_monitor.py,
+  scripts/formation_action_server.py,launch/formation_aav3.launch,scripts/probe_action_routing.py}`；
+  `scripts/docker_probe_action_routing.sh` 的上述输出。
+- **未完成**：请求→计划→runner 的在线接线、用户确认闭环、实时展示覆盖/交付；
+  阶段 4（M2 盒子时间线、扫描中断、基准元数据、`e_budget` 表述、context 文档）。
+
+---
+
 ## 2026-09-19 · 阶段 3：请求加载、展开接入计划、复测分阶段释放、编队阶段判定（提交 `e3b3434`）
 
 - **计划**：阶段 3 的剩余逻辑部分——作业请求 YAML、展开接到 executor 计划、复测释放、组级完成条件。

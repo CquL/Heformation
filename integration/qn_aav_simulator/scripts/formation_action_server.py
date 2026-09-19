@@ -561,6 +561,10 @@ class FormationActionServer:
             return None
 
     # ---------------------------------------------------------- readiness
+    def uses_member_entry(self):
+        """Whether this unit commands members directly rather than a centre."""
+        return len(self.agent_ids) == 1 and bool(self.member_goal_topics)
+
     def _planner_configuration_matches(self):
         for agent_id in self.agent_ids:
             prefix = "/drone_{}_ego_planner_node/".format(agent_id)
@@ -570,6 +574,14 @@ class FormationActionServer:
             if configuration.get("manager", {}).get("drone_id") != agent_id:
                 return "planner {} has a different drone ID".format(agent_id)
             global_goal = configuration.get("global_goal", {})
+            if self.uses_member_entry():
+                # A single-member unit commands the member's own world target
+                # through the member entry, which applies no slot offset at all.
+                # The planner's formation slots are then irrelevant to this unit,
+                # so requiring them to match would reject a correct configuration:
+                # the unit's slot for its only member is necessarily the origin,
+                # while the planner keeps the slot it uses for group commands.
+                continue
             if not math.isclose(float(global_goal.get("swarm_scale", float("nan"))),
                                 self.scale, rel_tol=0.0, abs_tol=1e-9):
                 return "planner {} swarm_scale differs from monitor".format(agent_id)
@@ -592,13 +604,16 @@ class FormationActionServer:
         publishers, subscribers = dict(publishers), dict(subscribers)
         expected = {"/drone_{}_ego_planner_node".format(agent_id)
                     for agent_id in self.agent_ids}
-        # Every member's planner must be listening on the topic this unit will
-        # publish to, so a dispatch cannot silently reach nobody.
+        # Every member's planner must be listening on the topics this unit will
+        # publish to, so a dispatch cannot silently reach nobody.  The check is
+        # per member, not "every planner on every topic": with per-member goal
+        # topics each planner subscribes only to its own, while the upstream
+        # broadcast has all of them on one topic - both must pass.
         for agent_id in self.agent_ids:
+            node = "/drone_{}_ego_planner_node".format(agent_id)
             for topic in self._member_goal_topics_for(agent_id):
-                if not expected <= set(subscribers.get(topic, [])):
-                    return ("waiting for planner goal subscriptions on {} "
-                            "(members {})".format(topic, self.agent_ids))
+                if node not in set(subscribers.get(topic, [])):
+                    return ("waiting for {} to subscribe to {}".format(node, topic))
         for agent_id in self.agent_ids:
             topic = odometry_topic(agent_id)
             if set(publishers.get(topic, [])) != {"/drone_{}_qn_aav".format(agent_id)}:
