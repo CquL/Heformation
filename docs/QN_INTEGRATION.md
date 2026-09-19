@@ -456,11 +456,20 @@ not write to the experiment directory except the file it is asked to produce.
 Two live views exist, and they answer different questions.
 
 **RViz, three-dimensional.** `./scripts/docker_run_qn_demo.sh mission` starts the
-simulation with RViz beside it: the drone paths, the per-drone inflated occupancy
-grid and the ESDF. Note that RViz's global-cloud display points at
-`/map_generator/global_cloud`, the upstream forest topic, not at the experiment's
-`/scene/global_cloud`; the live scene the planners actually consume is the
-per-drone `cloud` topic, not that display.
+simulation with RViz beside it: the scene cloud, the seven drone paths, the
+per-drone inflated occupancy grid and the planned trajectories.
+
+It uses `config/experiment.rviz`, not the upstream `ego_planner` default. The
+upstream config displays `/map_generator/global_cloud`, which is the random forest
+published by the `random_forest` node that `normal_hexagon.launch` still starts.
+Nothing in the experiment consumes that forest: the renderers read
+`/scene/global_cloud`, the topic `scene_publisher.py` owns. Opening the upstream
+config therefore shows a map that the mission is not using. `experiment.rviz`
+points the cloud display at the real scene, frames the operating area, keeps only
+`drone0`..`drone6`, and drops the upstream depth panels and ESDF.
+
+`docker_run_qn_demo.sh` also sets `DISABLE_ROS1_EOL_WARNINGS=1`; without it rviz
+opens a modal "ROS Noetic goes end-of-life" dialog that covers the view.
 
 **`mission_dashboard.py`, task layer.** RViz shows geometry and nothing about
 allocation, adoption or verdicts, so this node renders those live:
@@ -479,8 +488,9 @@ roslaunch qn_aav_simulator formation_air.launch run_mission:=true dashboard:=tru
 | envelope | altitude against the AIR floor, and the closest approach between members against the required clearance |
 
 It is a passive observer: it subscribes only, and its sole outputs are a
-matplotlib window (`~window`) and a JPEG `sensor_msgs/CompressedImage` on
-`~image/compressed` for RViz's Image display or `rqt_image_view`. If it is never
+matplotlib window (`~window`, what the launch uses) and a JPEG
+`sensor_msgs/CompressedImage` on `~image/compressed` if you would rather watch it
+with `rqt_image_view`. If it is never
 started, or dies, the mission is unaffected. It is **opt-in** because rendering
 matplotlib a few times a second is exactly the kind of extra CPU load that the
 model-clock drift gate is sensitive to; evidence runs should leave it off.

@@ -26,6 +26,7 @@ fi
 
 docker run --rm --init -it \
   --env DISPLAY="${DISPLAY}" --env QT_X11_NO_MITSHM=1 \
+  --env DISABLE_ROS1_EOL_WARNINGS=1 \
   --volume /tmp/.X11-unix:/tmp/.X11-unix:rw "${MOUNT_ARGS[@]}" \
   swarm-formation-qn:noetic bash -c '
     source /opt/ros/noetic/setup.bash
@@ -44,7 +45,10 @@ docker run --rm --init -it \
     trap finish EXIT
     sleep 3
     # RViz runs beside the simulation: closing its window no longer ends the run.
-    roslaunch ego_planner rviz.launch &
+    # The config is ours, not the upstream default: the upstream one displays
+    # /map_generator/global_cloud, a forest the planners never consume, so it
+    # shows something the experiment does not use.
+    rviz -d "$(rospack find qn_aav_simulator)/config/experiment.rviz" &
     rviz_pid=$!
     if [ "$1" = mission ]; then
       roslaunch qn_aav_simulator formation_air.launch run_mission:=true \

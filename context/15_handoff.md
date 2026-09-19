@@ -184,8 +184,16 @@ rosbag 不入库（记录绝对路径与大小）。
 - opt-in（launch 参数 `dashboard`，默认 false）：它以几 Hz 渲染 matplotlib，正是模型时钟门槛敏感的
   那类额外 CPU 负载，证据运行应关闭。
 
-注意 RViz 的全局点云显示指向 `/map_generator/global_cloud`（上游森林话题），不是实验的
-`/scene/global_cloud`。
+RViz 此前用的是上游默认配置，显示 `/map_generator/global_cloud`——那是 `normal_hexagon.launch`
+里 `random_forest` 节点发布的森林，**实验没有任何消费者**（渲染器和 Action server 读的都是
+`/scene/global_cloud`）。已换成 `config/experiment.rviz`：点云显示指向真正的场景、相机对准作业区、
+只保留 `drone0..6`、去掉上游深度面板；demo 同时设 `DISABLE_ROS1_EOL_WARNINGS=1` 关掉遮挡画面的
+ROS 1 EOL 模态框。
+
+另外：本仓库的植物是 `drone_i_qn_aav`（qn 6DOF），**不是**上游 `poscmd_2_odom` 理想运动学环——
+`simulator.xml` 里 so3 那段是注释掉的，实跑进程列表只有 7 个 `drone_i_qn_aav`。
+
+**没有交互式发布任务的入口**：任务集来自 `config/formation_air.yaml` 的 `tasks`，启动后按序自动执行。
 
 下一步仍是 M2 第 3 步（原盒子场景定位，盒子保持 `(-23,0,0.5)` / `(1,1,1.2)` 不动，不缩小障碍换通过）
 与第 4 步（局部扫描中断）。

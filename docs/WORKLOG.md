@@ -13,6 +13,35 @@
 
 ---
 
+## 2026-09-19 · RViz 之前显示的是实验没用的地图（提交待补）
+
+- **计划**：回答"RViz 的全局点云显示指向 `/map_generator/global_cloud` 是什么意思"。核对源码与
+  实际进程后确认这是一个真实的展示缺陷，顺手修掉。
+- **实际**：
+  - 事实核对：`normal_hexagon.launch` 里上游的 `random_forest` 节点**确实在跑**
+    （launch.log 里 `process[random_forest-3]`），发布 `/map_generator/global_cloud`；
+    而渲染器的 `~global_map` 被重映射到 `/scene/global_cloud`（`simulator.xml:153`），
+    Action server 的 `~global_map_topic` 也来自配置 = `/scene/global_cloud`。
+    **仿真用的是我们的场景，RViz 显示的是那棵树**——即"显示了一个任务根本不使用的地图"。
+  - 新增 `config/experiment.rviz`：把全局点云显示指向 `/scene/global_cloud`，相机对准作业区
+    （焦点 (-24,0,0.8)、近俯视），只保留 `drone0..drone6`，删掉上游的深度 Image 面板与 ESDF。
+    `docker_run_qn_demo.sh` 改为用这份配置，不再用 `ego_planner` 的默认 rviz。
+  - 另一个实际挡视线的问题：rviz 会弹"ROS Noetic goes end-of-life"模态框盖住画面。
+    demo 脚本加 `DISABLE_ROS1_EOL_WARNINGS=1`（对话框自己给的关法）。
+  - 顺带核对一个容易被误传的说法：上游 `simulator.xml` 里 `so3_quadrotor_simulator` 那段是
+    注释掉的，但我们的植物**不是** `poscmd_2_odom` 理想运动学环，而是 `drone_i_qn_aav`
+    （qn 6DOF 模型）——实测进程列表里只有 7 个 `drone_i_qn_aav`。
+- **效果**：RViz 现在显示实验真正使用的场景（截图确认橙色障碍盒出现、显示树为
+  `Grid / scene / drone0..6`，无 EOL 弹窗、无 "No Image" 空面板）。
+- **证据**：`integration/qn_aav_simulator/config/experiment.rviz`；`scripts/docker_run_qn_demo.sh`；
+  167 项测试通过。
+- **未完成与下一步**：**没有交互式"发布任务"入口**——任务集来自
+  `config/formation_air.yaml` 的 `tasks`，跑起来就按序自动执行；要临时发任务只能自己写 action
+  client 往 `/formation_action` 发 goal。如果确实需要运行时下发/改任务，这是一个待补的入口。
+  M2 第 3、4 步仍未做。
+
+---
+
 ## 2026-09-19 · 实时仪表盘（提交 `f044383`）
 
 - **计划**：用户追问"没有实时可视化仿真吗 / 为什么不做实时可视化"。核对后发现：实时三维视图
