@@ -67,3 +67,50 @@ def test_group_goal_must_be_published_exactly_once():
     verdict = tracker.verdict()
     assert verdict.state == REFERENCE_ADOPTION_UNCONFIRMED
     assert verdict.group_goal_publish_count == 0
+
+
+def test_a_routed_dispatch_counts_as_one_goal_not_one_per_message():
+    """A formation unit publishes one message per member, all of one dispatch.
+
+    The count is of dispatch goals: three messages on three member topics are one
+    goal, not three.
+    """
+    tracker = TrajectoryAdoptionTracker([0, 1, 2],
+                                        authorized_goal_publishers=("/formation_action_server",))
+    tracker.begin_dispatch("exec-1", "goal-1", 100.0)
+    for agent in (0, 1, 2):
+        tracker.note_group_goal("/formation_action_server",
+                                "/drone_{}_formation_goal".format(agent))
+    verdict = tracker.verdict()
+    assert verdict.group_goal_publish_count == 1
+    assert verdict.group_goal_topics == (
+        "/drone_0_formation_goal",
+        "/drone_1_formation_goal",
+        "/drone_2_formation_goal")
+    assert verdict.group_goal_authorized is True
+
+
+def test_a_second_publisher_still_shows_up_on_a_routed_dispatch():
+    """Routing must not hide a foreign publisher on one of the member topics."""
+    tracker = TrajectoryAdoptionTracker([0, 1],
+                                        authorized_goal_publishers=("/formation_action_server",))
+    tracker.begin_dispatch("exec-1", "goal-1", 100.0)
+    tracker.note_group_goal("/formation_action_server", "/drone_0_formation_goal")
+    tracker.note_group_goal("/someone_else", "/drone_1_formation_goal")
+    verdict = tracker.verdict()
+    assert verdict.group_goal_publish_count == 1
+    assert verdict.group_goal_publishers == ("/formation_action_server", "/someone_else")
+    assert verdict.group_goal_authorized is False
+
+
+def test_a_broadcast_dispatch_records_the_single_topic():
+    """The seven-member configuration keeps one topic and stays authorized."""
+    tracker = TrajectoryAdoptionTracker([0, 1],
+                                        authorized_goal_publishers=("/formation_action_server",))
+    tracker.begin_dispatch("exec-1", "goal-1", 100.0)
+    tracker.note_group_goal("/formation_action_server", "/move_base_simple/goal")
+    tracker.note_group_goal("/formation_action_server", "/move_base_simple/goal")
+    verdict = tracker.verdict()
+    assert verdict.group_goal_publish_count == 1
+    assert verdict.group_goal_topics == ("/move_base_simple/goal",)
+    assert verdict.group_goal_authorized is True

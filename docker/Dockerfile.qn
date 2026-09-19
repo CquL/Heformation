@@ -19,6 +19,13 @@ RUN patch -p1 -d /workspace/src \
 # declared surface envelope.
 RUN patch -p1 -d /workspace/src \
       < /tmp/swarm_qn_patches/plan_manage_honour_goal_height.patch
+# The formation goal entry always adds the member's slot offset, the goal topic is
+# one global broadcast, and SEQUENTIAL_START makes drone_id >= 1 wait for a
+# predecessor trajectory.  All three block commanding a subset of members.  This
+# adds a per-member goal entry (position used as-is, no predecessor wait) and a
+# parameterised formation topic, with the defaults preserving upstream behaviour.
+RUN patch -p1 -d /workspace/src \
+      < /tmp/swarm_qn_patches/plan_manage_member_goal_entry.patch
 
 # matplotlib is in the base image but its Tk bindings are not, so the live
 # dashboard could only publish images.  This layer adds them; nothing else in

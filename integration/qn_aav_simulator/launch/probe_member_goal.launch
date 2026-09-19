@@ -1,0 +1,14 @@
+<!-- Stage-1 isolation probe: give exactly one member a member-goal entry.
+
+     Everything else is the ordinary seven-member stack, so the probe isolates
+     the one thing under test: whether a goal addressed to a single member lands
+     where it says (no formation slot offset), whether it plans without waiting
+     for a predecessor trajectory, and whether the other members stay put. -->
+<launch>
+  <param name="/drone_2_ego_planner_node/fsm/member_goal_topic"
+         value="/drone_2_member_goal"/>
+  <include file="$(find qn_aav_simulator)/launch/formation_air.launch">
+    <arg name="run_mission" value="false"/>
+    <arg name="record" value="false"/>
+  </include>
+</launch>

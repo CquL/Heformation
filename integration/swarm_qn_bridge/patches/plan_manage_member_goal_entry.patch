@@ -1,0 +1,200 @@
+Split the planner goal entry into a formation-centre entry and a member entry.
+
+The upstream formation callback always computes
+
+    end_pt_ = swarm_central_pos_ + swarm_scale_ * swarm_relative_pts_[drone_id]
+
+so the received position is a formation centre and every member adds its own
+slot offset.  That is correct for a formation command and wrong for a command
+that addresses one member (or asks a member to hold), where the received
+position is the member's own world target and must be used as-is.  Sending a
+hold position through the formation entry moves the member by one slot offset
+instead of holding it.
+
+Three further problems block a single-member command:
+
+  * the goal topic is the hard-coded global /move_base_simple/goal, which every
+    member subscribes to, so a command cannot be addressed to a subset;
+  * SEQUENTIAL_START makes drone_id >= 1 wait for have_recv_pre_agent_, so a
+    member with no predecessor trajectory is never planned at all;
+  * the formation similarity cost is hard-wired on for the global-trajectory
+    path.  A lone member then optimises against a degenerate swarm graph and is
+    dragged towards a formation configuration instead of its own target
+    (measured: a member commanded 1.5 m sideways flew to the origin).
+
+This patch adds a parameterised goal topic (default unchanged), an optional
+member entry that uses the received position directly, does not wait for a
+predecessor and plans without the formation cost, and leaves the formation entry
+behaviour untouched.  The upstream file is not modified in the repository; the
+patch is applied at image build time.
+--- a/src/planner/plan_manage/include/plan_manage/ego_replan_fsm.h
++++ b/src/planner/plan_manage/include/plan_manage/ego_replan_fsm.h
+@@ -100,14 +100,20 @@
+     ros::Publisher broadcast_ploytraj_pub_;
+     ros::Publisher reached_pub_, start_pub_;
+     ros::Subscriber central_goal;
++    ros::Subscriber member_goal_sub_;
++    // A member goal is this member's own world target, not a formation centre:
++    // it must not have the formation slot offset added, and it must not wait for
++    // predecessor trajectories the way a simultaneous swarm start does.
++    bool member_goal_active_ = false;
+     ros::Subscriber broadcast_ploytraj_sub_;
+     // result file and file name
+     string result_fn_;
+     fstream result_file_;
+     /* helper functions */
++    void memberWaypointCallback(const geometry_msgs::PoseStampedPtr &msg);
+     bool callReboundReplan(bool flag_use_poly_init, bool flag_randomPolyTraj, bool use_formation); // front-end and back-end method
+     bool callEmergencyStop(Eigen::Vector3d stop_pos);                          // front-end and back-end method
+-    bool planFromGlobalTraj(const int trial_times = 1);
++    bool planFromGlobalTraj(const int trial_times = 1, bool use_formation = true);
+     bool planFromLocalTraj(bool flag_use_poly_init, bool use_formation);
+     
+     /* return value: std::pair< Times of the same state be continuously called, current continuously called state > */
+--- a/src/planner/plan_manage/src/ego_replan_fsm.cpp
++++ b/src/planner/plan_manage/src/ego_replan_fsm.cpp
+@@ -15,6 +15,7 @@
+     have_target_ = false;
+     have_odom_ = false;
+     have_recv_pre_agent_ = false;
++    member_goal_active_ = false;
+     flag_escape_emergency_ = true;
+     flag_relan_astar_ = false;
+     have_local_traj_ = false;
+@@ -115,7 +116,20 @@
+     }
+     else if (target_type_ == TARGET_TYPE::SWARM_MANUAL_TARGET)
+     {
+-      central_goal = nh.subscribe("/move_base_simple/goal", 1, &EGOReplanFSM::formationWaypointCallback, this);
++      std::string goal_topic;
++      nh.param("fsm/goal_topic", goal_topic, std::string("/move_base_simple/goal"));
++      central_goal = nh.subscribe(goal_topic, 1, &EGOReplanFSM::formationWaypointCallback, this);
++
++      // Optional per-member entry: the goal is this member's own world target and
++      // must be used as-is, without the formation slot offset.  Leaving the
++      // parameter empty (the default) preserves the upstream behaviour exactly.
++      std::string member_goal_topic;
++      nh.param("fsm/member_goal_topic", member_goal_topic, std::string(""));
++      if (!member_goal_topic.empty())
++      {
++        member_goal_sub_ = nh.subscribe(member_goal_topic, 1, &EGOReplanFSM::memberWaypointCallback, this);
++        ROS_INFO("member goal entry enabled on %s", member_goal_topic.c_str());
++      }
+     }
+     cout << "Wrong target_type_ value! target_type_=" << target_type_ << endl;
+   }
+@@ -157,9 +171,9 @@
+ 
+     case SEQUENTIAL_START: // for swarm or single drone with drone_id = 0
+     {
+-      if (planner_manager_->pp_.drone_id <= 0 || (planner_manager_->pp_.drone_id >= 1 && have_recv_pre_agent_))
++      if (member_goal_active_ || planner_manager_->pp_.drone_id <= 0 || (planner_manager_->pp_.drone_id >= 1 && have_recv_pre_agent_))
+       {
+-        bool success = planFromGlobalTraj(1);
++        bool success = planFromGlobalTraj(1, !member_goal_active_);
+ 
+         if (success)
+         {
+@@ -177,7 +191,7 @@
+ 
+     case GEN_NEW_TRAJ:
+     {
+-      bool success = planFromGlobalTraj(1);
++      bool success = planFromGlobalTraj(1, !member_goal_active_);
+       if (success)
+       {
+         changeFSMExecState(EXEC_TRAJ, "FSM");
+@@ -194,7 +208,9 @@
+     case REPLAN_TRAJ:
+     {
+       bool success;
+-      if (flag_relan_astar_)
++      if (member_goal_active_)
++        success = planFromLocalTraj(true, false);
++      else if (flag_relan_astar_)
+         success = planFromLocalTraj(true, false);
+       else
+         success = planFromLocalTraj(false, true);
+@@ -688,6 +704,63 @@
+       ROS_ERROR("Unable to generate global trajectory!");
+     }
+   }
++  // The member entry: end_pt_ is the received world position itself.  The
++  // formation callback deliberately adds swarm_scale_ * swarm_relative_pts_[id],
++  // which is right for a formation centre and wrong for a single-member target
++  // (and wrong for a hold command, which would push the member off its hold).
++  void EGOReplanFSM::memberWaypointCallback(const geometry_msgs::PoseStampedPtr &msg)
++  {
++    if (msg->pose.position.z < -0.1)
++      return;
++
++    member_goal_active_ = true;
++
++    ROS_INFO("member goal received: %.3f %.3f %.3f",
++             msg->pose.position.x, msg->pose.position.y, msg->pose.position.z);
++    cout << "Member goal triggered!" << endl;
++    init_pt_ = odom_pos_;
++
++    // Assign the member, not a shadowing local: the FSM plans from end_pt_ and
++    // a local copy leaves it at its default (0, 0, 0), which sends the member to
++    // the origin instead of its target.
++    end_pt_ << msg->pose.position.x, msg->pose.position.y, msg->pose.position.z;
++
++    std::vector<Eigen::Vector3d> one_pt_wps;
++    one_pt_wps.push_back(end_pt_);
++
++    bool success = planner_manager_->planGlobalTrajWaypoints(
++        odom_pos_, odom_vel_, Eigen::Vector3d::Zero(),
++        one_pt_wps, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
++
++    visualization_->displayGoalPoint(end_pt_, Eigen::Vector4d(0, 0.5, 0.5, 1), 0.3, 0);
++
++    if (success)
++    {
++      constexpr double step_size_t = 0.1;
++      int i_end = floor(planner_manager_->traj_.global_traj.duration / step_size_t);
++      vector<Eigen::Vector3d> gloabl_traj(i_end);
++      for (int i = 0; i < i_end; i++)
++      {
++        gloabl_traj[i] = planner_manager_->traj_.global_traj.traj.getPos(i * step_size_t);
++      }
++
++      end_vel_.setZero();
++      have_target_ = true;
++      have_new_target_ = true;
++
++      if (exec_state_ == WAIT_TARGET)
++        changeFSMExecState(SEQUENTIAL_START, "TRIG");
++      else if (exec_state_ == EXEC_TRAJ)
++        changeFSMExecState(REPLAN_TRAJ, "TRIG");
++
++      visualization_->displayGlobalPathList(gloabl_traj, 0.1, 0);
++    }
++    else
++    {
++      ROS_ERROR("Unable to generate global trajectory for a member goal!");
++    }
++  }
++
+   void EGOReplanFSM::planGlobalTrajbyGivenWps()
+   {
+     std::vector<Eigen::Vector3d> wps;
+@@ -741,7 +814,8 @@
+     }
+   }
+ 
+-  bool EGOReplanFSM::planFromGlobalTraj(const int trial_times /*=1*/) // zx-todo
++  bool EGOReplanFSM::planFromGlobalTraj(const int trial_times /*=1*/,
++                                        const bool use_formation /*=true*/) // zx-todo
+   {
+ 
+     start_pt_ = odom_pos_;
+@@ -750,7 +824,7 @@
+ 
+     for (int i = 0; i < trial_times; i++)
+     {
+-      if (callReboundReplan(true, false, true))
++      if (callReboundReplan(true, false, use_formation))
+       {
+         return true;
+       }

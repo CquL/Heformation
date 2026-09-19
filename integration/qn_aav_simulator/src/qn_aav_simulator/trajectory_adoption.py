@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 ADOPTED = "ADOPTED"
 REFERENCE_ADOPTION_UNCONFIRMED = "REFERENCE_ADOPTION_UNCONFIRMED"
@@ -105,6 +105,8 @@ class AdoptionVerdict:
     group_goal_authorized: bool
     per_agent: Tuple[AgentAdoptionEvidence, ...]
     failures: Tuple[str, ...]
+    group_goal_topics: Tuple[str, ...] = ()
+    group_goal_publishers: Tuple[str, ...] = ()
     fallback_used: bool = False
 
     @property
@@ -118,6 +120,8 @@ class AdoptionVerdict:
             "goal_id": self.goal_id,
             "dispatch_ros_time_s": self.dispatch_ros_time_s,
             "group_goal_publish_count": self.group_goal_publish_count,
+            "group_goal_topics": sorted(self.group_goal_topics),
+            "group_goal_publishers": sorted(self.group_goal_publishers),
             "group_goal_publisher": self.group_goal_publisher,
             "group_goal_authorized": self.group_goal_authorized,
             "per_agent": [evidence.as_dict() for evidence in self.per_agent],
@@ -140,7 +144,14 @@ class TrajectoryAdoptionTracker:
         self.execution_id: Optional[str] = None
         self.goal_id: Optional[str] = None
         self.dispatch_ros_time_s: Optional[float] = None
+        # A dispatch goal is counted once per dispatch, not once per message:
+        # a formation unit publishes one message per member, all belonging to the
+        # same dispatch.  The topics and publishers seen are recorded so a routed
+        # dispatch is still checked for foreign publishers.
         self.group_goal_publish_count = 0
+        self.group_goal_topics: set = set()
+        self.group_goal_publishers: set = set()
+        self._dispatch_goal_counted = False
         self.group_goal_publisher: Optional[str] = None
         self._last_seen: Dict[int, Tuple[Optional[int], Optional[int]]] = {}
 
@@ -211,10 +222,23 @@ class TrajectoryAdoptionTracker:
             times.append(float(evidence.adopted_ros_time_s))
         return max(times) if times else None
 
-    def note_group_goal(self, publisher: Optional[str] = None) -> None:
-        self.group_goal_publish_count += 1
+    def note_group_goal(self, publisher: Optional[str] = None,
+                        topic: Optional[str] = None) -> None:
+        """Record an observed dispatch goal.
+
+        Counted once per dispatch even when a formation unit publishes it on
+        several member topics, so routing does not look like several goals.  The
+        topics and publishers are still recorded, so a foreign publisher on any
+        of those topics is caught.
+        """
+        if topic is not None:
+            self.group_goal_topics.add(str(topic))
         if publisher is not None:
+            self.group_goal_publishers.add(str(publisher))
             self.group_goal_publisher = str(publisher)
+        if not self._dispatch_goal_counted:
+            self.group_goal_publish_count += 1
+            self._dispatch_goal_counted = True
 
     # -- dispatch boundary -------------------------------------------------
     def begin_dispatch(self, execution_id: str, goal_id: str,
@@ -235,8 +259,10 @@ class TrajectoryAdoptionTracker:
         if self.group_goal_publish_count != 1:
             failures.append("group goal was published {} times".format(
                 self.group_goal_publish_count))
-        authorized = (not self.authorized_goal_publishers
-                      or self.group_goal_publisher in self.authorized_goal_publishers)
+        unauthorized = sorted(publisher for publisher in self.group_goal_publishers
+                              if self.authorized_goal_publishers
+                              and publisher not in self.authorized_goal_publishers)
+        authorized = not unauthorized
         if not authorized:
             failures.append(
                 "group goal publisher {} is not authorized ({})".format(
@@ -271,6 +297,8 @@ class TrajectoryAdoptionTracker:
             group_goal_publish_count=self.group_goal_publish_count,
             group_goal_publisher=self.group_goal_publisher,
             group_goal_authorized=authorized,
+            group_goal_topics=tuple(sorted(self.group_goal_topics)),
+            group_goal_publishers=tuple(sorted(self.group_goal_publishers)),
             per_agent=tuple(self.evidence[agent_id] for agent_id in self.agent_ids),
             failures=tuple(failures),
             fallback_used=False,

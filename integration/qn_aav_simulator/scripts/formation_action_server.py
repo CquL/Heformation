@@ -69,6 +69,14 @@ _MAX_CLOUD_POINTS = 20000
 _ACTIVE_STATUS = (GoalStatus.ACTIVE, GoalStatus.PREEMPTING)
 
 
+DEFAULT_GOAL_TOPIC = "/move_base_simple/goal"
+
+
+def goal_topic(template, agent_id):
+    """Format a goal topic template.  A template without ``{}`` is a broadcast."""
+    return template.format(agent_id) if "{" in template else template
+
+
 def used_reference_pose_topic(agent_id):
     return "/drone_{}_qn/used_reference_pose".format(agent_id)
 
@@ -213,13 +221,36 @@ class FormationActionServer:
         self._readiness_cache_time = 0.0
 
         self.master = rosgraph.Master(rospy.get_name())
-        self.goal_pub = rospy.Publisher("/move_base_simple/goal", PoseStamped, queue_size=1)
+        # Goal routing.  The default reproduces the upstream broadcast exactly:
+        # one topic that every planner subscribes to.  A template containing {}
+        # is per member, which is what lets a command address a subset.
+        self.formation_goal_topic_format = str(
+            rospy.get_param("~goal_topic_format", DEFAULT_GOAL_TOPIC))
+        self.member_goal_topic_format = str(
+            rospy.get_param("~member_goal_topic_format", ""))
+        self.formation_goal_topics = {
+            agent_id: goal_topic(self.formation_goal_topic_format, agent_id)
+            for agent_id in self.agent_ids}
+        self.member_goal_topics = (
+            {agent_id: goal_topic(self.member_goal_topic_format, agent_id)
+             for agent_id in self.agent_ids}
+            if self.member_goal_topic_format else {})
+        self.goal_publishers = {
+            topic: rospy.Publisher(topic, PoseStamped, queue_size=1)
+            for topic in sorted(set(self.formation_goal_topics.values()))}
+        self.member_goal_publishers = {
+            topic: rospy.Publisher(topic, PoseStamped, queue_size=1)
+            for topic in sorted(set(self.member_goal_topics.values()))}
+        self.goal_topics = sorted(set(self.formation_goal_topics.values())
+                                  | set(self.member_goal_topics.values()))
+        self.observed_goal_topics = set()
         self.subscribers = [
             rospy.Subscriber(self.map_topic, PointCloud2, self._map_callback,
                              queue_size=1),
-            rospy.Subscriber("/move_base_simple/goal", PoseStamped,
-                             self._group_goal_observer, queue_size=10),
-        ]
+        ] + [
+            rospy.Subscriber(topic, PoseStamped, self._group_goal_observer,
+                             callback_args=topic, queue_size=10)
+            for topic in self.goal_topics]
         sensing_type = (PointCloud2 if self.sensor_backend == SENSOR_BACKEND_CPU
                         else Image)
         for agent_id in self.agent_ids:
@@ -453,17 +484,44 @@ class FormationActionServer:
             self.readiness.note_message(
                 topic, rospy.Time.now().to_sec(), valid=valid, empty=empty)
 
-    def _group_goal_observer(self, message):
+    def goal_route(self):
+        """Where the next dispatch goes and what the position means.
+
+        Returns ``(semantics, [(agent_id, topic), ...])``.  The planner applies
+        the matching interpretation, so these two must stay in step:
+
+          MEMBER_TARGET     the position is that member's own world target and
+                            must not have a formation slot offset added;
+          FORMATION_CENTRE  the position is a formation centre and every member
+                            adds its own slot offset.
+        """
+        member_topics = getattr(self, "member_goal_topics", {})
+        if len(self.agent_ids) == 1 and member_topics:
+            agent_id = self.agent_ids[0]
+            return "MEMBER_TARGET", [(agent_id, member_topics[agent_id])]
+        return "FORMATION_CENTRE", [
+            (agent_id, self.formation_goal_topics[agent_id])
+            for agent_id in self.agent_ids]
+
+    def _member_goal_topics_for(self, agent_id):
+        """Topics this member's planner must be subscribed to for this unit."""
+        topics = [self.formation_goal_topics[agent_id]]
+        if self.member_goal_topics:
+            topics.append(self.member_goal_topics[agent_id])
+        return topics
+
+    def _group_goal_observer(self, message, topic):
         header = getattr(message, "_connection_header", None) or {}
         publisher = header.get("callerid") if isinstance(header, dict) else None
         with self.lock:
             self.group_goal_messages += 1
+            self.observed_goal_topics.add(topic)
             diagnostics = self.active_diagnostics
             tracker = diagnostics.get("adoption") if diagnostics else None
         if tracker is not None:
             # Counted from the observed topic, not from our own publish call:
             # a foreign publisher emitting a group goal must not go unnoticed.
-            tracker.note_group_goal(publisher)
+            tracker.note_group_goal(publisher, topic)
 
     def _finish_callback(self, message, agent_id):
         if not message.data:
@@ -531,8 +589,13 @@ class FormationActionServer:
         publishers, subscribers = dict(publishers), dict(subscribers)
         expected = {"/drone_{}_ego_planner_node".format(agent_id)
                     for agent_id in self.agent_ids}
-        if not expected <= set(subscribers.get("/move_base_simple/goal", [])):
-            return "waiting for all seven planner goal subscriptions"
+        # Every member's planner must be listening on the topic this unit will
+        # publish to, so a dispatch cannot silently reach nobody.
+        for agent_id in self.agent_ids:
+            for topic in self._member_goal_topics_for(agent_id):
+                if not expected <= set(subscribers.get(topic, [])):
+                    return ("waiting for planner goal subscriptions on {} "
+                            "(members {})".format(topic, self.agent_ids))
         for agent_id in self.agent_ids:
             topic = odometry_topic(agent_id)
             if set(publishers.get(topic, [])) != {"/drone_{}_qn_aav".format(agent_id)}:
@@ -543,11 +606,14 @@ class FormationActionServer:
                 code, _message, connections = proxy.getBusInfo(rospy.get_name())
         except Exception as error:
             return "cannot inspect goal connections: {}".format(error)
+        wanted = {topic for agent_id in self.agent_ids
+                  for topic in self._member_goal_topics_for(agent_id)}
         connected = {connection[1] for connection in connections
                      if len(connection) >= 6 and connection[2] == "o"
-                     and connection[4] == "/move_base_simple/goal" and connection[5]}
+                     and connection[4] in wanted and connection[5]}
         if code != 1 or not expected <= connected:
-            return "waiting for established TCPROS goal connections to all seven planners"
+            return ("waiting for established TCPROS goal connections to all "
+                    "members on {}".format(sorted(wanted)))
         return "OK"
 
     def _refresh_topic_existence(self):
@@ -898,8 +964,21 @@ class FormationActionServer:
         command.pose.orientation.w = 1.0
         dispatch_time = rospy.Time.now().to_sec()
         adoption.begin_dispatch(goal.task_id, diagnostics["goal_id"], dispatch_time)
-        self.goal_pub.publish(command)
+        # The meaning of the received position depends on the unit:
+        #   one member   -> that member's own world target   (no slot offset)
+        #   several      -> a formation centre               (each member offsets)
+        # The planner enforces the same split on its side, so the two entries must
+        # stay in step; see plan_manage_member_goal_entry.patch.
+        semantics, route = self.goal_route()
+        for agent_id, topic in route:
+            publisher = (self.member_goal_publishers if semantics == "MEMBER_TARGET"
+                         else self.goal_publishers)[topic]
+            publisher.publish(command)
+        diagnostics["goal_semantics"] = semantics
         diagnostics["goal_publish_count"] = 1
+        diagnostics["goal_messages_published"] = len(route)
+        diagnostics["goal_topics"] = [topic for _agent, topic in route]
+        diagnostics["dispatching_members"] = [agent for agent, _topic in route]
         diagnostics["dispatch_ros_time_s"] = dispatch_time
         diagnostics["group_goal_publisher"] = rospy.get_name()
 
