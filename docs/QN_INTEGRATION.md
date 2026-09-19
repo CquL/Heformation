@@ -392,3 +392,61 @@ panel shows the whole run inside the gate with a constant offset of about
 
 For the live three-dimensional view, run the demo from a desktop terminal with a
 display and use RViz: `./scripts/docker_run_qn_demo.sh`.
+
+## Whole-mission figure and animated replay
+
+`plot_formation_experiment.py` above renders one aspect per figure. For a single
+view that runs from the task layer down to the controller there are two more
+read-only renderers, both driven only by the recorded bag plus `metrics.json` and
+`config.json`: nothing is re-simulated, and a number that is not in the recording
+is not plotted.
+
+```bash
+./scripts/docker_render_figures.sh experiments/<run> [fps]
+```
+
+The helper writes `mission_overview.png` and `mission_replay.gif` next to the
+recording. It renders beside the target and renames into place, so it also
+replaces files left behind by an earlier run under a different user.
+
+### `plot_mission_overview.py`
+
+![Whole-mission overview](figures/mission_overview.png)
+
+| Panel | Answers |
+| --- | --- |
+| task layer | the 30 s qualification window, then per task the planned window at dispatch, the actual window, the hold, the dispatch instant and the completion event that fed `planRepair` |
+| allocation | which executor took which task, with which members, which endpoint, the qn `trajectory_id` before and after, the adoption verdict, `release_lag_s` and whether the plan was repaired |
+| path layer | the seven flown trajectories, each published formation centre, and the slot layout each task asked for |
+| control layer | per-member distance to the commanded slot, with the hold phases marked because that is where `epsilon_p` gates completion, and below it the distance to the reference qn actually adopted |
+| safety layer | altitude against the AIR floor, and the actual surface clearances against their requirements |
+| time layer | qn model clock minus ROS clock against the gate, with the valid-sample and cross-agent figures |
+
+The obstacle box is only drawn, and the box-clearance curve is only plotted, when
+`obstacle_scenario` is true; otherwise the panel states `NOT_APPLICABLE` rather
+than showing a zero that would read as "checked and fine".
+
+### `animate_mission_replay.py`
+
+Replays the same recording as a GIF: the scene with the seven members, a bounded
+three-second tail, the slot layout around the current formation centre, the
+published centre and the declared obstacle, with the slot error and altitude
+scrolling beside it and a caption giving the elapsed time, the phase and the
+current maximum slot error.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--fps` | 8 | GIF frame rate |
+| `--speed` | 3.0 | fast-forward factor: mission seconds per played second |
+| `--scale` | 0.52 | render scale, smaller is a lighter file |
+| `--colours` | 64 | shared palette size |
+
+The default settings give a 48 s mission about 130 frames and an 8 MB file. The
+palette is built once from sampled frames and shared by all of them, with the
+drone hues forced in through a swatch: PIL 7.0.0 writes every GIF frame in full
+regardless of `optimize`, so frame count, scale and palette are the only levers
+that change the file size, and dithering is disabled because per-frame dither
+noise both bloats the file and hides the structure.
+
+The replay is a viewer, not a simulation. It cannot change a verdict and it does
+not write to the experiment directory except the file it is asked to produce.

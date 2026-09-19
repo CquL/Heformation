@@ -13,6 +13,46 @@
 
 ---
 
+## 2026-09-18 · 全链路可视化与动画回放（提交待补）
+
+- **计划**：用户要求"可视化仿真整个实验，从任务分配到编队控制"。已有的
+  `plot_formation_experiment.py` 是按主题分三张图（轨迹 / 槽位 / 时间），没有一条把
+  **分配 → 派发 → 飞行 → 控制 → 安全 → 时间**放在同一个时间轴上的视图，也没有运动回放。
+- **实际**：新增两个只读渲染器 + 一个命令封装，全部只读 bag + `metrics.json` + `config.json`：
+  - `plot_mission_overview.py`：一张 7 面板总览（任务甘特 / 分配路由 / XY 轨迹与槽位 /
+    槽位误差 / 轨迹跟踪误差 / 高度与 AIR 域 / 净距 / 时间漂移）。
+  - `animate_mission_replay.py`：GIF 回放，场景 + 槽位布局 + 障碍，右侧联动槽位误差与高度曲线。
+  - `scripts/docker_render_figures.sh <实验目录> [fps]`：一条命令出两张图。
+  - 两者加入 `CMakeLists.txt` 的 `catkin_install_python`，镜像已重建。
+  - 写第一版时踩到的坑（都是"看图才发现"的语义错误，值得记下来）：
+    1. `set_aspect("equal", adjustable="datalim")` 把 x 轴撑到 −44…−5，轨迹被压成细线；
+       改用 `adjustable="box"` 并加高该行。
+    2. **无障碍场景仍然画了盒子净距曲线**——`metrics["obstacle_center"]` 在 `obstacle off`
+       时照样存在，必须用 `obstacle_scenario` 门控。否则图上会出现一条并不存在的负净距，
+       正是计划里"盒子不存在要记为不适用，不是距离为零"的图形版本。
+    3. 槽位误差在运输段天然很大（派发瞬间目标中心跳到新目标，误差瞬间到 ~4 m）。第一版把它
+       当误差信号直接画会误导；改为标出驻留窗口并注明 `epsilon_p` 只在驻留段把关，另外单独画
+       "对 qn 实际采用参考的跟踪误差"。
+    4. `action_task_outcome` 是枚举整数，字符串判定必须取每任务 diagnostics 的 `verdict`。
+    5. **PIL 7.0.0 的 GIF `optimize=True` 不做帧间差分**：实测 60 帧对照中 plain 与 optimize
+       字节数完全相同，`disposal=2` 反而大 15 倍。第一版 71 MB。改成"共享调色板 + 关抖动 +
+       快进 3× + scale 0.52"后 8 MB。帧数/分辨率/调色板是唯一有效的三个杠杆。
+- **效果**：
+  - `experiments/20260918-m2-baseline-shm` 出图成功，图面确认的事实：T1 晚 9.1 s、T2 晚 10.5 s、
+    T3 晚 4.3 s；三次派发 `release_lag` 0.000/0.069/0.065 s；`plan_revision=3`、
+    `updated_plan_used=true`、`dispatch_changed=false`（串行单资源下是预期结果）；
+    三任务 `PASS/PASS/VALID`；最大模型-ROS 漂移 0.00064 s、跨机 0.00069 s。
+  - 面板语义与 plan 的判定口径对齐：实际净距用实际状态判、参考余量单独评估；盒子不存在记
+    `NOT_APPLICABLE`；`epsilon_p` 只在驻留段把关。
+  - 167 项单元测试仍全部通过。
+- **证据**：`experiments/20260918-m2-baseline-shm/{mission_overview.png,mission_replay.gif}`；
+  `docs/figures/mission_overview.png`；命令 `./scripts/docker_render_figures.sh experiments/<run>`；
+  `docs/QN_INTEGRATION.md` 的 "Whole-mission figure and animated replay" 一节。
+- **未完成与下一步**：M2 第 3 步（原盒子场景定位，盒子保持 `(-23,0,0.5)` / `(1,1,1.2)` 不动）
+  与第 4 步（局部扫描中断）仍未做；GIF 未入库（`experiments/*` 被 gitignore），需要时按上面的命令重出。
+
+---
+
 ## 2026-09-18 · 定位累计时间偏差的根因：bag 写盘（提交待补）
 
 - **计划**：M2 第 2 步的停止条件是"无障碍基线必须通过时间、AIR 域、平面包络、机间净距与共同驻留"。
