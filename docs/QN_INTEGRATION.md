@@ -335,6 +335,15 @@ statement as `NOT_VERIFIED`.
 **Plane envelope.** The declared surface is an analytic boundary; no plane point
 cloud is added.  The envelope is judged over the whole run.
 
+**Recording must not stall the model clock.** The launcher stages the run on a
+memory-backed directory and copies the result into the experiment directory
+afterwards.  Writing the bag straight to the home filesystem stalls the whole
+container for 16-32 ms every so often, and because the model clock advances by
+whole fixed steps without catch-up those stalls become permanent drift: measured
+on the same mission, 57 ms of accumulated model/ROS drift when recording to disk
+versus 0.64 ms when recording to tmpfs, against a 50 ms gate.  The loop itself
+runs at 100.0 Hz with a 10.07 ms p99 step in both cases.
+
 `experiments/20260918-m2-baseline-clean` (no box, cruise 0.8 m) passes per task:
 `task_outcome=PASS`, `safety_outcome=PASS`, `experiment_validity=VALID`,
 minimum member heights 0.380 / 0.502 / 0.426 m, `obstacle_check=NOT_APPLICABLE`,
