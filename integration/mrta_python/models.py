@@ -19,6 +19,12 @@ class Task:
     service_time: float
     deadline: float
     target_ref: str
+    # A single-platform task must not be handed to a larger unit just because
+    # that unit is also capable and eligible: the bigger unit would drag members
+    # that the task never asked for, and CARIC reports that splitting a small
+    # fleet into teams need not help.  Tasks that genuinely want a formation set
+    # this to True and then must also declare a group-level completion condition.
+    allow_larger_unit: bool = False
 
 
 @dataclass

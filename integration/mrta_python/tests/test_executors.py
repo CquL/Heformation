@@ -187,16 +187,87 @@ def test_infeasible_task_is_rejected_before_allocating():
 
 def test_duplicate_membership_and_bad_units_are_rejected():
     a = air_executor("A", ("d0", "d1"))
-    shared = air_executor("B", ("d1", "d2"))
-    with pytest.raises(ValueError, match="belongs to both"):
-        build_executor_plan([a, shared], [task("survey")], provider({"A": 1.0, "B": 1.0}),
-                            initial_target_ref="base")
     with pytest.raises(ValueError, match="duplicate executor_id"):
         build_executor_plan([a, air_executor("A", ("d4", "d5"))], [task("survey")],
                             provider({"A": 1.0}), initial_target_ref="base")
     with pytest.raises(ValueError, match="nominal_speed_mps must be positive"):
         validate_executor_inputs([air_executor("C", ("d6",), speed=0.0)],
                                  [task("survey")])
+    with pytest.raises(ValueError, match="duplicate physical agent"):
+        validate_executor_inputs([air_executor("D", ("d7", "d7"))], [task("survey")])
+
+
+def test_static_membership_may_overlap_across_units():
+    """A single-platform unit and a group unit may own the same agents.
+
+    They are two ways of using one fleet, not two fleets.  Registering them
+    together is legal; what is illegal is occupying both at once, which is
+    checked on the plan.
+    """
+    single = air_executor("aav_1", ("d0",), speed=1.0)
+    formation = air_executor("aav_formation", ("d0", "d1", "d2"), speed=1.0)
+    validate_executor_inputs([single, formation], [task("survey", agents=1)])
+    shared = Executor("aav_2", ("d1",), frozenset({"AIR"}), 0.0, 1.0)
+    validate_executor_inputs([single, shared, formation], [task("survey", agents=1)])
+
+
+def test_overlapping_units_may_not_be_occupied_at_the_same_time():
+    """Mutual exclusion on the plan, not on registration."""
+    single = air_executor("aav_1", ("d0",), speed=1.0)
+    formation = air_executor("aav_formation", ("d0", "d1", "d2"), speed=1.0)
+    one = task("survey", agents=1)
+    three = Task("group", frozenset({"AIR"}), 3, 4.0, 1000.0, "far",
+                 allow_larger_unit=True)
+    # Two tasks that must run back to back on units sharing d0: legal because
+    # the plan serialises them.
+    serial = build_executor_plan([single, formation], [one, three],
+                                 provider({"aav_1": 1.0, "aav_formation": 1.0}),
+                                 initial_target_ref="base")
+    for item in serial.items:
+        assert item.executor_id in {"aav_1", "aav_formation"}
+    # The same two tasks forced to overlap in time must be rejected.
+    overlapping = type(serial)()
+    a = type(serial.items[0])("e1", "survey", "aav_1", ("d0",), 0.0, 6.0, 2.0, 0.0, 4.0)
+    b = type(serial.items[0])("e2", "group", "aav_formation",
+                              ("d0", "d1", "d2"), 3.0, 9.0, 2.0, 0.0, 4.0)
+    overlapping.items = [a, b]
+    with pytest.raises(ValueError, match="overlap in time"):
+        validate_executor_plan(overlapping, [single, formation], [one, three])
+
+
+def test_a_single_platform_task_does_not_go_to_the_group_unit_by_default():
+    """Larger and equally capable is not a reason to hand over a one-member task."""
+    single = air_executor("aav_1", ("d0",), speed=1.0)
+    formation = air_executor("aav_formation", ("d0", "d1", "d2"), speed=5.0)
+    one = task("survey", agents=1)
+    assert [e.executor_id for e in eligible_executors([single, formation], one)] == ["aav_1"]
+    # With the opt-in the group becomes a candidate.
+    opted_in = Task("survey2", frozenset({"AIR"}), 1, 4.0, 1000.0, "near",
+                    allow_larger_unit=True)
+    assert {e.executor_id for e in eligible_executors([single, formation], opted_in)} == {
+        "aav_1", "aav_formation"}
+    plan = build_executor_plan([single, formation], [one],
+                               provider({"aav_1": 1.0, "aav_formation": 5.0}),
+                               initial_target_ref="base")
+    assert plan.assignments["survey"] == "aav_1"
+
+
+def test_group_travel_is_set_by_the_last_member_not_the_average_centre():
+    """Scattered members must pay for the reassembly, not a mean position."""
+    formation = air_executor("aav_formation", ("d0", "d1", "d2"), speed=1.0)
+    slots = {"d0": (0.0, 0.0, 0.0), "d1": (0.0, -2.0, 0.0), "d2": (0.0, 2.0, 0.0)}
+    centres = {"base": (0.0, 0.0, 0.5), "goal": (10.0, 0.0, 0.5)}
+    # d2 is far from where its slot at the goal is; the group finishes when it
+    # arrives, so the estimate must be its travel time.
+    positions = {"d0": (0.0, 0.0, 0.5), "d1": (0.0, -2.0, 0.5), "d2": (10.0, 20.0, 0.5)}
+    scattered = ExecutorTravelTimeProvider(centres, {"aav_formation": 1.0},
+                                          member_slots={"aav_formation": slots},
+                                          member_positions={"aav_formation": positions})
+    grouped = ExecutorTravelTimeProvider(centres, {"aav_formation": 1.0},
+                                        member_slots={"aav_formation": slots},
+                                        member_positions={})
+    assert scattered("aav_formation", "base", "goal") > grouped("aav_formation", "base", "goal")
+    assert scattered("aav_formation", "base", "goal") == pytest.approx(18.0)
 
 
 def test_executor_selection_is_input_order_independent():

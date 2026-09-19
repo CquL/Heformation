@@ -24,6 +24,20 @@ from .validation import identifier, nonnegative
 
 ExecutorTravelTimeFunction = Callable[[str, str, str], float]
 
+# Executor pairs that share at least one physical agent.  Refilled by
+# validate_executor_inputs; used by validate_executor_plan to forbid concurrent
+# occupancy (CoCoPlan's mutual-exclusion relation).
+overlap_pairs: set = set()
+
+
+def overlapping_units(first: str, second: str) -> bool:
+    """True when two executor ids share at least one physical agent."""
+    return frozenset((first, second)) in overlap_pairs
+
+
+def _distance(first, second) -> float:
+    return math.sqrt(sum((a - b) ** 2 for a, b in zip(first, second)))
+
 
 def _capabilities(values, name: str) -> None:
     if not isinstance(values, frozenset):
@@ -38,10 +52,11 @@ def validate_executor_inputs(executors: Sequence[Executor], tasks: Sequence) -> 
     Unlike the fixed-coalition domain this does not require seven agents per
     task: a unit must be capable and large enough for the task it runs.
     """
+    overlap_pairs.clear()
     if not executors:
         raise ValueError("at least one executor is required")
     executor_ids = set()
-    owner: Dict[str, str] = {}
+    membership: Dict[str, Tuple[str, ...]] = {}
     for executor in executors:
         identifier(executor.executor_id, "executor_id")
         if executor.executor_id in executor_ids:
@@ -57,17 +72,24 @@ def validate_executor_inputs(executors: Sequence[Executor], tasks: Sequence) -> 
                 raise ValueError(
                     "duplicate physical agent in {}: {}".format(
                         executor.executor_id, agent_id))
-            if agent_id in owner:
-                raise ValueError(
-                    "physical agent {} belongs to both {} and {}".format(
-                        agent_id, owner[agent_id], executor.executor_id))
             members.add(agent_id)
-            owner[agent_id] = executor.executor_id
         nonnegative(executor.available_from, "available_from")
         nonnegative(executor.nominal_speed_mps, "nominal_speed_mps")
         if executor.nominal_speed_mps == 0:
             raise ValueError("nominal_speed_mps must be positive")
         _capabilities(executor.capabilities, "executor capabilities")
+        membership[executor.executor_id] = executor.physical_agent_ids
+    # Static membership may overlap on purpose: a single-platform unit and a
+    # group unit can own the same physical agents, because they are two ways of
+    # using the fleet rather than two fleets.  What must never happen is both
+    # being occupied at once; that is enforced on the plan, not on registration.
+    for executor in executors:
+        for other in executors:
+            if executor.executor_id >= other.executor_id:
+                continue
+            shared = set(executor.physical_agent_ids) & set(other.physical_agent_ids)
+            if shared:
+                overlap_pairs.add(frozenset((executor.executor_id, other.executor_id)))
     task_ids = set()
     for task in tasks:
         identifier(task.task_id, "task_id")
@@ -159,10 +181,27 @@ class ExecutorPlan:
 
 @dataclass(frozen=True)
 class ExecutorTravelTimeProvider:
-    """Euclidean distance divided by the *selected unit's* nominal speed."""
+    """Travel time for the *selected unit*.
+
+    With no member detail this is the centre-to-centre Euclidean distance divided
+    by the unit's nominal speed, which is what the offline cases need.  Once
+    ``member_slots`` and ``member_positions`` are supplied the estimate is taken
+    per member instead: member *i* travels from where it actually is to its own
+    slot at the destination, and the group finishes when the **last** member
+    arrives.  That matters as soon as the fleet is not already in formation -
+    after independent single-platform tasks the members are scattered, and a
+    single averaged centre would understate the reassembly cost.
+    """
 
     centers: Mapping[str, Tuple[float, float, float]]
     nominal_speed_mps: Mapping[str, float]
+    # executor_id -> {member_id: (x, y, z)} slot offset relative to the centre
+    member_slots: Mapping[str, Mapping[str, Tuple[float, float, float]]] = field(
+        default_factory=dict)
+    # executor_id -> {member_id: (x, y, z)} where that member actually is now,
+    # updated from execution feedback and never from the plan
+    member_positions: Mapping[str, Mapping[str, Tuple[float, float, float]]] = field(
+        default_factory=dict)
 
     def __post_init__(self) -> None:
         for target_ref, center in self.centers.items():
@@ -183,15 +222,37 @@ class ExecutorTravelTimeProvider:
             speed = self.nominal_speed_mps[executor_id]
         except KeyError as error:
             raise ValueError("unknown reference: {}".format(error.args[0])) from error
-        return math.sqrt(sum((a - b) ** 2 for a, b in zip(source, destination))) / speed
+        slots = self.member_slots.get(executor_id)
+        if not slots:
+            return _distance(source, destination) / speed
+        positions = self.member_positions.get(executor_id) or {}
+        longest = 0.0
+        for member_id, slot in slots.items():
+            goal = tuple(destination[axis] + slot[axis] for axis in range(3))
+            # A member with no reported position is assumed to still be in
+            # formation at the source, which is the optimistic case and is
+            # stated here rather than hidden.
+            start = positions.get(member_id) or tuple(
+                source[axis] + slot[axis] for axis in range(3))
+            longest = max(longest, _distance(start, goal))
+        return longest / speed
 
 
 def eligible_executors(executors: Sequence[Executor], task) -> Tuple[Executor, ...]:
-    """Units that could execute ``task``: capable and large enough."""
+    """Units that could execute ``task``: capable, and the right size.
+
+    Capable and large enough is not sufficient.  A unit larger than the task
+    asks for is only eligible when the task opts in with
+    ``allow_larger_unit``; otherwise a one-platform survey would be handed to
+    the group unit whenever the group happened to be cheaper.
+    """
+    wanted = task.required_agent_count
+    allow_larger = bool(getattr(task, "allow_larger_unit", False))
     return tuple(
         executor for executor in executors
         if task.required_capabilities.issubset(executor.capabilities)
-        and len(executor.physical_agent_ids) >= task.required_agent_count)
+        and (len(executor.physical_agent_ids) >= wanted if allow_larger
+             else len(executor.physical_agent_ids) == wanted))
 
 
 def build_executor_plan(executors: Sequence[Executor], tasks: Sequence,
@@ -222,6 +283,19 @@ def build_executor_plan(executors: Sequence[Executor], tasks: Sequence,
     current_target_ref = {
         executor.executor_id: (executor.initial_target_ref or initial_target_ref)
         for executor in executors}
+    def earliest_start(executor_id: str) -> float:
+        """When this unit may begin, respecting shared physical agents.
+
+        A unit cannot start while another unit that owns any of the same agents
+        is still occupied, so the earliest start is the latest finish among the
+        overlapping units as well as its own queue.
+        """
+        start = queue_finish[executor_id]
+        for other_id, other_finish in queue_finish.items():
+            if other_id != executor_id and overlapping_units(executor_id, other_id):
+                start = max(start, other_finish)
+        return start
+
     remaining = list(tasks)
     plan = ExecutorPlan()
     while remaining:
@@ -235,7 +309,7 @@ def build_executor_plan(executors: Sequence[Executor], tasks: Sequence,
                     executor.executor_id,
                     current_target_ref[executor.executor_id], task.target_ref)
                 nonnegative(transit, "travel_time_provider result")
-                start = queue_finish[executor.executor_id]
+                start = earliest_start(executor.executor_id)
                 finish = start + transit + task.service_time
                 nonnegative(finish, "candidate planned_finish")
                 introduced_makespan = max(0.0, finish - makespan)
@@ -302,5 +376,22 @@ def validate_executor_plan(plan: ExecutorPlan, executors: Sequence[Executor],
                                                  executor.available_from) - 1e-6:
             raise ValueError("tasks on one executor overlap or are out of queue order")
         queue_finish[item.executor_id] = item.planned_finish
+    # Mutual exclusion (CoCoPlan): two units that share a physical agent may be
+    # registered together but must never be occupied at the same time.
+    occupied: Dict[str, List[ExecutorPlanItem]] = {}
+    for item in plan.items:
+        occupied.setdefault(item.executor_id, []).append(item)
+    for first, items_a in occupied.items():
+        for second, items_b in occupied.items():
+            if first >= second or not overlapping_units(first, second):
+                continue
+            for a in items_a:
+                for b in items_b:
+                    if (a.planned_start < b.planned_finish
+                            and b.planned_start < a.planned_finish):
+                        raise ValueError(
+                            "units {} and {} share a physical agent but {} and {} "
+                            "overlap in time".format(
+                                first, second, a.execution_id, b.execution_id))
     if task_ids != set(task_by_id):
         raise ValueError("plan must allocate each supplied task exactly once")
