@@ -31,6 +31,10 @@ RUN patch -p1 -d /workspace/src \
 # argument with the upstream default.
 RUN patch -p1 -d /workspace/src \
       < /tmp/swarm_qn_patches/plan_manage_formation_config_arg.patch
+# The desired formation set must be declarable: formation_type=1 hard-codes seven
+# nodes, so a three-member unit silently skips the similarity cost.
+RUN patch -p1 -d /workspace/src \
+      < /tmp/swarm_qn_patches/traj_opt_declared_formation.patch
 
 # matplotlib is in the base image but its Tk bindings are not, so the live
 # dashboard could only publish images.  This layer adds them; nothing else in

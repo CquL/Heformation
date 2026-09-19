@@ -115,7 +115,22 @@ patch is applied at image build time.
          success = planFromLocalTraj(true, false);
        else
          success = planFromLocalTraj(false, true);
-@@ -688,6 +704,63 @@
+@@ -633,6 +649,14 @@
+     if (msg->pose.position.z < -0.1)
+       return;
+ 
++    // A group command returns the member to formation semantics.  Without this
++    // the flag set by the member entry is never cleared, so a member that once
++    // received a single-platform command keeps planning with the formation cost
++    // disabled even when the next command is a group one - and its group target
++    // would still be reached, which is why the landing position alone cannot show
++    // the difference.
++    member_goal_active_ = false;
++
+     cout << "Triggered!" << endl;
+     init_pt_ = odom_pos_;
+ 
+@@ -688,6 +712,63 @@
        ROS_ERROR("Unable to generate global trajectory!");
      }
    }
@@ -179,7 +194,7 @@ patch is applied at image build time.
    void EGOReplanFSM::planGlobalTrajbyGivenWps()
    {
      std::vector<Eigen::Vector3d> wps;
-@@ -741,7 +814,8 @@
+@@ -741,7 +822,8 @@
      }
    }
  
@@ -189,7 +204,7 @@ patch is applied at image build time.
    {
  
      start_pt_ = odom_pos_;
-@@ -750,7 +824,7 @@
+@@ -750,7 +832,7 @@
  
      for (int i = 0; i < trial_times; i++)
      {

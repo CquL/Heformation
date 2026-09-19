@@ -21,7 +21,12 @@ global_goal:
   relative_pos_6: {x: 0.0, y: 0.0, z: 0.0}
 
 optimization:
-  formation_type: 1
+  # DECLARED_FORMATION: the desired set is the three slots above, not the
+  # upstream seven-node hexagon.  With type 1 the optimiser would build seven
+  # expected nodes, the "wait for all members" guard would trip on three, and the
+  # similarity cost would be skipped entirely.
+  formation_type: 2
+  formation_size: 3
   weight_obstacle: 50000.0
   weight_swarm: 50000.0
   weight_feasibility: 10000.0

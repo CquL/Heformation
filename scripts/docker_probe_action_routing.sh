@@ -17,4 +17,13 @@ docker run --rm --init \
     trap cleanup EXIT
     sleep 110
     python3 /probe.py
+    probe_status=$?
+    echo
+    echo "=== formation-term evidence from the planners ==="
+    grep -ac "declared formation with 3 nodes" /tmp/probe_action.log | \
+      sed "s/^/  declared 3-node desired graph: /"
+    grep -ac "similarity cost applied with 3 declared nodes" /tmp/probe_action.log | \
+      sed "s/^/  similarity cost applied: /"
+    grep -a "formation\] " /tmp/probe_action.log | head -3
+    exit $probe_status
   '

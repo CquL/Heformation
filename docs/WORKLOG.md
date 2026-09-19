@@ -13,6 +13,41 @@
 
 ---
 
+## 2026-09-19 · 交付一：编队与动作闭环（提交待补）
+
+- **计划**：冻结版第一节——声明式编队图、单机/组级模式复位、Action 四项判定。
+- **实际**：
+  - 新增构建期补丁 `traj_opt_declared_formation.patch`：优化器新增 `DECLARED_FORMATION`
+    （`formation_type: 2`），从 `optimization/formation_size`(N) 与 `global_goal/relative_pos_0..N-1`
+    生成 N 节点期望图。三机配置改用该类型并声明 N=3；七机继续用原类型与原六边形。
+    另外优化器在构造时打印节点数、并在**首次真正应用**相似度代价时打印一次——这是启用证据。
+  - 模式复位：`formationWaypointCallback` 在通过有效性检查后置 `member_goal_active_ = false`。
+    此前该标志只被置 `true`，全文件无复位，因此单机命令之后该成员会一直以"无编队代价"分支规划。
+  - 探针重写为**四项分别判定**（目标路由 / 实际落点 / 终态与 Result / 结果可用于释放），
+    序列为 单机 → 组级 → 再单机，任一不过即非零退出。
+- **效果（实测，`./scripts/docker_probe_action_routing.sh`，退出码 0）**：
+  ```
+  single-aav2       routing=True landing=True result=True release=True  PASS
+  group-formation   routing=True landing=True result=True release=True  PASS
+  single-aav1-again routing=True landing=True result=True release=True  PASS
+  ```
+  落点误差 0.004–0.008 m；组级段实际到达的话题恰为三条编队目标话题。
+  **编队代价启用证据**：`declared 3-node desired graph: 3`、`similarity cost applied: 3`
+  ——三台规划器都构造了 3 节点期望图，且相似度代价路径**确实被进入**而不是被 size 守卫跳过。
+- **探针查出的一个真问题（不是我的脚本 bug）**：组级段第一次跑**永远不返回 Result**
+  （客户端 ACTIVE、150 s 超时）。原因是被寻址成员中有一台**已经站在自己的槽位上**，
+  规划器因此可能不产生新轨迹，而任务无法观测到新轨迹就无法确认采用。
+  把组级中心改到三台都必须移动的位置后，组级段正常 SUCCEEDED。
+  这条对任务线同样成立（例如在同一位置补测），已记入待办。
+- **同时修掉我自己的一个检查错误**：`release` 判定原先读 `result.status.task_id`，
+  而 `FormationActionResult` 的判定字段是**直接**挂在 result 上的，导致已成功的结果被判为不可用。
+- **证据**：上述探针输出与退出码；`path_manage_member_goal_entry.patch`（含模式复位）、
+  `traj_opt_declared_formation.patch`、`config/formation_aav3.yaml`。
+- **未完成**：串行计划 `F_serial` 语义与成员预测状态、runner 模式开关与按单元端点派发、
+  命令行确认入口、`delivered_fraction` 不变式、全程编队与走廊三项判据、实时显示、七机 M2、文档。
+
+---
+
 ## 2026-09-19 · 纠正：只推 main，不自行扩大动作（提交待补）
 
 - **用户的明确要求**：远端**只保留 `main`**；**没有明确要求就不要自行做额外动作**。

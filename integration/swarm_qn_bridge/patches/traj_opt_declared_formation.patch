@@ -1,0 +1,114 @@
+Let a configuration declare its own desired formation set.
+
+REGULAR_HEXAGON (formation_type=1) builds seven hard-coded nodes and sets
+formation_size_ = 7.  A three-member unit therefore has, in
+calculateSwarmCost, size < formation_size_ and the similarity cost is skipped
+entirely - so "the three members reached their slots" says nothing about the
+formation term having participated.
+
+This adds DECLARED_FORMATION (formation_type=2): the desired set is read from
+optimization/formation_size (N) and global_goal/relative_pos_0..N-1, which is
+the same slot layout the FSM already uses to turn a formation centre into a
+member target, and is handed to setDesiredForm(), which accepts any node list.
+The seven-member configuration keeps type 1 and its hard-coded hexagon.
+
+The optimizer also logs the declared node count at construction and, once, the
+first time the similarity cost is actually applied.  That log is the evidence
+that the cost participates: the cost value cannot be used for this, because a
+perfect formation costs zero.
+
+The upstream files are not modified in the repository; this patch is applied at
+image build time.
+--- a/src/planner/traj_opt/include/optimizer/poly_traj_optimizer.h
++++ b/src/planner/traj_opt/include/optimizer/poly_traj_optimizer.h
+@@ -65,7 +65,13 @@
+     enum FORMATION_TYPE
+     {
+       NONE_FORMATION        = 0,
+-      REGULAR_HEXAGON       = 1
++      REGULAR_HEXAGON       = 1,
++      // The desired formation set is declared by the configuration rather than
++      // built in: N nodes taken from optimization/formation_size and
++      // global_goal/relative_pos_0..N-1.  A three-member unit has no seven-node
++      // hexagon to compare against, and the size guard below would skip the
++      // similarity cost entirely.
++      DECLARED_FORMATION    = 2
+     };
+ 
+     /* optimization parameters */
+@@ -188,7 +194,9 @@
+ 
+     bool getFormationPos(std::vector<Eigen::Vector3d> &swarm_graph_pos, Eigen::Vector3d pos);
+ 
+-    void setDesiredFormation(int type){
++    void setDesiredFormation(int type,
++                             const std::vector<Eigen::Vector3d> &declared =
++                                 std::vector<Eigen::Vector3d>()){
+       std::vector<Eigen::Vector3d> swarm_des;
+       switch (type)
+       {
+@@ -224,6 +232,24 @@
+           break;
+         }
+ 
++        case FORMATION_TYPE::DECLARED_FORMATION :
++        {
++          if (declared.empty())
++          {
++            ROS_ERROR("[formation] DECLARED_FORMATION needs "
++                      "optimization/formation_size > 0 and relative_pos_* slots; "
++                      "disabling the formation cost");
++            use_formation_  = false;
++            formation_size_ = 0;
++            break;
++          }
++          swarm_des = declared;
++          formation_size_ = static_cast<int>(swarm_des.size());
++          swarm_graph_->setDesiredForm(swarm_des);
++          ROS_INFO("[formation] declared formation with %d nodes", formation_size_);
++          break;
++        }
++
+         default:
+           break;
+       }
+--- a/src/planner/traj_opt/src/poly_traj_optimizer.cpp
++++ b/src/planner/traj_opt/src/poly_traj_optimizer.cpp
+@@ -440,6 +440,14 @@
+ 
+     if (similarity_error > 0)
+     {
++      static bool reported_formation_cost = false;
++      if (!reported_formation_cost)
++      {
++        reported_formation_cost = true;
++        ROS_INFO("[formation] similarity cost applied with %d declared nodes",
++                 formation_size_);
++      }
++
+       ret = true;
+ 
+       costp = wei_formation_ * similarity_error;
+@@ -752,7 +760,21 @@
+ 
+     // set the formation type
+     swarm_graph_.reset(new SwarmGraph);
+-    setDesiredFormation(formation_type_);
++    std::vector<Eigen::Vector3d> declared_formation;
++    if (formation_type_ == FORMATION_TYPE::DECLARED_FORMATION)
++    {
++      int formation_size = 0;
++      nh.param("optimization/formation_size", formation_size, 0);
++      for (int i = 0; i < formation_size; ++i)
++      {
++        Eigen::Vector3d slot(0.0, 0.0, 0.0);
++        nh.param("global_goal/relative_pos_" + to_string(i) + "/x", slot(0), 0.0);
++        nh.param("global_goal/relative_pos_" + to_string(i) + "/y", slot(1), 0.0);
++        nh.param("global_goal/relative_pos_" + to_string(i) + "/z", slot(2), 0.0);
++        declared_formation.push_back(slot);
++      }
++    }
++    setDesiredFormation(formation_type_, declared_formation);
+   }
+ 
+   void PolyTrajOptimizer::setEnvironment(const GridMap::Ptr &map)
