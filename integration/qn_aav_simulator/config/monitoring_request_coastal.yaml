@@ -1,0 +1,60 @@
+# First frozen coastal monitoring request (plan section 3).
+#
+# The operator supplies where to look, what counts as a valid observation, by
+# when, and whether the result must be delivered.  Service time, deadlines and
+# platform parameters are part of the request; task lists are not - they are
+# derived by the expansion.
+#
+# Declared but NOT part of this online request: the underwater sample area
+# (6 x 4 m, centre (-24, -10), z = -3).  It is recorded as a target-asset
+# declaration only, participates in offline allocation, and produces no online
+# completion event because no platform has an UNDERWATER execution endpoint.
+# A request that actually asks for it is refused rather than trimmed.
+request_id: coastal-2026-09-19
+required_capabilities: [AIR]
+service_time_s: 4.0
+deadline_s: 900.0
+delivery_required: true
+
+requirement:
+  footprint_radius_m: 2.5
+  min_dwell_s: 1.0
+  cruise_altitude_m: 0.8
+  exposure_s: 0.02
+  blur_tolerance_m: 0.005
+  nominal_standoff_m: 0.8
+  max_distance_from_altitude_m: 3.0
+
+regions:
+  - region_id: zone_A
+    kind: SURFACE
+    corner_a: [-30.0, 2.5, 0.0]
+    corner_b: [-26.0, 5.5, 0.0]
+    interest_points:
+      - {point_id: a1, position: [-29.0, 3.2, 0.0], weight: 1.0}
+      - {point_id: a2, position: [-27.0, 4.4, 0.0], weight: 1.0}
+  - region_id: zone_B
+    kind: SURFACE
+    corner_a: [-26.0, -5.5, 0.0]
+    corner_b: [-22.0, -2.5, 0.0]
+    interest_points:
+      - {point_id: b1, position: [-25.0, -3.2, 0.0], weight: 1.0}
+      - {point_id: b2, position: [-23.0, -4.6, 0.0], weight: 1.0}
+  - region_id: zone_C
+    kind: SURFACE
+    corner_a: [-22.0, 2.5, 0.0]
+    corner_b: [-18.0, 5.5, 0.0]
+    interest_points:
+      - {point_id: c1, position: [-21.0, 3.4, 0.0], weight: 1.0}
+      - {point_id: c2, position: [-19.0, 4.5, 0.0], weight: 1.0}
+
+# A group stage: the three AAVs fly the shoreline corridor as a line abreast and
+# observe the shoreline points.  It is complete only when the shape was held AND
+# the points were observed - the member count is not evidence of a formation.
+formation_phase:
+  phase_id: shoreline_corridor
+  path_start: [-30.0, 6.0, 0.8]
+  path_end: [-18.0, 6.0, 0.8]
+  interest_point_ids: [s1, s2, s3]
+  shape_tolerance_m: 0.6
+  required_agent_count: 3

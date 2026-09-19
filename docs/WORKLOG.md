@@ -13,6 +13,34 @@
 
 ---
 
+## 2026-09-19 · 阶段 3：请求加载、展开接入计划、复测分阶段释放、编队阶段判定（提交待补）
+
+- **计划**：阶段 3 的剩余逻辑部分——作业请求 YAML、展开接到 executor 计划、复测释放、组级完成条件。
+- **实际**：
+  - 冻结的首版请求落成可加载文件 `config/monitoring_request_coastal.yaml`：
+    3 个水面巡查区（各 2 个兴趣点）+ 1 个岸线编队阶段（3 个兴趣点，容差 0.6 m），
+    并**显式记录**水下样区"仅声明、不参与在线请求"。
+  - 新增纯模块 `task_line.py`：
+    - `load_request` / `load_formation_phase`：字段缺失**报错而不是取默认值**——
+      静默获得 service_time 或 deadline 的请求不是用户提的那个请求。
+    - `to_plan_tasks` / `request_centres`：观测任务 → planner 任务 + 命名航点引用。
+    - `formation_shape_error`：**配对距离**比较（形状），平移不算误差、形变才算；
+      这是"编队真的参与了"的唯一诚实证据（Swarm-Formation ICRA：编队是代价项）。
+    - `evaluate_formation_phase`：形状 **且** 观测都要满足；成员数不足单独报错，
+      因为 `required_agent_count=3` 本身不是编队完成的证据。
+    - `retest_tasks`：**分阶段释放**——结果未接收就返回空（是等待，不是失败）；
+      只对未覆盖点生成；`already_retested` 保证最多一轮。
+  - `tests/conftest.py` 同时把 `integration/` 加入路径，使任务线可以引用 `mrta_python`。
+- **效果**：**227 项测试通过**（新增 12 项）。冻结请求的展开结果是
+  3 个区 → **3 个任务**（每区两个兴趣点落在同一足迹内，只出一个航点），
+  直接演示了"航点数由覆盖需求导出"。
+- **证据**：`integration/qn_aav_simulator/{config/monitoring_request_coastal.yaml,
+  src/qn_aav_simulator/task_line.py,tests/test_task_line.py,tests/conftest.py}`。
+- **未完成**：请求→计划→runner 的在线接线；用户确认闭环；实时展示覆盖/交付；
+  四单元三机配置端到端实跑；阶段 4（M2 收尾、文档）。
+
+---
+
 ## 2026-09-19 · 口径修复（阶段 4 的一部分）：AIR 下限与 readiness 默认值（提交 `b8d78e0`）
 
 - **计划**：阶段 4 列出的口径修复中有两条与"重复权威来源"直接相关，先做掉。
