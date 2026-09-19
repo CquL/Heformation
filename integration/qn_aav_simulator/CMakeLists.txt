@@ -17,8 +17,10 @@ find_package(catkin REQUIRED COMPONENTS
 
 catkin_python_setup()
 
-add_action_files(DIRECTORY action FILES Formation.action)
-generate_messages(DEPENDENCIES actionlib_msgs geometry_msgs)
+add_message_files(DIRECTORY msg FILES PlatformSegment.msg)
+add_service_files(DIRECTORY srv FILES TakeReference.srv)
+add_action_files(DIRECTORY action FILES Formation.action PlatformTask.action)
+generate_messages(DEPENDENCIES actionlib_msgs geometry_msgs nav_msgs)
 catkin_package(CATKIN_DEPENDS actionlib_msgs diagnostic_msgs geometry_msgs message_runtime nav_msgs quadrotor_msgs rospy sensor_msgs std_msgs std_srvs)
 
 catkin_install_python(
@@ -29,6 +31,8 @@ catkin_install_python(
   scripts/scene_publisher.py
   scripts/locate_failure_layer.py
   scripts/probe_safety_hold.py
+  scripts/pvs_node.py scripts/measure_qn_modes.py scripts/probe_platform_fragment.py
+  scripts/mission_console.py scripts/probe_pvs_actions.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

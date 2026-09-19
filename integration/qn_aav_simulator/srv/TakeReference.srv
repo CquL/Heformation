@@ -1,0 +1,8 @@
+# Local reference ownership only. actual_mode is never assigned by this request.
+string goal_id
+string source
+uint32 expected_generation
+---
+bool accepted
+uint32 generation
+string reason

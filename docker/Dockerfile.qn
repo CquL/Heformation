@@ -2,6 +2,8 @@ FROM swarm-formation-upstream:noetic
 
 COPY integration/qn_aav_simulator /workspace/src/src/qn_aav_simulator
 COPY integration/mrta_python /workspace/integration/mrta_python
+COPY upstream/Fossen/src/python_vehicle_simulator /workspace/integration/python_vehicle_simulator
+COPY upstream/Fossen/LICENSE /workspace/integration/python_vehicle_simulator/LICENSE
 COPY integration/swarm_qn_bridge/simulator.xml \
   /workspace/src/src/planner/plan_manage/launch/simulator.xml
 
@@ -45,7 +47,7 @@ RUN patch -p1 -d /workspace/src \
 # matplotlib is in the base image but its Tk bindings are not, so the live
 # dashboard could only publish images.  This layer adds them; nothing else in
 # the stack depends on it.
-RUN apt-get update && apt-get install -y --no-install-recommends python3-tk
+RUN apt-get update && apt-get install -y --no-install-recommends python3-tk fonts-noto-cjk
 
 # mrta_python is a path-based package (integration/mrta_python).  The base
 # image ships setuptools 45.2, whose isolated PEP 621 build needs PyPI and

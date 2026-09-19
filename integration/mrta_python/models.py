@@ -25,6 +25,11 @@ class Task:
     # fleet into teams need not help.  Tasks that genuinely want a formation set
     # this to True and then must also declare a group-level completion condition.
     allow_larger_unit: bool = False
+    # Optional partial order; legacy fixed-coalition inputs remain unchanged.
+    predecessors: Tuple[str, ...] = ()
+    # A declared formation slot belongs to its physical member; ordinary survey
+    # tasks leave this empty so allocation remains free.
+    required_members: Tuple[str, ...] = ()
 
 
 @dataclass

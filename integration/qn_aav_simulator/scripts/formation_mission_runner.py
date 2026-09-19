@@ -16,6 +16,7 @@ import json
 import math
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
 
@@ -52,6 +53,7 @@ def save_json(path, value):
 
 class MissionRunner:
     def __init__(self):
+        self.executor_mutex = threading.RLock()
         self.output = Path(rospy.get_param("~output_dir", "/experiments/current"))
         self.output.mkdir(parents=True, exist_ok=True)
         self.planning_mode = rospy.get_param("~planning_mode", "fixed_coalition")
@@ -158,6 +160,7 @@ class MissionRunner:
         from nav_msgs.msg import Odometry
         from qn_aav_simulator.task_line import load_request, load_formation_phase
         from qn_aav_simulator.observation_coverage import CoverageResult
+        self.executor_serial = bool(rospy.get_param("~executor_serial", True))
         configured = rospy.get_param("~executors")
         self.routing = load_routing(configured, default_members=(),
                                     default_initial_target_ref="start")
@@ -182,6 +185,7 @@ class MissionRunner:
         self.speed = float(rospy.get_param("~nominal_speed_mps", 1.5))
         self.seed = int(rospy.get_param("~seed", 0))
         self.metrics = {"planning_mode": "executor", "status": "STANDBY",
+                        "executor_serial": self.executor_serial, "current_actions": {},
                         "request_id": self.request.request_id, "executions": [],
                         "plan_history": [], "results_received": [], "failure_reason": "",
                         "observation_model": "DECLARED_GEOMETRY_AND_DWELL_ONLY",
@@ -257,6 +261,7 @@ class MissionRunner:
     def _executor_plan(self, observations, *, include_formation=False, release=0.0):
         from mrta_python import Executor, ExecutorPlan, ExecutorTravelTimeProvider, build_executor_plan
         from qn_aav_simulator.task_line import request_centres, to_plan_tasks
+        planning_end = time.monotonic() + float(rospy.get_param("~planning_budget_s", 10.0))
         positions = self._actual_positions()
         centers = request_centres(observations)
         centers["start"] = positions[self.fleet[0]]  # member positions, not this fallback, determine cost
@@ -265,10 +270,41 @@ class MissionRunner:
         travel = ExecutorTravelTimeProvider(centers, {u.executor_id: self.speed for u in self.units},
                     member_slots=self.member_slots, member_positions=dict(positions))
         tasks = list(to_plan_tasks(observations))
-        plan = build_executor_plan(executors, tasks, travel, initial_target_ref="start", seed=self.seed, serial=True,
-                                  serial_units={u.executor_id for u in self.units}) if tasks else ExecutorPlan()
+        plan = build_executor_plan(executors, tasks, travel, initial_target_ref="start", seed=self.seed,
+                                  serial=self.executor_serial,
+                                  budget_s=None if self.executor_serial else max(1e-9,planning_end-time.monotonic()),
+                                  serial_units={u.executor_id for u in self.units}) if tasks else ExecutorPlan(serial=self.executor_serial)
+        for item in plan.items:
+            for member in item.coalition:
+                slot=self.member_slots[item.executor_id][member]
+                travel.member_positions[member]=tuple(centers[item.task_id][a]+slot[a] for a in range(3))
         if include_formation and self.formation_phase:
             phase = self.formation_phase
+            if not self.executor_serial:
+                from qn_aav_simulator.task_line import assembly_member_order
+                group=unit_for_coalition(self.routing,self.fleet)
+                slots=self.member_slots[group.executor_id]
+                targets={m:tuple(phase.path_start[a]+slots[m][a] for a in range(3)) for m in self.fleet}
+                node=self.server_nodes[group.executor_id]
+                required_distance=(2*float(rospy.get_param(node+'/platform_radius_m',.25))+
+                                   float(rospy.get_param(node+'/inter_agent_clearance',.5)))
+                order=assembly_member_order(travel.member_positions,targets,required_distance)
+                # The native group approach from dispersed survey endpoints
+                # failed actual clearance. Use existing member motions in a
+                # conflict-filtered order, then retain BOTH group Actions.
+                for member in order:
+                    task_id=phase.phase_id+'-position-'+member
+                    centers[task_id]=targets[member]
+                    task=Task(task_id,frozenset({'AIR'}),1,self.request.service_time_s,
+                              self.request.deadline_s,task_id,required_members=(member,))
+                    from dataclasses import replace
+                    staged=[replace(e,available_from=max(release,plan.makespan)) for e in executors]
+                    part=build_executor_plan(staged,[task],travel,initial_target_ref='start',seed=self.seed,
+                        serial=True,budget_s=max(1e-9,planning_end-time.monotonic()))
+                    plan.precedence_edges+=tuple((previous.task_id,task_id) for previous in plan.items)
+                    plan.items.extend(part.items)
+                    tasks.append(task)
+                    travel.member_positions[member]=targets[member]
             # Explicit assembly then transfer stages, appended with the same
             # serial release and physical-member predictions. No online USV clock.
             for suffix, point in (("assemble", phase.path_start), ("transfer", phase.path_end)):
@@ -282,8 +318,14 @@ class MissionRunner:
                 from dataclasses import replace
                 staged = [replace(e, available_from=start) for e in executors]
                 part = build_executor_plan(staged, [task], travel, initial_target_ref="start", seed=self.seed, serial=True,
+                                            budget_s=None if self.executor_serial else max(1e-9,planning_end-time.monotonic()),
                                             serial_units={e.executor_id for e in staged})
+                plan.precedence_edges += tuple((previous.task_id,task_id) for previous in plan.items)
                 plan.items.extend(part.items)
+                for item in part.items:
+                    for member in item.coalition:
+                        slot=self.member_slots[item.executor_id][member]
+                        travel.member_positions[member]=tuple(point[a]+slot[a] for a in range(3))
                 tasks.append(task)
         self.centers = getattr(self, "centers", {})
         self.centers.update(centers)
@@ -294,6 +336,10 @@ class MissionRunner:
         return plan
 
     def _save_executor(self):
+        with self.executor_mutex:
+            self._save_executor_locked()
+
+    def _save_executor_locked(self):
         self.metrics["plan"] = asdict(self.plan) if self.plan is not None else None
         self.metrics["plan_revision"] = self.plan_revision
         self.metrics["resource_locks"] = sorted(self.active_executor_ids)
@@ -309,6 +355,7 @@ class MissionRunner:
             "observed_fraction", "delivered_fraction", "results_received", "failure_reason",
             "observation_model", "payload_quality", "updated_at_ros_s")}
         state["current_action"] = self.metrics.get("current_action")
+        state["current_actions"] = self.metrics.get("current_actions", {})
         state["safety_disposition"] = self.metrics.get("safety_disposition")
         rospy.set_param("~task_state", json.dumps(state, default=json_default, allow_nan=False))
         rospy.set_param("~resource_locks", sorted(self.active_executor_ids))
@@ -319,14 +366,34 @@ class MissionRunner:
         travel = ExecutorTravelTimeProvider(self.centers,
             {u.executor_id: self.speed for u in self.units}, member_slots=self.member_slots,
             member_positions=self._actual_positions())
+        parallel=not self.plan.serial
+        availability={}
+        finishes={}
+        if parallel:
+            for committed in self.plan.items:
+                if committed.status != "PLANNED":
+                    finishes[committed.task_id]=(committed.actual_finish if committed.actual_finish is not None else committed.planned_finish)
+                    for member in committed.coalition:
+                        availability[member]=max(availability.get(member,release),finishes[committed.task_id])
+                        if committed.status=="RUNNING":
+                            slot=self.member_slots[committed.executor_id][member]
+                            travel.member_positions[member]=tuple(self.centers[self.tasks_by_id[committed.task_id].target_ref][a]+slot[a] for a in range(3))
         for item in self.plan.items:
             if item.status != "PLANNED":
                 continue
             task = self.tasks_by_id[item.task_id]
             item.travel_time = travel(item.executor_id, "start", task.target_ref)
             item.planned_start = max(item.planned_start, release)
+            if parallel:
+                item.planned_start=max(item.planned_start,
+                    max((availability.get(m,release) for m in item.coalition),default=release),
+                    max((finishes[p] for p,after in self.plan.precedence_edges if after==item.task_id),default=release))
             item.planned_finish = item.planned_start + item.travel_time + item.service_time
-            release = item.planned_finish
+            if parallel:
+                finishes[item.task_id]=item.planned_finish
+                for member in item.coalition:availability[member]=item.planned_finish
+            else:
+                release = item.planned_finish
             for member in item.coalition:
                 slot = self.member_slots[item.executor_id][member]
                 travel.member_positions[member] = tuple(self.centers[task.target_ref][a] + slot[a]
@@ -342,12 +409,12 @@ class MissionRunner:
                 and result.reason == 0 and result.task_outcome == 1
                 and result.safety_outcome == 1 and result.experiment_validity == 1)
 
-    def _dispatch_executor_item(self, item):
+    def _dispatch_executor_item(self, item, reserved=False):
         from mrta_python.repair import process_executor_completion
         unit = unit_for_coalition(self.routing, item.coalition)
         if unit is None or unit.executor_id != item.executor_id:
             raise RuntimeError("plan coalition has no matching online endpoint")
-        if conflicting_active_unit(self.routing, self.active_executor_ids, unit.executor_id):
+        if not reserved and conflicting_active_unit(self.routing, self.active_executor_ids, unit.executor_id):
             raise RuntimeError("physical members already occupied")
         self._wait_executor_ready(unit)
         point = self.centers[self.tasks_by_id[item.task_id].target_ref]
@@ -357,14 +424,18 @@ class MissionRunner:
         goal.formation_center.header.stamp = rospy.Time.now()
         goal.formation_center.point.x, goal.formation_center.point.y, goal.formation_center.point.z = point
         goal.hold_duration = rospy.Duration(item.service_time)
-        item.status = "RUNNING"
-        self.active_executor_ids.add(unit.executor_id)
-        self.metrics["current_action"] = {"task_id": item.task_id, "execution_id": item.execution_id,
+        action = {"task_id": item.task_id, "execution_id": item.execution_id,
                                          "endpoint": unit.action_endpoint, "phase": "DISPATCHING"}
+        with self.executor_mutex:
+            item.status = "RUNNING"
+            self.active_executor_ids.add(unit.executor_id)
+            self.metrics.setdefault("current_actions", {})[item.execution_id] = action
+            if getattr(self,"executor_serial",True):self.metrics["current_action"] = action
         self._save_executor()  # reserve before sending, survive runner interruption
         client = self.clients[unit.executor_id]
         def feedback(message):
-            self.metrics["current_action"]["phase"] = "HOLDING" if message.phase == 1 else "MOVING"
+            with self.executor_mutex:
+                action["phase"] = "HOLDING" if message.phase == 1 else "MOVING"
         client.send_goal(goal, feedback_cb=feedback)
         node = self.server_nodes[unit.executor_id]
         disposition_budget = (float(rospy.get_param(node + "/safety_hold_timeout_s", 180))
@@ -375,14 +446,22 @@ class MissionRunner:
                 break
             disposition = rospy.get_param(node + "/safety_disposition", None)
             if disposition is not None:
-                self.metrics["current_action"]["phase"] = "SAFETY_HOLD"
-                self.metrics["safety_disposition"] = json.loads(disposition)
+                with self.executor_mutex:
+                    action["phase"] = "SAFETY_HOLD"
+                    self.metrics["safety_disposition"] = json.loads(disposition)
             self._save_executor()
             if time.monotonic() >= deadline:
                 raise RuntimeError("result timeout; endpoint={} client_state={} server_state={}".format(
                     unit.action_endpoint, client.get_state(), rospy.get_param(node + "/run_state", "unknown")))
         result = client.get_result()
         state = client.get_state()
+        # Queue reception is handled by actionlib threads; only the commit of
+        # task state/results is serialized, never the physical Action wait.
+        with self.executor_mutex:
+            return self._commit_executor_result(item,unit,state,result)
+
+    def _commit_executor_result(self,item,unit,state,result):
+        from mrta_python.repair import process_executor_completion
         if not self._release_result_ok(state, result, item.execution_id):
             detail = "missing native Result"
             if result is not None:
@@ -423,9 +502,47 @@ class MissionRunner:
         self._receive_observations(item, evidence)
         # No finally-discard: every exceptional/unknown exit keeps the reservation.
         self.active_executor_ids.remove(unit.executor_id)
-        self.metrics["current_action"] = None
+        self.metrics.setdefault("current_actions", {}).pop(item.execution_id,None)
+        if getattr(self,"executor_serial",True):self.metrics["current_action"] = None
         self._refresh_executor_timing(received - self.epoch)
         self._save_executor()
+
+    def _execute_parallel_pending(self):
+        """One scheduler owns bookings; workers wait independently on endpoints."""
+        running={}
+        failure=None
+        with ThreadPoolExecutor(max_workers=len(self.units)) as workers:
+            while not rospy.is_shutdown():
+                for execution_id,future in list(running.items()):
+                    if future.done():
+                        try:future.result()
+                        except Exception as error:
+                            failure=error
+                            with self.executor_mutex:
+                                self.plan.item(execution_id).status="UNKNOWN_LOCKED"
+                                action=self.metrics.get("current_actions",{}).get(execution_id)
+                                if action is not None:
+                                    action.update(phase="UNKNOWN_LOCKED",failure_reason=str(error))
+                        del running[execution_id]
+                with self.executor_mutex:
+                    completed={i.task_id for i in self.plan.items if i.status=="COMPLETED"}
+                    pending=[i for i in self.plan.items if i.status=="PLANNED"]
+                    now=rospy.Time.now().to_sec()-self.epoch
+                    if failure is None:
+                        for item in pending:
+                            before={p for p,after in self.plan.precedence_edges if after==item.task_id}
+                            if (item.planned_start>now or not before<=completed or
+                                conflicting_active_unit(self.routing,self.active_executor_ids,item.executor_id)):
+                                continue
+                            # Reserve the whole unit before any worker can send.
+                            item.status="RUNNING"
+                            self.active_executor_ids.add(item.executor_id)
+                            self._save_executor()
+                            running[item.execution_id]=workers.submit(self._dispatch_executor_item,item,True)
+                    if not running and (failure is not None or not pending):break
+                time.sleep(.05)
+            if failure is not None:raise failure
+            if rospy.is_shutdown():raise RuntimeError("runner shutdown with accepted commitments")
 
     def _receive_observations(self, item, evidence):
         from qn_aav_simulator.observation_coverage import ObservationSample, evaluate_coverage, record_delivery
@@ -497,6 +614,8 @@ class MissionRunner:
             self._refresh_executor_timing(0.0)
             retested = False
             while not rospy.is_shutdown():
+                if not self.executor_serial:
+                    self._execute_parallel_pending()
                 pending = next((i for i in self.plan.items if i.status == "PLANNED"), None)
                 if pending is None:
                     extra = retest_tasks(self.request, observations, self.coverage, self.weights,
@@ -544,6 +663,11 @@ class MissionRunner:
             self.goal_ids.setdefault(message.goal.task_id, set()).add(
                 message.goal_id.id)
             self.condition.notify_all()
+        # Publish the native GoalID so UI cancellation targets this action only,
+        # even if a later action starts before the cancellation message arrives.
+        with self.executor_mutex:
+            action=getattr(self,"metrics",{}).get("current_actions",{}).get(message.goal.task_id)
+            if action is not None:action["goal_id"]=message.goal_id.id
 
     def on_result(self, message):
         with self.condition:

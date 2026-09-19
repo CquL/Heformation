@@ -73,7 +73,8 @@ class QnAavNode:
             float(rospy.get_param("~init_y", 0.0)),
             float(rospy.get_param("~init_z", 0.5)),
         )
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
+        self.platform_action = None
         self.latest_command = None
         self.step_index = 0
         self.usage = ReferenceUsageTracker(self.agent_id)
@@ -90,8 +91,10 @@ class QnAavNode:
                 "initialization_mode": "STATIC_TRIM",
                 "model_step_s": 0.001,
                 "reference_mode": "ROUTE_POSITION",
-                "water_guidance_mode": "QN_ORIGINAL_POSITION",
-                "water_horizontal_controller_mode": "QN_ORIGINAL_RBF_PD",
+                "water_guidance_mode": rospy.get_param(
+                    "~water_guidance_mode", "QN_ORIGINAL_POSITION"),
+                "water_horizontal_controller_mode": rospy.get_param(
+                    "~water_horizontal_controller_mode", "QN_ORIGINAL_RBF_PD"),
             }
         )
         self.backend.reset(self.state)
@@ -107,6 +110,9 @@ class QnAavNode:
         self.diagnostics_pub = rospy.Publisher(
             "~diagnostics", DiagnosticArray, queue_size=1)
         self.medium_pub = rospy.Publisher("~medium_flag", Float64, queue_size=1)
+        if rospy.get_param("~enable_platform_action", False):
+            from qn_aav_simulator.platform_action import LocalPlatformAction
+            self.platform_action = LocalPlatformAction(self)
         self.command_sub = rospy.Subscriber(
             "~command", PositionCommand, self.command_callback, queue_size=1
         )
@@ -118,6 +124,12 @@ class QnAavNode:
 
     # -- command capture ---------------------------------------------------
     def command_callback(self, message):
+        with self.lock:
+            self._command_callback_locked(message)
+
+    def _command_callback_locked(self, message):
+        if self.platform_action is not None and not self.platform_action.accepts_air(int(message.trajectory_id)):
+            return
         snapshot_fields = {
             "stamp_s": message.header.stamp.to_sec(),
             "trajectory_id": int(message.trajectory_id),
@@ -181,8 +193,19 @@ class QnAavNode:
         }
 
     def step(self):
+        # Ownership change, snapshot adoption and model integration share one
+        # local boundary. No in-flight normal snapshot crosses a handover.
+        with self.lock:
+            self._step_locked()
+
+    def _step_locked(self):
         dt_s = self.outer_dt_s
         now = rospy.Time.now()
+        if self.platform_action is not None:
+            native = self.platform_action.tick()
+            if native is not None:
+                self.commands.note(native)
+                self.latest_command = native
         snapshot = self._freeze_snapshot()
         if snapshot is None:
             with self.lock:
@@ -390,6 +413,8 @@ class QnAavNode:
             ("air_floor_m", repr(self.air_floor_m)),
             ("air_domain_violation", "true" if self.air_domain_violation else "false"),
         ]
+        if self.platform_action is not None:
+            entries.extend(self.platform_action.diagnostics())
         status = DiagnosticStatus()
         status.name = "{}/qn_reference".format(self.agent_id)
         status.hardware_id = self.agent_id

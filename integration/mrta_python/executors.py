@@ -15,6 +15,13 @@ from __future__ import annotations
 
 import math
 import random
+import os
+import pickle
+import signal
+import subprocess
+import sys
+import time
+import copy
 from dataclasses import dataclass, field
 from typing import Callable, Dict, FrozenSet, List, Mapping, Sequence, Tuple
 from typing import Optional
@@ -24,15 +31,72 @@ from .validation import identifier, nonnegative
 
 ExecutorTravelTimeFunction = Callable[[str, str, str], float]
 
-# Executor pairs that share at least one physical agent.  Refilled by
-# validate_executor_inputs; used by validate_executor_plan to forbid concurrent
-# occupancy (CoCoPlan's mutual-exclusion relation).
-overlap_pairs: set = set()
+
+class PlanningBudgetExceeded(RuntimeError):
+    """No complete candidate was submitted within this invocation's budget."""
 
 
-def overlapping_units(first: str, second: str) -> bool:
+def bounded_travel_query(provider, arguments, deadline):
+    """A hung query cannot outlive the caller's observation budget.
+
+    A clean interpreter avoids both forking ROS threads and multiprocessing's
+    re-execution of catkin's __main__ wrapper. New budgeted callers provide
+    serializable, snapshot-based providers (internal trusted objects only).
+    Legacy unbudgeted callers retain their in-process callable interface.
+    """
+    if deadline is None:
+        return provider(*arguments)
+    if time.monotonic()>=deadline:
+        raise PlanningBudgetExceeded('planning budget exhausted')
+    payload=pickle.dumps((provider,arguments))
+    environment=dict(os.environ,PYTHONPATH=os.pathsep.join(sys.path))
+    process=subprocess.Popen([sys.executable,'-m','mrta_python.query_worker'],
+        stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+        env=environment,start_new_session=True)
+    try:
+        try:
+            output,error=process.communicate(payload,timeout=max(0.,deadline-time.monotonic()))
+        except subprocess.TimeoutExpired as exc:
+            raise PlanningBudgetExceeded('motion query exceeded remaining planning budget') from exc
+        if process.returncode:
+            raise ValueError('motion query process failed: '+error.decode(errors='replace')[-2000:])
+        ok,value=pickle.loads(output)
+        if time.monotonic()>deadline:
+            raise PlanningBudgetExceeded('planning budget exhausted during motion query')
+        if not ok:
+            raise ValueError('motion query failed: '+value)
+        return value
+    finally:
+        try:os.killpg(process.pid,signal.SIGTERM)
+        except ProcessLookupError:pass
+        try:process.communicate(timeout=.2)
+        except subprocess.TimeoutExpired:
+            try:os.killpg(process.pid,signal.SIGKILL)
+            except ProcessLookupError:pass
+            process.communicate()
+
+
+def checked_predecessors(tasks, extra_edges=()):
+    """Check the UNION of task, resource and motion precedence constraints."""
+    predecessors={t.task_id:set(getattr(t,'predecessors',())) for t in tasks}
+    for before,after in extra_edges:
+        if after not in predecessors:
+            raise ValueError('precedence refers to unknown task: '+after)
+        predecessors[after].add(before)
+    if any(p not in predecessors for values in predecessors.values() for p in values):
+        raise ValueError('precedence refers to unknown task')
+    remaining={k:set(v) for k,v in predecessors.items()}
+    while remaining:
+        ready={k for k,v in remaining.items() if not v}
+        if not ready:
+            raise ValueError('combined task/resource/motion precedence cycle')
+        remaining={k:v-ready for k,v in remaining.items() if k not in ready}
+    return predecessors
+
+def overlapping_units(first: str, second: str,
+                      membership: Mapping[str, Tuple[str, ...]]) -> bool:
     """True when two executor ids share at least one physical agent."""
-    return frozenset((first, second)) in overlap_pairs
+    return bool(set(membership[first]) & set(membership[second]))
 
 
 def _distance(first, second) -> float:
@@ -52,7 +116,6 @@ def validate_executor_inputs(executors: Sequence[Executor], tasks: Sequence) -> 
     Unlike the fixed-coalition domain this does not require seven agents per
     task: a unit must be capable and large enough for the task it runs.
     """
-    overlap_pairs.clear()
     if not executors:
         raise ValueError("at least one executor is required")
     executor_ids = set()
@@ -83,13 +146,6 @@ def validate_executor_inputs(executors: Sequence[Executor], tasks: Sequence) -> 
     # group unit can own the same physical agents, because they are two ways of
     # using the fleet rather than two fleets.  What must never happen is both
     # being occupied at once; that is enforced on the plan, not on registration.
-    for executor in executors:
-        for other in executors:
-            if executor.executor_id >= other.executor_id:
-                continue
-            shared = set(executor.physical_agent_ids) & set(other.physical_agent_ids)
-            if shared:
-                overlap_pairs.add(frozenset((executor.executor_id, other.executor_id)))
     task_ids = set()
     for task in tasks:
         identifier(task.task_id, "task_id")
@@ -135,11 +191,14 @@ class ExecutorPlanItem:
     wait_time: float
     service_time: float
     status: str = "PLANNED"
+    actual_finish: Optional[float] = None
 
 
 @dataclass
 class ExecutorPlan:
     items: List[ExecutorPlanItem] = field(default_factory=list)
+    serial: bool = True
+    precedence_edges: Tuple[Tuple[str, str], ...] = ()
 
     def item(self, execution_id: str) -> ExecutorPlanItem:
         for item in self.items:
@@ -252,6 +311,8 @@ def eligible_executors(executors: Sequence[Executor], task) -> Tuple[Executor, .
     return tuple(
         executor for executor in executors
         if task.required_capabilities.issubset(executor.capabilities)
+        and (not getattr(task,'required_members',()) or
+             set(task.required_members)==set(executor.physical_agent_ids))
         and (len(executor.physical_agent_ids) >= wanted if allow_larger
              else len(executor.physical_agent_ids) == wanted))
 
@@ -260,7 +321,9 @@ def build_executor_plan(executors: Sequence[Executor], tasks: Sequence,
                         travel_time_provider: ExecutorTravelTimeFunction, *,
                         initial_target_ref: str, seed: int = 0,
                         serial: bool = False,
-                        serial_units: Optional[Iterable[str]] = None) -> ExecutorPlan:
+                        serial_units: Optional[Iterable[str]] = None,
+                        precedence_edges=(), budget_s=None,
+                        hard_deadlines: bool = False) -> ExecutorPlan:
     """Allocate every task to one eligible unit with the v9 reward order.
 
     Generalization of the fixed-coalition port: each unit keeps its own queue
@@ -283,7 +346,16 @@ def build_executor_plan(executors: Sequence[Executor], tasks: Sequence,
     serial clock - platforms without an execution endpoint are planned for but
     never dispatched, so they must not hold that clock back either.
     """
+    started=time.monotonic()
+    if budget_s is not None and (not math.isfinite(budget_s) or budget_s<=0):
+        raise ValueError('planning budget must be finite and positive')
+    deadline=None if budget_s is None else started+budget_s
     validate_executor_inputs(executors, tasks)
+    predecessors=checked_predecessors(tasks,precedence_edges)
+    finishes={}
+    if budget_s is not None or hard_deadlines or any(predecessors.values()):
+        # Speculative planning cannot move the caller's accepted member state.
+        travel_time_provider=copy.deepcopy(travel_time_provider)
     identifier(initial_target_ref, "initial_target_ref")
     if type(seed) is not int:
         raise ValueError("seed must be an integer")
@@ -323,7 +395,7 @@ def build_executor_plan(executors: Sequence[Executor], tasks: Sequence,
             return start
         start = queue_finish[executor_id]
         for other_id, other_finish in queue_finish.items():
-            if other_id != executor_id and overlapping_units(executor_id, other_id):
+            if other_id != executor_id and overlapping_units(executor_id, other_id, routing_members):
                 start = max(start, other_finish)
         return start
 
@@ -331,26 +403,35 @@ def build_executor_plan(executors: Sequence[Executor], tasks: Sequence,
                        for executor in executors}
 
     remaining = list(tasks)
-    plan = ExecutorPlan()
+    plan = ExecutorPlan(serial=serial,precedence_edges=tuple(
+        (before,after) for after,values in predecessors.items() for before in sorted(values)))
     while remaining:
-        candidates = sorted(remaining, key=lambda task: task.task_id)
+        if deadline is not None and time.monotonic()>=deadline:
+            raise PlanningBudgetExceeded('no complete plan within invocation budget')
+        candidates = sorted((t for t in remaining if predecessors[t.task_id]<=finishes.keys()),
+                            key=lambda task: task.task_id)
         rng.shuffle(candidates)
         makespan = max(queue_finish.values())
         scored = []
         for task in candidates:
             for executor in eligible_executors(executors, task):
-                transit = travel_time_provider(
+                transit = bounded_travel_query(travel_time_provider, (
                     executor.executor_id,
-                    current_target_ref[executor.executor_id], task.target_ref)
+                    current_target_ref[executor.executor_id], task.target_ref), deadline)
                 nonnegative(transit, "travel_time_provider result")
-                start = earliest_start(executor.executor_id)
+                start = max(earliest_start(executor.executor_id),
+                            max((finishes[p] for p in predecessors[task.task_id]),default=0.))
                 finish = start + transit + task.service_time
                 nonnegative(finish, "candidate planned_finish")
+                if hard_deadlines and finish>task.deadline:
+                    continue
                 introduced_makespan = max(0.0, finish - makespan)
                 urgent = task.deadline < start + 1.55 * task.service_time
                 key = (-int(urgent), introduced_makespan, 0.0, -task.service_time,
                        -1.0, transit, executor.executor_id)
                 scored.append((key, task, executor, transit, start, finish))
+        if not scored:
+            raise ValueError('no admissible next candidate found; not a proof of infeasibility')
         _, selected, executor, transit, start, finish = min(
             scored, key=lambda candidate: candidate[0])
         plan.items.append(ExecutorPlanItem(
@@ -361,6 +442,7 @@ def build_executor_plan(executors: Sequence[Executor], tasks: Sequence,
             travel_time=transit, wait_time=0.0, service_time=selected.service_time,
         ))
         queue_finish[executor.executor_id] = finish
+        finishes[selected.task_id]=finish
         current_target_ref[executor.executor_id] = selected.target_ref
         if serial and executor.executor_id in participants:
             serial_release = finish
@@ -379,6 +461,8 @@ def build_executor_plan(executors: Sequence[Executor], tasks: Sequence,
                     destination[axis] + slot[axis] for axis in range(3))
         remaining.remove(selected)
     validate_executor_plan(plan, executors, tasks)
+    if deadline is not None and time.monotonic()>deadline:
+        raise PlanningBudgetExceeded('complete candidate exceeded invocation budget')
     return plan
 
 
@@ -430,9 +514,10 @@ def validate_executor_plan(plan: ExecutorPlan, executors: Sequence[Executor],
     occupied: Dict[str, List[ExecutorPlanItem]] = {}
     for item in plan.items:
         occupied.setdefault(item.executor_id, []).append(item)
+    membership = {e.executor_id: e.physical_agent_ids for e in executors}
     for first, items_a in occupied.items():
         for second, items_b in occupied.items():
-            if first >= second or not overlapping_units(first, second):
+            if first >= second or not overlapping_units(first, second, membership):
                 continue
             for a in items_a:
                 for b in items_b:
@@ -444,3 +529,8 @@ def validate_executor_plan(plan: ExecutorPlan, executors: Sequence[Executor],
                                 first, second, a.execution_id, b.execution_id))
     if task_ids != set(task_by_id):
         raise ValueError("plan must allocate each supplied task exactly once")
+    before_by_task=checked_predecessors(tasks,plan.precedence_edges)
+    item_by_task={i.task_id:i for i in plan.items}
+    for task_id,values in before_by_task.items():
+        if any(item_by_task[task_id].planned_start<item_by_task[p].planned_finish-1e-6 for p in values):
+            raise ValueError('plan violates a task/resource/motion predecessor')

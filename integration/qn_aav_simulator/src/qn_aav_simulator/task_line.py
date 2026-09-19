@@ -8,6 +8,7 @@ heading or similarity threshold is a business acceptance gate.
 from __future__ import annotations
 
 import math
+import itertools
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
@@ -19,6 +20,40 @@ from .monitoring_request import (
 from .observation_coverage import CoverageResult
 
 Vector3 = Tuple[float, float, float]
+
+
+def assembly_member_order(positions,targets,minimum_center_distance):
+    """Finite three-member approach alternatives, before group optimization.
+
+    Reject straight approaches intersecting another member's occupied envelope.
+    This is a geometric candidate filter, not a tracking-error safety guarantee;
+    native Swarm planning and actual fleet safety still decide execution.
+    """
+    if set(positions)!=set(targets) or len(positions)!=3:
+        raise ValueError('declared three-member assembly requires all members')
+    if not math.isfinite(minimum_center_distance) or minimum_center_distance<=0:
+        raise ValueError('minimum center distance must be finite and positive')
+    if any(len(p)!=3 or not all(math.isfinite(v) for v in p) for p in list(positions.values())+list(targets.values())):
+        raise ValueError('assembly geometry must use finite three-vectors')
+    for order in itertools.permutations(sorted(positions)):
+        predicted=dict(positions)
+        valid=True
+        for member in order:
+            start,end=predicted[member],targets[member]
+            delta=tuple(end[i]-start[i] for i in range(3))
+            length2=sum(v*v for v in delta)
+            for other,point in predicted.items():
+                if other==member:continue
+                fraction=(max(0.,min(1.,sum((point[i]-start[i])*delta[i] for i in range(3))/length2))
+                          if length2 else 0.)
+                closest=tuple(start[i]+fraction*delta[i] for i in range(3))
+                if math.dist(closest,point)<minimum_center_distance:
+                    valid=False
+                    break
+            if not valid:break
+            predicted[member]=end
+        if valid:return order
+    raise ValueError('no ordered member approach found in the finite candidate set')
 
 
 @dataclass(frozen=True)

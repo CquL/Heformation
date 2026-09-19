@@ -34,6 +34,8 @@ def runner_module(server_module, monkeypatch):
 
 def make_runner(module, tmp_path):
     runner = module.MissionRunner.__new__(module.MissionRunner)
+    runner.executor_mutex = threading.RLock()
+    runner.executor_serial = True
     runner.output = tmp_path
     entries = [{"executor_id": "aav_"+str(i+1), "physical_agent_ids": ["drone_"+str(i)],
                 "capabilities": ["AIR"], "action_endpoint": "/selected_"+str(i)+"/formation_action"}
@@ -56,6 +58,30 @@ def make_runner(module, tmp_path):
     runner._save_executor = lambda: None
     runner._wait_executor_ready = lambda unit: None
     return runner
+
+
+def test_parallel_dispatch_books_members_before_workers_and_waits_for_group(runner_module,tmp_path):
+    runner=make_runner(runner_module,tmp_path)
+    runner.executor_serial=False
+    runner.plan=ExecutorPlan([
+        ExecutorPlanItem('e0','t0','aav_1',('drone_0',),0,1,0,0,1),
+        ExecutorPlanItem('e1','t1','aav_2',('drone_1',),0,1,0,0,1),
+        ExecutorPlanItem('eg','tg','group',tuple(runner.fleet),0,1,0,0,1)],
+        serial=False,precedence_edges=(('t0','tg'),('t1','tg')))
+    barrier=threading.Barrier(2)
+    entered=[]
+    def dispatch(item,reserved):
+        assert reserved and item.executor_id in runner.active_executor_ids
+        if item.executor_id!='group':barrier.wait(timeout=2)
+        with runner.executor_mutex:
+            if item.executor_id=='group':assert set(entered)=={'aav_1','aav_2'}
+            entered.append(item.executor_id)
+            runner.plan.item(item.execution_id).status='COMPLETED'
+            runner.active_executor_ids.remove(item.executor_id)
+    runner._dispatch_executor_item=dispatch
+    runner._execute_parallel_pending()
+    assert entered[-1]=='group'
+    assert not runner.active_executor_ids
 
 
 def test_request_builds_one_serial_plan_including_assembly_and_transfer(runner_module, tmp_path):

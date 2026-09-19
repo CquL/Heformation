@@ -20,5 +20,6 @@
   <depend>sensor_msgs</depend>
   <exec_depend>rosbag</exec_depend>
   <exec_depend>rosgraph</exec_depend>
+  <exec_depend>python_qt_binding</exec_depend>
   <export/>
 </package>

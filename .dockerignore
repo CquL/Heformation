@@ -3,6 +3,11 @@
 !docker/Dockerfile.qn
 !integration/
 !integration/**
+!upstream/
+!upstream/Fossen/
+!upstream/Fossen/LICENSE
+!upstream/Fossen/src/
+!upstream/Fossen/src/**
 **/__pycache__/
 **/.pytest_cache/
 **/build/

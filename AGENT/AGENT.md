@@ -109,6 +109,11 @@ aav_formation -> {drone_0, drone_1, drone_2}
 
 ## 4. 运动后端与平台边界
 
+五平台冻结修订实施进度现记录于 `docs/reviews/five-platform-progress-20260919.md`。
+已有隔离qn跨介质Action、Otter/REMUS资格端点、三机异步与Qt实际请求增量；
+生产请求仍限AIR，Swarm双向交接/模式故障/预承诺通信/五平台全链未完成。
+下方“当前”表述的是生产请求边界，不能否认已存在的实验端点，也不能将实验端点当生产资格。
+
 当前：
 
 ```text

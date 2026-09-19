@@ -13,6 +13,86 @@ from typing import Dict, Iterable, Mapping, Optional, Sequence, Tuple
 Vector3 = Tuple[float, float, float]
 
 
+@dataclass
+class DeliveryProduct:
+    """A finite in-order byte stream; counters, not a file-transfer service."""
+    producer: str
+    receiver: str
+    required_bytes: int
+    generated_at: float
+    observed: bool
+    received_prefix: Dict[str, float] = field(default_factory=dict)
+    received_at: Optional[float] = None
+
+    def __post_init__(self):
+        if not self.producer or not self.receiver or self.producer==self.receiver:
+            raise ValueError('distinct producer and receiver required')
+        if type(self.required_bytes) is not int or self.required_bytes<=0:
+            raise ValueError('required_bytes must be a positive integer')
+        if not math.isfinite(self.generated_at) or self.generated_at<0:
+            raise ValueError('generation time must be finite and nonnegative')
+        if type(self.observed) is not bool:
+            raise ValueError('observation validity must be explicit boolean')
+        self.received_prefix={self.producer:float(self.required_bytes)}
+
+    @property
+    def delivered(self):
+        return self.observed and self.received_at is not None
+
+
+class FiniteDelivery:
+    """Apply a shared-channel byte budget exactly once per model interval.
+
+    Flows are (product_id, sender, receiver, link_available). A hop may forward
+    only the prefix already held at the START of the interval; this conservative
+    sampled model cannot instantly forward a newly received hop in the same tick.
+    The caller is the simulated transport, not the mother-ship truth reader.
+    """
+    def __init__(self, start_time=0.):
+        if not math.isfinite(start_time) or start_time<0:
+            raise ValueError('finite nonnegative start time required')
+        self.products={}
+        self.channel_time={}
+        self.start_time=start_time
+
+    def produce(self,product_id,product):
+        if product_id in self.products:
+            raise ValueError('product already generated')
+        self.products[product_id]=product
+
+    def advance(self,channel,now_s,bytes_per_second,flows):
+        flows=tuple(flows)
+        if not math.isfinite(now_s) or not math.isfinite(bytes_per_second) or bytes_per_second<0:
+            raise ValueError('invalid channel time/rate')
+        before=self.channel_time.get(channel,self.start_time)
+        if now_s<before:
+            raise ValueError('channel time moved backwards')
+        if now_s==before:
+            return ()
+        # Validate the whole update before mutating any counters or time.
+        for key,source,destination,available in flows:
+            if key not in self.products or not source or not destination or source==destination or type(available) is not bool:
+                raise ValueError('invalid delivery flow')
+        prefixes={k:dict(p.received_prefix) for k,p in self.products.items()}
+        budget=bytes_per_second*(now_s-before)
+        receipts=[]
+        for key,source,destination,available in flows:
+            product=self.products[key]
+            if not available or product.generated_at>before:
+                continue
+            old=product.received_prefix.get(destination,0.)
+            amount=min(budget,max(0.,prefixes[key].get(source,0.)-old))
+            if amount<=0:
+                continue
+            product.received_prefix[destination]=old+amount
+            budget-=amount
+            if destination==product.receiver and old+amount>=product.required_bytes and product.received_at is None:
+                product.received_at=now_s
+                receipts.append(key)
+        self.channel_time[channel]=now_s
+        return tuple(receipts)
+
+
 @dataclass(frozen=True)
 class ObservationSample:
     """One recorded state of one member during an observation window."""

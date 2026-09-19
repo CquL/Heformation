@@ -69,12 +69,6 @@
   <rosparam ns="drone_1_qn_aav">{init_x: -30.0, init_y: 4.0, init_z: 0.8}</rosparam>
   <rosparam ns="drone_2_qn_aav">{init_x: -30.0, init_y: 8.0, init_z: 0.8}</rosparam>
 
-  <param name="drone_0_ego_planner_node/manager/max_vel" value="$(arg planner_speed)" type="double"/>
-  <param name="drone_0_ego_planner_node/optimization/max_vel" value="$(arg planner_speed)" type="double"/>
-  <param name="drone_1_ego_planner_node/manager/max_vel" value="$(arg planner_speed)" type="double"/>
-  <param name="drone_1_ego_planner_node/optimization/max_vel" value="$(arg planner_speed)" type="double"/>
-  <param name="drone_2_ego_planner_node/manager/max_vel" value="$(arg planner_speed)" type="double"/>
-  <param name="drone_2_ego_planner_node/optimization/max_vel" value="$(arg planner_speed)" type="double"/>
 
   <include file="$(find ego_planner)/launch/run_in_sim.launch">
     <arg name="drone_id" value="0"/>
@@ -107,6 +101,15 @@
     <arg name="formation_config" value="$(arg formation_config)"/>
   </include>
 
+
+  <!-- Apply AFTER run_in_sim includes, which otherwise overwrite max_vel with
+       their upstream literal 1.5. The operator value must reach the planners. -->
+  <param name="drone_0_ego_planner_node/manager/max_vel" value="$(arg planner_speed)" type="double"/>
+  <param name="drone_0_ego_planner_node/optimization/max_vel" value="$(arg planner_speed)" type="double"/>
+  <param name="drone_1_ego_planner_node/manager/max_vel" value="$(arg planner_speed)" type="double"/>
+  <param name="drone_1_ego_planner_node/optimization/max_vel" value="$(arg planner_speed)" type="double"/>
+  <param name="drone_2_ego_planner_node/manager/max_vel" value="$(arg planner_speed)" type="double"/>
+  <param name="drone_2_ego_planner_node/optimization/max_vel" value="$(arg planner_speed)" type="double"/>
 
   <!-- One Action server per unit.  Each owns only its own members and publishes
        only on their goal topics, so a command addressed to one AAV cannot reach

@@ -1,3 +1,131 @@
+## 2026-09-19 — 阶段报告、开发镜像与未完成边界归档
+
+- 计划：归档本次真实增量，防止将资格探针和局部模型当作五平台闭环完成。
+- 实际：新增five-platform-progress报告，逐项列出G0–G5现状、全部正负例和继续实施缺口；同步当前状态/交接/架构/决定。文献阅读状态与实际选读章节对齐。开发镜像构建成功，保留PVS许可证并仅将必要源码加入Docker上下文；原noetic/safety-hold镜像不替换。并行失败行补任务层UNKNOWN_LOCKED及原因，UI不自行推断。
+- 效果：总计划明确未完成；尤其Swarm双向交接、所有模式故障资格、五实例场景、模式成本候选、预承诺通信及五平台UI/科研对照不能写成已验收。当前水下/PVS端点拒绝未完成资格的生产模式。
+- 证据：docs/reviews/five-platform-progress-20260919.md；experiments/20260919-five-platform-build/build.log及module-tests.log；源码、镜像与证据索引随本轮归档。
+- 未完成/下一步：按报告§4继续G1双向参考交接与模式资格，随后接G2–G4，不扩大框架/仿真器或新增业务功能。当前源码保留main工作树，未提交/推送。
+
+## 2026-09-19 — 有效低速并行请求及七机代表回归通过
+
+- 计划：在实际生效的0.35m/s配置下完整复验有序集结/转场，同时验证七机兼容。
+- 实际：parallel-request-r6外层退出0，8段均原生SUCCEEDED，观测/交付1.0、按期、资源清空；组级集结净距约1.50m，转场最低约0.917m。最大转场参考跟踪误差仍约0.401m，未满足把0.30m当严格包络的前提。seven-single回归退出0，独立verification PASS、185项检查0失败。原始默认水下分支前800样本与接线修正前基线位置/速度/介质残差为0。
+- 效果：证明此受限配置的实际请求安全结果，不宣称1.5m/s并行已合格或0.35以下均安全；不能与不同速度的串行运行直接比较效率。保留r3/r4失败。287项模块测试通过；本地新模式/PVS端点明确仅资格实验，未完成Swarm往返不能开放生产。
+- 证据：g3/parallel-request-r6/metrics.json及各diagnostics/bag；five-platform-regression/seven-single/verification.json；g1/module-tests-r12.log。
+- 未完成/下一步：归档阶段报告与最终开发镜像；G1完整模式接管/故障、G2五实例、G3模式成本搜索、G4预承诺通信和G5五平台UI/研究对照仍未验收。
+
+## 2026-09-19 — 低速校准发现 launch 覆盖次序断点
+
+- 计划：用0.35m/s参考做跟踪范围校准，先核对原生实际参数。
+- 实际：parallel-request-r5原生 /drone_0_ego_planner_node/{manager,optimization}/max_vel 均仍为1.5。formation_aav3.launch原覆盖位于run_in_sim include之前，被上游常量覆盖。停止完整隔离容器，该次不作为低速运动证据；移动覆盖至三个include之后，并在启动入口派发前核对全部6个实际参数。
+- 效果：修复真实参数传递，不把evidence记录中的0.35冒充控制端已采用。默认1.5不变，七机已有覆盖次序不改。
+- 证据：g3/parallel-request-r5（主动终止，退出143）；formation_aav3.launch与启动入口参数核对。
+- 未完成/下一步：重新进行有效低速校准；全计划仍未完成，不能因单次成功跳过重复失败。
+
+## 2026-09-19 — 有序集结成功，转场跟踪范围仍不合格
+
+- 计划：保持原0.5m安全阈值复验有序成员接近。
+- 实际：parallel-request-r4三个观测、三个成员到槽位及组级集结均SUCCEEDED；最终组级转场实际净距0.459m失败并锁定。失败附近使用参考与实际误差约0.64/1.10/1.19m，现有0.30m跟踪预算不能作为本条件已证明上界。新增启动入口透传已有planner_speed并同步名义耗时，默认仍1.5；下一次明确选择0.35m/s做受限参考校准（按0.30/1.19×1.5约0.378的比例提出保守候选，不是线性误差保证）。未提高超时或放宽业务/安全判据。
+- 效果：有序集结修正有独立证据，但不能宣称完整并行请求已稳定通过；阶段仍在可执行范围核验。Qt取消已改为指定任务权威发布的native GoalID，避免迟到的全端点取消影响下一项。
+- 证据：g3/parallel-request-r4/metrics.json及失败diagnostics；此前286项模块测试通过。
+- 未完成/下一步：低速参考校准与复验；若仍失败保留失败，不靠代价项启用冒充实际安全。
+
+## 2026-09-19 — 重复并行集结失败与有序成员接近候选
+
+- 计划：复验真实并行请求，不用一次成功覆盖随机轨迹下的安全失败。
+- 实际：parallel-request-r3三个独立观测成功，组级集结实际净距0.491m低于0.50m，ABORTED/UNKNOWN_LOCKED，转场未派发。同一时刻部分使用中参考机心距离也不足1m，并非简单浮点误差。改为并行任务线在组级集结前枚举3!种成员接近顺序，用已有机体/净距几何过滤穿过其他成员占用位置的候选，依次用现有单机入口到声明槽位；组级集结与转场两项仍保留，串行原路径不变。未改Swarm权重或安全阈值。
+- 效果：这是有限运动候选/先后约束的实现，不是新控制算法，也不构成跟踪误差保证；必须用实际全程净距复验。r2任务本身PASS但shell因运行中脚本编辑导致退出2，不能把外层退出也写通过。Qt实际点击/关闭窗口的串行请求ui-request-r1已PASS，确认前0Goal、关闭后runner持续完成。
+- 证据：g3/parallel-request-r3失败diagnostics/bag；task_line.py::assembly_member_order；g5/ui-request-r1/ui-probe.json。
+- 未完成/下一步：有序接近完整请求复跑、模式接管/有限通信/五平台整体仍未完成；禁止本次再编辑正在运行的启动脚本。
+
+## 2026-09-19 — Qt 任务入口与并行请求第二次实跑
+
+- 计划：复用同一runner做可见预览/确认/取消，不在UI另建调度器。
+- 实际：新增Qt请求编辑与实际任务状态窗口，通过现有CLI确认门派发；runner使用独立会话进程，关闭UI不杀已确认任务。增加TASK_UI入口；首张离屏图暴露中文字体缺失和布局留白，补Noto CJK依赖/主机只读字体挂载及内容区伸展。parallel-request-r2已打印三单机同时起点0的具体计划，显式输入yes后实际派发；当前已进入组级集结。
+- 效果：UI当前清楚标注只接三AAV请求，五平台/受限通信未完成；离屏渲染不当作实时UI或完整请求验收。284项模块测试通过，首次启动失败已保留。
+- 证据：experiments/20260919-five-platform-g5/console-smoke.png；g3/parallel-request-r2的运行记录完成后归档；mission_console.py。
+- 未完成/下一步：并行请求终态与实际重叠核对、UI交互实测、完整模式/交付接线与五平台总验收。
+
+## 2026-09-19 — 并行请求首跑在规划子进程启动处失败
+
+- 计划：执行三机真实并行请求，确认前只生成计划。
+- 实际：284项模块测试通过；parallel-request-r1尚未显示确认/派发便失败。multiprocessing spawn重执行catkin的脚本包装入口，子进程无法导入ROS生成消息。改为独立Python模块子进程，仅载入可信内部provider快照；通信与终止仍使用本次剩余单调预算，终止整个自建进程组。
+- 效果：此失败不是动力学或并行安全结果，不计为Action实跑通过；没有派发任何目标。避免使用fork复制ROS线程。
+- 证据：experiments/20260919-five-platform-g3/parallel-request-r1/runner.log；mrta_python/query_worker.py。
+- 未完成/下一步：复跑预算反例/模块与真实并行请求。
+
+## 2026-09-19 — PVS 配平复跑通过与异步 runner 接入
+
+- 计划：验证Otter原生配平终端，不放宽先前失败的速度门槛；让三机runner真实异步等待结果。
+- 实际：ros-pvs-r2两端均SUCCEEDED：Otter 32.71s模型时刻TRIM_PROPULSION、REMUS 62.61s COAST_STOP。新增runner executor_serial显式开关（默认true），整单元预订后启动独立客户端等待，完成提交串行化、正常运行承诺不变；加入并行修复分支与联合前置关系校验。此前283项通过；新runner回归发现手工构造测试对象缺新初始化字段，已补测试夹具并增加双任务同步起跑/组级等待反例。
+- 效果：两种原生终端行为分别保留名字与边界；并行路径仍限于当前AIR端点与理想交付，不能宣称五平台G4贯通。
+- 证据：experiments/20260919-five-platform-g2/ros-pvs-r2/pvs-probe.json；test_executor_runner.py新增并行测试；module-tests-r7.log保留首次夹具失败。
+- 未完成/下一步：新runner模块复核与真实并行请求；完整模式接管、有限通信接线、UI尚未完成。
+
+## 2026-09-19 — Otter 零推进终端失败与原生静态配平定位
+
+- 计划：两台PVS原生Action实跑，明确通过式任务正常终端。
+- 实际：ros-pvs-r1 REMUS通过/滑行减速获得SUCCEEDED；Otter 120s观察到期ABORTED并锁定。Otter零推进仍约0.0826m/s漂移；源码的载荷重力经俯仰配平投影到surge，而原生恢复矩阵不平衡该分量。新增可选初始化配平：解原生 G*eta=g_payload 的heave/pitch平衡，并经原生推进映射给出常值反向配平输入；未改PVS动力学/控制律。6项边界测试通过，原生零加速度残差及3s不漂移检查通过。
+- 效果：原COAST_STOP失败保留。新实验明确命名TRIM_PROPULSION，不能称零推进停止或位置保持控制；仅适用零流Otter静态模型，未扩展海况资格。REMUS减推力后滑行距离约9m，必须纳入空间/时间占用。
+- 证据：experiments/20260919-five-platform-g2/ros-pvs-r1/pvs-probe.json；pvs_backend.py::_initialize_otter_trim；test_pvs_boundary.py。
+- 未完成/下一步：独立复跑有配平输入的原生Action；PVS完整环境安全和生产资格仍未通过。
+
+## 2026-09-19 — 水下取消结果、PVS边界与规划/交付合同
+
+- 计划：验证水下取消的原生终态/终端/锁定，补每次预算、联合无环及有限交付基础。
+- 实际：ros-cancel-r1返回PREEMPTED，原任务未完成、终端速度/位置保持已观察、资源继续锁定；实际WATER。PVS完整坐标及原生运动5项通过。新增PVS资格Action节点（仍不开放生产）；调度器加入可选前置/运动关系、硬截止与每次共享预算，阻塞查询用可终止子进程；4项合同测试通过。新增有限字节/两跳守恒本地记录与反例测试，尚未连接runner。
+- 效果：不把远端通信状态误作为本机健康；单台取消仅是本次资格条件下的终端观察，未声明环境安全。新规划在失败时不修改调用者成员预测快照。
+- 证据：experiments/20260919-five-platform-g1/ros-cancel-r1/；test_planning_contracts.py、test_finite_delivery.py、test_pvs_boundary.py。
+- 未完成/下一步：PVS在线原生Action、Swarm往返、模式故障/时间一致性、五平台接线与实时UI仍需完成；G3/G4目前只是基础合同实现。
+
+## 2026-09-19 — 单台原生 ROS 跨介质片段获得成功 Result
+
+- 计划：独立验证单一 qn 状态源、原生 Action、实际介质与终端保持。
+- 实际：ros-fragment-r1全部探针条件通过，52.48 s模型时刻返回SUCCEEDED，实际AIR，固定参考继续；模型/ROS最大漂移0.000384712s。开始水下重复取消负例。PVS边界4项通过、1项因错误要求原模型严格无横移失败；REMUS原生推进/姿态耦合确有微小横移，改为坐标轴方向验证，完整旋转一致性仍严格测试，不将此作为运动精度验收。
+- 效果：本地片段正例成立，尚不代表Swarm往返、模式故障或完整任务资格通过。同步当前状态/交接，保留旧记录。
+- 证据：experiments/20260919-five-platform-g1/ros-fragment-r1/probe.json、diagnostics.csv、qn.log；test_pvs_boundary.py。
+- 未完成/下一步：水下取消、输入/采用缺失、参考交接与AIR回归；PVS实跑与上层接线。
+
+## 2026-09-19 — ROS 资格探针与 PVS 原生边界接入
+
+- 计划：运行独立 qn 片段原生 Action，同时实现不改原模型的 PVS 数值边界。
+- 实际：five-platform-dev 镜像构建成功；新增持久化 diagnostics/Result 的 ROS 片段探针，开始首跑。新增 Otter/REMUS 薄边界，使用原生 GNC/dynamics/attitudeEuler，完整转换 ENU/NED 与 FLU/FRD，不在初始化后赋值位置；缺能量模型明确标记 UNAVAILABLE。
+- 效果：新接口构建通过；生产任务资格仍未开放。新增坐标旋转/速度一致性及停推进后继续运动测试，等待验证结果。
+- 证据：experiments/20260919-five-platform-g1/build.log；ros-fragment-r1/；test_pvs_boundary.py。
+- 未完成/下一步：ROS 原生结果、模式故障、PVS坐标与原生运动测试；五平台在线总验收尚未进行。
+
+## 2026-09-19 — qn 本地片段 Action 与参考接管边界
+
+- 计划：将数值测量推进至 ROS 原生 Action，保留单一 qn 状态与实际介质反馈。
+- 实际：新增 PlatformTask/PlatformSegment 与 TakeReference；qn 节点以显式开关加载本地有限片段执行，接管、快照与积分共用本机同步边界。默认不启用；资格实验模式与生产 qualified_operations 分开。新增旧Goal/参考代次/未验证终端锁定/片段连续性测试，5项通过；此前模块回归266项通过。
+- 效果：接管不改变实际介质；原型包含固定参考终端观察，仍须实跑资格和故障验证。尚未接入完整 Swarm→水下→Swarm 生命周期，不能宣称全链完成。
+- 证据：platform_execution.py、platform_action.py、msg/PlatformSegment.msg、action/PlatformTask.action、srv/TakeReference.srv；experiments/20260919-five-platform-g0/module-tests.log。
+- 未完成/下一步：构建独立 five-platform-dev 镜像及单台ROS实验；原 noetic/safety-hold 镜像保留。
+
+## 2026-09-19 — 首轮文献归档、WATER/转换测量与计划隔离
+
+- 计划：完成缺失文献首轮归档，比较原始和已接通 LOS 行为，消除规划调用间的可变全局关系。
+- 实际：11篇复用、12篇新PDF通过身份/解析/哈希检查、9篇访问待解决，PVS源码复用；补直接依据与阅读范围笔记。新引导2项测试通过（首次pytest被宿主ROS2自动插件缺lark阻断，关闭自动插件后通过，不安装无关依赖）。25 s WATER与40 s连续转换测量完成；将 overlap_pairs 改为每次调用显式成员关系。
+- 效果：LOS路径已实际进入2500步；相同短时90°转向目标的末端偏差仍大，不能声称一般路径资格。连续转换观察到AIR/TRANSITION/WATER且最终回AIR，入水有约0.4m深度超调，需原始记录与独立验收，尚无ROS Action通过。
+- 证据：experiments/20260919-five-platform-g0/literature-access.json；g1/water-original-r1、water-los-after、transition-los-r1；research/literature/notes/five-platform-reading-20260919.md。
+- 未完成/下一步：补Dipper合法阅读副本、Action/本机参考接管、模式资格与故障实验；调度整体并行尚未完成。
+
+## 2026-09-19 — WATER 原行为记录与已有引导入口修正
+
+- 计划：证明 ROUTE_POSITION 是否实际启用已有水下引导，再接通配置。
+- 实际：新增离线测量脚本；原配置8 s模型实验正常推进，但 guidance_active_steps=0。修正提前返回，在位置模式下以实际采用位置参考的差分驱动已有引导；节点开放原有两个配置选项，默认仍为原始控制。新增输入一致性与 AIR 动力学不变测试。
+- 效果：没有新增控制律；速度字段不能作为第二个独立控制入口。此处是数值测量，不是 Action 或水下任务资格通过。
+- 证据：experiments/20260919-five-platform-g1/water-los-before/measurement.json 与 samples.csv；test_qn_water_guidance.py。
+- 未完成/下一步：运行修正后直行/转向与转换实验、现有模块回归。
+
+## 2026-09-19 — 五平台冻结修订版开始实施
+
+- 计划：按 G0–G5 实施，优先归档直接文献与单台 WATER 资格；四项执行合同不另建协调层。
+- 实际：核对 HEAD=3f34df2、现有报告、qn 与 PVS 源码；新增冻结范围/阶段跟踪文件。保留四组用户未跟踪文件，不创建分支。当前无运行容器。
+- 效果：当前 AIR 已验收与未来水下/五平台资格明确分开。发现 ROUTE_POSITION 在水下 guidance 前直接返回，已有 LOS_SURGE_YAW 仅在速度参考分支激活；需要先保存原行为实验，再接通入口。
+- 证据：docs/requirements/five-platform-implementation.md；qn_python_backend.py::_reference_position；qn_aav_node.py 中写死的原始后端选项。
+- 未完成/下一步：文献归档、原始 WATER 行为探针、直接依据笔记；尚无新增 WATER/五平台通过结论。
+
 ## 2026-09-19 — RViz 鼠标视角与场景说明修正
 
 - 计划：定位用户无法缩放／拖动 RViz 视角的原因，核对其当前实验场景。

@@ -1,0 +1,21 @@
+string task_id
+qn_aav_simulator/PlatformSegment[] segments
+# Only explicitly qualified terminal behavior is accepted.
+string terminal_behavior
+duration execution_timeout
+---
+string task_id
+string goal_id
+bool task_completed
+bool terminal_verified
+string actual_mode
+string reason
+bool resource_locked
+float64 model_time_s
+---
+uint32 segment_index
+string operation
+string reference_source
+string actual_mode
+uint32 reference_generation
+float64 model_time_s

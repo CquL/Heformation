@@ -381,20 +381,27 @@ class QnPythonClosedLoopBackend:
         if self.reference_mode == "ROUTE_POSITION":
             if step_input.control_cmd.desired_position is None:
                 raise ValueError("ROUTE_POSITION requires ControlCmd.desired_position")
-            return step_input.control_cmd.desired_position
-        if self._reference_position_m is None:
-            raise RuntimeError("qn reference integrator must be reset before step")
+            candidate = step_input.control_cmd.desired_position
+            # One reference contract: derive guidance from the adopted position
+            # stream, just as step() derives the original qn reference velocity.
+            velocity = tuple((candidate[i] - self._reference_position_m[i]) /
+                             step_input.dt_s for i in range(3))
+        else:
+            if self._reference_position_m is None:
+                raise RuntimeError("qn reference integrator must be reset before step")
+            velocity = step_input.control_cmd.desired_velocity
+            candidate = tuple(
+                self._reference_position_m[index]
+                + velocity[index] * step_input.dt_s
+                for index in range(3)
+            )
         # qn 原控制器接收位置参考，HUC 局部安全层最终输出安全速度。适配器对该速度
         # 积分成连续虚拟位置参考；安全速度为零时参考点保持不动，qn 因而能真正 HOLD。
-        candidate = tuple(
-            self._reference_position_m[index]
-            + step_input.control_cmd.desired_velocity[index] * step_input.dt_s
-            for index in range(3)
-        )
         actual = self._state.plant.position_xyz_m
         delta = tuple(candidate[index] - actual[index] for index in range(3))
         lead = _norm3(delta)
-        self._reference_lead_clamped = lead > self.max_reference_lead_m
+        self._reference_lead_clamped = (self.reference_mode != "ROUTE_POSITION"
+                                       and lead > self.max_reference_lead_m)
         if self._reference_lead_clamped:
             scale = self.max_reference_lead_m / lead
             candidate = tuple(
@@ -406,7 +413,6 @@ class QnPythonClosedLoopBackend:
             self.water_guidance_mode == "LOS_VELOCITY_REFERENCE" and flag > 0.0
         )
         if self._water_guidance_active:
-            velocity = step_input.control_cmd.desired_velocity
             horizontal_speed = math.hypot(velocity[0], velocity[1])
             self._water_horizontal_speed_mps = horizontal_speed
             _, _, yaw = _qn_attitude(

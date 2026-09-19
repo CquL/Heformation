@@ -1,13 +1,14 @@
 version: 2
-generated: "2026-09-19"
+generated: '2026-09-19'
 policy:
   pdfs_committed: false
-  gitignore_rule: "research/literature/papers/*.pdf"
-  structure: "papers/<category>/ per prompt/wenxianSKILL.md"
-  pdf_acceptance: "file reports PDF and size > 50 kB"
+  gitignore_rule: research/literature/papers/*.pdf
+  structure: papers/<category>/ per prompt/wenxianSKILL.md
+  pdf_acceptance: file reports PDF and size > 50 kB
 papers:
 - key: calvo-2024-delay-propagation
-  title: Heterogeneous Multi-robot Task Allocation for Long-Endurance Missions in Dynamic Scenarios
+  title: Heterogeneous Multi-robot Task Allocation for Long-Endurance Missions in
+    Dynamic Scenarios
   authors:
   - Álvaro Calvo
   - Jesús Capitán
@@ -24,6 +25,7 @@ papers:
   - executor/resource model：每机器人 slot/队列时间与等待时间，而非单一 execution 级时间
   notes: notes/calvo-2024-delay-propagation.md
   category: mrta
+  final_plan_id: P01
 - key: swarm-formation-2022
   title: Robust and Efficient Trajectory Planning for Formation Flight in Dense Environments
   authors:
@@ -46,11 +48,13 @@ papers:
   pdf_sha256: 6a4e6b1a1e67600aa9591afc8a1ad9623f2cedb016f3a5ce82a5d44bf92900d7
   read_scope: full-text
   relevance_to_interface:
-  - FormationAction：单个 formation_center + hold_duration 不能表达尺度/旋转/编队形状，也不能表达 ALAS 式槽位重分配
+  - FormationAction：单个 formation_center + hold_duration 不能表达尺度/旋转/编队形状，也不能表达 ALAS
+    式槽位重分配
   - group-level completion：完成判定要对当前采用的编队目标，而不是派发前的固定槽位；任务中局部重排保留同一 execution 上下文
   - used_reference / trajectory_id：编队重组会产生新局部轨迹但不产生新任务
   notes: notes/swarm-formation-2022.md
   category: formation
+  final_plan_id: P09
 - key: fastrack-2017
   title: 'FaSTrack: a Modular Framework for Fast and Guaranteed Safe Motion Planning'
   authors:
@@ -73,8 +77,10 @@ papers:
   - PositionCommand / used_reference：规划参考与真实跟踪状态必须分开；完成阈值应计入跟踪误差界
   notes: notes/fastrack-2017.md
   category: safety
+  final_plan_id: P16
 - key: apex-mr-2025
-  title: 'APEX-MR: Multi-Robot Asynchronous Planning and Execution for Cooperative Assembly'
+  title: 'APEX-MR: Multi-Robot Asynchronous Planning and Execution for Cooperative
+    Assembly'
   authors:
   - Philip Huang
   - Ruixuan Liu
@@ -94,8 +100,10 @@ papers:
   - DelayEvent/planRepair：延迟可由偏序吸收，不必时间平移；需要比组级事件更细的依赖粒度
   notes: notes/apex-mr-2025.md
   category: mrta
+  final_plan_id: P04
 - key: grstaps-2021
-  title: 'GRSTAPS: Graphically Recursive Simultaneous Task Allocation, Planning, and Scheduling'
+  title: 'GRSTAPS: Graphically Recursive Simultaneous Task Allocation, Planning, and
+    Scheduling'
   authors:
   - Andrew Messing
   - Glen Neville
@@ -104,21 +112,32 @@ papers:
   - Harish Ravichandar
   year: 2022
   venue: The International Journal of Robotics Research (IJRR), 2022 (online 2021)
-  url: https://star-lab.cc.gatech.edu/papers/messing-grstaps/
+  url: https://journals.sagepub.com/doi/10.1177/02783649211052066
   doi: 10.1177/02783649211052066
   pdf_file: null
-  pdf_status: not-available
+  pdf_status: access-unresolved
   not_available_reason: 本地仍无PDF；2026-09-19本轮已访问SAGE在线正文，旧付费墙记录不再表示当前HTML不可访问
   landing_page: https://star-lab.cc.gatech.edu/papers/messing-grstaps/
   read_scope: selected-full-text-sections-online
   online_reading_url: https://journals.sagepub.com/doi/full/10.1177/02783649211052066
-  online_reading_sections: ["4.4", "4.5", "5 (experimental setup)", "6.1"]
+  online_reading_sections:
+  - '4.4'
+  - '4.5'
+  - 5 (experimental setup)
+  - '6.1'
   online_access_checked: '2026-09-19'
   relevance_to_interface:
   - travel_time_provider / used_reference：任务分配-调度-运动可行性需要双向信息交换，单一标称旅行时间不能证明可执行
   - PlanItem 时间语义：调度在运动可行性确认前是暂定值，必须能回传不可行/修正
   notes: notes/grstaps-2021.md
   category: mrta
+  final_plan_id: P02
+  source_index: Heformation_最终方案与文献_20260919/references.json
+  access_attempts:
+  - url: https://journals.sagepub.com/doi/pdf/10.1177/02783649211052066
+    error: 'HTTP Error 403: Forbidden'
+  - url: https://journals.sagepub.com/doi/full/10.1177/02783649211052066
+    error: 'HTTP Error 403: Forbidden'
 - key: hltl-gcs-2025
   title: Hierarchical Temporal Logic Task and Motion Planning for Multi-Robot Systems
   authors:
@@ -142,8 +161,10 @@ papers:
   - travel_time_provider：运动可行性应与任务层联合判定，而不是事后标量估计
   notes: notes/hltl-gcs-2025.md
   category: task_motion
+  final_plan_id: P05
 - key: robust-mader-2023
-  title: 'Robust MADER: Decentralized Multiagent Trajectory Planner Robust to Communication Delay in Dynamic Environments'
+  title: 'Robust MADER: Decentralized Multiagent Trajectory Planner Robust to Communication
+    Delay in Dynamic Environments'
   authors:
   - Kota Kondo
   - Reinaldo Figueroa
@@ -152,7 +173,8 @@ papers:
   - Parker C. Lusk
   - Jonathan P. How
   year: 2024
-  venue: IEEE Robotics and Automation Letters (RA-L) 9(2):1476-1483, 2024（accepted 2023-11）；arXiv:2303.06222
+  venue: IEEE Robotics and Automation Letters (RA-L) 9(2):1476-1483, 2024（accepted
+    2023-11）；arXiv:2303.06222
   url: https://arxiv.org/abs/2303.06222
   pdf_file: papers/safety/robust-mader-2023.pdf
   pdf_status: downloaded
@@ -160,13 +182,16 @@ papers:
   pdf_sha256: 8779863a046392fceb8136ac5509fb078da62e627e42ca31ecf11b2641b7151f
   read_scope: full-text
   relevance_to_interface:
-  - used_reference / source_trajectory_id：只有 committed 轨迹才是实际执行参考；optimized 与 committed 必须区分
+  - used_reference / source_trajectory_id：只有 committed 轨迹才是实际执行参考；optimized 与 committed
+    必须区分
   - safety/validity verdicts：安全性依赖已知延迟上界 δmax 与 δDC ≥ δmax；无延迟契约时安全结论只能是 NOT_VERIFIED
   - 通信假设：处理延迟，不处理完全丢包
   notes: notes/robust-mader-2023.md
   category: safety
+  final_plan_id: P15
 - key: caric-2025
-  title: 'Cooperative Aerial Robot Inspection Challenge: A Benchmark for Heterogeneous Multi-UAV Planning and Lessons Learned'
+  title: 'Cooperative Aerial Robot Inspection Challenge: A Benchmark for Heterogeneous
+    Multi-UAV Planning and Lessons Learned'
   authors:
   - Muqing Cao
   - Thien-Minh Nguyen
@@ -200,8 +225,10 @@ papers:
   - 单次运行不可当结论：同场景不同运行分差可超 1000，且出现全队空闲的失败运行
   notes: notes/caric-2025.md
   category: benchmark
+  final_plan_id: P27
 - key: cocoplan-2026
-  title: 'CoCoPlan: Adaptive Coordination and Communication for Multi-robot Systems in Dynamic and Unknown Environments'
+  title: 'CoCoPlan: Adaptive Coordination and Communication for Multi-robot Systems
+    in Dynamic and Unknown Environments'
   authors:
   - Xintong Zhang
   - Junfeng Chen
@@ -223,6 +250,7 @@ papers:
   - 通信带质量模型 Q_ij=Pt−PL(d)−α·d_obs 且要求全局连通；中继/交付不能建模成恒通，采集≠交付
   notes: notes/cocoplan-2026.md
   category: task_motion
+  final_plan_id: P12
 - key: xiroi-ii-2023
   title: Xiroi II, an Evolved ASV Platform for Marine Multirobot Operations
   authors:
@@ -245,8 +273,10 @@ papers:
   - 被中继的平台必须真实存在，否则中继任务不可在线完成
   notes: notes/xiroi-ii-2023.md
   category: maritime
+  final_plan_id: P28
 - key: usv-uuv-cooperation-2023
-  title: 'Survey on the Developments of Unmanned Marine Vehicles: Intelligence and Cooperation'
+  title: 'Survey on the Developments of Unmanned Marine Vehicles: Intelligence and
+    Cooperation'
   authors:
   - Inyeong Bae
   - Jungpyo Hong
@@ -266,7 +296,8 @@ papers:
   notes: notes/usv-uuv-cooperation-2023.md
   category: maritime
 - key: auv-collaborative-missions-2020
-  title: 'Autonomous Underwater Vehicles: Localization, Navigation, and Communication for Collaborative Missions'
+  title: 'Autonomous Underwater Vehicles: Localization, Navigation, and Communication
+    for Collaborative Missions'
   authors:
   - Josué González-García
   - Alfonso Gómez-Espinosa
@@ -290,7 +321,8 @@ papers:
   notes: notes/auv-collaborative-missions-2020.md
   category: maritime
 - key: joe-2022-marine-heterogeneous-collaboration
-  title: Collaboration of Heterogeneous Marine Robots Toward Multidomain Sensing and Situational Awareness on Partially Submerged Targets
+  title: Collaboration of Heterogeneous Marine Robots Toward Multidomain Sensing and
+    Situational Awareness on Partially Submerged Targets
   authors:
   - Joel Lindsay
   - Jordan Ross
@@ -303,15 +335,19 @@ papers:
   venue: IEEE Journal of Oceanic Engineering, DOI 10.1109/JOE.2022.3156631（闭源）
   url: https://doi.org/10.1109/JOE.2022.3156631
   pdf_file: null
-  pdf_status: not-available
+  pdf_status: access-unresolved
   read_scope: abstract-only
-  oa_check: Unpaywall is_oa=false, has_repository_copy=false, best_oa_location=null; OpenAlex oa_status=closed; 期刊不在 DOAJ
+  oa_check: Unpaywall is_oa=false, has_repository_copy=false, best_oa_location=null;
+    OpenAlex oa_status=closed; 期刊不在 DOAJ
   relevance_to_interface:
   - USV 自身轨迹是支援动作，目标是约束被支援平台的状态估计误差，不是到位
   - 中心规划节点置于 USV、对 UAV/UUV 集中分派，与本项目"母船统筹+本地执行"同构
   - 跨域数据在水面处汇聚融合，支持"采集与交付分开记录"
   notes: notes/joe-2022-marine-heterogeneous-collaboration.md
   category: maritime
+  final_plan_id: P29
+  source_index: Heformation_最终方案与文献_20260919/references.json
+  access_attempts: []
 - key: swarm-formation-icra2022
   title: Distributed Swarm Trajectory Optimization for Formation Flight in Dense Environments
   authors:
@@ -333,8 +369,10 @@ papers:
   - optimization/weight_formation 的确切含义 = 集群图与期望队形的可微相似度距离的权重；单独一台成员时集群图不完整，会被拉向虚构编队构型（解释了探针实测的飞向原点）
   - required_agent_count=3 只保证几何形状相似，不含任务/到达/观测判据；编队任务必须另有组级完成条件
   - 编队的"存在"是代价项而非模式开关：只能由实际队形误差证明，不能由注册了编队 executor 证明
+  final_plan_id: P08
 - key: usv-uuv-integrated-system-2020
-  title: Study on Control System of Integrated Unmanned Surface Vehicle and Underwater Vehicle
+  title: Study on Control System of Integrated Unmanned Surface Vehicle and Underwater
+    Vehicle
   authors:
   - Sensors 20(9):2633 authors
   year: 2020
@@ -349,7 +387,8 @@ papers:
   pdf_sha256: f56e6f30074d9fe5f274ea937179782d5338870c173a089132828ba29aed29ba
   relevance_to_interface:
   - USV-UUV 耦合的第三种形态：有线缆绳（连续供电 + 大带宽），与 Xiroi 的声学跟踪、JOE 的支援轨迹并列
-  - UUV 定位依赖 USV 上的 GPS + USBL 相对测量：水下平台不得使用绝对定位假设，TravelTimeProvider 的欧氏距离模型对 UUV 不适用
+  - UUV 定位依赖 USV 上的 GPS + USBL 相对测量：水下平台不得使用绝对定位假设，TravelTimeProvider 的欧氏距离模型对 UUV
+    不适用
   - 数据交付形态由耦合方式决定；零延迟只能是显式假设并注明对应哪种耦合
 - key: minco-2022
   title: Geometrically Constrained Trajectory Optimization for Multicopters
@@ -372,3 +411,322 @@ papers:
   - 规划器轨迹表示来源（Swarm-Formation 建立在其上）；只保证多项式轨迹满足约束，不含跟踪误差 → 又一处 d_ref/d_actual 必须分开的依据
   - 几何约束是"精确消去"、队形相似度是"代价项"：约束违反与代价变差在失败时应分属不同类别，不能混为一个 FAIL
   - 不提供任何任务语义：运动后端不能承担任务完成判定
+  final_plan_id: P10
+- key: d-itags-2023
+  final_plan_id: P03
+  title: 'D-ITAGS: A Dynamic Interleaved Approach to Resilient Task Allocation, Scheduling,
+    and Motion Planning'
+  category: mrta
+  url: https://arxiv.org/abs/2209.13092
+  venue: IEEE RA-L 2023；arXiv 初版 2022
+  read_scope: selected primary-source sections online; local PDF validated, not fully
+    reread
+  source_index: Heformation_最终方案与文献_20260919/references.json
+  pdf_size_bytes: 623823
+  pdf_sha256: bbc024ff4de10a184e7558e80a818a5e7c5403b04ed79f2dd443b943393e80b0
+  pdf_pages: 8
+  identity_check: title vocabulary in extracted opening text
+  pdf_file: papers/mrta/d-itags-2023.pdf
+  pdf_status: downloaded
+  downloaded_from: https://arxiv.org/pdf/2209.13092
+  downloaded_on: '2026-09-19'
+  access_attempts: []
+  notes: notes/five-platform-reading-20260919.md
+- key: dai-heterogeneous-mrta-2025
+  final_plan_id: P06
+  title: Heterogeneous Multi-robot Task Allocation and Scheduling via Reinforcement
+    Learning
+  category: mrta
+  url: https://www.marmotlab.org/publications/73-RAL2025-HetMRTA.pdf
+  venue: IEEE RA-L 2025，10:2654–2661
+  read_scope: selected primary-source sections online; local PDF validated, not fully
+    reread
+  source_index: Heformation_最终方案与文献_20260919/references.json
+  pdf_size_bytes: 3211968
+  pdf_sha256: ee02a541ae034564169d859a5aa628df7d5c1645606dbb1b51a00d6d7e7b70ce
+  pdf_pages: 8
+  identity_check: title vocabulary in extracted opening text
+  pdf_file: papers/mrta/dai-heterogeneous-mrta-2025.pdf
+  pdf_status: downloaded
+  downloaded_from: https://www.marmotlab.org/publications/73-RAL2025-HetMRTA.pdf
+  downloaded_on: '2026-09-19'
+  access_attempts: []
+  notes: notes/five-platform-reading-20260919.md
+- key: dhrta-2020
+  final_plan_id: P07
+  title: A Decentralised Strategy for Heterogeneous AUV Missions via Goal Distribution
+    and Temporal Planning (DHRTA)
+  category: mrta
+  url: https://ojs.aaai.org/index.php/ICAPS/article/view/6738
+  venue: ICAPS 2020；DOI 10.1609/icaps.v30i1.6738
+  read_scope: PDF opening and abstract only
+  source_index: Heformation_最终方案与文献_20260919/references.json
+  pdf_size_bytes: 2626757
+  pdf_sha256: 92dc22381d7fcd6a89547f08fc6d0f3d6d4deefa33f9fc329242d3099bc91002
+  pdf_pages: 9
+  identity_check: title vocabulary in extracted opening text
+  pdf_file: papers/mrta/dhrta-2020.pdf
+  pdf_status: downloaded
+  downloaded_from: https://ojs.aaai.org/index.php/ICAPS/article/download/6738/6592
+  downloaded_on: '2026-09-19'
+  access_attempts: []
+  notes: notes/five-platform-reading-20260919.md
+- key: cat-ora-2025
+  final_plan_id: P11
+  title: 'CAT-ORA: Collision-Aware Time-Optimal Formation Reshaping for Efficient
+    Robot Coordination in 3-D Environments'
+  category: formation
+  url: https://arxiv.org/abs/2412.00603v2
+  venue: IEEE T-RO 2025；DOI 10.1109/TRO.2025.3547296
+  read_scope: selected primary-source sections online; local PDF validated, not fully
+    reread
+  source_index: Heformation_最终方案与文献_20260919/references.json
+  pdf_size_bytes: 11175971
+  pdf_sha256: 86ecfb1f42b28f23e9868c72cbfb4b1ce56dfa37009031be9e61f507396774d3
+  pdf_pages: 20
+  identity_check: title vocabulary in extracted opening text
+  pdf_file: papers/formation/cat-ora-2025.pdf
+  pdf_status: downloaded
+  downloaded_from: https://arxiv.org/pdf/2412.00603v2
+  downloaded_on: '2026-09-19'
+  access_attempts: []
+  notes: notes/five-platform-reading-20260919.md
+- key: guo-zavlanos-2018
+  final_plan_id: P13
+  title: Multi-Robot Data Gathering Under Buffer Constraints and Intermittent Communication
+  category: task_motion
+  url: https://scholars.duke.edu/publication/1322925
+  venue: IEEE T-RO 2018，34(4):1082–1097；DOI 10.1109/TRO.2018.2830370
+  read_scope: selected primary-source sections online; local PDF validated, not fully
+    reread
+  source_index: Heformation_最终方案与文献_20260919/references.json
+  pdf_size_bytes: 2943485
+  pdf_sha256: 0be38ef1a2978a6f35ebc0a53bf8ec9e7005284e2eb3052d5482641d300874cd
+  pdf_pages: 15
+  identity_check: title vocabulary in extracted opening text
+  pdf_file: papers/task_motion/guo-zavlanos-2018.pdf
+  pdf_status: downloaded
+  downloaded_from: https://arxiv.org/pdf/1706.02092
+  downloaded_on: '2026-09-19'
+  access_attempts: []
+  notes: notes/five-platform-reading-20260919.md
+- key: achord-2022
+  final_plan_id: P14
+  title: 'ACHORD: Communication-Aware Multi-Robot Coordination With Intermittent Connectivity'
+  category: task_motion
+  url: https://arxiv.org/abs/2206.02245
+  venue: IEEE RA-L 2022；arXiv:2206.02245
+  read_scope: selected primary-source sections online; local PDF validated, not fully
+    reread
+  source_index: Heformation_最终方案与文献_20260919/references.json
+  pdf_size_bytes: 1474973
+  pdf_sha256: ad9df9ccc9be00543ae8e7e342b08e8e296de1db4a2719061752cdcb2f163e00
+  pdf_pages: 8
+  identity_check: title vocabulary in extracted opening text
+  pdf_file: papers/task_motion/achord-2022.pdf
+  pdf_status: downloaded
+  downloaded_from: https://arxiv.org/pdf/2206.02245
+  downloaded_on: '2026-09-19'
+  access_attempts: []
+  notes: notes/five-platform-reading-20260919.md
+- key: hybrid-smooth-transition-2021
+  final_plan_id: P17
+  title: Trajectory Planning for Hybrid Unmanned Aerial Underwater Vehicles with Smooth
+    Media Transition
+  category: maritime
+  url: https://arxiv.org/abs/2112.13819v1
+  venue: Journal of Intelligent & Robotic Systems 2021
+  read_scope: selected primary-source sections online; local PDF validated, not fully
+    reread
+  source_index: Heformation_最终方案与文献_20260919/references.json
+  pdf_size_bytes: 6808085
+  pdf_sha256: cf26dcaccae77c91484287c29a3176e68c7aa0023078e47012ec7bc76c240616
+  pdf_pages: 21
+  identity_check: title vocabulary in extracted opening text
+  pdf_file: papers/maritime/hybrid-smooth-transition-2021.pdf
+  pdf_status: downloaded
+  downloaded_from: https://arxiv.org/pdf/2112.13819v1
+  downloaded_on: '2026-09-19'
+  access_attempts: []
+  notes: notes/five-platform-reading-20260919.md
+- key: tj-flyingfish-2023
+  final_plan_id: P18
+  title: 'TJ-FlyingFish: Design and Implementation of an Aerial-Aquatic Quadrotor
+    with Tiltable Propulsion Units'
+  category: maritime
+  url: https://arxiv.org/abs/2301.12344v2
+  venue: ICRA 2023
+  read_scope: selected primary-source sections online; local PDF validated, not fully
+    reread
+  source_index: Heformation_最终方案与文献_20260919/references.json
+  pdf_size_bytes: 8044873
+  pdf_sha256: 34867e6c3250b3509007816dc5e37f3b72a775325e90559949bb2e38908218df
+  pdf_pages: 7
+  identity_check: title vocabulary in extracted opening text
+  pdf_file: papers/maritime/tj-flyingfish-2023.pdf
+  pdf_status: downloaded
+  downloaded_from: https://arxiv.org/pdf/2301.12344v2
+  downloaded_on: '2026-09-19'
+  access_attempts: []
+  notes: notes/five-platform-reading-20260919.md
+- key: dipper-2021
+  final_plan_id: P19
+  title: 'Dipper: A Dynamically Transitioning Aerial-Aquatic Unmanned Vehicle'
+  category: maritime
+  url: https://www.roboticsproceedings.org/rss17/p048.html
+  venue: RSS 2021；DOI 10.15607/RSS.2021.XVII.048
+  read_scope: not-read
+  source_index: Heformation_最终方案与文献_20260919/references.json
+  pdf_status: downloaded
+  access_attempts: []
+  pdf_size_bytes: 29782303
+  pdf_sha256: 7bed6dd66e03623f83d2d68fcc07665de0b367c78fdd43a96e0a8941a27d3e8b
+  pdf_pages: 9
+  identity_check: title vocabulary in extracted opening text
+  pdf_file: papers/maritime/dipper-2021.pdf
+  downloaded_from: https://nubot-uaav.github.io/static/pdf/folding_wing_aavs/Dipper%20A%20Dynamically%20Transitioning.pdf
+  downloaded_on: '2026-09-19'
+- key: nezha-iv-2024
+  final_plan_id: P20
+  title: 'Nezha-IV: A Hybrid Aerial Underwater Vehicle in Real Ocean Environments'
+  category: maritime
+  url: https://onlinelibrary.wiley.com/doi/10.1002/rob.22274
+  venue: JFR 2024，41(2):420–442，online 2023；DOI 10.1002/rob.22274
+  read_scope: not-read
+  source_index: Heformation_最终方案与文献_20260919/references.json
+  pdf_status: access-unresolved
+  access_attempts: []
+- key: wukong-2025
+  final_plan_id: P21
+  title: 'WuKong: Design, Modeling and Control of a Compact Flexible Hybrid Aerial-Aquatic
+    Vehicle'
+  category: maritime
+  url: https://researchportal.hkust.edu.hk/en/publications/wukong-design-modeling-and-control-of-a-compact-flexible-hybrid-a/
+  venue: IEEE RA-L 2025，10(2):1417–1424；DOI 10.1109/LRA.2024.3521659
+  read_scope: not-read
+  source_index: Heformation_最终方案与文献_20260919/references.json
+  pdf_status: access-unresolved
+  access_attempts: []
+- key: hauv-adsc-2020
+  final_plan_id: P22
+  title: Adaptive Dynamic Surface Control for a Hybrid Aerial Underwater Vehicle With
+    Parametric Dynamics and Uncertainties
+  category: maritime
+  url: https://faculty.sjtu.edu.cn/zengzheng/en/lwcg/412166/content/57310.htm
+  venue: IEEE JOE 2020，45(3):740–758；DOI 10.1109/JOE.2019.2903742
+  read_scope: not-read
+  source_index: Heformation_最终方案与文献_20260919/references.json
+  pdf_status: access-unresolved
+  access_attempts:
+  - url: https://doi.org/10.1109/JOE.2019.2903742
+    error: response is not a PDF
+- key: surfing-transition-2023
+  final_plan_id: P23
+  title: 'Surfing Algorithm: Agile and Safe Transition Strategy for Hybrid Aerial
+    Underwater Vehicle in Waves'
+  category: maritime
+  url: https://doi.org/10.1109/TRO.2023.3319928
+  venue: IEEE T-RO 2023，39(6):4262–4278；DOI 10.1109/TRO.2023.3319928
+  read_scope: not-read
+  source_index: Heformation_最终方案与文献_20260919/references.json
+  pdf_status: access-unresolved
+  access_attempts: []
+- key: aerial-aquatic-hitchhiking-2022
+  final_plan_id: P24
+  title: Aerial–aquatic robots capable of crossing the air–water boundary and hitchhiking
+    on surfaces
+  category: maritime
+  url: https://spiral.imperial.ac.uk/entities/publication/97ee3cf3-a8b6-4416-affc-05d983a98a29
+  venue: Science Robotics 2022，7:eabm6695；DOI 10.1126/scirobotics.abm6695
+  read_scope: not-read
+  source_index: Heformation_最终方案与文献_20260919/references.json
+  pdf_size_bytes: 6460592
+  pdf_sha256: 60618cf4903971c3caee58f5ce1709e23031fffb201863cb149166a3a4e56374
+  pdf_pages: 13
+  identity_check: title vocabulary in extracted opening text
+  pdf_file: papers/maritime/aerial-aquatic-hitchhiking-2022.pdf
+  pdf_status: downloaded
+  downloaded_from: https://nubot-uaav.github.io/static/pdf/multirotor_based_aavs/scirobotics.abm6695%20(1).pdf
+  downloaded_on: '2026-09-19'
+  access_attempts: []
+- key: transition-survey-2026
+  final_plan_id: P25
+  title: 'Transition Strategy for Unmanned Aerial-Aquatic Vehicles (UAAVs): A Survey'
+  category: maritime
+  url: https://onlinelibrary.wiley.com/doi/10.1002/rob.70138
+  venue: JFR 2026，43(3):2444–2476；DOI 10.1002/rob.70138
+  read_scope: not-read
+  source_index: Heformation_最终方案与文献_20260919/references.json
+  pdf_status: access-unresolved
+  access_attempts:
+  - url: https://nubot-uaav.github.io/
+    error: response is not a PDF
+- key: wukong-omni-2026
+  final_plan_id: P26
+  title: 'Wukong-Omni: Design, Modeling and Control of a Multi-mode Robot for Air,
+    Land, and Underwater Exploration with All-in-One Propulsion Unit'
+  category: maritime
+  url: https://arxiv.org/abs/2603.02602v1
+  venue: arXiv:2603.02602，2026 预印本
+  read_scope: not-read
+  source_index: Heformation_最终方案与文献_20260919/references.json
+  pdf_size_bytes: 23119433
+  pdf_sha256: 01c3649497efdc5ef1011d69e6e6ebfc068e9c219f18214803479c53844480bb
+  pdf_pages: 19
+  identity_check: title vocabulary in extracted opening text
+  pdf_file: papers/maritime/wukong-omni-2026.pdf
+  pdf_status: downloaded
+  downloaded_from: https://arxiv.org/pdf/2603.02602v1
+  downloaded_on: '2026-09-19'
+  access_attempts: []
+- key: seaclear-2026
+  final_plan_id: P30
+  title: 'The SeaClear system: An intelligent multi-robot solution for autonomous
+    cleanup of marine debris on the seabed'
+  category: maritime
+  url: https://research.tudelft.nl/en/publications/the-seaclear-system-an-intelligent-multi-robot-solution-for-auton/
+  venue: Engineering Applications of Artificial Intelligence 2026；DOI 10.1016/j.engappai.2026.114094
+  read_scope: not-read
+  source_index: Heformation_最终方案与文献_20260919/references.json
+  pdf_status: access-unresolved
+  access_attempts:
+  - url: https://research.tudelft.nl/files/267348972/1-s2.0-S0952197626003751-main.pdf
+    error: 'HTTP Error 403: Forbidden'
+  - url: https://doi.org/10.1016/j.engappai.2026.114094
+    error: response is not a PDF
+- key: stonefish-2025
+  final_plan_id: P31
+  title: 'Stonefish: Supporting Machine Learning Research in Marine Robotics'
+  category: maritime
+  url: https://arxiv.org/abs/2502.11887v2
+  venue: ICRA 2025；arXiv:2502.11887
+  read_scope: not-read
+  source_index: Heformation_最终方案与文献_20260919/references.json
+  pdf_size_bytes: 4960566
+  pdf_sha256: efb6cec95ce81c7d606042422b24f9dd3def5af6948f9e54f2faeda5cd778509
+  pdf_pages: 7
+  identity_check: title vocabulary in extracted opening text
+  pdf_file: papers/maritime/stonefish-2025.pdf
+  pdf_status: downloaded
+  downloaded_from: https://arxiv.org/pdf/2502.11887v2
+  downloaded_on: '2026-09-19'
+  access_attempts: []
+- key: average-dwell-time-1999
+  final_plan_id: P32
+  title: Stability of Switched Systems with Average Dwell-Time
+  category: safety
+  url: https://web.ece.ucsb.edu/~hespanha/published/
+  venue: CDC 1999；Hespanha & Morse
+  read_scope: selected primary-source sections online; local PDF validated, not fully
+    reread
+  source_index: Heformation_最终方案与文献_20260919/references.json
+  pdf_size_bytes: 178019
+  pdf_sha256: 12b0c9bfa3c4cb52f9cebce7a370e54d7bf32797aa75bcf190821bc4931281c9
+  pdf_pages: 6
+  identity_check: title vocabulary in extracted opening text
+  pdf_file: papers/safety/average-dwell-time-1999.pdf
+  pdf_status: downloaded
+  downloaded_from: https://web.ece.ucsb.edu/~hespanha/published/avedwell.pdf
+  downloaded_on: '2026-09-19'
+  access_attempts: []
+  notes: notes/five-platform-reading-20260919.md
