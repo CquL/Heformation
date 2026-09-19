@@ -129,6 +129,8 @@ T1 通过；T2 `task_outcome=PASS` 但 `safety_outcome=FAIL`
 **证据**：`evidence/` 下按运行保存 config/metrics/verification/逐动作诊断与复评，
 rosbag 不入库（记录绝对路径与大小）。
 
+> 每次改动与实验的「计划 / 实际 / 效果」逐条记在 [docs/WORKLOG.md](../docs/WORKLOG.md)；本文件只保留当前状态与下一步。
+
 ## M2 定位与修复：第 1-2 步结果（2026-09-18）
 
 按冻结的《M2 定位与修复实施基线》执行，进度到第 2 步为止。

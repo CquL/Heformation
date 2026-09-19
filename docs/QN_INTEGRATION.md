@@ -122,6 +122,8 @@ nominal monitor period, never from the samples that arrived.  A sample is matche
 on its own message stamp within one nominal period, so a late but real monitor
 tick is not reported as missing; the achieved period is reported separately.
 
+每次改动与实验的计划 / 实际 / 效果记在 [`WORKLOG.md`](WORKLOG.md)；本文件只负责接口语义与运行方法。
+
 ## Tests
 
 Three levels, cheapest first.  Everything below was run against the current
