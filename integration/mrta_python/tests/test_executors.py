@@ -1,5 +1,7 @@
 """plan.md P3: offline executor resource selection and plan-level competition."""
 
+import math
+
 import pytest
 
 from mrta_python import (
@@ -262,7 +264,7 @@ def test_group_travel_is_set_by_the_last_member_not_the_average_centre():
     positions = {"d0": (0.0, 0.0, 0.5), "d1": (0.0, -2.0, 0.5), "d2": (10.0, 20.0, 0.5)}
     scattered = ExecutorTravelTimeProvider(centres, {"aav_formation": 1.0},
                                           member_slots={"aav_formation": slots},
-                                          member_positions={"aav_formation": positions})
+                                          member_positions=positions)
     grouped = ExecutorTravelTimeProvider(centres, {"aav_formation": 1.0},
                                         member_slots={"aav_formation": slots},
                                         member_positions={})
@@ -281,3 +283,76 @@ def test_executor_selection_is_input_order_independent():
     assert [item.execution_id for item in forward.items] == \
            [item.execution_id for item in reverse.items]
     assert forward.assignments == reverse.assignments
+
+
+# --- serial execution (task line) ------------------------------------------
+
+def test_parallel_mode_still_starts_two_disjoint_units_together():
+    """The default is unchanged: the offline cases keep their parallelism."""
+    a = air_executor("A", ("d0",), speed=1.0)
+    b = air_executor("B", ("d1",), speed=1.0)
+    tasks = [task("first", agents=1, target="near"), task("second", agents=1, target="near")]
+    plan = build_executor_plan([a, b], tasks, provider({"A": 1.0, "B": 1.0}),
+                               initial_target_ref="base")
+    starts = sorted(item.planned_start for item in plan.items)
+    assert starts == [0.0, 0.0]
+
+
+def test_serial_mode_serialises_two_disjoint_units():
+    """The task line runs one unit at a time, shared members or not."""
+    a = air_executor("A", ("d0",), speed=1.0)
+    b = air_executor("B", ("d1",), speed=1.0)
+    tasks = [task("first", agents=1, target="near"), task("second", agents=1, target="near")]
+    plan = build_executor_plan([a, b], tasks, provider({"A": 1.0, "B": 1.0}),
+                               initial_target_ref="base", serial=True)
+    ordered = sorted(plan.items, key=lambda item: item.planned_start)
+    assert ordered[0].planned_start == 0.0
+    assert ordered[1].planned_start == pytest.approx(ordered[0].planned_finish)
+
+
+def test_a_late_unit_this_task_does_not_use_does_not_delay_it():
+    """Taking the maximum over every unit would stall on an unused resource."""
+    a = air_executor("A", ("d0",), available=0.0, speed=1.0)
+    late_b = air_executor("B", ("d1",), available=100.0, speed=1.0)
+    plan = build_executor_plan([a, late_b], [task("first", agents=1, target="near")],
+                               provider({"A": 1.0, "B": 1.0}),
+                               initial_target_ref="base", serial=True)
+    assert plan.items[0].executor_id == "A"
+    assert plan.items[0].planned_start == 0.0
+
+
+def test_units_outside_the_participants_do_not_hold_the_serial_clock():
+    """A platform with no execution endpoint is planned for, never dispatched."""
+    a = air_executor("A", ("d0",), speed=1.0)
+    b = air_executor("B", ("d1",), speed=1.0)
+    tasks = [task("first", agents=1, target="far"), task("second", agents=1, target="near")]
+    without = build_executor_plan([a, b], tasks, provider({"A": 1.0, "B": 1.0}),
+                                  initial_target_ref="base", serial=True,
+                                  serial_units=set())
+    starts = sorted(item.planned_start for item in without.items)
+    assert starts == [0.0, 0.0]
+
+
+def test_member_predicted_positions_advance_with_each_scheduled_item():
+    """A group task must be costed from where its members are predicted to be.
+
+    aav_1 flies to P first; the group task that follows has to pay for d0 coming
+    from P, not from the group's old centre.
+    """
+    single = air_executor("aav_1", ("d0",), speed=1.0)
+    group = air_executor("aav_formation", ("d0", "d1", "d2"), speed=1.0)
+    centres = {"base": (0.0, 0.0, 0.0), "P": (10.0, 0.0, 0.0), "Q": (0.0, 20.0, 0.0)}
+    slots = {"d0": (0.0, 0.0, 0.0), "d1": (0.0, -2.0, 0.0), "d2": (0.0, 2.0, 0.0)}
+    travel = ExecutorTravelTimeProvider(
+        centres, {"aav_1": 1.0, "aav_formation": 1.0},
+        member_slots={"aav_formation": slots}, member_positions={})
+    one = task("survey", agents=1, target="P")
+    three = Task("gather", frozenset({"AIR"}), 3, 4.0, 1000.0, "Q",
+                 allow_larger_unit=True)
+    plan = build_executor_plan([single, group], [one, three], travel,
+                               initial_target_ref="base", serial=True)
+    by_task = {item.task_id: item for item in plan.items}
+    assert by_task["survey"].executor_id == "aav_1"
+    assert by_task["gather"].executor_id == "aav_formation"
+    # d0 must travel from P to its slot at Q: sqrt(10^2 + 20^2), not 20.
+    assert by_task["gather"].travel_time == pytest.approx(math.sqrt(500.0))

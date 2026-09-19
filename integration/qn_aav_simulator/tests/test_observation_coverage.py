@@ -115,11 +115,26 @@ def test_observed_is_not_the_same_as_delivered():
     assert result.undelivered(WEIGHTS) == ()
 
 
-def test_delivering_an_unobserved_point_does_not_raise_the_observed_fraction():
+def test_a_receipt_for_an_unobserved_point_is_not_a_delivered_observation():
+    """The invariant lives in the result, not only in the caller.
+
+    Nothing was observed, yet the point is recorded as delivered.  C_delivered
+    must not move: a receipt for something never observed is not a delivered
+    observation, and relying on callers never to record one would be a promise
+    rather than an invariant.
+    """
     result = evaluate_coverage([], POINT, REQ)
     record_delivery(result, ["p"])
     assert result.observed_fraction(WEIGHTS) == 0.0
-    assert result.delivered_fraction(WEIGHTS) == 1.0
+    assert result.delivered_fraction(WEIGHTS) == 0.0
+    assert result.delivered_point_observations(WEIGHTS) == ()
+
+
+def test_an_observed_point_still_counts_once_delivered():
+    result = evaluate_coverage(dwell_samples(), POINT, REQ)
+    record_delivery(result, ["p"])
+    assert result.delivered_fraction(WEIGHTS) == pytest.approx(1.0)
+    assert result.delivered_point_observations(WEIGHTS) == ("p",)
 
 
 def test_uncovered_reports_the_points_that_failed():

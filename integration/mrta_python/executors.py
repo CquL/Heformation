@@ -198,9 +198,11 @@ class ExecutorTravelTimeProvider:
     # executor_id -> {member_id: (x, y, z)} slot offset relative to the centre
     member_slots: Mapping[str, Mapping[str, Tuple[float, float, float]]] = field(
         default_factory=dict)
-    # executor_id -> {member_id: (x, y, z)} where that member actually is now,
-    # updated from execution feedback and never from the plan
-    member_positions: Mapping[str, Mapping[str, Tuple[float, float, float]]] = field(
+    # member_id -> (x, y, z) where that member is now.  Keyed by the physical
+    # member, not by the unit: a member belongs to the fleet, and a group unit has
+    # to see where a member was left by an earlier single-platform task.  Written
+    # from execution feedback, or advanced by the planner as it schedules.
+    member_positions: Mapping[str, Tuple[float, float, float]] = field(
         default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -225,14 +227,13 @@ class ExecutorTravelTimeProvider:
         slots = self.member_slots.get(executor_id)
         if not slots:
             return _distance(source, destination) / speed
-        positions = self.member_positions.get(executor_id) or {}
         longest = 0.0
         for member_id, slot in slots.items():
             goal = tuple(destination[axis] + slot[axis] for axis in range(3))
             # A member with no reported position is assumed to still be in
             # formation at the source, which is the optimistic case and is
             # stated here rather than hidden.
-            start = positions.get(member_id) or tuple(
+            start = self.member_positions.get(member_id) or tuple(
                 source[axis] + slot[axis] for axis in range(3))
             longest = max(longest, _distance(start, goal))
         return longest / speed
@@ -257,7 +258,9 @@ def eligible_executors(executors: Sequence[Executor], task) -> Tuple[Executor, .
 
 def build_executor_plan(executors: Sequence[Executor], tasks: Sequence,
                         travel_time_provider: ExecutorTravelTimeFunction, *,
-                        initial_target_ref: str, seed: int = 0) -> ExecutorPlan:
+                        initial_target_ref: str, seed: int = 0,
+                        serial: bool = False,
+                        serial_units: Optional[Iterable[str]] = None) -> ExecutorPlan:
     """Allocate every task to one eligible unit with the v9 reward order.
 
     Generalization of the fixed-coalition port: each unit keeps its own queue
@@ -267,6 +270,18 @@ def build_executor_plan(executors: Sequence[Executor], tasks: Sequence,
     as equivalent ascending costs, zero planned wait, and a soft deadline.
     Ties are broken by ``executor_id`` so selection does not depend on input
     order.
+
+    ``serial=True`` makes the plan respect a globally serial execution, which is
+    what the task line runs.  The start of a candidate is
+
+        t_start = max(F_serial, max over the unit's members of A_pred)
+
+    where ``F_serial`` is the finish of the previous *scheduled* item and
+    ``A_pred`` is each member's predicted availability.  It deliberately does not
+    take the maximum over every unit: a resource that this task does not use must
+    not delay it.  ``serial_units`` names the units that take part in the online
+    serial clock - platforms without an execution endpoint are planned for but
+    never dispatched, so they must not hold that clock back either.
     """
     validate_executor_inputs(executors, tasks)
     identifier(initial_target_ref, "initial_target_ref")
@@ -283,18 +298,37 @@ def build_executor_plan(executors: Sequence[Executor], tasks: Sequence,
     current_target_ref = {
         executor.executor_id: (executor.initial_target_ref or initial_target_ref)
         for executor in executors}
-    def earliest_start(executor_id: str) -> float:
-        """When this unit may begin, respecting shared physical agents.
+    participants = (set(serial_units) if serial_units is not None
+                    else {executor.executor_id for executor in executors})
+    # Each physical member has its own predicted availability; a unit's queue is
+    # derived from its members rather than kept as a second, competing truth.
+    member_available: Dict[str, float] = {}
+    for executor in executors:
+        for agent_id in executor.physical_agent_ids:
+            member_available[agent_id] = max(
+                member_available.get(agent_id, 0.0), executor.available_from)
+    serial_release = 0.0
 
-        A unit cannot start while another unit that owns any of the same agents
-        is still occupied, so the earliest start is the latest finish among the
-        overlapping units as well as its own queue.
+    def earliest_start(executor_id: str) -> float:
+        """When this unit may begin.
+
+        Serial mode: the previous scheduled item's finish, and this unit's own
+        members' predicted availability.  Otherwise: this unit's queue plus any
+        unit it shares members with, which is the mutual-exclusion rule.
         """
+        if serial and executor_id in participants:
+            start = serial_release
+            for agent_id in routing_members[executor_id]:
+                start = max(start, member_available.get(agent_id, 0.0))
+            return start
         start = queue_finish[executor_id]
         for other_id, other_finish in queue_finish.items():
             if other_id != executor_id and overlapping_units(executor_id, other_id):
                 start = max(start, other_finish)
         return start
+
+    routing_members = {executor.executor_id: executor.physical_agent_ids
+                       for executor in executors}
 
     remaining = list(tasks)
     plan = ExecutorPlan()
@@ -328,6 +362,21 @@ def build_executor_plan(executors: Sequence[Executor], tasks: Sequence,
         ))
         queue_finish[executor.executor_id] = finish
         current_target_ref[executor.executor_id] = selected.target_ref
+        if serial and executor.executor_id in participants:
+            serial_release = finish
+        for agent_id in executor.physical_agent_ids:
+            member_available[agent_id] = finish
+        # Physical members are authoritative: a later group task must start from
+        # where each member is predicted to be, not from the unit's old centre.
+        positions = getattr(travel_time_provider, "member_positions", None)
+        if positions is not None:
+            destination = travel_time_provider.centers[selected.target_ref]
+            slots = getattr(travel_time_provider, "member_slots", {}).get(
+                executor.executor_id, {})
+            for member_id in executor.physical_agent_ids:
+                slot = slots.get(member_id, (0.0, 0.0, 0.0))
+                positions[member_id] = tuple(
+                    destination[axis] + slot[axis] for axis in range(3))
         remaining.remove(selected)
     validate_executor_plan(plan, executors, tasks)
     return plan

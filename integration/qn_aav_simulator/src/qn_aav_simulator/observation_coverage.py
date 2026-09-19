@@ -84,14 +84,25 @@ class CoverageResult:
     def delivered_fraction(self, weights: Mapping[str, float]) -> float:
         """``C_delivered``: observed AND the result has been received.
 
-        Delivery is an independent input.  Zero latency does not merge the two
-        events; it only makes the receipt immediate.
+        The invariant lives here, not only in the caller.  Recording a point as
+        delivered cannot raise this fraction on its own: a receipt for something
+        that was never observed is not a delivered observation.  Zero latency
+        does not merge the two events either, it only makes the receipt immediate.
         """
         total = sum(weights.values())
         if total <= 0:
             raise ValueError("weights must sum to a positive value")
         return sum(weight for point_id, weight in weights.items()
-                   if point_id in self.delivered_point_ids) / total
+                   if point_id in self.delivered_point_ids
+                   and self.points.get(point_id) is not None
+                   and self.points[point_id].observed) / total
+
+    def delivered_point_observations(self, weights: Mapping[str, float]) -> Tuple[str, ...]:
+        """Points that count towards ``C_delivered``, for reporting."""
+        return tuple(sorted(point_id for point_id in weights
+                            if point_id in self.delivered_point_ids
+                            and self.points.get(point_id) is not None
+                            and self.points[point_id].observed))
 
     def uncovered(self, weights: Mapping[str, float]) -> Tuple[str, ...]:
         return tuple(sorted(point_id for point_id in weights
