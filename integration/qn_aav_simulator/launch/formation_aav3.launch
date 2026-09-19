@@ -1,0 +1,88 @@
+<!-- Three-AAV online stack for the coastal monitoring task line (stage 1b and 3).
+
+     Same components as the seven-member configuration, three members instead:
+     the point of this file is that a command can be addressed to one member or
+     to the group, which the seven-member broadcast cannot express.
+
+     Per-member formation goal topics are set before the planner nodes start, and
+     the formation slot layout comes from config/formation_aav3.yaml rather than
+     the upstream seven-member hexagon. -->
+<launch>
+  <arg name="output_dir" default="/experiments/current"/>
+  <arg name="planner_speed" default="1.5"/>
+  <arg name="record" default="false"/>
+  <arg name="obstacle" default="false"/>
+  <arg name="obstacle_center" default="[-24.0, 6.0, 0.5]"/>
+  <arg name="obstacle_size" default="[1.0, 1.0, 1.2]"/>
+  <arg name="scene_topic" default="/scene/global_cloud"/>
+
+  <arg name="map_size_x" value="70.0"/>
+  <arg name="map_size_y" value="30.0"/>
+  <arg name="map_size_z" value="3.0"/>
+  <arg name="odom_topic" value="visual_slam/odom"/>
+  <arg name="formation_config" value="$(find qn_aav_simulator)/config/formation_aav3.yaml"/>
+
+  <include file="$(find swarm_bridge)/launch/bridge.launch">
+    <arg name="drone_id" value="999"/>
+    <arg name="broadcast_ip" value="127.0.0.255"/>
+  </include>
+
+  <rosparam file="$(find qn_aav_simulator)/config/formation_aav3.yaml"/>
+
+  <!-- Goal routing: one formation-centre topic per member.  With the upstream
+       default every member subscribes to the same global topic and a command
+       cannot be addressed to a subset. -->
+  <param name="/drone_0_ego_planner_node/fsm/goal_topic" value="/drone_0_formation_goal"/>
+  <param name="/drone_1_ego_planner_node/fsm/goal_topic" value="/drone_1_formation_goal"/>
+  <param name="/drone_2_ego_planner_node/fsm/goal_topic" value="/drone_2_formation_goal"/>
+
+  <!-- Line abreast at the corridor start, matching the slots above. -->
+  <rosparam ns="drone_0_qn_aav">{init_x: -30.0, init_y: 6.0, init_z: 0.8}</rosparam>
+  <rosparam ns="drone_1_qn_aav">{init_x: -30.0, init_y: 4.0, init_z: 0.8}</rosparam>
+  <rosparam ns="drone_2_qn_aav">{init_x: -30.0, init_y: 8.0, init_z: 0.8}</rosparam>
+
+  <param name="drone_0_ego_planner_node/manager/max_vel" value="$(arg planner_speed)" type="double"/>
+  <param name="drone_0_ego_planner_node/optimization/max_vel" value="$(arg planner_speed)" type="double"/>
+  <param name="drone_1_ego_planner_node/manager/max_vel" value="$(arg planner_speed)" type="double"/>
+  <param name="drone_1_ego_planner_node/optimization/max_vel" value="$(arg planner_speed)" type="double"/>
+  <param name="drone_2_ego_planner_node/manager/max_vel" value="$(arg planner_speed)" type="double"/>
+  <param name="drone_2_ego_planner_node/optimization/max_vel" value="$(arg planner_speed)" type="double"/>
+
+  <include file="$(find ego_planner)/launch/run_in_sim.launch">
+    <arg name="drone_id" value="0"/>
+    <arg name="init_x" value="-30.0"/><arg name="init_y" value="6.0"/><arg name="init_z" value="0.8"/>
+    <arg name="target_x" value="-18.0"/><arg name="target_y" value="6.0"/><arg name="target_z" value="0.8"/>
+    <arg name="map_size_x" value="$(arg map_size_x)"/>
+    <arg name="map_size_y" value="$(arg map_size_y)"/>
+    <arg name="map_size_z" value="$(arg map_size_z)"/>
+    <arg name="odom_topic" value="$(arg odom_topic)"/>
+    <arg name="formation_config" value="$(arg formation_config)"/>
+  </include>
+  <include file="$(find ego_planner)/launch/run_in_sim.launch">
+    <arg name="drone_id" value="1"/>
+    <arg name="init_x" value="-30.0"/><arg name="init_y" value="4.0"/><arg name="init_z" value="0.8"/>
+    <arg name="target_x" value="-18.0"/><arg name="target_y" value="4.0"/><arg name="target_z" value="0.8"/>
+    <arg name="map_size_x" value="$(arg map_size_x)"/>
+    <arg name="map_size_y" value="$(arg map_size_y)"/>
+    <arg name="map_size_z" value="$(arg map_size_z)"/>
+    <arg name="odom_topic" value="$(arg odom_topic)"/>
+    <arg name="formation_config" value="$(arg formation_config)"/>
+  </include>
+  <include file="$(find ego_planner)/launch/run_in_sim.launch">
+    <arg name="drone_id" value="2"/>
+    <arg name="init_x" value="-30.0"/><arg name="init_y" value="8.0"/><arg name="init_z" value="0.8"/>
+    <arg name="target_x" value="-18.0"/><arg name="target_y" value="8.0"/><arg name="target_z" value="0.8"/>
+    <arg name="map_size_x" value="$(arg map_size_x)"/>
+    <arg name="map_size_y" value="$(arg map_size_y)"/>
+    <arg name="map_size_z" value="$(arg map_size_z)"/>
+    <arg name="odom_topic" value="$(arg odom_topic)"/>
+    <arg name="formation_config" value="$(arg formation_config)"/>
+  </include>
+
+  <rosparam param="scene" subst_value="true">{topic: $(arg scene_topic), frame_id: world, obstacle_present: $(arg obstacle), obstacle_center: $(arg obstacle_center), obstacle_size: $(arg obstacle_size), resolution: 0.2}</rosparam>
+  <node pkg="qn_aav_simulator" type="scene_publisher.py" name="scene_publisher" output="screen">
+    <rosparam param="center" subst_value="true">$(arg obstacle_center)</rosparam>
+    <rosparam param="size" subst_value="true">$(arg obstacle_size)</rosparam>
+    <rosparam param="obstacle" subst_value="true">$(arg obstacle)</rosparam>
+  </node>
+</launch>

@@ -1,0 +1,51 @@
+Make the formation configuration file a launch argument.
+
+advanced_param.xml loads $(find ego_planner)/config/normal_hexagon.yaml into every
+planner node.  That file holds both global_goal/swarm_scale + relative_pos_* (the
+slot layout the FSM uses to turn a formation centre into a member target) and
+optimization/formation_type + weight_formation (the shape the similarity cost
+pulls toward).  It is a seven-member hexagon.
+
+A three-member online configuration needs its own slot layout and shape, and the
+file cannot be overridden from outside because the path is hard-coded inside the
+node definition.  This patch makes it an argument whose default is the upstream
+file, so the seven-member configuration is unchanged.
+
+The upstream files are not modified in the repository; this patch is applied at
+image build time.
+--- a/src/planner/plan_manage/launch/advanced_param.xml
++++ b/src/planner/plan_manage/launch/advanced_param.xml
+@@ -1,5 +1,6 @@
+ <launch>
+   <arg name="map_size_x_"/>
++  <arg name="formation_config" default="$(find ego_planner)/config/normal_hexagon.yaml"/>
+   <arg name="map_size_y_"/>
+   <arg name="map_size_z_"/>
+ 
+@@ -64,7 +65,7 @@
+     <remap from="~grid_map/pose"   to = "/drone_$(arg drone_id)_$(arg camera_pose_topic)"/> 
+     <remap from="~grid_map/depth" to = "/drone_$(arg drone_id)_$(arg depth_topic)"/>
+     
+-   <rosparam file="$(find ego_planner)/config/normal_hexagon.yaml"/>
++   <rosparam file="$(arg formation_config)"/>
+ 
+     <!-- planning fsm -->
+     <param name="fsm/flight_type"             value="$(arg flight_type)" type="int"/>
+--- a/src/planner/plan_manage/launch/run_in_sim.launch
++++ b/src/planner/plan_manage/launch/run_in_sim.launch
+@@ -22,6 +22,7 @@
+     <arg name="target_z"/>
+     <arg name="drone_id"/>
+     <arg name="formation_type"/>
++    <arg name="formation_config" default="$(find ego_planner)/config/normal_hexagon.yaml"/>
+     <arg name="weight_obstacle"/>
+     <arg name="weight_swarm"/>
+     <arg name="weight_feasibility"/>
+@@ -39,6 +40,7 @@
+     <!-- main algorithm params -->
+     <include file="$(find ego_planner)/launch/advanced_param.xml">
+         <arg name="drone_id"                value="$(arg drone_id)"/>
++        <arg name="formation_config"        value="$(arg formation_config)"/>
+         <!-- <arg name="formation_type"          value="$(arg formation_type)"/> -->
+         <arg name="map_size_x_"             value="$(arg map_size_x)"/>
+         <arg name="map_size_y_"             value="$(arg map_size_y)"/>

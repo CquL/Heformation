@@ -1,0 +1,35 @@
+# Three-AAV online configuration (plan: coastal monitoring task line).
+#
+# The upstream normal_hexagon.yaml describes a seven-member hexagon at scale 2.
+# This file is the same structure for the three AAVs the task line actually
+# commands: a line abreast perpendicular to the shoreline corridor, 2 m apart,
+# scale 1.0 so the offsets below are the real spacing.
+#
+# Slot layout and shape must agree with the action server's relative_slots for
+# these members, which the server checks at readiness.
+global_goal:
+  swarm_central_pos: {x: -30.0, y: 6.0, z: 0.8}
+  swarm_scale: 1.0
+  relative_pos_0: {x: 0.0, y: 0.0, z: 0.0}
+  relative_pos_1: {x: 0.0, y: -2.0, z: 0.0}
+  relative_pos_2: {x: 0.0, y: 2.0, z: 0.0}
+  # Members 3..6 do not exist in this configuration.  The FSM reads seven slots
+  # with a -1.0 default; leaving them out is deliberate, not an oversight.
+  relative_pos_3: {x: 0.0, y: 0.0, z: 0.0}
+  relative_pos_4: {x: 0.0, y: 0.0, z: 0.0}
+  relative_pos_5: {x: 0.0, y: 0.0, z: 0.0}
+  relative_pos_6: {x: 0.0, y: 0.0, z: 0.0}
+
+optimization:
+  formation_type: 1
+  weight_obstacle: 50000.0
+  weight_swarm: 50000.0
+  weight_feasibility: 10000.0
+  weight_sqrvariance: 10000.0
+  weight_time: 80.0
+  weight_formation: 15000.0
+  obstacle_clearance: 0.5
+  swarm_clearance: 0.5
+
+fsm:
+  replan_trajectory_time: 0.1

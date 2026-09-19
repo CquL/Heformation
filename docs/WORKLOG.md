@@ -13,6 +13,40 @@
 
 ---
 
+## 2026-09-19 · 阶段 1 下半：三机在线配置与组级目标验证（提交待补）
+
+- **计划**：修正上一轮的过早结论——计划第五节的**阶段 1 交付包含两次探针**：
+  （a）单独派发 AAV2；（b）**再验证三机组级目标**；并确认每台仅一个 qn、仅一条被接受参考。
+  我只做了 (a) 就宣布阶段 1 完成，(b) 需要三机在线配置，而同一份配置也是第二节
+  "受控扩展为 3 机规模"、第三节"岸线编队阶段（3 AAV）"与第六节"两套互斥静态配置"的前提。
+- **实际**：
+  - 新增第 5 个构建期补丁 `plan_manage_formation_config_arg.patch`：把编队配置文件从
+    `advanced_param.xml` 里硬编码的 `normal_hexagon.yaml` 变成 launch 参数，**默认值不变**，
+    因此七机配置行为不受影响。三机配置需要自己的槽位布局与队形形状，而该路径原本无法从外部覆盖。
+  - 新增 `config/formation_aav3.yaml`：三机横向一字、间距 2 m、scale 1.0，
+    中心 `(-30, 6, 0.8)`；并显式写明成员 3–6 在该配置下不存在，不是遗漏。
+  - 新增 `launch/formation_aav3.launch`：三个 `run_in_sim` 实例 + swarm_bridge + 场景发布器，
+    并为每台设置**各自的编队目标话题**（`/drone_i_formation_goal`）——这正是上游"全局单话题"做不到的事。
+  - 新增 `probe_group_goal.py` + `scripts/docker_probe_group_goal.sh`。
+- **效果（实测，`./scripts/docker_probe_group_goal.sh`）**：向三台各自的编队目标话题发布同一个编队中心
+  `(-24, 6, 0.8)`：
+  - `drone_0 (-24, 6, 0.8)` / `drone_1 (-24, 4, 0.8)` / `drone_2 (-24, 8, 0.8)`，
+    三者对 `centre + scale·slot_i` 的误差均为 **0.000 m**；
+  - 每台 `/drone_i_qn/odometry` 的发布者数 **= 1**（每台只有一个权威动力学源）。
+  → 阶段 1 的两次探针现在都通过，**阶段 1 才算真正完成**。
+- **过程中的自伤**：探针第一次报 `publishers=4 FAIL`，是我自己的解析 bug——`rostopic info` 的
+  **发布者与订阅者都以 `*` 开头**，我把 1 个发布者 + 3 个订阅者一起数了。只统计 Publishers 段后通过。
+  这类"检查器自己有 bug"的情况必须排除，否则会把解析错误记成系统缺陷。
+- **证据**：`integration/swarm_qn_bridge/patches/plan_manage_formation_config_arg.patch`（已 dry-run 校验）；
+  `integration/qn_aav_simulator/{config/formation_aav3.yaml,launch/formation_aav3.launch,scripts/probe_group_goal.py}`；
+  182 项测试通过。
+- **未完成**：阶段 2 下半（runner 侧"同一成员不得属于两个同时活跃单元"的运行时校验）；
+  阶段 3（作业请求→展开→覆盖/交付→复测→实时展示，含岸线编队阶段）；
+  阶段 4（M2 收尾、口径修复、文档）。三机配置目前只有"组级目标"这一条通路，
+  **尚未接入 Action server 与 executor 路由**（阶段 3 的事）。
+
+---
+
 ## 2026-09-19 · 阶段 2（上半）：共享成员的执行单元模型（提交 `c8a75f2`）
 
 - **计划**：计划《近岸监测任务线 + M2 收尾》第二节——允许静态成员重叠、禁止重叠单元同时占用、

@@ -26,6 +26,11 @@ RUN patch -p1 -d /workspace/src \
 # parameterised formation topic, with the defaults preserving upstream behaviour.
 RUN patch -p1 -d /workspace/src \
       < /tmp/swarm_qn_patches/plan_manage_member_goal_entry.patch
+# The formation slot layout and shape live in a hard-coded file inside the node
+# definition, so a three-member configuration cannot supply its own.  Make it an
+# argument with the upstream default.
+RUN patch -p1 -d /workspace/src \
+      < /tmp/swarm_qn_patches/plan_manage_formation_config_arg.patch
 
 # matplotlib is in the base image but its Tk bindings are not, so the live
 # dashboard could only publish images.  This layer adds them; nothing else in
