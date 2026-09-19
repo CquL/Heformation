@@ -24,7 +24,10 @@ SENSOR_BACKEND_CPU = "CPU_POINTCLOUD"
 SENSOR_BACKEND_CUDA = "CUDA_DEPTH"
 SENSOR_BACKENDS = (SENSOR_BACKEND_CPU, SENSOR_BACKEND_CUDA)
 
-GLOBAL_MAP_TOPIC = "/map_generator/global_cloud"
+#: The topic the experiment actually consumes.  The upstream forest topic
+#: (/map_generator/global_cloud) is still published by normal_hexagon.launch but
+#: has no consumer, so defaulting readiness to it would check the wrong thing.
+GLOBAL_MAP_TOPIC = "/scene/global_cloud"
 
 
 def local_cloud_topic(agent_id: int) -> str:

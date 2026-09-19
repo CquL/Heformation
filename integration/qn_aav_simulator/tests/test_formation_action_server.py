@@ -454,7 +454,9 @@ def test_topic_existence_refresh_accepts_master_pairs(server_module, monkeypatch
                         lambda: [["/drone_0_qn/odometry", "nav_msgs/Odometry"]])
     server._refresh_topic_existence()
     assert server.readiness.topics["/drone_0_qn/odometry"].exists is True
-    assert server.readiness.topics["/map_generator/global_cloud"].exists is False
+    # the readiness default is the experiment scene topic, not the unused forest
+    assert server.readiness.topics[server_module.GLOBAL_MAP_TOPIC].exists is False
+    assert server_module.GLOBAL_MAP_TOPIC == "/scene/global_cloud"
 
 
 def test_windowed_odometry_is_accepted_by_the_ledger_and_obstacle_check(

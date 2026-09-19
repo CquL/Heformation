@@ -35,7 +35,10 @@ import numpy as np  # noqa: E402
 AGENTS = tuple(range(7))
 PLATFORM_RADIUS_M = 0.25
 PLATFORM_DIAMETER_M = 2.0 * PLATFORM_RADIUS_M
-AIR_FLOOR_M = 0.085
+# Fallback only.  The AIR floor is hg_m/2, derived in the qn node and published in
+# every diagnostics message; a hard-coded value here would silently disagree with
+# the model the moment hg_m changed.
+AIR_FLOOR_M_FALLBACK = 0.085
 COLOURS = plt.get_cmap("tab10")
 
 
@@ -77,6 +80,7 @@ def read_bag(bag_path):
                     "position": (float(values["position_x"]), float(values["position_y"]),
                                  float(values["position_z"])),
                     "medium_flag": float(values.get("medium_flag", 0.0)),
+                    "air_floor_m": float(values.get("air_floor_m", AIR_FLOOR_M_FALLBACK)),
                     "used_reference_valid": values.get("used_reference_valid") == "true",
                 })
             elif topic == "/move_base_simple/goal":
@@ -359,9 +363,11 @@ def panel_altitude(axis, data, metrics):
         axis.plot([row["stamp"] - epoch for row in rows],
                   [row["position"][2] for row in rows], linewidth=0.7, alpha=0.8,
                   color=COLOURS(agent % 10))
-    floor = AIR_FLOOR_M
+    floors = [row["air_floor_m"] for agent in AGENTS
+              for row in data["diagnostics"][agent]]
+    floor = min(floors) if floors else AIR_FLOOR_M_FALLBACK
     axis.axhline(floor, color="#c0392b", linestyle="--", linewidth=1.2,
-                 label="AIR floor hg/2 = {:.3f} m".format(floor))
+                 label="AIR floor hg/2 = {:.3f} m (from diagnostics)".format(floor))
     breaches = [(row["stamp"] - epoch, row["position"][2])
                 for agent in AGENTS for row in data["diagnostics"][agent]
                 if row["position"][2] < floor or row["medium_flag"] > 0.0]
