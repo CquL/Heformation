@@ -44,6 +44,14 @@ class FormationPhase:
     interest_point_ids: Tuple[str, ...]
     shape_tolerance_m: float
     required_agent_count: int = 3
+    #: the tube is about the formation *centre*.  Members carry their own +-2 m
+    #: offsets and their own safety constraints, so requiring every member to sit
+    #: inside the centre's tube would be a different and much stronger demand.
+    corridor_half_width_m: float = 1.5
+    #: backtracking is judged against the furthest progress reached so far, not
+    #: against the previous sample: otherwise a long run of small retreats passes.
+    backtrack_tolerance_m: float = 0.1
+    arrival_tolerance_m: float = 0.5
 
 
 @dataclass
@@ -80,6 +88,114 @@ def formation_shape_error(positions: Mapping[str, Vector3],
                 tuple(centre[i] + second_slot[i] for i in range(3)))
             worst = max(worst, abs(actual - wanted))
     return worst
+
+
+def _formation_centre(positions: Mapping[str, Vector3]) -> Vector3:
+    members = sorted(positions)
+    if not members:
+        raise ValueError("no positions to average")
+    return tuple(sum(positions[m][axis] for m in members) / len(members)
+                 for axis in range(3))
+
+
+def formation_relative_error(positions: Mapping[str, Vector3],
+                             slots: Mapping[str, Vector3],
+                             centre: Vector3,
+                             scale: float) -> float:
+    """Largest deviation of the actual member-difference vectors from the wanted ones.
+
+        E_form = max_{i<j} || (p_i - p_j) - s·(r_i - r_j) ||
+
+    This is the shape criterion the plan asks for.  Comparing member-to-member
+    *distances* instead is blind to a rotation: a line abreast turned into a line
+    astern keeps every distance, so a distance metric reports a perfect formation.
+    A translated formation still scores zero, because the differences cancel.
+    """
+    members = sorted(positions)
+    if len(members) < 2:
+        raise ValueError("a formation needs at least two members")
+    worst = 0.0
+    for index, first in enumerate(members):
+        for second in members[index + 1:]:
+            first_slot, second_slot = slots.get(first), slots.get(second)
+            if first_slot is None or second_slot is None:
+                raise ValueError("missing slot for member {}".format(
+                    first if first_slot is None else second))
+            actual = tuple(positions[first][axis] - positions[second][axis]
+                           for axis in range(3))
+            wanted = tuple(scale * (first_slot[axis] - second_slot[axis])
+                           for axis in range(3))
+            worst = max(worst, math.dist(actual, wanted))
+    return worst
+
+
+def evaluate_formation_phase_over_interval(
+        phase: FormationPhase,
+        samples: Sequence[Tuple[float, Mapping[str, Vector3]]],
+        slots: Mapping[str, Vector3],
+        scale: float,
+        coverage: CoverageResult,
+        weights: Mapping[str, float]) -> FormationVerdict:
+    """Judge a group phase over the whole interval, not at one instant.
+
+    A single end snapshot cannot see a formation that dispersed mid-flight and
+    re-formed, and it cannot see the centre leave the corridor and come back.  The
+    four checks are the plan's: the tube, progress against the furthest point
+    reached, arrival, and the observations - plus the shape error across every
+    sample.
+    """
+    reasons: List[str] = []
+    if len(samples) < 2:
+        return FormationVerdict(False, None,
+                                ("the phase interval has {} samples; at least two "
+                                 "are needed to judge a traversal".format(len(samples)),))
+    start = phase.path_start
+    end = phase.path_end
+    length = math.dist(start, end)
+    if length <= 0:
+        raise ValueError("the corridor start and end coincide")
+    unit = tuple((end[i] - start[i]) / length for i in range(3))
+
+    worst_shape = 0.0
+    worst_lateral = 0.0
+    furthest = 0.0
+    worst_backtrack = 0.0
+    for _time, positions in samples:
+        if len(positions) < phase.required_agent_count:
+            reasons.append("only {} members present".format(len(positions)))
+            break
+        shape = formation_relative_error(positions, slots, start, scale)
+        worst_shape = max(worst_shape, shape)
+        centre = _formation_centre(positions)
+        offset = tuple(centre[i] - start[i] for i in range(3))
+        progress = sum(offset[i] * unit[i] for i in range(3))
+        lateral = math.sqrt(max(0.0, sum(o * o for o in offset) - progress * progress))
+        worst_lateral = max(worst_lateral, lateral)
+        furthest = max(furthest, progress)
+        worst_backtrack = max(worst_backtrack, furthest - progress)
+
+    if worst_shape > phase.shape_tolerance_m:
+        reasons.append("formation shape error {:.3f} m exceeds {:.3f} m".format(
+            worst_shape, phase.shape_tolerance_m))
+    if worst_lateral > phase.corridor_half_width_m:
+        reasons.append("centre left the corridor by {:.3f} m (limit {:.3f} m)".format(
+            worst_lateral, phase.corridor_half_width_m))
+    if worst_backtrack > phase.backtrack_tolerance_m:
+        reasons.append("centre fell back {:.3f} m from its furthest progress "
+                       "(limit {:.3f} m)".format(worst_backtrack,
+                                                 phase.backtrack_tolerance_m))
+    final_centre = _formation_centre(samples[-1][1])
+    arrived = math.dist(final_centre, end)
+    if arrived > phase.arrival_tolerance_m:
+        reasons.append("centre finished {:.3f} m from the corridor end".format(arrived))
+    if furthest < length - phase.arrival_tolerance_m:
+        reasons.append("the centre never reached the corridor end along the path")
+    for point_id in phase.interest_point_ids:
+        observation = coverage.points.get(point_id)
+        if observation is None or not observation.observed:
+            reasons.append("interest point {} was not observed".format(point_id))
+    return FormationVerdict(complete=not reasons, max_shape_error_m=worst_shape,
+                            reasons=tuple(reasons))
 
 
 def evaluate_formation_phase(phase: FormationPhase,

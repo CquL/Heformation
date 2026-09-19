@@ -159,3 +159,89 @@ def test_full_coverage_produces_no_retest():
     coverage = coverage_with(("a1", "a2"))
     assert retest_tasks(request, tasks, coverage, {"a1": 1.0, "a2": 1.0},
                         delivery_recorded=True, already_retested=False) == ()
+
+
+# --- group phase judged over the whole interval -----------------------------
+
+from qn_aav_simulator.task_line import (  # noqa: E402
+    evaluate_formation_phase_over_interval,
+)
+
+PHASE = FormationPhase("shoreline", (-30.0, 6.0, 0.8), (-18.0, 6.0, 0.8),
+                       ("a1", "a2"), shape_tolerance_m=0.6)
+PHASE_SLOTS = {"d0": (0.0, 0.0, 0.0), "d1": (0.0, -2.0, 0.0), "d2": (0.0, 2.0, 0.0)}
+PHASE_WEIGHTS = {"a1": 1.0, "a2": 1.0}
+
+
+def snapshots(progress_points, deform=None, lateral=0.0, rotate=False):
+    """One sample per centre x, members at centre + slot unless deformed."""
+    rows = []
+    for index, x in enumerate(progress_points):
+        centre = (x, 6.0 + lateral, 0.8)
+        positions = {}
+        for member, slot in PHASE_SLOTS.items():
+            offset = slot
+            if rotate:
+                offset = {(0.0, -2.0, 0.0): (2.0, 0.0, 0.0),
+                          (0.0, 2.0, 0.0): (-2.0, 0.0, 0.0)}.get(slot, slot)
+            if deform and index in deform:
+                offset = tuple(offset[i] + deform[index].get(member, (0.0, 0.0, 0.0))[i]
+                               for i in range(3))
+            positions[member] = tuple(centre[i] + offset[i] for i in range(3))
+        rows.append((float(index), positions))
+    return rows
+
+
+def verdict(rows):
+    return evaluate_formation_phase_over_interval(
+        PHASE, rows, PHASE_SLOTS, 1.0, coverage_with(("a1", "a2")), PHASE_WEIGHTS)
+
+
+def test_a_clean_traversal_passes():
+    result = verdict(snapshots([-30.0 + 1.5 * i for i in range(9)]))
+    assert result.complete, result.reasons
+
+
+def test_rotating_line_abreast_into_line_astern_is_caught():
+    """Member-to-member distances are unchanged by a rotation, so a distance
+    metric would call this a perfect formation."""
+    result = verdict(snapshots([-30.0 + 1.5 * i for i in range(9)], rotate=True))
+    assert not result.complete
+    assert any("shape error" in reason for reason in result.reasons)
+
+
+def test_disbanding_mid_flight_and_reforming_is_caught():
+    """The last snapshot is perfect; only the interval shows the dispersal."""
+    rows = snapshots([-30.0 + 1.5 * i for i in range(9)],
+                     deform={4: {"d0": (0.0, 0.0, 0.0), "d1": (0.0, 3.0, 0.0),
+                                 "d2": (0.0, -3.0, 0.0)}})
+    result = verdict(rows)
+    assert not result.complete
+    assert any("shape error" in reason for reason in result.reasons)
+
+
+def test_the_centre_leaving_the_corridor_is_caught():
+    result = verdict(snapshots([-30.0 + 1.5 * i for i in range(9)], lateral=2.5))
+    assert not result.complete
+    assert any("left the corridor" in reason for reason in result.reasons)
+
+
+def test_cumulative_backtracking_is_caught_even_when_no_step_is_large():
+    """Each retreat is small; together they give up most of the corridor."""
+    points = [-30.0 + 1.0 * i for i in range(13)]     # 0 .. 12 m
+    points += [points[-1] - 9.0, points[-1]]          # fall back 9 m, then return
+    result = verdict(snapshots(points))
+    assert not result.complete
+    assert any("fell back" in reason for reason in result.reasons)
+
+
+def test_stopping_short_of_the_corridor_end_is_caught():
+    result = verdict(snapshots([-30.0 + 1.0 * i for i in range(6)]))
+    assert not result.complete
+    assert any("corridor end" in reason for reason in result.reasons)
+
+
+def test_a_single_sample_cannot_judge_a_traversal():
+    result = verdict(snapshots([-24.0]))
+    assert not result.complete
+    assert any("at least two" in reason for reason in result.reasons)
