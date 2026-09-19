@@ -198,7 +198,7 @@ def main():
         if order >= 0:
             centre = centres[order][1:4]
             hidden_goal.set_offsets([[centre[0], centre[1]]])
-            targets = [overview.slot_target(data, monitor, centre, agent) for agent in AGENTS]
+            targets = [overview.slot_target(monitor, centre, agent) for agent in AGENTS]
             loop = list(range(len(AGENTS))) + [0]
             slot_lines.set_data([targets[a][0] for a in loop], [targets[a][1] for a in loop])
         for axis in (slot_axis, altitude_axis):

@@ -20,6 +20,11 @@ RUN patch -p1 -d /workspace/src \
 RUN patch -p1 -d /workspace/src \
       < /tmp/swarm_qn_patches/plan_manage_honour_goal_height.patch
 
+# matplotlib is in the base image but its Tk bindings are not, so the live
+# dashboard could only publish images.  This layer adds them; nothing else in
+# the stack depends on it.
+RUN apt-get update && apt-get install -y --no-install-recommends python3-tk
+
 # mrta_python is a path-based package (integration/mrta_python).  The base
 # image ships setuptools 45.2, whose isolated PEP 621 build needs PyPI and
 # whose non-isolated build drops the package metadata; keeping it on

@@ -103,7 +103,7 @@ def sample(rows, stamp):
     return rows[min(max(index, 0), len(rows) - 1)]
 
 
-def slot_target(data, monitor, centre, agent):
+def slot_target(monitor, centre, agent):
     slot = monitor["relative_slots"][str(agent)]
     scale = float(monitor["swarm_scale"])
     return (centre[0] + scale * slot[0], centre[1] + scale * slot[1],
@@ -120,7 +120,7 @@ def slot_errors(data, monitor, mission_epoch):
             index = int(np.searchsorted(stamps, stamp, side="right")) - 1
             centre = data["centres"][index][1:4] if index >= 0 else monitor["start_center"]
             series.append((stamp - mission_epoch,
-                           math.dist((x, y, z), slot_target(data, monitor, centre, agent))))
+                           math.dist((x, y, z), slot_target(monitor, centre, agent))))
         out[agent] = series
     return out
 
@@ -284,7 +284,7 @@ def panel_path(axis, data, metrics, monitor, executions):
                       textcoords="offset points", xytext=(0, -19), ha="center",
                       fontsize=8, color="0.3")
     for index, (_stamp, task, x, y, z) in enumerate(data["action_goals"]):
-        targets = [slot_target(data, monitor, (x, y, z), agent) for agent in AGENTS]
+        targets = [slot_target(monitor, (x, y, z), agent) for agent in AGENTS]
         loop = list(range(len(AGENTS))) + [0]
         axis.plot([targets[a][0] for a in loop], [targets[a][1] for a in loop],
                   color=COLOURS((index + 3) % 10), linewidth=1.3, linestyle="--",

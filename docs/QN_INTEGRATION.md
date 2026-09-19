@@ -450,3 +450,47 @@ noise both bloats the file and hides the structure.
 
 The replay is a viewer, not a simulation. It cannot change a verdict and it does
 not write to the experiment directory except the file it is asked to produce.
+
+## Live views
+
+Two live views exist, and they answer different questions.
+
+**RViz, three-dimensional.** `./scripts/docker_run_qn_demo.sh mission` starts the
+simulation with RViz beside it: the drone paths, the per-drone inflated occupancy
+grid and the ESDF. Note that RViz's global-cloud display points at
+`/map_generator/global_cloud`, the upstream forest topic, not at the experiment's
+`/scene/global_cloud`; the live scene the planners actually consume is the
+per-drone `cloud` topic, not that display.
+
+**`mission_dashboard.py`, task layer.** RViz shows geometry and nothing about
+allocation, adoption or verdicts, so this node renders those live:
+
+```bash
+DASHBOARD=true ./scripts/docker_run_qn_demo.sh mission
+# or, without RViz:
+roslaunch qn_aav_simulator formation_air.launch run_mission:=true dashboard:=true
+```
+
+| Panel | Shows |
+| --- | --- |
+| scene | the seven members, their trails, the slot layout around the commanded centre, that centre, and the obstacle |
+| status | task in flight, action state, `qn trajectory_id` adoption across all seven, fresh-odometry count, peak model-ROS drift, min altitude, max `medium_flag`, and each verdict as it arrives |
+| slot error | distance to slot against `epsilon_p`, with the hold window shaded |
+| envelope | altitude against the AIR floor, and the closest approach between members against the required clearance |
+
+It is a passive observer: it subscribes only, and its sole outputs are a
+matplotlib window (`~window`) and a JPEG `sensor_msgs/CompressedImage` on
+`~image/compressed` for RViz's Image display or `rqt_image_view`. If it is never
+started, or dies, the mission is unaffected. It is **opt-in** because rendering
+matplotlib a few times a second is exactly the kind of extra CPU load that the
+model-clock drift gate is sensitive to; evidence runs should leave it off.
+
+Two correctness details are worth keeping:
+
+- The slot error is measured against the centre that was commanded **at each
+  sample's own time**, not against the centre that happens to be current. Using
+  the current centre would rewrite history and show a step change at every
+  dispatch instead of the error that was actually there.
+- If `/formation_action_server/relative_slots` is missing the node logs a warning
+  and the layout is degenerate. Start it from `formation_air.launch`, or load
+  `config/formation_air.yaml`, or every member is measured against its own origin.

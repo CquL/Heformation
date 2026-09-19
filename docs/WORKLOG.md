@@ -13,6 +13,40 @@
 
 ---
 
+## 2026-09-19 · 实时仪表盘（提交待补）
+
+- **计划**：用户追问"没有实时可视化仿真吗 / 为什么不做实时可视化"。核对后发现：实时三维视图
+  **已有**（`./scripts/docker_run_qn_demo.sh mission` 起 RViz），但**任务层**（分配、参考采用、
+  判定、时间）没有任何实时视图——上一轮做的两张图都是事后离线渲染。本轮补实时任务层。
+- **实际**：
+  - 新增只读订阅节点 `mission_dashboard.py`：四面板（场景+槽位布局 / 状态与判定 / 槽位误差 /
+    高度与最近接近），输出 matplotlib 窗口（`~window`）和 `~image/compressed` 的 JPEG，
+    可给 RViz Image 显示或 `rqt_image_view`。只订阅，不参与控制链。
+  - `formation_air.launch` 增加 `dashboard`（默认 false，**opt-in**）；`docker_run_qn_demo.sh`
+    支持 `DASHBOARD=true`。
+  - `Dockerfile.qn` 增加 `python3-tk`：基础镜像有 matplotlib 但没有 Tk 绑定，否则只能发图不能开窗。
+  - `docker_run_qn_demo.sh` 原本只把 `$1` 传进容器，`DASHBOARD` 需要额外传参，一并改了。
+  - **发现并修掉的两个真问题**：
+    1. `live` 槽位误差一开始是"用当前中心回算整段历史"，于是每次派发都会让历史曲线整体跳变，
+       看起来像误差突然出现。改成按每个样本自己的时刻查中心时间线——与离线图同语义。
+       这个问题在真实运行里同样会出现，不只是测试环境的假象。
+    2. 缺 `/formation_action_server/relative_slots` 时会静默退化成"所有成员槽位都是原点"，
+       图上表现为一条平直的 4.0 m 误差线。现在会显式告警。
+  - 另一个自己引入的 bug：场景标题插在了 `centre` 赋值之前 → `UnboundLocalError`，节点渲染一帧后
+    就死。用 `rosbag play` 复放录制的 bag 才发现（首帧 78489 字节三连相同暴露了"只发了一帧"）。
+- **验证方式**：不跑 8 分钟仿真，而是 `roscore + rosparam load formation_air.yaml +
+  rosbag play --clock -r 3 <录制的 bag>` + 仪表盘，按消息时间戳抓帧。抓到 mission t=5.3 s 与
+  t=20.1 s 两帧：场景/槽位六边形/`qn trajectory_id 4 (all adopted)`/槽位误差在驻留段收敛到
+  `epsilon_p` 以下/最近接近在编队切换时收到 1.7 m，均与离线图一致。
+- **效果**：实时视图与离线渲染在语义上对齐；167 项测试通过；离线两张图重跑无回归。
+- **证据**：`docs/QN_INTEGRATION.md` 的 "Live views" 一节；
+  `roslaunch qn_aav_simulator formation_air.launch run_mission:=true dashboard:=true`。
+- **未完成与下一步**：仪表盘尚未在**真实实时任务**里跑过（只做了 bag 复放验证）——因为它与
+  模型时钟门槛争 CPU，需要一次带 `dashboard:=true` 的真实运行来确认门槛不受影响；
+  M2 第 3 步（原盒子场景定位）与第 4 步（局部扫描中断）仍未做。
+
+---
+
 ## 2026-09-18 · 全链路可视化与动画回放（提交 `9fcb40f`）
 
 - **计划**：用户要求"可视化仿真整个实验，从任务分配到编队控制"。已有的

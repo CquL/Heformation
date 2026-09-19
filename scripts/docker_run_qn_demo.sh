@@ -2,6 +2,11 @@
 set -euo pipefail
 
 MODE="${1:-manual}"
+# Live task-layer dashboard beside the 3D RViz view.  Opt-in: it renders
+# matplotlib a few times a second, and the model-clock drift gate is sensitive to
+# extra CPU load, so it should be left off for evidence runs.
+DASHBOARD="${DASHBOARD:-false}"
+case "$DASHBOARD" in true|false) ;; *) echo "DASHBOARD must be true or false" >&2; exit 2 ;; esac
 case "$MODE" in manual|mission) ;; *) echo "mode must be manual or mission" >&2; exit 2 ;; esac
 if [[ -z "${DISPLAY:-}" ]]; then
   echo "DISPLAY is empty; run this script from an Ubuntu desktop terminal." >&2
@@ -42,8 +47,9 @@ docker run --rm --init -it \
     roslaunch ego_planner rviz.launch &
     rviz_pid=$!
     if [ "$1" = mission ]; then
-      roslaunch qn_aav_simulator formation_air.launch run_mission:=true
+      roslaunch qn_aav_simulator formation_air.launch run_mission:=true \
+        dashboard:="$2"
     else
       roslaunch ego_planner normal_hexagon.launch
     fi
-  ' bash "$MODE"
+  ' bash "$MODE" "$DASHBOARD"

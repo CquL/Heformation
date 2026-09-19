@@ -24,7 +24,8 @@ catkin_install_python(
   PROGRAMS scripts/qn_aav_node.py scripts/formation_action_server.py
   scripts/formation_mission_runner.py scripts/verify_formation_experiment.py
   scripts/plot_formation_experiment.py scripts/plot_mission_overview.py
-  scripts/animate_mission_replay.py scripts/scene_publisher.py
+  scripts/animate_mission_replay.py scripts/mission_dashboard.py
+  scripts/scene_publisher.py
   scripts/locate_failure_layer.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

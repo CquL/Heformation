@@ -174,6 +174,19 @@ rosbag 不入库（记录绝对路径与大小）。
 `dispatch_changed=false`（串行单资源下是预期结果），三任务 `PASS/PASS/VALID`，
 最大模型-ROS 漂移 0.00064 s。167 项单元测试通过。
 
+### 实时视图（2026-09-19）
+
+实时**三维**视图一直存在：`./scripts/docker_run_qn_demo.sh mission`（RViz + 仿真）。但实时**任务层**
+此前没有——之前两张图都是事后离线渲染。现在新增：
+
+- `mission_dashboard.py`：只读订阅节点，四面板（场景+槽位 / 状态与判定 / 槽位误差 / 高度与最近接近），
+  输出窗口 + `~image/compressed`。`DASHBOARD=true ./scripts/docker_run_qn_demo.sh mission`。
+- opt-in（launch 参数 `dashboard`，默认 false）：它以几 Hz 渲染 matplotlib，正是模型时钟门槛敏感的
+  那类额外 CPU 负载，证据运行应关闭。
+
+注意 RViz 的全局点云显示指向 `/map_generator/global_cloud`（上游森林话题），不是实验的
+`/scene/global_cloud`。
+
 下一步仍是 M2 第 3 步（原盒子场景定位，盒子保持 `(-23,0,0.5)` / `(1,1,1.2)` 不动，不缩小障碍换通过）
 与第 4 步（局部扫描中断）。
 
