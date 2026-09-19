@@ -13,7 +13,7 @@
 
 ---
 
-## 2026-09-19 · 按 wenxianSKILL 补齐文献与参考源码（提交待补）
+## 2026-09-19 · 按 wenxianSKILL 补齐文献与参考源码（提交 `c666af7`）
 
 - **计划**：按 `prompt/wenxianSKILL.md` 把 P0/P1 里还缺的全文补齐、把有源码的项目拉到 `upstream/` 下参考，
   并按 Skill 推荐的 `papers/<category>/` 结构 + `RESEARCH_MAP.md` 整理。
