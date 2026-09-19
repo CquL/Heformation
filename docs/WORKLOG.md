@@ -13,6 +13,45 @@
 
 ---
 
+## 2026-09-19 · 文献全文补充：巡检完成判据、海上协同、任务—通信耦合（提交待补）
+
+- **计划**：把与接口直接相关的文献补到全文级——CARIC（巡检任务定义与观测完成判据）、Xiroi II（USV 中继）、
+  USV-UUV 协同、CoCoPlan（任务—通信联合）、Swarm-Formation / GRSTAPS / APEX-MR（已有）。
+  每篇只提取三类内容：它解决什么问题、改变我们哪个接口或约束、要求增加什么反例或实验。
+  目的是**防止我们自己拍脑袋定义任务接口、完成条件和协同关系**，不是再堆算法。
+- **实际**：
+  - 新增全文 5 篇（`research/literature/papers/`，PDF 不入库）：`caric-2025`、`cocoplan-2026`、
+    `xiroi-ii-2023`、`usv-uuv-cooperation-2023`、`auv-collaborative-missions-2020`；
+    每篇均以 `file` 与首页文本核对（标题自证），记录了字节数与 sha256。
+  - CARIC 的真名是 **Cooperative Aerial Robot Inspection Challenge**（arXiv:2501.06566；比赛在 CDC 2023 /
+    IROS 2024 Workshop）；用 OpenAlex/arXiv API 定位，MDPI 需走 `mdpi-res.com` 直链才能拿到 PDF
+    （`www.mdpi.com/.../pdf` 返回 HTML，已记为抓取注意事项）。
+  - `joe-2022-marine-heterogeneous-collaboration` 为**闭源**：Unpaywall `is_oa=false`、
+    `has_repository_copy=false`、`best_oa_location=null`，OpenAlex `oa_status=closed`，期刊不在 DOAJ
+    → 记为 `not-available` / `abstract-only`，笔记中明确声明只依据摘要、不引用正文结论。
+    GRSTAPS 原有条目同样是摘要级，保持不变。
+  - 新增 6 条笔记 + manifest 6 条记录（`read_scope` 与 `pdf_status` 一致，已脚本校验无矛盾、无断链）。
+- **效果（这些文献直接改了我们的口径）**：
+  1. **观测完成判据**：CARIC 的 `q = q_seen·q_blur·q_res` 说明"在半径内 + 驻留"只是 `q_seen`，
+     还缺运动模糊与分辨率两维；`Q = Σ_i max_j q_ij` 给出**每兴趣点取全局最优一次**的去重规则；
+     且"未碰撞者才计分"比我们"coverage=1 不能覆盖安全失败"更强（不是扣分，是**不予计分**）。
+  2. **复测与依赖**：CoCoPlan 的任务完成是 (I) 到达 + 连续执行 η **且** (II) 满足全部时间约束；
+     我们只有 (I)。其三类时间关系（precedence / **mutual exclusion** / concurrency）正好把
+     "重叠执行单元不得同时占用"变成一条显式计划约束，而不是 runner 里的串行约定。
+  3. **中继不是到位**：Xiroi II 的 ASV 按与 AUV 的距离分跟踪/漂移/排斥三区，"靠得够近"与"不碰撞"
+     同时生效，效果用**声学定位频率 0.117→0.468 Hz** 量化；JOE 2022（摘要级）进一步说 USV 自身轨迹
+     的目的是**约束 UUV 的状态估计误差**。→ 我们的任务模型缺"支援类"任务。
+  4. **失联必须有声明式应急策略**（USV-UUV 综述：否则失控运行到耗尽/搁浅）；
+     水下交付零延迟只能作为**显式声明**，不能是默认。
+  5. **不要为拆队而拆队 / 单次运行不可当结论**：CARIC 明确"把少量机器人分成多组不一定更快"，
+     且同场景不同运行分差可超 1000 分、出现过全队空闲的失败运行。
+- **证据**：`research/literature/manifest.yaml`（13 条，含 sha256 与 `read_scope`）；
+  `research/literature/notes/` 13 篇；上面每条结论都可在对应笔记里查到出处小节。
+- **未完成与下一步**：`context/12_literature_review.md` 与 `13_references.md` 尚未并入这批新条目
+  （属计划阶段 4 的文档工作）；JOE 2022 若要用作接口依据需先取得正文并升级笔记。
+
+---
+
 ## 2026-09-19 · 阶段 1：单机指令隔离（提交 `a78a09a`）
 
 - **计划**：《近岸监测任务线 + M2 收尾》阶段 1——把"单机运动 / 三机编队 / 待机保持"三种目标含义在全层统一，

@@ -136,3 +136,111 @@ papers:
       - "safety/validity verdicts：安全性依赖已知延迟上界 δmax 与 δDC ≥ δmax；无延迟契约时安全结论只能是 NOT_VERIFIED"
       - "通信假设：处理延迟，不处理完全丢包"
     notes: "notes/robust-mader-2023.md"
+
+  - key: caric-2025
+    title: "Cooperative Aerial Robot Inspection Challenge: A Benchmark for Heterogeneous Multi-UAV Planning and Lessons Learned"
+    authors: ["Muqing Cao", "Thien-Minh Nguyen", "Shenghai Yuan", "Andreas Anastasiou", "Angelos Zacharia", "Savvas Papaioannou", "Panayiotis Kolios", "Christos G. Panayiotou", "Marios M. Polycarpou", "Xinhang Xu", "Mingjie Zhang", "Fei Gao", "Boyu Zhou", "Ben M. Chen", "Lihua Xie"]
+    year: 2025
+    venue: "arXiv:2501.06566 [cs.RO] v2；比赛在 IEEE CDC 2023 与 IROS 2024 Workshop 举办"
+    url: "https://arxiv.org/abs/2501.06566"
+    pdf_file: "papers/caric-2025.pdf"
+    pdf_status: downloaded
+    pdf_size_bytes: 3603818
+    pdf_sha256: "c4c2ab5724f25699e15ff93efe810a1a7e80ef55c7477877a09fe99d5e968e89"
+    read_scope: full-text
+    relevance_to_interface:
+      - "观测完成判据：Q=Σ_i max_j q_ij，q=q_seen·q_blur·q_res；视场+视线遮挡、运动模糊、分辨率，不能把\"在半径内\"当作有效观测"
+      - "去重规则：每兴趣点取所有平台的全局最优一次（max_j），不按平台累加"
+      - "安全与完成的合取：未碰撞者才计分，不是扣分而是不予计分，coverage=1 不能覆盖安全失败"
+      - "交付语义：分数由控制站按收到的结果结算，支持 C_delivered 要求\"且结果已被接收\""
+      - "任务分配：按包围盒体积估计工作量会显著劣化；\"拆成多个小组不一定更快\""
+      - "单次运行不可当结论：同场景不同运行分差可超 1000，且出现全队空闲的失败运行"
+    notes: "notes/caric-2025.md"
+
+  - key: cocoplan-2026
+    title: "CoCoPlan: Adaptive Coordination and Communication for Multi-robot Systems in Dynamic and Unknown Environments"
+    authors: ["Xintong Zhang", "Junfeng Chen", "Yuxiao Zhu", "Bing Luo", "Meng Guo"]
+    year: 2026
+    venue: "IEEE Robotics and Automation Letters (RA-L)，DOI 10.1109/LRA.2026.3656769；arXiv:2601.10116"
+    url: "https://arxiv.org/abs/2601.10116"
+    pdf_file: "papers/cocoplan-2026.pdf"
+    pdf_status: downloaded
+    pdf_size_bytes: 3682925
+    pdf_sha256: "d48b17ece5d18f4874b1a07b6289835f1738d19a709d5ad022ee3dd48e98c855"
+    read_scope: full-text
+    relevance_to_interface:
+      - "任务完成 = (I) 到达且一队 n_j 个智能体在区域内连续执行动作 η_m + (II) 执行区间满足全部时间约束；我们目前只有 (I)"
+      - "三类时间关系 precedence / mutual exclusion / concurrency：重叠执行单元的\"不得同时占用\"就是互斥约束，应在计划里显式存在"
+      - "约束运行期才可知（P_t 只在 t≥0 已知）：依赖闸门必须由运行期数据到达驱动"
+      - "通信带质量模型 Q_ij=Pt−PL(d)−α·d_obs 且要求全局连通；中继/交付不能建模成恒通，采集≠交付"
+    notes: "notes/cocoplan-2026.md"
+
+  - key: xiroi-ii-2023
+    title: "Xiroi II, an Evolved ASV Platform for Marine Multirobot Operations"
+    authors: ["Antoni Martorell-Torres", "Eric Guerrero-Font", "José Guerrero-Sastre", "Gabriel Oliver-Codina"]
+    year: 2023
+    venue: "Sensors (MDPI) 23(1):109, DOI 10.3390/s23010109"
+    url: "https://www.mdpi.com/1424-8220/23/1/109"
+    pdf_file: "papers/xiroi-ii-2023.pdf"
+    pdf_status: downloaded
+    pdf_size_bytes: 2980494
+    pdf_sha256: "fcdc1e18849ad5c87228f1b891e51ce7f1935ef8488df78348563a5232406102"
+    read_scope: full-text
+    relevance_to_interface:
+      - "中继任务的完成条件是\"维持邻近\"而非\"到达某点\"：按与 AUV 距离分跟踪/漂移/排斥三区，靠近与不碰撞同时生效"
+      - "中继能力必须给出链路指标：平均声学定位频率 0.117 Hz → 0.468 Hz，不能用\"USV 到位\"代替"
+      - "协调层输出的是连续速度参考 (ẋ,ẏ,γ̇)，与我们 FormationAction 的\"一点 + 驻留\"形状不同"
+      - "被中继的平台必须真实存在，否则中继任务不可在线完成"
+    notes: "notes/xiroi-ii-2023.md"
+
+  - key: usv-uuv-cooperation-2023
+    title: "Survey on the Developments of Unmanned Marine Vehicles: Intelligence and Cooperation"
+    authors: ["Inyeong Bae", "Jungpyo Hong"]
+    year: 2023
+    venue: "Sensors (MDPI) 23(10):4643, DOI 10.3390/s23104643"
+    url: "https://www.mdpi.com/1424-8220/23/10/4643"
+    pdf_file: "papers/usv-uuv-cooperation-2023.pdf"
+    pdf_status: downloaded
+    pdf_size_bytes: 1254753
+    pdf_sha256: "acd55d929714e0c720bda8ac3297705edeab45f51e6c369de79e24e17889fd86"
+    read_scope: full-text
+    relevance_to_interface:
+      - "水下通信是硬约束：>100 m 几乎只能靠声波，带宽 kb/s 量级；不得把水下交付写成零延迟且免费"
+      - "失联必须有声明式应急策略（否则失控运行到耗尽/搁浅）"
+      - "异构协同需要显式的分层控制体系（不同功能与平台的载具之间）"
+      - "水下连通可由中继节点重建（如 AUV 布放声呐浮标），我们的任务模型尚无此类动作"
+    notes: "notes/usv-uuv-cooperation-2023.md"
+
+  - key: auv-collaborative-missions-2020
+    title: "Autonomous Underwater Vehicles: Localization, Navigation, and Communication for Collaborative Missions"
+    authors: ["Josué González-García", "Alfonso Gómez-Espinosa", "Enrique Cuan-Urquizo", "Luis Govinda García-Valdovinos", "Tomás Salgado-Jiménez", "Jesús Arturo Escobedo Cabello"]
+    year: 2020
+    venue: "Applied Sciences (MDPI) 10(4):1256, DOI 10.3390/app10041256"
+    url: "https://www.mdpi.com/2076-3417/10/4/1256"
+    pdf_file: "papers/auv-collaborative-missions-2020.pdf"
+    pdf_status: downloaded
+    pdf_size_bytes: 3943740
+    pdf_sha256: "8932d434c4e30cf509f5aeecb9df50d6319839baef60303ac036094740bc193a"
+    read_scope: full-text
+    relevance_to_interface:
+      - "水下协作的前置条件是定位/导航，不是任务分配；UUV 不是\"只差一个执行端点\""
+      - "水声链路参数是量级性的（带宽/时延/功耗/成本），零延迟只能是显式声明"
+      - "协作任务分四类（协作导航/探索/目标搜索/目标操作），对平台状态需求不同，不宜统一成一个\"到位+驻留\"动作"
+      - "编队航行的价值与任务绑定，不为保持队形本身"
+    notes: "notes/auv-collaborative-missions-2020.md"
+
+  - key: joe-2022-marine-heterogeneous-collaboration
+    title: "Collaboration of Heterogeneous Marine Robots Toward Multidomain Sensing and Situational Awareness on Partially Submerged Targets"
+    authors: ["Joel Lindsay", "Jordan Ross", "Mae Seto", "Edward Gregson", "Alexander Moore", "Jay Patel", "Robert Bauer"]
+    year: 2022
+    venue: "IEEE Journal of Oceanic Engineering, DOI 10.1109/JOE.2022.3156631（闭源）"
+    url: "https://doi.org/10.1109/JOE.2022.3156631"
+    pdf_file: null
+    pdf_status: not-available
+    read_scope: abstract-only
+    oa_check: "Unpaywall is_oa=false, has_repository_copy=false, best_oa_location=null; OpenAlex oa_status=closed; 期刊不在 DOAJ"
+    relevance_to_interface:
+      - "USV 自身轨迹是支援动作，目标是约束被支援平台的状态估计误差，不是到位"
+      - "中心规划节点置于 USV、对 UAV/UUV 集中分派，与本项目\"母船统筹+本地执行\"同构"
+      - "跨域数据在水面处汇聚融合，支持\"采集与交付分开记录\""
+    notes: "notes/joe-2022-marine-heterogeneous-collaboration.md"
