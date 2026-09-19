@@ -11,6 +11,14 @@ COPY integration/swarm_qn_bridge/simulator.xml \
 COPY integration/swarm_qn_bridge/patches /tmp/swarm_qn_patches
 RUN patch -p1 -d /workspace/src \
       < /tmp/swarm_qn_patches/pcl_render_node_accept_map_updates.patch
+# The renderer must publish a completed empty scan (with a real stamp and the
+# same frame as the rest of the stack) instead of staying silent.
+RUN patch -p1 -d /workspace/src \
+      < /tmp/swarm_qn_patches/renderer_empty_scan_frame_stamp.patch
+# The replan FSM must honour the goal height so the cruise altitude can clear the
+# declared surface envelope.
+RUN patch -p1 -d /workspace/src \
+      < /tmp/swarm_qn_patches/plan_manage_honour_goal_height.patch
 
 # mrta_python is a path-based package (integration/mrta_python).  The base
 # image ships setuptools 45.2, whose isolated PEP 621 build needs PyPI and

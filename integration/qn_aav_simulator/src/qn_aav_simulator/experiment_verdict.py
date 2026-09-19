@@ -260,6 +260,14 @@ class SafetyResult:
     # published figure subtracts both envelopes.
     min_inter_agent_surface_clearance_m: Optional[float] = None
     platform_radius_m: float = 0.0
+    # Actual clearance to the declared obstacle box, and whether a box was
+    # declared at all ("not applicable" is a different statement from a zero or
+    # a missing measurement).
+    box_clearance_m: Optional[float] = None
+    box_center: Optional[Tuple[float, float, float]] = None
+    box_size: Optional[Tuple[float, float, float]] = None
+    required_box_clearance_m: float = 0.0
+    obstacle_check: str = "NOT_APPLICABLE"
     collision_pairs: Tuple[Tuple[int, int], ...] = ()
     reasons: Tuple[str, ...] = ()
 
@@ -271,6 +279,11 @@ class SafetyResult:
             "min_obstacle_clearance_m": self.min_obstacle_clearance_m,
             "min_inter_agent_surface_clearance_m":
                 self.min_inter_agent_surface_clearance_m,
+            "box_clearance_m": self.box_clearance_m,
+            "box_center": list(self.box_center) if self.box_center else None,
+            "box_size": list(self.box_size) if self.box_size else None,
+            "required_box_clearance_m": self.required_box_clearance_m,
+            "obstacle_check": self.obstacle_check,
             "platform_radius_m": self.platform_radius_m,
             "check_resolution": self.evidence_kind,
             "required_inter_agent_clearance_m": self.required_inter_agent_clearance_m,
@@ -280,13 +293,63 @@ class SafetyResult:
         }
 
 
+def box_signed_distance(point, center, size) -> float:
+    """Signed distance from a point to an axis-aligned box (positive outside).
+
+    Defined once here so the sampled cloud, the action server's live check and
+    the offline verifier all describe the same solid.
+    """
+    deltas = [abs(float(point[axis]) - float(center[axis])) - 0.5 * float(size[axis])
+              for axis in range(3)]
+    outside = math.sqrt(sum(value * value for value in deltas if value > 0.0))
+    inside = min(max(deltas), 0.0)
+    return outside + inside
+
+
+def box_sample_points(center, size, resolution) -> Tuple[Tuple[float, float, float], ...]:
+    """Sample the declared box so the cloud covers its full extent.
+
+    ``round(size / resolution) + 1`` points per axis span exactly
+    ``[-size/2, +size/2]``.  Sampling ``range(round(size / resolution))`` stops
+    one step short of the declared +x/+y/+z faces, which would describe a
+    smaller box than the one the clearance check uses.
+    """
+    if resolution <= 0.0:
+        raise ValueError("resolution must be positive")
+    axes = []
+    for axis in range(3):
+        half = 0.5 * float(size[axis])
+        if half <= 0.0:
+            axes.append((float(center[axis]),))
+            continue
+        count = max(2, int(round(float(size[axis]) / resolution)) + 1)
+        step = (2.0 * half) / float(count - 1)
+        axes.append(tuple(float(center[axis]) - half + index * step
+                          for index in range(count)))
+    return tuple((x, y, z) for x in axes[0] for y in axes[1] for z in axes[2])
+
+
+def box_surface_clearance(point, center, size, platform_radius_m) -> float:
+    """Clearance from the platform envelope to the box surface.
+
+    The platform radius is subtracted exactly once; comparing this against a
+    threshold that also contains the radius would double-count it.
+    """
+    return box_signed_distance(point, center, size) - float(platform_radius_m)
+
+
 def evaluate_safety(samples: Dict[int, Sequence[MemberSample]], *,
                     obstacle_clearances: Optional[Sequence[float]] = None,
                     required_inter_agent_clearance_m: float = _MIN_INTER_AGENT_CLEARANCE_M,
                     required_obstacle_clearance_m: float = _OBSTACLE_CLEARANCE_M,
                     platform_radius_m: float = 0.0,
                     surface_clearance_violation: bool = False,
-                    surface_detail: str = ""
+                    surface_detail: str = "",
+                    box_clearance_m: Optional[float] = None,
+                    box_center: Optional[Sequence[float]] = None,
+                    box_size: Optional[Sequence[float]] = None,
+                    required_box_clearance_m: float = 0.0,
+                    obstacle_check_expected: bool = True
                     ) -> SafetyResult:
     """Discrete-sample collision and obstacle-separation check.
 
@@ -325,12 +388,23 @@ def evaluate_safety(samples: Dict[int, Sequence[MemberSample]], *,
             ", ".join("({},{})".format(a, b) for a, b in collisions)))
     if surface_clearance_violation:
         reasons.append(surface_detail or "observed surface clearance violation")
+    # The declared obstacle box is the actual geometric truth.  The recorded
+    # point-cloud distance stays a diagnostic: it samples the surface at the
+    # sensor resolution and is not the solid's clearance.
+    if box_clearance_m is not None and box_clearance_m < required_box_clearance_m:
+        reasons.append(
+            "box surface clearance {:.3f} m below {:.2f} m".format(
+                box_clearance_m, required_box_clearance_m))
     if min_obstacle is not None and min_obstacle < required_obstacle_clearance_m:
         reasons.append("obstacle clearance {:.3f} m below {:.2f} m".format(
             min_obstacle, required_obstacle_clearance_m))
     if collisions or reasons:
         outcome = SAFETY_FAIL
-    elif min_obstacle is None:
+    elif box_clearance_m is None and not obstacle_check_expected:
+        # No obstacle was declared, so there is no check to verify: that is a
+        # different statement from a check that could not be performed.
+        outcome = SAFETY_PASS
+    elif min_obstacle is None and box_clearance_m is None:
         outcome = SAFETY_NOT_VERIFIED
         reasons.append("no obstacle clearance samples were recorded")
     else:
@@ -345,6 +419,11 @@ def evaluate_safety(samples: Dict[int, Sequence[MemberSample]], *,
         required_inter_agent_clearance_m=required_inter_agent_clearance_m,
         required_obstacle_clearance_m=required_obstacle_clearance_m,
         collision_pairs=tuple(collisions),
+        box_clearance_m=box_clearance_m,
+        box_center=tuple(box_center) if box_center is not None else None,
+        box_size=tuple(box_size) if box_size is not None else None,
+        required_box_clearance_m=required_box_clearance_m,
+        obstacle_check=("NOT_APPLICABLE" if box_clearance_m is None else "CHECKED"),
         reasons=tuple(reasons),
     )
 

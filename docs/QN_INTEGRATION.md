@@ -300,6 +300,50 @@ obstacle reached the perception chain, and the formation still flew into it --
 this scenario is **not** a pass, and the honest summary is that the stack does
 not yet demonstrate obstacle avoidance in this configuration.
 
+## M2 step 1-2: scene source, geometry, and where the baseline stops
+
+**One scene, one publisher.** The scene publisher owns `/scene/global_cloud`; the
+renderers, the action server, readiness and the verifier all take that topic from
+one launch-level definition.  `obstacle:=off` only removes the box -- the
+publisher still runs, so the with/without comparison differs in one thing.
+
+**An empty map is a state, not a failure.** The upstream renderer crashed when
+the global map was explicitly empty (it voxelised nothing and then built a k-d
+tree from it) and stayed silent when a scan found no points.  Two recorded
+build-time patches fix that: an empty map initialises with an empty obstacle set,
+and a completed scan with no returns publishes an empty cloud with a real
+timestamp in the `world` frame.  Measured in the container: all seven renderers
+alive, local scans at ~12 Hz with real stamps, `ready=true` with
+`known_empty_map=false` -- the scan chain is now validated by data instead of
+being waived.
+
+**The box cloud matches the box.** Sampling covered only `range(round(size/res))`
+points per axis and therefore stopped one step short of the declared +x/+y/+z
+faces; the cloud and the analytic clearance now come from one definition and the
+cloud spans exactly `[-size/2, +size/2]`.
+
+**Two clearance questions, two thresholds.** The actual state is compared with
+the required clearance alone (`d_actual >= d_required`); the reference path is
+compared with the required clearance plus the budget declared before the run
+(`d_ref >= d_required + e_budget`).  The platform radius is subtracted once.  A
+reference shortfall is a margin finding, never an observed collision.  With no
+box declared the box check reports `NOT_APPLICABLE`, which is not the same
+statement as `NOT_VERIFIED`.
+
+**Plane envelope.** The declared surface is an analytic boundary; no plane point
+cloud is added.  The envelope is judged over the whole run.
+
+`experiments/20260918-m2-baseline-clean` (no box, cruise 0.8 m) passes per task:
+`task_outcome=PASS`, `safety_outcome=PASS`, `experiment_validity=VALID`,
+minimum member heights 0.380 / 0.502 / 0.426 m, `obstacle_check=NOT_APPLICABLE`,
+baseline 30.20 s.  It does **not** pass the cumulative whole-run time gate:
+`model/ROS rate` 0.99928 gives 57 ms of accumulated drift over 72.8 s against the
+50 ms limit.  The rate deficit is the cost of the perception chain now actually
+running (seven renderers plus seven planners plus seven qn nodes on a CPU-bound
+host); the per-task alignment reports pass, the cumulative one does not.  That is
+the current stop point: the box scenario is not evaluated until the cumulative
+time condition holds.
+
 ## Rendering a recorded run
 
 `plot_formation_experiment.py` reads one experiment directory and renders what the

@@ -56,11 +56,17 @@ class MissionRunner:
         self.seed = int(rospy.get_param("~seed", 0))
         self.tolerance = float(rospy.get_param("~delay_tolerance", 0.1))
         self.speed = float(rospy.get_param("~nominal_speed_mps", 1.5))
-        self.obstacle_scenario = bool(rospy.get_param("~obstacle_scenario", False))
+        # One scene definition, shared with the publisher, the action server and
+        # the verifier; the launch arg only toggles whether the box is present.
+        scene = rospy.get_param("/scene", {})
+        self.obstacle_scenario = bool(rospy.get_param(
+            "~obstacle_scenario", scene.get("obstacle_present", False)))
+        self.scene_topic = str(rospy.get_param(
+            "~scene_topic", scene.get("topic", "/scene/global_cloud")))
         self.obstacle_center = [float(value) for value in rospy.get_param(
-            "~obstacle_center", [-23.0, 0.0, 0.5])]
+            "~obstacle_center", scene.get("obstacle_center", [-23.0, 0.0, 0.5]))]
         self.obstacle_size = [float(value) for value in rospy.get_param(
-            "~obstacle_size", [1.0, 1.0, 1.2])]
+            "~obstacle_size", scene.get("obstacle_size", [1.0, 1.0, 1.2]))]
         self.centers = rospy.get_param("~centers")
         self.initial_ref = rospy.get_param("~initial_target_ref", "start")
         raw_repair_mode = rospy.get_param("~repair_mode", "on")
@@ -128,6 +134,7 @@ class MissionRunner:
             "obstacle_scenario": self.obstacle_scenario,
             "obstacle_center": self.obstacle_center,
             "obstacle_size": self.obstacle_size,
+            "scene_topic": self.scene_topic,
             "mission_epoch": None,
             "initial_plan": asdict(self.plan), "plan_history": [],
             "executions": [], "events": [], "test_c": {},
@@ -201,6 +208,16 @@ class MissionRunner:
             rospy.sleep(0.05)
         return None
 
+    def time_alignment_baseline(self):
+        """The baseline snapshot that admitted this run."""
+        raw = rospy.get_param("/formation_action_server/time_alignment_baseline", None)
+        if raw is None:
+            return self.time_alignment_session()
+        try:
+            return json.loads(raw)
+        except (TypeError, ValueError):
+            return {}
+
     def time_alignment_session(self):
         raw = rospy.get_param("/formation_action_server/time_alignment_session", None)
         if isinstance(raw, str):
@@ -245,7 +262,7 @@ class MissionRunner:
                 "FormationAction never reached READY_IDLE: {}".format(
                     rospy.get_param("/formation_action_server/readiness_reason", "unknown")))
         self.metrics["ready_ros_time_s"] = rospy.Time.now().to_sec()
-        self.metrics["baseline_qualification"] = self.time_alignment_session()
+        self.metrics["baseline_qualification"] = self.time_alignment_baseline()
         save_json(self.output / "config.json", {
             "runner": rospy.get_param(rospy.get_name()),
             "monitor": rospy.get_param("/formation_action_server"),

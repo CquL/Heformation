@@ -8,8 +8,60 @@ from dataclasses import replace
 from qn_aav_simulator.experiment_verdict import (
     DISCRETE_SAMPLED, MemberSample, SAFETY_FAIL, SAFETY_NOT_VERIFIED, SAFETY_PASS,
     TASK_FAIL, TASK_PASS, VALIDITY_INCOMPLETE, VALIDITY_INVALID, VALIDITY_VALID,
-    build_ledger, compute_metrics, decide, evaluate_safety,
+    box_sample_points, box_signed_distance, box_surface_clearance, build_ledger,
+    compute_metrics, decide, evaluate_safety,
 )
+
+BOX_CENTER = (-23.0, 0.0, 0.5)
+BOX_SIZE = (1.0, 1.0, 1.2)
+RADIUS = 0.25
+
+
+def box_safety(samples, clearance, required=0.2):
+    return evaluate_safety(
+        samples, obstacle_clearances=[5.0], platform_radius_m=RADIUS,
+        box_clearance_m=clearance, box_center=BOX_CENTER, box_size=BOX_SIZE,
+        required_box_clearance_m=required)
+
+
+def test_box_signed_distance_is_positive_outside_and_negative_inside():
+    assert box_signed_distance((-23.0, 0.0, 0.5), BOX_CENTER, BOX_SIZE) == pytest.approx(-0.5)
+    assert box_signed_distance((-24.0, 0.0, 0.5), BOX_CENTER, BOX_SIZE) == pytest.approx(0.5)
+    # On the +x face the distance is zero.
+    assert box_signed_distance((-22.5, 0.0, 0.5), BOX_CENTER, BOX_SIZE) == pytest.approx(0.0)
+
+
+def test_surface_clearance_subtracts_the_radius_exactly_once():
+    assert box_surface_clearance(
+        (-24.0, 0.0, 0.5), BOX_CENTER, BOX_SIZE, RADIUS) == pytest.approx(0.25)
+    # The two hold positions leave 0.25 m against a 0.20 m requirement: 5 cm.
+    for slot in ((-24.0, 0.0, 0.5), (-22.0, 0.0, 0.5)):
+        assert box_surface_clearance(slot, BOX_CENTER, BOX_SIZE, RADIUS) - 0.2 == \
+            pytest.approx(0.05)
+
+
+def test_box_sampling_covers_the_declared_extent():
+    points = box_sample_points(BOX_CENTER, BOX_SIZE, 0.2)
+    for axis, (center, size) in enumerate(zip(BOX_CENTER, BOX_SIZE)):
+        values = [point[axis] for point in points]
+        assert min(values) == pytest.approx(center - 0.5 * size)
+        assert max(values) == pytest.approx(center + 0.5 * size)
+
+
+def test_box_clearance_below_requirement_fails_safety():
+    passing = box_safety(settled_series(), 0.25)
+    assert passing.outcome == SAFETY_PASS
+    assert passing.obstacle_check == "CHECKED"
+    failing = box_safety(settled_series(), -0.05)
+    assert failing.outcome == SAFETY_FAIL
+    assert any("box surface clearance" in reason for reason in failing.reasons)
+
+
+def test_no_declared_box_is_reported_as_not_applicable():
+    safety = evaluate_safety(settled_series(), obstacle_clearances=[5.0])
+    assert safety.outcome == SAFETY_PASS
+    assert safety.obstacle_check == "NOT_APPLICABLE"
+    assert safety.box_clearance_m is None
 
 SLOTS = {
     0: (0.0, 0.0, 0.0), 1: (1.7321, -1.0, 0.0), 2: (0.0, -2.0, 0.0),
@@ -90,6 +142,16 @@ def test_missing_clearance_samples_are_not_verified_not_passed():
     safety = evaluate_safety(samples, obstacle_clearances=None)
     assert safety.outcome == SAFETY_NOT_VERIFIED
     assert verdict_for(samples, safety=safety).safety_outcome == SAFETY_NOT_VERIFIED
+
+
+def test_no_declared_obstacle_is_not_a_missing_verification():
+    """Without an obstacle there is no check to verify, which is not the same
+    as a check that could not be performed."""
+    samples = settled_series()
+    safety = evaluate_safety(samples, obstacle_clearances=None,
+                             obstacle_check_expected=False)
+    assert safety.outcome == SAFETY_PASS
+    assert safety.obstacle_check == "NOT_APPLICABLE"
 
 
 def test_missing_samples_are_counted_instead_of_silently_dropped():

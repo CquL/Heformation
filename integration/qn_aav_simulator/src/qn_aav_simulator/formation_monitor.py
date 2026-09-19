@@ -25,10 +25,17 @@ def _vector(value):
     return result
 
 
-def validate_target(frame_id, center, hold_duration):
+def validate_target(frame_id, center, hold_duration, target_z=0.5):
+    """Validate one AIR task target.
+
+    ``target_z`` is the declared cruise altitude of the scenario.  It used to be
+    a hard-coded 0.5 m; the qn plant's vertical transient needs headroom above
+    the declared surface, so the altitude is a scenario parameter now.
+    """
     center = _vector(center)
-    if frame_id != "world" or abs(center[2] - 0.5) > 1e-6:
-        raise ValueError("AIR targets require frame_id=world and z=0.5 m")
+    if frame_id != "world" or abs(center[2] - float(target_z)) > 1e-6:
+        raise ValueError(
+            "AIR targets require frame_id=world and z={} m".format(target_z))
     if not math.isfinite(hold_duration) or hold_duration < 0.0:
         raise ValueError("hold_duration must be finite and nonnegative")
     return center
@@ -111,8 +118,9 @@ class GroupCompletionMonitor:
     def __init__(self, center, hold_duration, start_time, *, agent_ids=AGENT_IDS,
                  relative_slots=None, swarm_scale=2.0, epsilon_p=0.5,
                  epsilon_v=0.25, odom_timeout=0.25, execution_timeout=180.0,
-                 platform_radius_m=0.0):
-        self.center = validate_target("world", center, hold_duration)
+                 platform_radius_m=0.0, target_z=0.5):
+        self.target_z = float(target_z)
+        self.center = validate_target("world", center, hold_duration, self.target_z)
         self.slots = validate_configuration(
             agent_ids, DEFAULT_RELATIVE_SLOTS if relative_slots is None else relative_slots,
             swarm_scale, epsilon_p, epsilon_v, odom_timeout, execution_timeout)

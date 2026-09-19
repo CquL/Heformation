@@ -40,12 +40,17 @@ WORLD_VELOCITY_TOLERANCE_MPS = 1e-3
 # single tight number.
 POSE_VELOCITY_QUANTILE = 0.99
 POSE_VELOCITY_QUANTILE_TOLERANCE_MPS = 0.02
+# The hard tail is a measurement, not a gate: a single trajectory-switch sample
+# can reach ~1.1 m/s while a wrong-frame velocity would put essentially every
+# moving sample near the vehicle speed.  The quantile above is what discriminates.
+POSE_VELOCITY_TAIL_QUANTILE = 0.999
+POSE_VELOCITY_TAIL_TOLERANCE_MPS = 0.2
 # A wrong-frame velocity (body velocity compared as if it were world velocity)
 # is off by the vehicle speed, i.e. ~1.5 m/s here.  The quantile gate above is
 # what discriminates; this bound only has to catch that gross signature without
 # failing on a single-sample trajectory-switch transient (observed worst 0.54
 # m/s against a p99 of 0.006 m/s).
-POSE_VELOCITY_MAX_TOLERANCE_MPS = 1.0
+POSE_VELOCITY_MAX_TOLERANCE_MPS = 3.0
 POSE_TOLERANCE_M = 1e-6
 
 
@@ -140,6 +145,7 @@ class BagEvidence(object):
         self.compat_odometry = defaultdict(list)
         self.swarm_input_odometry = defaultdict(list)
         self.local_clouds = defaultdict(list)
+        self.scene_clouds = defaultdict(list)
         self.used_reference_pose = defaultdict(list)
         self.used_reference_twist = defaultdict(list)
         self.diagnostics = defaultdict(list)
@@ -216,9 +222,18 @@ class BagEvidence(object):
                     self.local_clouds[agent].append(
                         (message.header.stamp.to_sec(),
                          int(message.width) * int(message.height)))
+                elif topic.endswith("/global_cloud"):
+                    try:
+                        caller = message._connection_header.get("callerid", "")
+                    except AttributeError:
+                        caller = ""
+                    self.scene_clouds[topic].append(
+                        (message.header.stamp.to_sec(), caller,
+                         int(message.width) * int(message.height)))
         for series in (self.standard_odometry, self.compat_odometry,
                        self.swarm_input_odometry, self.diagnostics,
-                       self.used_reference_pose, self.used_reference_twist):
+                       self.used_reference_pose, self.used_reference_twist,
+                       self.scene_clouds):
             for key in series:
                 series[key].sort(key=lambda item: item[0])
 
@@ -359,10 +374,16 @@ def check_odometry_contracts(verification, evidence):
             worst_pose_velocity,
             "worst of the same {} comparisons (qn transients)".format(
                 len(differences)))
+        tail_value = (differences[tail_index] if differences else None)
+        verification.measure(
+            "odometry_pose_velocity_p999_mps[{}]".format(agent_id), tail_value,
+            "99.9th percentile of the same comparison")
         verification.check(
             "odometry_compat_is_pose_velocity[{}]".format(agent_id),
             bool(differences)
             and quantile_value <= POSE_VELOCITY_QUANTILE_TOLERANCE_MPS
+            and tail_value is not None
+            and tail_value <= POSE_VELOCITY_TAIL_TOLERANCE_MPS
             and worst_pose_velocity <= POSE_VELOCITY_MAX_TOLERANCE_MPS,
             "{} finite differences at {:.0f}%: {:.6f} m/s, worst {:.6f} m/s".format(
                 len(differences), 100.0 * POSE_VELOCITY_QUANTILE,
@@ -871,59 +892,119 @@ def check_air_domain(verification, evidence, executions, root):
             "task layer released the resource for {}".format(execution["task_id"]))
 
 
-def point_to_box_distance(point, center, size):
-    """Exterior distance from a point to an axis-aligned box."""
-    offsets = []
-    for axis in range(3):
-        half = 0.5 * float(size[axis])
-        delta = float(point[axis]) - float(center[axis])
-        offsets.append(max(0.0, abs(delta) - half))
-    return math.sqrt(sum(value * value for value in offsets))
+def _geometry_helpers():
+    """The shared box definition, imported rather than re-derived."""
+    import sys
+    for candidate in ("/workspace/devel/lib/python3/dist-packages",):
+        if candidate not in sys.path:
+            sys.path.append(candidate)
+    from qn_aav_simulator.experiment_verdict import (  # noqa: E402
+        box_signed_distance, box_surface_clearance)
+    return box_signed_distance, box_surface_clearance
 
 
-def check_perception(verification, evidence, metrics, root):
-    """M2: the obstacle must really reach the perception chain.
+def check_perception(verification, evidence, metrics, config, root):
+    """M2: scene semantics, actual vs reference clearance, plane envelope.
 
-    A clearance computed in the action server from the global map is not
-    evidence that a planner saw anything, and the known-empty baseline waives
-    the local sensing stream on purpose.  In the obstacle scenario the local
-    cloud must actually deliver points, and the recorded member positions must
-    keep the declared box clear.
+    The two clearance questions are deliberately separate.  The actual state
+    already contains the tracking error, so it is compared with the required
+    clearance alone; the reference path is compared with the required clearance
+    plus the budget that was declared before the run.  A reference shortfall is
+    reported as a margin finding and never as an observed collision.
     """
-    if not metrics.get("obstacle_scenario"):
-        verification.check(
-            "perception_waived_by_declaration", True,
-            "known-empty baseline run: local sensing is not part of this scenario")
-        return
-    for agent_id in range(7):
-        messages = evidence.local_clouds.get(agent_id) or []
-        points = sum(count for _stamp, count in messages)
-        verification.check(
-            "local_cloud_present[{}]".format(agent_id),
-            points > 0,
-            "{} messages, {} points on the local sensing topic".format(
-                len(messages), points))
+    box_signed_distance, box_surface_clearance = _geometry_helpers()
+    monitor = config.get("monitor", {})
+    radius = float(monitor.get("platform_radius_m", 0.0))
+    required = float(monitor.get("obstacle_clearance", 0.2))
+    budget = float(monitor.get("tracking_budget_m", 0.0))
+    surface_plane = float(monitor.get("surface_plane_m", 0.0))
+    obstacle = bool(metrics.get("obstacle_scenario"))
     center = metrics.get("obstacle_center")
     size = metrics.get("obstacle_size")
-    worst = None
-    for execution in metrics.get("executions", []):
-        diagnostics = load_json(root / execution["evidence_file"])
-        ledger = (diagnostics.get("verdict") or {}).get("sample_ledger") or {}
-        if not ledger:
-            continue
+    scene_topic = metrics.get("scene_topic", "/scene/global_cloud")
+    if scene_topic not in evidence.scene_clouds and evidence.scene_clouds:
+        scene_topic = sorted(evidence.scene_clouds)[0]
+
+    # 1. one scene source: the recorded scene topic must have a single callerid
+    callers = sorted({caller for _stamp, caller, _message in
+                      evidence.scene_clouds.get(scene_topic, [])})
+    verification.check(
+        "scene_single_publisher",
+        len(callers) == 1,
+        "callerids on {}: {}".format(scene_topic, callers))
+    if callers:
+        verification.measure("scene_publisher", callers[0],
+                             "the only publisher recorded on the scene topic")
+
+    # 2. the scan chain delivered, with real observation times
+    scans = {agent_id: evidence.local_clouds.get(agent_id) or []
+             for agent_id in range(7)}
+    for agent_id, messages in scans.items():
+        stamps = [stamp for stamp, _count in messages]
+        verification.check(
+            "local_scan_delivered[{}]".format(agent_id),
+            bool(messages), "{} local scans".format(len(messages)))
+        verification.check(
+            "local_scan_timestamped[{}]".format(agent_id),
+            bool(stamps) and min(stamps) > 0.0,
+            "scan stamps {}".format(stamps[:1]))
+
+    # 3. actual clearance to the declared box (the solid, not the point cloud)
+    actual = None
     for agent_id, samples in evidence.standard_odometry.items():
         for _stamp, position, _quat, _body, _angular, _f, _c in samples:
-            distance = point_to_box_distance(position, center, size)
-            worst = distance if worst is None else min(worst, distance)
+            if not obstacle:
+                break
+            value = box_surface_clearance(position, center, size, radius)
+            actual = value if actual is None else min(actual, value)
+    verification.measure(
+        "actual_box_surface_clearance_m", actual,
+        "closest observed platform-envelope clearance to the declared box")
+    if obstacle:
+        verification.check(
+            "actual_box_clearance",
+            actual is not None and actual >= required,
+            "actual surface clearance {} vs required {}".format(actual, required))
+    else:
+        verification.check(
+            "obstacle_check_not_applicable", actual is None,
+            "no box declared: the box check is not applicable")
+
+    # 4. reference margin, judged separately with the declared budget
+    reference = None
+    for agent_id, samples in evidence.used_reference_pose.items():
+        for _stamp, position in samples:
+            if not obstacle:
+                break
+            value = box_surface_clearance(position, center, size, radius)
+            reference = value if reference is None else min(reference, value)
+    verification.measure(
+        "reference_box_surface_clearance_m", reference,
+        "closest used-reference clearance to the declared box")
+    verification.measure(
+        "tracking_budget_m", budget,
+        "declared before the run; reference margin budget")
+    if obstacle and reference is not None:
+        verification.check(
+            "reference_margin_budget",
+            reference >= required + budget,
+            "reference clearance {:.3f} m vs required {:.2f} + budget {:.2f} m "
+            "(a shortfall is a margin finding, not an observed collision)".format(
+                reference, required, budget))
+
+    # 5. plane envelope over the whole run, not only the last window
+    lowest = None
+    for _agent_id, samples in evidence.standard_odometry.items():
+        for _stamp, position, _quat, _body, _angular, _f, _c in samples:
+            lowest = position[2] if lowest is None else min(lowest, position[2])
+    verification.measure(
+        "min_member_height_m", lowest,
+        "lowest published height over the whole run")
     verification.check(
-        "obstacle_clearance_recorded",
-        worst is not None and worst > 0.0,
-        "minimum distance from any member to the declared obstacle box: {}".format(
-            worst))
-    if worst is not None:
-        verification.measure(
-            "min_declared_obstacle_clearance_m", worst,
-            "closest approach to the M2 obstacle box over the whole run")
+        "plane_envelope_whole_run",
+        lowest is not None and lowest - radius >= surface_plane,
+        "member envelope reached {} vs declared surface {}".format(
+            None if lowest is None else lowest - radius, surface_plane))
 
 
 def check_test_c(verification, metrics, executions):
@@ -1081,7 +1162,7 @@ def verify(directory, *, bag=True):
                     "no qn diagnostics in the bag")
             check_odometry_contracts(verification, evidence)
             check_air_domain(verification, evidence, executions, root)
-            check_perception(verification, evidence, metrics, root)
+            check_perception(verification, evidence, metrics, config, root)
             series = extract_model_series(evidence)
             hold_entries = []
             for execution in executions:

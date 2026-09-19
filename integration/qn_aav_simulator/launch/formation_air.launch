@@ -4,12 +4,14 @@
   <arg name="run_mission" default="false"/>
   <arg name="mode" default="mission"/>
   <arg name="record" default="true"/>
-  <!-- M2: a deterministic obstacle in the map the planners actually read.  The
-       same scenario runs with and without it so the change in the plan and in
-       the flown trajectory can be attributed to the obstacle. -->
+  <!-- The scene is defined once here and expanded to every consumer: the scene
+       publisher, the renderers, the action server, readiness and the verifier.
+       `obstacle` only adds or removes the box, so the with/without comparison
+       differs in exactly one thing. -->
   <arg name="obstacle" default="false"/>
   <arg name="obstacle_center" default="[-23.0, 0.0, 0.5]"/>
   <arg name="obstacle_size" default="[1.0, 1.0, 1.2]"/>
+  <arg name="scene_topic" default="/scene/global_cloud"/>
   <!-- Test C control: repair_mode=off keeps the same schedule with planRepair
        disabled; it must NOT be used to make repair-off skip a real completion. -->
   <arg name="repair_mode" default="on"/>
@@ -18,13 +20,13 @@
   <rosparam file="$(find qn_aav_simulator)/config/formation_air.yaml"/>
 
   <!-- Match the initial physical formation to the upstream scale=2 slots. -->
-  <rosparam ns="drone_0_qn_aav">{init_x: -26.0, init_y: 0.0, init_z: 0.5}</rosparam>
-  <rosparam ns="drone_1_qn_aav">{init_x: -22.5358, init_y: -2.0, init_z: 0.5}</rosparam>
-  <rosparam ns="drone_2_qn_aav">{init_x: -26.0, init_y: -4.0, init_z: 0.5}</rosparam>
-  <rosparam ns="drone_3_qn_aav">{init_x: -29.4642, init_y: -2.0, init_z: 0.5}</rosparam>
-  <rosparam ns="drone_4_qn_aav">{init_x: -29.4642, init_y: 2.0, init_z: 0.5}</rosparam>
-  <rosparam ns="drone_5_qn_aav">{init_x: -26.0, init_y: 4.0, init_z: 0.5}</rosparam>
-  <rosparam ns="drone_6_qn_aav">{init_x: -22.5358, init_y: 2.0, init_z: 0.5}</rosparam>
+  <rosparam ns="drone_0_qn_aav">{init_x: -26.0, init_y: 0.0, init_z: 0.8}</rosparam>
+  <rosparam ns="drone_1_qn_aav">{init_x: -22.5358, init_y: -2.0, init_z: 0.8}</rosparam>
+  <rosparam ns="drone_2_qn_aav">{init_x: -26.0, init_y: -4.0, init_z: 0.8}</rosparam>
+  <rosparam ns="drone_3_qn_aav">{init_x: -29.4642, init_y: -2.0, init_z: 0.8}</rosparam>
+  <rosparam ns="drone_4_qn_aav">{init_x: -29.4642, init_y: 2.0, init_z: 0.8}</rosparam>
+  <rosparam ns="drone_5_qn_aav">{init_x: -26.0, init_y: 4.0, init_z: 0.8}</rosparam>
+  <rosparam ns="drone_6_qn_aav">{init_x: -22.5358, init_y: 2.0, init_z: 0.8}</rosparam>
 
   <!-- Override parameters only; the official planner and qn equations are unchanged. -->
   <param name="drone_0_ego_planner_node/manager/max_vel" value="$(arg planner_speed)" type="double"/>
@@ -50,13 +52,17 @@
   <param name="formation_mission_runner/repair_mode" value="$(arg repair_mode)" type="str"/>
   <param name="formation_mission_runner/planner_speed" value="$(arg planner_speed)" type="double"/>
   <param name="formation_mission_runner/obstacle_scenario" value="$(arg obstacle)"/>
-  <rosparam ns="formation_mission_runner" param="obstacle_center" subst_value="true">$(arg obstacle_center)</rosparam>
-  <rosparam ns="formation_mission_runner" param="obstacle_size" subst_value="true">$(arg obstacle_size)</rosparam>
+  <param name="formation_mission_runner/scene_topic" value="$(arg scene_topic)"/>
   <node if="$(arg run_mission)" pkg="qn_aav_simulator" type="formation_mission_runner.py" name="formation_mission_runner" output="screen"/>
-  <node if="$(arg obstacle)" pkg="qn_aav_simulator" type="obstacle_injector.py" name="obstacle_injector" output="screen">
+  <!-- The scene publisher always runs: obstacle:=false removes the box, it does
+       not fall back to the forest map and does not stop the scene source, so
+       the two runs differ only in the box. -->
+  <rosparam param="scene" subst_value="true">{topic: $(arg scene_topic), frame_id: world, obstacle_present: $(arg obstacle), obstacle_center: $(arg obstacle_center), obstacle_size: $(arg obstacle_size), resolution: 0.2}</rosparam>
+  <node pkg="qn_aav_simulator" type="scene_publisher.py" name="scene_publisher" output="screen">
     <rosparam param="center" subst_value="true">$(arg obstacle_center)</rosparam>
     <rosparam param="size" subst_value="true">$(arg obstacle_size)</rosparam>
+    <rosparam param="obstacle" subst_value="true">$(arg obstacle)</rosparam>
   </node>
   <node if="$(arg record)" pkg="rosbag" type="record" name="formation_recorder" output="screen"
-        args="-O $(arg output_dir)/execution.bag --buffsize=256 --regex /formation_action/.*|/move_base_simple/goal|/drone_[0-6]_visual_slam/odom|/drone_[0-6]_planning/(pos_cmd|trajectory|start|finish)|/drone_[0-6]_qn/(odometry|used_reference_pose|used_reference_twist|diagnostics|medium_flag)|/map_generator/global_cloud|/drone_[0-6]_pcl_render_node/cloud"/>
+        args="-O $(arg output_dir)/execution.bag --buffsize=256 --regex /formation_action/.*|/move_base_simple/goal|/drone_[0-6]_visual_slam/odom|/drone_[0-6]_planning/(pos_cmd|trajectory|start|finish)|/drone_[0-6]_qn/(odometry|used_reference_pose|used_reference_twist|diagnostics|medium_flag)|/scene/global_cloud|/drone_[0-6]_pcl_render_node/cloud|/drone_[0-6]_ego_planner_node/grid_map/occupancy_inflate"/>
 </launch>

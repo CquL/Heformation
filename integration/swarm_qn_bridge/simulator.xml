@@ -145,7 +145,12 @@
         <param name="map/y_size"     value="$(arg map_size_y_)"/>
         <param name="map/z_size"     value="$(arg map_size_z_)"/>
 
-        <remap from="~global_map" to="/map_generator/global_cloud"/>
+        <!-- One scene source: the scene publisher owns /scene/global_cloud and is
+             its only publisher.  The upstream forest keeps its own topic and is
+             not consumed.  This literal must match formation_air.launch's
+             scene_topic; a mismatch shows up as a stale local scan chain, so the
+             run refuses to start instead of silently flying blind. -->
+        <remap from="~global_map" to="/scene/global_cloud"/>
         <remap from="~odometry"   to="/drone_$(arg drone_id)_qn/odometry"/>
         <remap from="~pcl_render_node/cloud"   to="/drone_$(arg drone_id)_pcl_render_node/cloud"/>
   </node>

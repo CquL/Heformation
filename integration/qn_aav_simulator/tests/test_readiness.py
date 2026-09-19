@@ -74,12 +74,44 @@ def test_empty_map_is_rejected_unless_known_empty():
     assert evaluator.evaluate(10.0).map_state == "KNOWN_EMPTY"
 
 
-def test_empty_local_cloud_is_invalid():
+def test_delivered_empty_scan_is_a_valid_observation():
+    """An empty cloud that actually arrived is a completed scan with no returns.
+
+    It proves the scan chain works; it is reported separately and is not read as
+    "the environment is empty".  Only *never receiving anything* leaves the
+    stream stale.
+    """
     evaluator = fully_ready()
     evaluator.note_message(local_cloud_topic(4), 9.9, empty=True)
     status = evaluator.evaluate(10.0)
-    assert not status.ready
-    assert local_cloud_topic(4) in status.invalid_inputs
+    assert status.ready
+    assert local_cloud_topic(4) in status.empty_scans
+    assert local_cloud_topic(4) not in status.invalid_inputs
+
+    never_received = ReadinessEvaluator([0], require_odometry=False)
+    never_received.note_topic_exists(GLOBAL_MAP_TOPIC)
+    never_received.note_message(GLOBAL_MAP_TOPIC, 10.0)
+    for agent_id in range(7):
+        never_received.note_topic_exists(local_cloud_topic(agent_id))
+        never_received.note_topic_exists(odometry_topic(agent_id))
+        never_received.note_topic_exists(qn_diagnostics_topic(agent_id))
+        never_received.note_message(odometry_topic(agent_id), 10.0)
+        never_received.note_message(qn_diagnostics_topic(agent_id), 10.0)
+    assert local_cloud_topic(0) in never_received.evaluate(10.0).stale_topics
+
+
+def test_scene_source_accepts_an_explicitly_empty_map():
+    """A declared scene source may publish a complete but obstacle-free map."""
+    evaluator = fully_ready()
+    evaluator.scene_source = True
+    evaluator.note_message(GLOBAL_MAP_TOPIC, 9.9, empty=True)
+    status = evaluator.evaluate(10.0)
+    assert status.ready
+    assert status.map_state == "KNOWN_EMPTY"
+
+    without_declaration = fully_ready()
+    without_declaration.note_message(GLOBAL_MAP_TOPIC, 9.9, empty=True)
+    assert not without_declaration.evaluate(10.0).ready
 
 
 def test_stale_odometry_is_reported_separately_from_missing():

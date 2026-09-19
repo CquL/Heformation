@@ -1,0 +1,588 @@
+{
+  "mode": "mission",
+  "status": "FAILED",
+  "seed": 0,
+  "nominal_speed_mps": 1.5,
+  "planner_speed_mps": 1.5,
+  "delay_tolerance": 0.1,
+  "repair_mode": "on",
+  "obstacle_scenario": false,
+  "obstacle_center": [
+    -23.0,
+    0.0,
+    0.5
+  ],
+  "obstacle_size": [
+    1.0,
+    1.0,
+    1.2
+  ],
+  "scene_topic": "/scene/global_cloud",
+  "mission_epoch": 1789785445.0142064,
+  "initial_plan": {
+    "items": [
+      {
+        "execution_id": "exec-0000-T1",
+        "task_id": "T1",
+        "coalition": [
+          "drone_0",
+          "drone_1",
+          "drone_2",
+          "drone_3",
+          "drone_4",
+          "drone_5",
+          "drone_6"
+        ],
+        "planned_start": 0.0,
+        "planned_finish": 6.333333333333333,
+        "travel_time": 1.3333333333333333,
+        "wait_time": 0.0,
+        "service_time": 5.0,
+        "status": "PLANNED"
+      },
+      {
+        "execution_id": "exec-0001-T2",
+        "task_id": "T2",
+        "coalition": [
+          "drone_0",
+          "drone_1",
+          "drone_2",
+          "drone_3",
+          "drone_4",
+          "drone_5",
+          "drone_6"
+        ],
+        "planned_start": 6.333333333333333,
+        "planned_finish": 12.666666666666666,
+        "travel_time": 1.3333333333333333,
+        "wait_time": 0.0,
+        "service_time": 5.0,
+        "status": "PLANNED"
+      },
+      {
+        "execution_id": "exec-0002-T3",
+        "task_id": "T3",
+        "coalition": [
+          "drone_0",
+          "drone_1",
+          "drone_2",
+          "drone_3",
+          "drone_4",
+          "drone_5",
+          "drone_6"
+        ],
+        "planned_start": 12.666666666666666,
+        "planned_finish": 20.333333333333332,
+        "travel_time": 2.6666666666666665,
+        "wait_time": 0.0,
+        "service_time": 5.0,
+        "status": "PLANNED"
+      }
+    ]
+  },
+  "plan_history": [],
+  "executions": [
+    {
+      "execution_id": "exec-0000-T1",
+      "pre_dispatch_trajectory_ids": {
+        "0": null,
+        "1": null,
+        "2": null,
+        "3": null,
+        "4": null,
+        "5": null,
+        "6": null
+      },
+      "pre_dispatch_qn_source_trajectory_ids": {
+        "0": 0,
+        "1": 0,
+        "2": 0,
+        "3": 0,
+        "4": 0,
+        "5": 0,
+        "6": 0
+      },
+      "initial_planned_start": 0.0,
+      "initial_planned_finish": 6.333333333333333,
+      "previous_actual_finish": 0.0,
+      "plan_revision_at_dispatch": 0,
+      "planned_start_read_at_dispatch": 0.0,
+      "executor_id": "aav_formation",
+      "action_endpoint": "/formation_action",
+      "assigned_members": [
+        "drone_0",
+        "drone_1",
+        "drone_2",
+        "drone_3",
+        "drone_4",
+        "drone_5",
+        "drone_6"
+      ],
+      "executed_members": [
+        "drone_0",
+        "drone_1",
+        "drone_2",
+        "drone_3",
+        "drone_4",
+        "drone_5",
+        "drone_6"
+      ],
+      "task_id": "T1",
+      "goal_id": "/formation_mission_runner-1-1789785445.015",
+      "terminal_status": 4,
+      "envelope_status": 4,
+      "goal_dispatch_ros_time_s": 1789785445.0147457,
+      "dispatch_ros_time_s": 0.0005393028259277344,
+      "planned_start_at_dispatch": 0.0,
+      "planned_finish_at_dispatch": 6.333333333333333,
+      "action_reason": 3,
+      "action_task_outcome": 2,
+      "action_safety_outcome": 2,
+      "action_experiment_validity": 2,
+      "model_time_hold_seconds": 0.0,
+      "planner_nominal_finish_times": {},
+      "adoption_verdict": {
+        "state": "ADOPTED",
+        "execution_id": "T1",
+        "goal_id": "/formation_mission_runner-1-1789785445.015",
+        "dispatch_ros_time_s": 1789785445.0167122,
+        "group_goal_publish_count": 1,
+        "group_goal_publisher": "/formation_action_server",
+        "group_goal_authorized": true,
+        "per_agent": [
+          {
+            "agent_id": 0,
+            "pre_dispatch_trajectory_id": null,
+            "pre_dispatch_qn_source_trajectory_id": 0,
+            "pre_dispatch_used_outer_step": 3151,
+            "post_dispatch_trajectory_ids": [
+              1
+            ],
+            "qn_source_trajectory_ids": [
+              0,
+              1
+            ],
+            "adopted_trajectory_id": 1,
+            "adopted_used_outer_step": 3155,
+            "adopted_ros_time_s": 1789785445.0398548,
+            "adopted_command_stamp_s": 1789785445.021811,
+            "new_trajectory_observed": true,
+            "qn_source_matches": true,
+            "stamp_only_evidence_seen": false,
+            "failure_reason": ""
+          },
+          {
+            "agent_id": 1,
+            "pre_dispatch_trajectory_id": null,
+            "pre_dispatch_qn_source_trajectory_id": 0,
+            "pre_dispatch_used_outer_step": 3170,
+            "post_dispatch_trajectory_ids": [
+              1
+            ],
+            "qn_source_trajectory_ids": [
+              0,
+              1
+            ],
+            "adopted_trajectory_id": 1,
+            "adopted_used_outer_step": 3175,
+            "adopted_ros_time_s": 1789785445.0610769,
+            "adopted_command_stamp_s": 1789785445.0463164,
+            "new_trajectory_observed": true,
+            "qn_source_matches": true,
+            "stamp_only_evidence_seen": false,
+            "failure_reason": ""
+          },
+          {
+            "agent_id": 2,
+            "pre_dispatch_trajectory_id": null,
+            "pre_dispatch_qn_source_trajectory_id": 0,
+            "pre_dispatch_used_outer_step": 3147,
+            "post_dispatch_trajectory_ids": [
+              1
+            ],
+            "qn_source_trajectory_ids": [
+              0,
+              1
+            ],
+            "adopted_trajectory_id": 1,
+            "adopted_used_outer_step": 3155,
+            "adopted_ros_time_s": 1789785445.0950677,
+            "adopted_command_stamp_s": 1789785445.0775201,
+            "new_trajectory_observed": true,
+            "qn_source_matches": true,
+            "stamp_only_evidence_seen": false,
+            "failure_reason": ""
+          },
+          {
+            "agent_id": 3,
+            "pre_dispatch_trajectory_id": null,
+            "pre_dispatch_qn_source_trajectory_id": 0,
+            "pre_dispatch_used_outer_step": 3147,
+            "post_dispatch_trajectory_ids": [
+              1
+            ],
+            "qn_source_trajectory_ids": [
+              0,
+              1
+            ],
+            "adopted_trajectory_id": 1,
+            "adopted_used_outer_step": 3151,
+            "adopted_ros_time_s": 1789785445.0562701,
+            "adopted_command_stamp_s": 1789785445.0456536,
+            "new_trajectory_observed": true,
+            "qn_source_matches": true,
+            "stamp_only_evidence_seen": false,
+            "failure_reason": ""
+          },
+          {
+            "agent_id": 4,
+            "pre_dispatch_trajectory_id": null,
+            "pre_dispatch_qn_source_trajectory_id": 0,
+            "pre_dispatch_used_outer_step": 3156,
+            "post_dispatch_trajectory_ids": [
+              1
+            ],
+            "qn_source_trajectory_ids": [
+              0,
+              1
+            ],
+            "adopted_trajectory_id": 1,
+            "adopted_used_outer_step": 3161,
+            "adopted_ros_time_s": 1789785445.0629866,
+            "adopted_command_stamp_s": 1789785445.0530913,
+            "new_trajectory_observed": true,
+            "qn_source_matches": true,
+            "stamp_only_evidence_seen": false,
+            "failure_reason": ""
+          },
+          {
+            "agent_id": 5,
+            "pre_dispatch_trajectory_id": null,
+            "pre_dispatch_qn_source_trajectory_id": 0,
+            "pre_dispatch_used_outer_step": 3149,
+            "post_dispatch_trajectory_ids": [
+              1
+            ],
+            "qn_source_trajectory_ids": [
+              0,
+              1
+            ],
+            "adopted_trajectory_id": 1,
+            "adopted_used_outer_step": 3159,
+            "adopted_ros_time_s": 1789785445.0980544,
+            "adopted_command_stamp_s": 1789785445.0885448,
+            "new_trajectory_observed": true,
+            "qn_source_matches": true,
+            "stamp_only_evidence_seen": false,
+            "failure_reason": ""
+          },
+          {
+            "agent_id": 6,
+            "pre_dispatch_trajectory_id": null,
+            "pre_dispatch_qn_source_trajectory_id": 0,
+            "pre_dispatch_used_outer_step": 3143,
+            "post_dispatch_trajectory_ids": [
+              1
+            ],
+            "qn_source_trajectory_ids": [
+              0,
+              1
+            ],
+            "adopted_trajectory_id": 1,
+            "adopted_used_outer_step": 3154,
+            "adopted_ros_time_s": 1789785445.0893552,
+            "adopted_command_stamp_s": 1789785445.0825076,
+            "new_trajectory_observed": true,
+            "qn_source_matches": true,
+            "stamp_only_evidence_seen": false,
+            "failure_reason": ""
+          }
+        ],
+        "failures": [],
+        "fallback_used": false
+      },
+      "verdict": {
+        "task_outcome": "FAIL",
+        "safety_outcome": "FAIL",
+        "experiment_validity": "INVALID",
+        "max_position_error_m": 2.0116582869430593,
+        "hold_duration_required_s": 5.0,
+        "model_hold_satisfied": false,
+        "adoption_state": "ADOPTED",
+        "time_alignment_ok": false,
+        "air_domain_ok": true,
+        "metrics": {
+          "final_slot_error_m": 2.0116582869430593,
+          "trajectory_tracking_error_m": 0.21430293634591466,
+          "velocity_tracking_error_mps": 0.9416694408979936,
+          "hold_velocity_mps": null,
+          "formation_shape_error_m": 0.21387048486888396
+        },
+        "sample_ledger": {
+          "expected_sample_count": 77,
+          "valid_sample_count": 70,
+          "valid_sample_ratio": 0.9090909090909091,
+          "alignment_failure_count": 7,
+          "max_continuous_gap_s": 0.05000019073486328,
+          "leading_missing_s": 0.0,
+          "trailing_missing_s": 0.04999995231628418,
+          "max_middle_gap_s": 0.05000019073486328,
+          "observed_period_s": 0.0500081115298801,
+          "agent_expected_counts": {
+            "0": 11,
+            "1": 11,
+            "2": 11,
+            "3": 11,
+            "4": 11,
+            "5": 11,
+            "6": 11
+          },
+          "agent_valid_counts": {
+            "0": 10,
+            "1": 10,
+            "2": 10,
+            "3": 10,
+            "4": 10,
+            "5": 10,
+            "6": 10
+          },
+          "agent_max_gaps_s": {
+            "0": 0.05000019073486328,
+            "1": 0.05000019073486328,
+            "2": 0.05000019073486328,
+            "3": 0.05000019073486328,
+            "4": 0.05000019073486328,
+            "5": 0.05000019073486328,
+            "6": 0.05000019073486328
+          }
+        },
+        "safety": {
+          "outcome": "FAIL",
+          "evidence_kind": "DISCRETE_SAMPLED",
+          "min_inter_agent_distance_m": 3.9997966320901472,
+          "min_obstacle_clearance_m": null,
+          "min_inter_agent_surface_clearance_m": 3.4997966320901472,
+          "box_clearance_m": null,
+          "box_center": null,
+          "box_size": null,
+          "required_box_clearance_m": 0.2,
+          "obstacle_check": "NOT_APPLICABLE",
+          "platform_radius_m": 0.25,
+          "check_resolution": "DISCRETE_SAMPLED",
+          "required_inter_agent_clearance_m": 0.5,
+          "required_obstacle_clearance_m": 0.2,
+          "collision_pairs": [],
+          "reasons": [
+            "member envelope reached -0.011 m, below the declared surface 0.000 m"
+          ]
+        },
+        "reasons": [
+          "seven-member formation did not complete its hold",
+          "model-time hold was shorter than the requested duration",
+          "model time and ROS time were not compatible",
+          "final slot error 2.012 m exceeds epsilon_p",
+          "7 samples failed time alignment",
+          "model/ROS time alignment outside engineering gate",
+          "model-time hold evidence missing",
+          "member envelope reached -0.011 m, below the declared surface 0.000 m"
+        ]
+      },
+      "evidence_file": "T1_1789785445015619754.diagnostics.json",
+      "trajectory_ids": [
+        1
+      ],
+      "runner_adoption_confirmed": true,
+      "executor_matches_execution": true,
+      "planner_nominal_finish": null,
+      "actual_start": 0.0014133453369140625,
+      "actual_finish": 0.5042343139648438,
+      "delay_seconds": -5.829099019368489,
+      "deadline_lateness": 0.0,
+      "scheduled_start_at_dispatch": 0.0,
+      "expected_release_without_repair": 0.0,
+      "release_lag_s": 0.0005393028259277344,
+      "dispatch_changed": false,
+      "updated_plan_used": true
+    }
+  ],
+  "events": [],
+  "test_c": {
+    "repair_mode": "on",
+    "plan_revision": 0,
+    "plan_updated": false,
+    "plan_updated_actions": [],
+    "updated_plan_used": true,
+    "dispatch_changed": false,
+    "dispatch_changed_actions": [],
+    "release_lag_s": {
+      "T1": 0.0005393028259277344
+    },
+    "notes": "release_lag_s is the dispatch offset from the release boundary it was waiting for; it is a schedule-tracking figure, not a measure of repair.  updated_plan_used reports that each dispatch read the plan revision the completion produced."
+  },
+  "time_alignment_summary": {
+    "started_ros_time_s": 1789785413.761672,
+    "finished_ros_time_s": 1789785444.761672,
+    "duration_s": 31.0,
+    "agent_ids": [
+      "drone_0",
+      "drone_1",
+      "drone_2",
+      "drone_3",
+      "drone_4",
+      "drone_5",
+      "drone_6"
+    ],
+    "grid_point_count": 311,
+    "aligned_point_count": 311,
+    "alignment_failure_count": 0,
+    "valid_sample_count": 2177,
+    "expected_sample_count": 2177,
+    "valid_sample_ratio": 1.0,
+    "max_abs_model_ros_drift_s": 0.0005360437610839597,
+    "max_cross_agent_drift_s": 0.0005970750027870508,
+    "model_ros_rate": {
+      "drone_0": 0.9999999429618686,
+      "drone_1": 1.0000000696820681,
+      "drone_2": 1.0000000502806075,
+      "drone_3": 1.0000001391148663,
+      "drone_4": 1.0000002136547503,
+      "drone_5": 1.0000002703342494,
+      "drone_6": 1.0000001307159494
+    },
+    "model_wall_rate": {
+      "drone_0": 1.0000011218410998,
+      "drone_1": 0.9999998273591928,
+      "drone_2": 1.000012907919953,
+      "drone_3": 0.9999878514813543,
+      "drone_4": 0.9999841873899682,
+      "drone_5": 1.0000060212888562,
+      "drone_6": 1.0000137184334752
+    },
+    "worst_model_ros_rate": 0.9999999429618686,
+    "worst_model_wall_rate": 0.9999841873899682,
+    "reference_speed_mps": null,
+    "induced_reference_displacement_m": null,
+    "baseline_complete": true,
+    "common_start_ros_time_s": 1789785413.761672,
+    "history_truncated": false,
+    "within_thresholds": true,
+    "reasons": []
+  },
+  "final_plan": {
+    "items": [
+      {
+        "execution_id": "exec-0000-T1",
+        "task_id": "T1",
+        "coalition": [
+          "drone_0",
+          "drone_1",
+          "drone_2",
+          "drone_3",
+          "drone_4",
+          "drone_5",
+          "drone_6"
+        ],
+        "planned_start": 0.0,
+        "planned_finish": 6.333333333333333,
+        "travel_time": 1.3333333333333333,
+        "wait_time": 0.0,
+        "service_time": 5.0,
+        "status": "FAILED"
+      },
+      {
+        "execution_id": "exec-0001-T2",
+        "task_id": "T2",
+        "coalition": [
+          "drone_0",
+          "drone_1",
+          "drone_2",
+          "drone_3",
+          "drone_4",
+          "drone_5",
+          "drone_6"
+        ],
+        "planned_start": 6.333333333333333,
+        "planned_finish": 12.666666666666666,
+        "travel_time": 1.3333333333333333,
+        "wait_time": 0.0,
+        "service_time": 5.0,
+        "status": "PLANNED"
+      },
+      {
+        "execution_id": "exec-0002-T3",
+        "task_id": "T3",
+        "coalition": [
+          "drone_0",
+          "drone_1",
+          "drone_2",
+          "drone_3",
+          "drone_4",
+          "drone_5",
+          "drone_6"
+        ],
+        "planned_start": 12.666666666666666,
+        "planned_finish": 20.333333333333332,
+        "travel_time": 2.6666666666666665,
+        "wait_time": 0.0,
+        "service_time": 5.0,
+        "status": "PLANNED"
+      }
+    ]
+  },
+  "planned_makespan": 20.333333333333332,
+  "processed_events": [],
+  "ready_ros_time_s": 1789785444.9987175,
+  "baseline_qualification": {
+    "started_ros_time_s": 1789785413.761672,
+    "finished_ros_time_s": 1789785444.761672,
+    "duration_s": 31.0,
+    "agent_ids": [
+      "drone_0",
+      "drone_1",
+      "drone_2",
+      "drone_3",
+      "drone_4",
+      "drone_5",
+      "drone_6"
+    ],
+    "grid_point_count": 311,
+    "aligned_point_count": 311,
+    "alignment_failure_count": 0,
+    "valid_sample_count": 2177,
+    "expected_sample_count": 2177,
+    "valid_sample_ratio": 1.0,
+    "max_abs_model_ros_drift_s": 0.0005360437610839597,
+    "max_cross_agent_drift_s": 0.0005970750027870508,
+    "model_ros_rate": {
+      "drone_0": 0.9999999429618686,
+      "drone_1": 1.0000000696820681,
+      "drone_2": 1.0000000502806075,
+      "drone_3": 1.0000001391148663,
+      "drone_4": 1.0000002136547503,
+      "drone_5": 1.0000002703342494,
+      "drone_6": 1.0000001307159494
+    },
+    "model_wall_rate": {
+      "drone_0": 1.0000011218410998,
+      "drone_1": 0.9999998273591928,
+      "drone_2": 1.000012907919953,
+      "drone_3": 0.9999878514813543,
+      "drone_4": 0.9999841873899682,
+      "drone_5": 1.0000060212888562,
+      "drone_6": 1.0000137184334752
+    },
+    "worst_model_ros_rate": 0.9999999429618686,
+    "worst_model_wall_rate": 0.9999841873899682,
+    "reference_speed_mps": null,
+    "induced_reference_displacement_m": null,
+    "baseline_complete": true,
+    "common_start_ros_time_s": 1789785413.761672,
+    "history_truncated": false,
+    "within_thresholds": true,
+    "reasons": []
+  },
+  "dispatch_attempts": {
+    "T1": 1
+  },
+  "failure": "T1 ended with status=4 reason=3"
+}

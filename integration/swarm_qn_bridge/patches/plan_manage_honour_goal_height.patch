@@ -1,0 +1,29 @@
+The upstream replan FSM hard-codes the formation-centre height to 0.5 m and
+ignores the z of the goal it was given.
+
+A 0.5 m centre does not survive the qn plant's vertical transient: measured on
+two runs the lowest member reaches about 0.237 m within half a second of the
+first dispatch, independent of the reference speed, so the declared 0.25 m
+platform envelope crosses the z=0 surface.  The height therefore has to be a
+scenario parameter that the caller can raise, and the goal message already
+carries it.
+
+The upstream file is not modified in the repository; this patch is applied at
+image build time and is recorded here.
+
+--- a/src/planner/plan_manage/src/ego_replan_fsm.cpp
++++ b/src/planner/plan_manage/src/ego_replan_fsm.cpp
+@@ -639,7 +639,12 @@
+     bool success = false;
+     swarm_central_pos_(0) = msg->pose.position.x;
+     swarm_central_pos_(1) = msg->pose.position.y;
+-    swarm_central_pos_(2) = 0.5;
++    // Honour the requested formation-centre height instead of hard-coding it.
++    // The qn plant's vertical transient at task start reaches about 0.26 m below
++    // the cruise altitude, so a 0.5 m centre leaves the declared 0.25 m platform
++    // envelope below the z=0 surface; the height therefore has to be a scenario
++    // parameter rather than a constant.  See docs/QN_INTEGRATION.md.
++    swarm_central_pos_(2) = msg->pose.position.z;
+ 
+     int id = planner_manager_->pp_.drone_id;
+ 

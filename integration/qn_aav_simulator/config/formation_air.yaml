@@ -17,12 +17,14 @@ formation_action_server:
   startup_timeout: 180.0
   # CPU build of the upstream renderer publishes a point cloud, not a depth image.
   sensor_backend: CPU_POINTCLOUD
-  # The upstream map_generator only creates obstacles inside x in [-17, 17],
-  # y in [-7.5, 7.5]; this test corridor is x in [-30, -22].  The CPU renderer
-  # publishes pcl_render_node/cloud only when points are inside the sensing
-  # horizon, so the operating region is declared known-empty explicitly instead
-  # of treating a silent sensor as a trusted empty measurement.
-  known_empty_map: true
+  # The scene publisher owns /scene/global_cloud and is its only publisher, so
+  # an explicitly delivered empty map means "initialised, obstacle set empty";
+  # that is a data state and no longer needs the known-empty waiver.  The
+  # waiver stays false so a local scan stream that never delivers anything is
+  # still reported as missing rather than trusted.
+  known_empty_map: false
+  scene_source: true
+  global_map_topic: /scene/global_cloud
   cloud_timeout: 3.0
   qn_state_timeout: 1.0
   model_time_window: 0.06
@@ -38,8 +40,15 @@ formation_action_server:
   # Physical envelope of one AAV and the surface plane used for geometric
   # safety.  The AIR floor is not configured here: it is derived from the qn
   # model as hg_m / 2, so it cannot drift out of step with the plant.
+  # Declared cruise altitude: high enough that the plant's ~0.26 m vertical
+  # transient still leaves the 0.25 m platform envelope above the z=0 surface.
+  cruise_altitude_m: 0.8
   platform_radius_m: 0.25
   surface_plane_m: 0.0
+  # Declared before the run.  Used only for the reference-path margin analysis
+  # (d_ref >= d_required + e_budget); never added to the actual safety check,
+  # which compares the observed state against d_required alone.
+  tracking_budget_m: 0.30
   min_valid_sample_ratio: 0.9
 
 formation_mission_runner:
@@ -63,10 +72,10 @@ formation_mission_runner:
   # repair_mode: off -> identical schedule, repair disabled (Test C, control)
   repair_mode: "on"
   centers:
-    start: [-26.0, 0.0, 0.5]
-    A: [-24.0, 0.0, 0.5]
-    B: [-22.0, 0.0, 0.5]
-    Return: [-26.0, 0.0, 0.5]
+    start: [-26.0, 0.0, 0.8]
+    A: [-24.0, 0.0, 0.8]
+    B: [-22.0, 0.0, 0.8]
+    Return: [-26.0, 0.0, 0.8]
   # Input order deliberately differs from the v9 allocation order.
   tasks:
     - {task_id: T3, required_capabilities: [AAV], required_agent_count: 7, service_time: 5.0, deadline: 100.0, target_ref: Return}

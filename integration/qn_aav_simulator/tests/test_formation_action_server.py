@@ -227,6 +227,13 @@ def make_server(module, state=READY_IDLE, output_dir=None):
     server.air_floor_m = None
     server.platform_radius_m = 0.25
     server.surface_plane_m = 0.0
+    server.cruise_altitude_m = 0.5
+    server.map_topic = module.GLOBAL_MAP_TOPIC
+    server.scene_source = False
+    server.obstacle_present = False
+    server.obstacle_center = [-23.0, 0.0, 0.5]
+    server.obstacle_size = [1.0, 1.0, 1.2]
+    server.tracking_budget_m = 0.30
     server.max_diagnostics_callback_lag_s = 0.0
     server.session_alignment = server._new_alignment_monitor()
     server.readiness = module.ReadinessEvaluator(

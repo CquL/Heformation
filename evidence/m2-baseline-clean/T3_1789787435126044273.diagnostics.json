@@ -1,0 +1,606 @@
+{
+  "task_id": "T3",
+  "goal_id": "/formation_mission_runner-3-1789787435.125",
+  "evidence_file": "T3_1789787435126044273.diagnostics.json",
+  "formation_center": [
+    -26.0,
+    0.0,
+    0.8
+  ],
+  "hold_duration": 5.0,
+  "actual_start_time": 1789787435.1260443,
+  "goal_publish_count": 1,
+  "topic_group_goal_count": 1,
+  "group_goal_publisher": "/formation_action_server",
+  "dispatch_ros_time_s": 1789787435.1271527,
+  "planner_nominal_finish_times": {
+    "0": 1789787439.6225703,
+    "2": 1789787439.8538043,
+    "5": 1789787439.9064977,
+    "4": 1789787439.934451,
+    "3": 1789787440.1164718,
+    "1": 1789787440.1179478,
+    "6": 1789787440.1811597
+  },
+  "max_position_error": 4.014492550243552,
+  "max_velocity": 1.5455920271525474,
+  "min_inter_agent_distance": 3.6451168494179154,
+  "position_not_settled": true,
+  "velocity_not_settled": true,
+  "successful_hold_window": {
+    "start": 1789787441.828096,
+    "end": 1789787446.8809295,
+    "duration": 5.052833557128906,
+    "required_duration": 5.0,
+    "min_model_hold_s": 5.020000000002568
+  },
+  "model_hold": {
+    "min_model_hold_s": 5.020000000002568,
+    "per_agent_s": {
+      "0": 5.0500000000025835,
+      "1": 5.040000000002578,
+      "2": 5.020000000002568,
+      "3": 5.030000000002573,
+      "4": 5.020000000002568,
+      "5": 5.020000000002568,
+      "6": 5.030000000002573
+    },
+    "required_s": 5.0
+  },
+  "run_state": "READY_IDLE",
+  "min_member_height_m": 0.36193268114899935,
+  "last_qn_state_update": {
+    "agent_id": 6,
+    "ros_time_s": 1789787446.8805785,
+    "message_stamp_s": 1789787446.87238,
+    "model_time_s": 73.3000000000006
+  },
+  "actual_finish_time": 1789787446.8809295,
+  "final_phase": "HOLDING",
+  "failed_agent_ids": [],
+  "planner_finish_to_actual_seconds": {
+    "0": 7.25835919380188,
+    "2": 7.027125120162964,
+    "5": 6.974431753158569,
+    "4": 6.946478366851807,
+    "3": 6.764457702636719,
+    "1": 6.762981653213501,
+    "6": 6.699769735336304
+  },
+  "odom_sample_counts": {
+    "0": 1176,
+    "1": 1175,
+    "2": 1176,
+    "3": 1174,
+    "4": 1176,
+    "5": 1175,
+    "6": 1176
+  },
+  "odom_sample_rates": {
+    "0": 100.0435121502986,
+    "1": 99.95844113656534,
+    "2": 100.0435121502986,
+    "3": 99.8733701228321,
+    "4": 100.0435121502986,
+    "5": 99.95844113656534,
+    "6": 100.0435121502986
+  },
+  "reference_missing_samples": 0,
+  "odometry_contract_errors": {},
+  "max_diagnostics_callback_lag_s": 0.0628972053527832,
+  "adoption_verdict": {
+    "state": "ADOPTED",
+    "execution_id": "T3",
+    "goal_id": "/formation_mission_runner-3-1789787435.125",
+    "dispatch_ros_time_s": 1789787435.1271527,
+    "group_goal_publish_count": 1,
+    "group_goal_publisher": "/formation_action_server",
+    "group_goal_authorized": true,
+    "per_agent": [
+      {
+        "agent_id": 0,
+        "pre_dispatch_trajectory_id": 8,
+        "pre_dispatch_qn_source_trajectory_id": 8,
+        "pre_dispatch_used_outer_step": 6156,
+        "post_dispatch_trajectory_ids": [
+          8,
+          1,
+          2,
+          3,
+          4
+        ],
+        "qn_source_trajectory_ids": [
+          8,
+          1,
+          2,
+          3,
+          4
+        ],
+        "adopted_trajectory_id": 1,
+        "adopted_used_outer_step": 6162,
+        "adopted_ros_time_s": 1789787435.1785223,
+        "adopted_command_stamp_s": 1789787435.1686406,
+        "new_trajectory_observed": true,
+        "qn_source_matches": true,
+        "stamp_only_evidence_seen": true,
+        "failure_reason": ""
+      },
+      {
+        "agent_id": 1,
+        "pre_dispatch_trajectory_id": 8,
+        "pre_dispatch_qn_source_trajectory_id": 8,
+        "pre_dispatch_used_outer_step": 6158,
+        "post_dispatch_trajectory_ids": [
+          8,
+          1,
+          2,
+          3,
+          4
+        ],
+        "qn_source_trajectory_ids": [
+          8,
+          1,
+          2,
+          3,
+          4
+        ],
+        "adopted_trajectory_id": 1,
+        "adopted_used_outer_step": 6163,
+        "adopted_ros_time_s": 1789787435.1743567,
+        "adopted_command_stamp_s": 1789787435.1632743,
+        "new_trajectory_observed": true,
+        "qn_source_matches": true,
+        "stamp_only_evidence_seen": true,
+        "failure_reason": ""
+      },
+      {
+        "agent_id": 2,
+        "pre_dispatch_trajectory_id": 8,
+        "pre_dispatch_qn_source_trajectory_id": 8,
+        "pre_dispatch_used_outer_step": 6151,
+        "post_dispatch_trajectory_ids": [
+          8,
+          1,
+          2,
+          3,
+          4
+        ],
+        "qn_source_trajectory_ids": [
+          8,
+          1,
+          2,
+          3,
+          4
+        ],
+        "adopted_trajectory_id": 1,
+        "adopted_used_outer_step": 6156,
+        "adopted_ros_time_s": 1789787435.169162,
+        "adopted_command_stamp_s": 1789787435.1609273,
+        "new_trajectory_observed": true,
+        "qn_source_matches": true,
+        "stamp_only_evidence_seen": true,
+        "failure_reason": ""
+      },
+      {
+        "agent_id": 3,
+        "pre_dispatch_trajectory_id": 8,
+        "pre_dispatch_qn_source_trajectory_id": 8,
+        "pre_dispatch_used_outer_step": 6167,
+        "post_dispatch_trajectory_ids": [
+          8,
+          1,
+          2,
+          3,
+          4
+        ],
+        "qn_source_trajectory_ids": [
+          8,
+          1,
+          2,
+          3,
+          4
+        ],
+        "adopted_trajectory_id": 1,
+        "adopted_used_outer_step": 6172,
+        "adopted_ros_time_s": 1789787435.173706,
+        "adopted_command_stamp_s": 1789787435.163138,
+        "new_trajectory_observed": true,
+        "qn_source_matches": true,
+        "stamp_only_evidence_seen": true,
+        "failure_reason": ""
+      },
+      {
+        "agent_id": 4,
+        "pre_dispatch_trajectory_id": 8,
+        "pre_dispatch_qn_source_trajectory_id": 8,
+        "pre_dispatch_used_outer_step": 6153,
+        "post_dispatch_trajectory_ids": [
+          8,
+          1,
+          2,
+          3,
+          4
+        ],
+        "qn_source_trajectory_ids": [
+          8,
+          1,
+          2,
+          3,
+          4
+        ],
+        "adopted_trajectory_id": 1,
+        "adopted_used_outer_step": 6166,
+        "adopted_ros_time_s": 1789787435.2472093,
+        "adopted_command_stamp_s": 1789787435.2399058,
+        "new_trajectory_observed": true,
+        "qn_source_matches": true,
+        "stamp_only_evidence_seen": true,
+        "failure_reason": ""
+      },
+      {
+        "agent_id": 5,
+        "pre_dispatch_trajectory_id": 8,
+        "pre_dispatch_qn_source_trajectory_id": 8,
+        "pre_dispatch_used_outer_step": 6154,
+        "post_dispatch_trajectory_ids": [
+          8,
+          1,
+          2,
+          3,
+          4
+        ],
+        "qn_source_trajectory_ids": [
+          8,
+          1,
+          2,
+          3,
+          4
+        ],
+        "adopted_trajectory_id": 1,
+        "adopted_used_outer_step": 6161,
+        "adopted_ros_time_s": 1789787435.1971388,
+        "adopted_command_stamp_s": 1789787435.18844,
+        "new_trajectory_observed": true,
+        "qn_source_matches": true,
+        "stamp_only_evidence_seen": true,
+        "failure_reason": ""
+      },
+      {
+        "agent_id": 6,
+        "pre_dispatch_trajectory_id": 8,
+        "pre_dispatch_qn_source_trajectory_id": 8,
+        "pre_dispatch_used_outer_step": 6153,
+        "post_dispatch_trajectory_ids": [
+          8,
+          1,
+          2,
+          3,
+          4
+        ],
+        "qn_source_trajectory_ids": [
+          8,
+          1,
+          2,
+          3,
+          4
+        ],
+        "adopted_trajectory_id": 1,
+        "adopted_used_outer_step": 6161,
+        "adopted_ros_time_s": 1789787435.1991122,
+        "adopted_command_stamp_s": 1789787435.1900713,
+        "new_trajectory_observed": true,
+        "qn_source_matches": true,
+        "stamp_only_evidence_seen": true,
+        "failure_reason": ""
+      }
+    ],
+    "failures": [],
+    "fallback_used": false
+  },
+  "state_machine": {
+    "state": "READY_IDLE",
+    "goal_id": null,
+    "execution_id": null,
+    "reserved_at_s": null,
+    "cancel_requested": false,
+    "cancel_ignored_while_running": false,
+    "unknown_locked_reason": null,
+    "events": [
+      {
+        "ros_time_s": 1789787403.9864993,
+        "monotonic_s": 39981.820017527,
+        "state": "READY_IDLE",
+        "event": "readiness_satisfied",
+        "detail": ""
+      },
+      {
+        "ros_time_s": 1789787403.9864993,
+        "monotonic_s": 39981.91634272,
+        "state": "ACTIVE",
+        "event": "resource_reserved",
+        "detail": "/formation_mission_runner-1-1789787404.119"
+      },
+      {
+        "ros_time_s": 1789787412.1956549,
+        "monotonic_s": 39990.170570187,
+        "state": "HOLDING",
+        "event": "hold_started",
+        "detail": ""
+      },
+      {
+        "ros_time_s": 1789787417.424047,
+        "monotonic_s": 39995.263703437,
+        "state": "SUCCEEDED",
+        "event": "hold_completed",
+        "detail": ""
+      },
+      {
+        "ros_time_s": 1789787417.424047,
+        "monotonic_s": 39995.263710254,
+        "state": "READY_IDLE",
+        "event": "resource_released",
+        "detail": ""
+      },
+      {
+        "ros_time_s": 1789787417.424047,
+        "monotonic_s": 39995.278338938,
+        "state": "ACTIVE",
+        "event": "resource_reserved",
+        "detail": "/formation_mission_runner-2-1789787417.481"
+      },
+      {
+        "ros_time_s": 1789787429.9106984,
+        "monotonic_s": 40007.782319021,
+        "state": "HOLDING",
+        "event": "hold_started",
+        "detail": ""
+      },
+      {
+        "ros_time_s": 1789787435.0363967,
+        "monotonic_s": 40012.905308163,
+        "state": "SUCCEEDED",
+        "event": "hold_completed",
+        "detail": ""
+      },
+      {
+        "ros_time_s": 1789787435.0363967,
+        "monotonic_s": 40012.905314869,
+        "state": "READY_IDLE",
+        "event": "resource_released",
+        "detail": ""
+      },
+      {
+        "ros_time_s": 1789787435.0363967,
+        "monotonic_s": 40012.923034746,
+        "state": "ACTIVE",
+        "event": "resource_reserved",
+        "detail": "/formation_mission_runner-3-1789787435.125"
+      },
+      {
+        "ros_time_s": 1789787440.9057226,
+        "monotonic_s": 40018.876506358,
+        "state": "HOLDING",
+        "event": "hold_started",
+        "detail": ""
+      },
+      {
+        "ros_time_s": 1789787440.9057226,
+        "monotonic_s": 40018.926597947,
+        "state": "ACTIVE",
+        "event": "hold_interrupted",
+        "detail": ""
+      },
+      {
+        "ros_time_s": 1789787441.740281,
+        "monotonic_s": 40019.626981458,
+        "state": "HOLDING",
+        "event": "hold_started",
+        "detail": ""
+      },
+      {
+        "ros_time_s": 1789787446.8809295,
+        "monotonic_s": 40024.716501292,
+        "state": "SUCCEEDED",
+        "event": "hold_completed",
+        "detail": ""
+      },
+      {
+        "ros_time_s": 1789787446.8809295,
+        "monotonic_s": 40024.716506293,
+        "state": "READY_IDLE",
+        "event": "resource_released",
+        "detail": ""
+      }
+    ]
+  },
+  "time_alignment": {
+    "started_ros_time_s": 1789787435.2260945,
+    "finished_ros_time_s": 1789787446.8260946,
+    "duration_s": 11.600000143051147,
+    "agent_ids": [
+      "drone_0",
+      "drone_1",
+      "drone_2",
+      "drone_3",
+      "drone_4",
+      "drone_5",
+      "drone_6"
+    ],
+    "grid_point_count": 117,
+    "aligned_point_count": 117,
+    "alignment_failure_count": 0,
+    "valid_sample_count": 819,
+    "expected_sample_count": 819,
+    "valid_sample_ratio": 1.0,
+    "max_abs_model_ros_drift_s": 0.0015222017148417422,
+    "max_cross_agent_drift_s": 0.001508469797428802,
+    "model_ros_rate": {
+      "drone_0": 1.00000003166876,
+      "drone_1": 1.0000000237636333,
+      "drone_2": 1.000000822986034,
+      "drone_3": 1.0000022287671428,
+      "drone_4": 1.0000012438625905,
+      "drone_5": 1.0000007043755503,
+      "drone_6": 1.0000000490949508
+    },
+    "model_wall_rate": {
+      "drone_0": 0.9997970937044427,
+      "drone_1": 0.999868794346855,
+      "drone_2": 0.9998160934179767,
+      "drone_3": 0.9998748942700815,
+      "drone_4": 0.9999284682110827,
+      "drone_5": 0.9998006943805328,
+      "drone_6": 0.9998534657161237
+    },
+    "worst_model_ros_rate": 1.0000000237636333,
+    "worst_model_wall_rate": 0.9997970937044427,
+    "reference_speed_mps": 1.4050377884574485,
+    "induced_reference_displacement_m": 0.002138750931007377,
+    "baseline_complete": false,
+    "common_start_ros_time_s": 1789787435.2260945,
+    "history_truncated": false,
+    "within_thresholds": true,
+    "reasons": []
+  },
+  "time_alignment_baseline": {
+    "started_ros_time_s": 1789787373.7591777,
+    "finished_ros_time_s": 1789787403.9591777,
+    "duration_s": 30.200000047683716,
+    "agent_ids": [
+      "drone_0",
+      "drone_1",
+      "drone_2",
+      "drone_3",
+      "drone_4",
+      "drone_5",
+      "drone_6"
+    ],
+    "grid_point_count": 303,
+    "aligned_point_count": 303,
+    "alignment_failure_count": 0,
+    "valid_sample_count": 2121,
+    "expected_sample_count": 2121,
+    "valid_sample_ratio": 1.0,
+    "max_abs_model_ros_drift_s": 0.026062261958735178,
+    "max_cross_agent_drift_s": 0.0036039781243255575,
+    "model_ros_rate": {
+      "drone_0": 0.9991404136308324,
+      "drone_1": 0.9990912531987441,
+      "drone_2": 0.9990821920327783,
+      "drone_3": 0.9991831253672793,
+      "drone_4": 0.9991800256087782,
+      "drone_5": 0.9990927448352014,
+      "drone_6": 0.9992008221396484
+    },
+    "model_wall_rate": {
+      "drone_0": 0.9991501962339017,
+      "drone_1": 0.999092535836014,
+      "drone_2": 0.9990749781973767,
+      "drone_3": 0.9991747629607355,
+      "drone_4": 0.9991519794149702,
+      "drone_5": 0.9990720718785214,
+      "drone_6": 0.9991989173006792
+    },
+    "worst_model_ros_rate": 0.9990821920327783,
+    "worst_model_wall_rate": 0.9990720718785214,
+    "reference_speed_mps": null,
+    "induced_reference_displacement_m": null,
+    "baseline_complete": true,
+    "common_start_ros_time_s": 1789787373.7591777,
+    "history_truncated": false,
+    "within_thresholds": true,
+    "reasons": []
+  },
+  "air_domain": {
+    "ok": true,
+    "detail": "",
+    "max_medium_flag": 0.0,
+    "min_height_m": 0.36193268114899935,
+    "air_floor_m": 0.085,
+    "members_reporting": 7
+  },
+  "min_box_surface_clearance_m": null,
+  "verdict": {
+    "task_outcome": "PASS",
+    "safety_outcome": "PASS",
+    "experiment_validity": "VALID",
+    "max_position_error_m": 0.0035376723108823407,
+    "hold_duration_required_s": 5.0,
+    "model_hold_satisfied": true,
+    "adoption_state": "ADOPTED",
+    "time_alignment_ok": true,
+    "air_domain_ok": true,
+    "metrics": {
+      "final_slot_error_m": 0.0035376723108823407,
+      "trajectory_tracking_error_m": 0.9481193107908498,
+      "velocity_tracking_error_mps": 1.008860166870078,
+      "hold_velocity_mps": 0.2389728960797998,
+      "formation_shape_error_m": 0.005857094938643723
+    },
+    "sample_ledger": {
+      "expected_sample_count": 1652,
+      "valid_sample_count": 1652,
+      "valid_sample_ratio": 1.0,
+      "alignment_failure_count": 0,
+      "max_continuous_gap_s": 0.05000019073486328,
+      "leading_missing_s": 0.0,
+      "trailing_missing_s": 0.0,
+      "max_middle_gap_s": 0.05000019073486328,
+      "observed_period_s": 0.05004243039070292,
+      "agent_expected_counts": {
+        "0": 236,
+        "1": 236,
+        "2": 236,
+        "3": 236,
+        "4": 236,
+        "5": 236,
+        "6": 236
+      },
+      "agent_valid_counts": {
+        "0": 236,
+        "1": 236,
+        "2": 236,
+        "3": 236,
+        "4": 236,
+        "5": 236,
+        "6": 236
+      },
+      "agent_max_gaps_s": {
+        "0": 0.05000019073486328,
+        "1": 0.05000019073486328,
+        "2": 0.05000019073486328,
+        "3": 0.05000019073486328,
+        "4": 0.05000019073486328,
+        "5": 0.05000019073486328,
+        "6": 0.05000019073486328
+      }
+    },
+    "safety": {
+      "outcome": "PASS",
+      "evidence_kind": "DISCRETE_SAMPLED",
+      "min_inter_agent_distance_m": 3.6451168494179154,
+      "min_obstacle_clearance_m": null,
+      "min_inter_agent_surface_clearance_m": 3.1451168494179154,
+      "box_clearance_m": null,
+      "box_center": null,
+      "box_size": null,
+      "required_box_clearance_m": 0.2,
+      "obstacle_check": "NOT_APPLICABLE",
+      "platform_radius_m": 0.25,
+      "check_resolution": "DISCRETE_SAMPLED",
+      "required_inter_agent_clearance_m": 0.5,
+      "required_obstacle_clearance_m": 0.2,
+      "collision_pairs": [],
+      "reasons": []
+    },
+    "reasons": []
+  },
+  "task_outcome": "PASS",
+  "safety_outcome": "PASS",
+  "experiment_validity": "VALID",
+  "safety_evidence_kind": "DISCRETE_SAMPLED",
+  "reason": 0,
+  "reason_text": "task_outcome=PASS safety_outcome=PASS experiment_validity=VALID",
+  "accepted_for_dispatch": true,
+  "resource_released": true
+}

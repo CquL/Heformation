@@ -41,8 +41,8 @@ from qn_aav_simulator.action_lifecycle import (
     ACCEPTED, ActionResourceStateMachine, REJECTED_INVALID,
 )
 from qn_aav_simulator.experiment_verdict import (
-    MemberSample, SAFETY_PASS, TASK_PASS, VALIDITY_VALID, build_ledger,
-    compute_metrics, decide, evaluate_safety,
+    MemberSample, SAFETY_PASS, TASK_PASS, VALIDITY_VALID, box_surface_clearance,
+    build_ledger, compute_metrics, decide, evaluate_safety,
 )
 from qn_aav_simulator.formation_monitor import (
     AGENT_IDS, DEFAULT_RELATIVE_SLOTS, GroupCompletionMonitor, OdometrySample,
@@ -121,8 +121,29 @@ class FormationActionServer:
         # Physical envelope of one platform and the declared surface plane.
         # Surface clearance is a centre distance with both envelopes removed;
         # the AIR floor itself is derived from the qn model, not configured.
+        # Declared cruise altitude of the scenario.  The replan FSM honours the
+        # goal's z (build-time patch), so this value reaches the planner too.
+        self.cruise_altitude_m = float(rospy.get_param("~cruise_altitude_m", 0.5))
         self.platform_radius_m = float(rospy.get_param("~platform_radius_m", 0.25))
         self.surface_plane_m = float(rospy.get_param("~surface_plane_m", 0.0))
+        # One scene definition, shared with the publisher, the renderers and the
+        # verifier.  The box is the *actual* geometric truth for the clearance
+        # check; the point cloud stays a diagnostic.
+        scene = rospy.get_param("/scene", {})
+        self.map_topic = str(rospy.get_param(
+            "~global_map_topic", scene.get("topic", GLOBAL_MAP_TOPIC)))
+        self.scene_source = bool(rospy.get_param(
+            "~scene_source", bool(scene)))
+        self.obstacle_present = bool(rospy.get_param(
+            "~obstacle_present", scene.get("obstacle_present", False)))
+        self.obstacle_center = [float(value) for value in rospy.get_param(
+            "~obstacle_center", scene.get("obstacle_center", [-23.0, 0.0, 0.5]))]
+        self.obstacle_size = [float(value) for value in rospy.get_param(
+            "~obstacle_size", scene.get("obstacle_size", [1.0, 1.0, 1.2]))]
+        # Declared before the run: the reference path must leave this much extra
+        # room beyond the required clearance.  It is only used for the reference
+        # margin analysis and never added to the actual safety threshold.
+        self.tracking_budget_m = float(rospy.get_param("~tracking_budget_m", 0.30))
         self.min_valid_sample_ratio = float(rospy.get_param("~min_valid_sample_ratio", 0.9))
         self.slots = validate_configuration(
             self.agent_ids,
@@ -179,7 +200,8 @@ class FormationActionServer:
         self.state_machine = ActionResourceStateMachine(lock=self.lock)
         self.readiness = ReadinessEvaluator(
             self.agent_ids, sensor_backend=self.sensor_backend,
-            known_empty_map=self.known_empty_map, cloud_timeout_s=self.cloud_timeout,
+            known_empty_map=self.known_empty_map, scene_source=self.scene_source,
+            map_topic=self.map_topic, cloud_timeout_s=self.cloud_timeout,
             odometry_timeout_s=self.odom_timeout,
             diagnostics_timeout_s=self.qn_state_timeout)
         self.health = RuntimeHealthMonitor(self.readiness,
@@ -193,7 +215,7 @@ class FormationActionServer:
         self.master = rosgraph.Master(rospy.get_name())
         self.goal_pub = rospy.Publisher("/move_base_simple/goal", PoseStamped, queue_size=1)
         self.subscribers = [
-            rospy.Subscriber(GLOBAL_MAP_TOPIC, PointCloud2, self._map_callback,
+            rospy.Subscriber(self.map_topic, PointCloud2, self._map_callback,
                              queue_size=1),
             rospy.Subscriber("/move_base_simple/goal", PoseStamped,
                              self._group_goal_observer, queue_size=10),
@@ -410,7 +432,7 @@ class FormationActionServer:
         with self.lock:
             self.map_cloud = points
             self.readiness.note_message(
-                GLOBAL_MAP_TOPIC, rospy.Time.now().to_sec(),
+                self.map_topic, rospy.Time.now().to_sec(),
                 valid=points is not None, empty=(points is not None and len(points) == 0))
 
     def _sensing_callback(self, message, agent_id):
@@ -643,8 +665,15 @@ class FormationActionServer:
                     self._json_safe(snapshot.get("topic_message_counts", {}))))
                 # XML-RPC cannot marshal None, so the baseline report is carried
                 # as JSON text.  A failure here must never kill readiness.
+                # Two different facts, kept apart: the whole-run live summary
+                # (which keeps measuring reference speed) and the baseline that
+                # admitted this run (a one-off snapshot; re-measuring it from the
+                # sliding history can read just under the threshold even though
+                # the gate accepted it).
                 rospy.set_param("~time_alignment_session", json.dumps(
                     self._json_safe(snapshot.get("time_baseline", {}))))
+                rospy.set_param("~time_alignment_baseline", json.dumps(
+                    self._json_safe(self._cached_baseline_report().as_dict())))
             except Exception as error:
                 rospy.logwarn_throttle(
                     5.0, "could not publish readiness parameters: %s", error)
@@ -663,15 +692,15 @@ class FormationActionServer:
             rospy.rostime.wallsleep(0.25)
 
     # ----------------------------------------------------------- goal entry
-    @staticmethod
-    def _validate_goal(goal):
+    def _validate_goal(self, goal):
         if not str(goal.task_id).strip():
             raise ValueError("task_id must not be empty")
         return validate_target(goal.formation_center.header.frame_id,
                                (goal.formation_center.point.x,
                                 goal.formation_center.point.y,
                                 goal.formation_center.point.z),
-                               goal.hold_duration.to_sec())
+                               goal.hold_duration.to_sec(),
+                               self.cruise_altitude_m)
 
     def _goal_callback(self, goal_handle):
         """Validate, atomically reserve the group resource, hand over, return."""
@@ -836,7 +865,8 @@ class FormationActionServer:
             agent_ids=self.agent_ids, relative_slots=self.slots, swarm_scale=self.scale,
             epsilon_p=self.epsilon_p, epsilon_v=self.epsilon_v,
             odom_timeout=self.odom_timeout, execution_timeout=self.execution_timeout,
-            platform_radius_m=self.platform_radius_m)
+            platform_radius_m=self.platform_radius_m,
+            target_z=self.cruise_altitude_m)
         alignment = self._new_alignment_monitor()
         with self.lock:
             self._alignment_fed_ros = {
@@ -934,6 +964,27 @@ class FormationActionServer:
                                 diagnostics.get("min_obstacle_clearance", clearance),
                                 clearance)
                         last_obstacle_sample = now_s
+                    # Whole-run latches: the plane envelope and the declared box
+                    # are checked over the entire task, not only at the end.
+                    box_clearance = self._box_clearance(samples)
+                    if box_clearance is not None:
+                        previous = diagnostics.get("min_box_surface_clearance_m")
+                        diagnostics["min_box_surface_clearance_m"] = (
+                            box_clearance if previous is None
+                            else min(previous, box_clearance))
+                    if snapshot.min_height_m is not None:
+                        previous = diagnostics.get("min_member_height_m")
+                        diagnostics["min_member_height_m"] = (
+                            snapshot.min_height_m if previous is None
+                            else min(previous, snapshot.min_height_m))
+                    diagnostics["stale_local_scans"] = self._stale_local_scans(now_s)
+                    violation = self._violation_reason(diagnostics, snapshot)
+                    if violation:
+                        diagnostics["violation_latched_at_s"] = now_s
+                        diagnostics["violation_reason"] = violation
+                        for agent_id in self.agent_ids:
+                            self._feed_adoption(agent_id, now_s)
+                        break
                     self._record_member_samples(
                         member_samples, samples, references, monitor, now_s)
                     reference_missing += self._count_missing_references(references)
@@ -1013,6 +1064,77 @@ class FormationActionServer:
             if entry is None or "position" not in entry or "velocity" not in entry:
                 missing += 1
         return missing
+
+    def _box_clearance(self, samples):
+        """Actual surface clearance to the declared obstacle box.
+
+        ``None`` means no box was declared: the check is not applicable, which is
+        a different statement from a zero clearance or a missing measurement.
+        """
+        if not self.obstacle_present:
+            return None
+        worst = None
+        for agent_id in self.agent_ids:
+            sample = self._latest_sample(samples.get(agent_id))
+            if sample is None:
+                continue
+            value = box_surface_clearance(
+                sample.position, self.obstacle_center, self.obstacle_size,
+                self.platform_radius_m)
+            worst = value if worst is None else min(worst, value)
+        return worst
+
+    def _stale_local_scans(self, now_s):
+        """Local scan topics that stopped delivering while a task is running.
+
+        A stop in the scan chain is a perception failure, not a quiet
+        environment: the scan had been arriving and then stopped, which the
+        readiness health reports as stale after ``cloud_timeout``.
+        """
+        stale = []
+        with self.lock:
+            topics = dict(self.readiness.topics)
+        for topic, health in topics.items():
+            if not self._is_local_scan_topic(topic):
+                continue
+            if health.last_stamp_s is None:
+                continue
+            if now_s - health.last_stamp_s > self.cloud_timeout:
+                stale.append((topic, now_s - health.last_stamp_s))
+        return stale
+
+    @staticmethod
+    def _is_local_scan_topic(topic):
+        return topic.endswith("pcl_render_node/cloud") or \
+            topic.endswith("pcl_render_node/depth")
+
+    def _violation_reason(self, diagnostics, snapshot):
+        """The first observed violation, or None.
+
+        Violations are latched as soon as they are seen and end the task; waiting
+        for the final summary would let a task keep flying after a failure it has
+        already detected.
+        """
+        stale = diagnostics.get("stale_local_scans")
+        if stale:
+            return "local scan stopped delivering: {}".format(", ".join(
+                "{} ({:.1f} s)".format(topic, age) for topic, age in stale))
+        box = diagnostics.get("min_box_surface_clearance_m")
+        if box is not None and box < self.obstacle_clearance:
+            return "box surface clearance {:.3f} m below {:.2f} m".format(
+                box, self.obstacle_clearance)
+        height = diagnostics.get("min_member_height_m")
+        if height is not None and height - self.platform_radius_m < self.surface_plane_m:
+            return ("member envelope reached {:.3f} m, below the declared "
+                    "surface {:.3f} m".format(
+                        height - self.platform_radius_m, self.surface_plane_m))
+        if snapshot is not None and snapshot.min_inter_agent_surface_distance is not None \
+                and snapshot.min_inter_agent_surface_distance < self.inter_agent_clearance:
+            return "inter-agent surface clearance {:.3f} m below {:.2f} m".format(
+                snapshot.min_inter_agent_surface_distance, self.inter_agent_clearance)
+        if self.air_domain_violation:
+            return "the run left the AIR model"
+        return None
 
     def _obstacle_clearance(self, samples):
         with self.lock:
@@ -1154,10 +1276,21 @@ class FormationActionServer:
             hold_start_s=hold_started, hold_end_s=hold_finished)
         air = self._air_domain_summary()
         diagnostics["air_domain"] = air
-        lowest_height = snapshot.min_height_m if snapshot is not None else None
+        # The plane envelope is judged over the whole task, not on the final
+        # monitor window.
+        lowest_height = diagnostics.get(
+            "min_member_height_m",
+            snapshot.min_height_m if snapshot is not None else None)
+        diagnostics["min_member_height_m"] = lowest_height
         surface_violation = (
             lowest_height is not None
             and lowest_height - self.platform_radius_m < self.surface_plane_m)
+        box_clearance = diagnostics.get("min_box_surface_clearance_m")
+        if box_clearance is None:
+            box_clearance = self._box_clearance({
+                agent_id: [member.position for member in series]
+                for agent_id, series in member_samples.items()})
+            diagnostics["min_box_surface_clearance_m"] = box_clearance
         safety = evaluate_safety(
             member_samples, obstacle_clearances=obstacle_clearances or None,
             required_inter_agent_clearance_m=self.inter_agent_clearance,
@@ -1168,7 +1301,12 @@ class FormationActionServer:
                 "member envelope reached {:.3f} m, below the declared surface "
                 "{:.3f} m".format(lowest_height - self.platform_radius_m,
                                   self.surface_plane_m)
-                if surface_violation else ""))
+                if surface_violation else ""),
+            box_clearance_m=box_clearance,
+            box_center=self.obstacle_center if self.obstacle_present else None,
+            box_size=self.obstacle_size if self.obstacle_present else None,
+            required_box_clearance_m=self.obstacle_clearance,
+            obstacle_check_expected=self.obstacle_present)
         model_hold = diagnostics.get("model_hold") or {}
         min_model_hold = model_hold.get("min_model_hold_s")
         model_hold_satisfied = (
@@ -1214,7 +1352,8 @@ class FormationActionServer:
                 reason = FormationResult.EXECUTION_TIMEOUT
         elif adoption_verdict.state != "ADOPTED":
             reason = FormationResult.REFERENCE_ADOPTION_UNCONFIRMED
-        elif not air["ok"] or verdict.safety_outcome != SAFETY_PASS:
+        elif (not air["ok"] or verdict.safety_outcome != SAFETY_PASS
+              or diagnostics.get("violation_reason")):
             # The task may have reached its slots, but the run violated the
             # operating or safety envelope.  Lock instead of continuing.
             reason = FormationResult.UNKNOWN_LOCKED

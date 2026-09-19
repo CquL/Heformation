@@ -89,6 +89,9 @@ class ReadinessStatus:
     messages_received: bool = False
     inputs_valid: bool = False
     known_empty_sensing: Tuple[str, ...] = ()
+    # Delivered scans that found nothing.  Reported, never treated as proof
+    # that the environment is empty.
+    empty_scans: Tuple[str, ...] = ()
 
     def as_dict(self) -> Dict[str, object]:
         return {
@@ -106,6 +109,7 @@ class ReadinessStatus:
             "messages_received": self.messages_received,
             "inputs_valid": self.inputs_valid,
             "known_empty_sensing": list(self.known_empty_sensing),
+            "empty_scans": list(self.empty_scans),
         }
 
 
@@ -115,6 +119,8 @@ class ReadinessEvaluator:
     def __init__(self, agent_ids: Iterable[int], *,
                  sensor_backend: str = SENSOR_BACKEND_CPU,
                  known_empty_map: bool = False,
+                 scene_source: bool = False,
+                 map_topic: str = GLOBAL_MAP_TOPIC,
                  cloud_timeout_s: float = 2.0,
                  odometry_timeout_s: float = 0.25,
                  diagnostics_timeout_s: float = 1.0,
@@ -127,6 +133,15 @@ class ReadinessEvaluator:
             raise ValueError("sensor_backend must be one of {}".format(SENSOR_BACKENDS))
         self.sensor_backend = backend
         self.known_empty_map = bool(known_empty_map)
+        # A declared scene source owns the map topic.  Then an explicitly
+        # received *empty* map is a data state -- "initialised, obstacle set
+        # empty" -- and not the same thing as a map that never arrived.  The
+        # known_empty_map flag keeps its original meaning for streams whose
+        # silence must not be read as evidence.
+        self.scene_source = bool(scene_source)
+        if not isinstance(map_topic, str) or not map_topic.strip():
+            raise ValueError("map_topic must be a non-empty string")
+        self.map_topic = map_topic
         for name, value in (("cloud_timeout_s", cloud_timeout_s),
                             ("odometry_timeout_s", odometry_timeout_s),
                             ("diagnostics_timeout_s", diagnostics_timeout_s)):
@@ -142,7 +157,7 @@ class ReadinessEvaluator:
         self._register_required_topics()
 
     def _register_required_topics(self) -> None:
-        self.topics[GLOBAL_MAP_TOPIC] = TopicHealth(GLOBAL_MAP_TOPIC)
+        self.topics[self.map_topic] = TopicHealth(self.map_topic)
         for agent_id in self.agent_ids:
             topic = (depth_topic(agent_id)
                      if self.sensor_backend == SENSOR_BACKEND_CUDA
@@ -181,7 +196,7 @@ class ReadinessEvaluator:
                 or topic.endswith("pcl_render_node/depth"))
 
     def _timeout(self, topic: str) -> float:
-        if topic == GLOBAL_MAP_TOPIC:
+        if topic == self.map_topic:
             return self.cloud_timeout_s
         if topic.endswith("/diagnostics"):
             return self.diagnostics_timeout_s
@@ -197,6 +212,7 @@ class ReadinessEvaluator:
         invalid: List[str] = []
         invalid_reasons: List[str] = []
         known_empty_sensing: List[str] = []
+        empty_scans: List[str] = []
         for topic, health in sorted(self.topics.items()):
             if not health.exists:
                 # Level 1: the topic is not advertised at all.
@@ -218,26 +234,25 @@ class ReadinessEvaluator:
             if age is None or age < 0.0 or age > self._timeout(topic):
                 stale.append(topic)
                 continue
-            if topic == GLOBAL_MAP_TOPIC:
+            if topic == self.map_topic:
                 if health.empty:
-                    if not self.known_empty_map:
+                    if self.scene_source or self.known_empty_map:
+                        self.map_state = "KNOWN_EMPTY"
+                    else:
                         invalid.append(topic)
                         invalid_reasons.append(
                             "{}: empty map without known_empty_map=true".format(topic))
                         continue
-                    self.map_state = "KNOWN_EMPTY"
                 else:
                     self.map_state = "POPULATED"
             if topic.endswith("pcl_render_node/cloud") and health.empty:
+                # An empty cloud that was actually delivered is a completed
+                # observation with no returns: the scan chain works.  It is not
+                # evidence that the whole environment is empty, so it is
+                # reported separately and never used to clear a known obstacle.
+                empty_scans.append(topic)
                 if self.known_empty_map:
-                    # The run declared the operating region known-empty, which
-                    # is exactly what makes an (observed) empty cloud legal.
-                    # Without that declaration an empty cloud is still not
-                    # evidence of an empty environment and stays invalid.
                     known_empty_sensing.append(topic)
-                    continue
-                invalid.append(topic)
-                invalid_reasons.append("{}: empty local cloud".format(topic))
                 continue
             if not health.valid:
                 invalid.append(topic)
@@ -276,6 +291,7 @@ class ReadinessEvaluator:
             messages_received=messages_received,
             inputs_valid=inputs_valid,
             known_empty_sensing=tuple(known_empty_sensing),
+            empty_scans=tuple(empty_scans),
         )
 
 
