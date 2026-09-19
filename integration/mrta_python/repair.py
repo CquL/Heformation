@@ -111,3 +111,40 @@ def process_completion(plan: Plan, event: DelayEvent,
         updated, changed = plan_repair(updated, event)
     final_events[event.execution_id] = event
     return updated, changed
+
+
+def process_executor_completion(plan, event, final_events):
+    """Apply a received result to the existing globally serial Executor plan.
+
+    Same result identity rules as the fixed-coalition path. Every later item,
+    including a disjoint unit, is released after this completion. Allocation is
+    unchanged; the caller may refresh travel estimates from actual member state.
+    """
+    from .executors import ExecutorPlan
+    if not isinstance(plan, ExecutorPlan):
+        raise ValueError("Executor completion requires an ExecutorPlan")
+    item = _event_item(plan, event)
+    for previous in final_events.values():
+        if previous.event_id == event.event_id and not _same_result(previous, event):
+            raise ValueError("event_id was already used for a different terminal result")
+    previous = final_events.get(event.execution_id)
+    if previous is not None:
+        if not _same_result(previous, event):
+            raise ValueError("execution already has a different terminal result")
+        return plan, False
+    if item.status != "RUNNING":
+        raise ValueError("completion requires a dispatched execution")
+    index = plan.items.index(item)
+    if any(i.status != "PLANNED" for i in plan.items[index + 1:]):
+        raise ValueError("serial successor has already started or terminated")
+    updated = ExecutorPlan([replace(i) for i in plan.items])
+    updated.items[index].status = "COMPLETED"
+    release, changed = event.actual_finish, False
+    for successor in updated.items[index + 1:]:
+        start = max(successor.planned_start, release)
+        finish = start + successor.travel_time + successor.wait_time + successor.service_time
+        changed |= start != successor.planned_start or finish != successor.planned_finish
+        successor.planned_start, successor.planned_finish = start, finish
+        release = finish
+    final_events[event.execution_id] = event
+    return updated, changed

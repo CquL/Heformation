@@ -36,6 +36,10 @@ RUN patch -p1 -d /workspace/src \
 RUN patch -p1 -d /workspace/src \
       < /tmp/swarm_qn_patches/traj_opt_declared_formation.patch
 
+# Reuse a native stationary reference for already-settled adapted goals.
+RUN patch -p1 -d /workspace/src \
+      < /tmp/swarm_qn_patches/plan_manage_stationary_goal.patch
+
 # matplotlib is in the base image but its Tk bindings are not, so the live
 # dashboard could only publish images.  This layer adds them; nothing else in
 # the stack depends on it.

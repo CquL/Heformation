@@ -12,7 +12,7 @@ from qn_aav_simulator.observation_coverage import (
     CoverageResult, PointObservation, evaluate_coverage, record_delivery,
 )
 from qn_aav_simulator.task_line import (
-    FormationPhase, evaluate_formation_phase, formation_shape_error,
+    FormationPhase, formation_similarity, formation_interval_metrics,
     load_formation_phase, load_request, request_centres, retest_tasks, to_plan_tasks,
 )
 
@@ -20,7 +20,7 @@ REQUEST_PATH = (Path(__file__).resolve().parents[1] / "config"
                 / "monitoring_request_coastal.yaml")
 
 REQ = ObservationRequirement(footprint_radius_m=2.5, min_dwell_s=1.0,
-                             cruise_altitude_m=0.8, nominal_standoff_m=0.8,
+                             cruise_altitude_m=0.8,
                              max_distance_from_altitude_m=3.0)
 SLOTS = {"d0": (0.0, 0.0, 0.0), "d1": (0.0, -2.0, 0.0), "d2": (0.0, 2.0, 0.0)}
 CENTRE = (-24.0, 6.0, 0.8)
@@ -39,7 +39,7 @@ def coverage_with(observed_ids, delivered=False):
     result = CoverageResult()
     for point_id in ("a1", "a2"):
         result.points[point_id] = PointObservation(
-            point_id, point_id in observed_ids, 1.0 if point_id in observed_ids else 0.0,
+            point_id, point_id in observed_ids,
             "d0" if point_id in observed_ids else None, 1.5, "test")
     if delivered:
         record_delivery(result, observed_ids)
@@ -56,9 +56,9 @@ def test_the_frozen_request_loads_and_expands_one_task_per_region():
 
 def test_the_frozen_formation_phase_loads():
     phase = load_formation_phase(REQUEST_PATH)
-    assert phase.phase_id == "shoreline_corridor"
+    assert phase.phase_id == "formation_transfer"
     assert phase.required_agent_count == 3
-    assert phase.interest_point_ids == ("s1", "s2", "s3")
+    assert phase.interest_point_ids == ()
 
 
 def test_a_missing_request_field_is_an_error_not_a_default(tmp_path):
@@ -78,43 +78,6 @@ def test_observation_tasks_become_planner_tasks_with_named_references():
     assert centres[tasks[0].task_id] == tasks[0].target
     # observation tasks do not claim to need a larger unit
     assert all(task.allow_larger_unit is False for task in planner_tasks)
-
-
-def test_a_translated_formation_has_no_shape_error():
-    assert formation_shape_error(shape_positions((5.0, 3.0, 0.0)), SLOTS, CENTRE, 1.0) == pytest.approx(0.0)
-
-
-def test_a_deformed_formation_reports_the_deviation():
-    error = formation_shape_error(
-        shape_positions(deform={"d2": (0.0, 1.5, 0.0)}), SLOTS, CENTRE, 1.0)
-    assert error == pytest.approx(1.5)
-
-
-def test_formation_phase_needs_both_shape_and_observation():
-    phase = FormationPhase("p", (-30.0, 6.0, 0.8), (-18.0, 6.0, 0.8),
-                           ("a1", "a2"), shape_tolerance_m=0.5)
-    good = evaluate_formation_phase(phase, shape_positions(), SLOTS, CENTRE, 1.0,
-                                    coverage_with(("a1", "a2")), {"a1": 1.0, "a2": 1.0})
-    assert good.complete and good.max_shape_error_m == pytest.approx(0.0)
-
-    deformed = evaluate_formation_phase(
-        phase, shape_positions(deform={"d1": (0.0, 1.0, 0.0)}), SLOTS, CENTRE, 1.0,
-        coverage_with(("a1", "a2")), {"a1": 1.0, "a2": 1.0})
-    assert not deformed.complete
-    assert any("shape error" in reason for reason in deformed.reasons)
-
-    unobserved = evaluate_formation_phase(phase, shape_positions(), SLOTS, CENTRE, 1.0,
-                                          coverage_with(("a1",)), {"a1": 1.0, "a2": 1.0})
-    assert not unobserved.complete
-    assert any("not observed" in reason for reason in unobserved.reasons)
-
-
-def test_a_formation_phase_with_too_few_members_is_incomplete():
-    phase = FormationPhase("p", (0.0, 0.0, 0.8), (1.0, 0.0, 0.8), (), shape_tolerance_m=0.5)
-    verdict = evaluate_formation_phase(phase, {"d0": CENTRE}, SLOTS, CENTRE, 1.0,
-                                       coverage_with(()), {})
-    assert not verdict.complete
-    assert any("members present" in reason for reason in verdict.reasons)
 
 
 def retest_request():
@@ -161,87 +124,38 @@ def test_full_coverage_produces_no_retest():
                         delivery_recorded=True, already_retested=False) == ()
 
 
-# --- group phase judged over the whole interval -----------------------------
-
-from qn_aav_simulator.task_line import (  # noqa: E402
-    evaluate_formation_phase_over_interval,
-)
-
-PHASE = FormationPhase("shoreline", (-30.0, 6.0, 0.8), (-18.0, 6.0, 0.8),
-                       ("a1", "a2"), shape_tolerance_m=0.6)
-PHASE_SLOTS = {"d0": (0.0, 0.0, 0.0), "d1": (0.0, -2.0, 0.0), "d2": (0.0, 2.0, 0.0)}
-PHASE_WEIGHTS = {"a1": 1.0, "a2": 1.0}
+def test_source_metric_is_rotation_translation_scale_invariant():
+    positions = {m: (4 - 3*v[1], 6 + 3*v[0], 2 + 3*v[2]) for m, v in SLOTS.items()}
+    assert formation_similarity(positions, SLOTS) == pytest.approx(0)
 
 
-def snapshots(progress_points, deform=None, lateral=0.0, rotate=False):
-    """One sample per centre x, members at centre + slot unless deformed."""
-    rows = []
-    for index, x in enumerate(progress_points):
-        centre = (x, 6.0 + lateral, 0.8)
-        positions = {}
-        for member, slot in PHASE_SLOTS.items():
-            offset = slot
-            if rotate:
-                offset = {(0.0, -2.0, 0.0): (2.0, 0.0, 0.0),
-                          (0.0, 2.0, 0.0): (-2.0, 0.0, 0.0)}.get(slot, slot)
-            if deform and index in deform:
-                offset = tuple(offset[i] + deform[index].get(member, (0.0, 0.0, 0.0))[i]
-                               for i in range(3))
-            positions[member] = tuple(centre[i] + offset[i] for i in range(3))
-        rows.append((float(index), positions))
-    return rows
+def test_interval_records_transient_deformation_without_inventing_threshold():
+    good = shape_positions()
+    bad = shape_positions(deform={"d1": (1.0, 1.0, 0.0)})
+    result = formation_interval_metrics([(0, good), (.1, bad), (.2, good)], SLOTS,
+                                         sample_timeout_s=.25)
+    assert result["max_similarity_error"] > 0
+    assert result["business_shape_verdict"] == "NOT_DEFINED"
+    assert "complete" not in result
 
 
-def verdict(rows):
-    return evaluate_formation_phase_over_interval(
-        PHASE, rows, PHASE_SLOTS, 1.0, coverage_with(("a1", "a2")), PHASE_WEIGHTS)
+@pytest.mark.parametrize("stamps", [[0], [0, 999], [1, 0], [0, 0]])
+def test_missing_or_unordered_interval_is_not_perfect_formation(stamps):
+    with pytest.raises(ValueError):
+        formation_interval_metrics([(t, shape_positions()) for t in stamps], SLOTS,
+                                     sample_timeout_s=.25)
 
 
-def test_a_clean_traversal_passes():
-    result = verdict(snapshots([-30.0 + 1.5 * i for i in range(9)]))
-    assert result.complete, result.reasons
-
-
-def test_rotating_line_abreast_into_line_astern_is_caught():
-    """Member-to-member distances are unchanged by a rotation, so a distance
-    metric would call this a perfect formation."""
-    result = verdict(snapshots([-30.0 + 1.5 * i for i in range(9)], rotate=True))
-    assert not result.complete
-    assert any("shape error" in reason for reason in result.reasons)
-
-
-def test_disbanding_mid_flight_and_reforming_is_caught():
-    """The last snapshot is perfect; only the interval shows the dispersal."""
-    rows = snapshots([-30.0 + 1.5 * i for i in range(9)],
-                     deform={4: {"d0": (0.0, 0.0, 0.0), "d1": (0.0, 3.0, 0.0),
-                                 "d2": (0.0, -3.0, 0.0)}})
-    result = verdict(rows)
-    assert not result.complete
-    assert any("shape error" in reason for reason in result.reasons)
-
-
-def test_the_centre_leaving_the_corridor_is_caught():
-    result = verdict(snapshots([-30.0 + 1.5 * i for i in range(9)], lateral=2.5))
-    assert not result.complete
-    assert any("left the corridor" in reason for reason in result.reasons)
-
-
-def test_cumulative_backtracking_is_caught_even_when_no_step_is_large():
-    """Each retreat is small; together they give up most of the corridor."""
-    points = [-30.0 + 1.0 * i for i in range(13)]     # 0 .. 12 m
-    points += [points[-1] - 9.0, points[-1]]          # fall back 9 m, then return
-    result = verdict(snapshots(points))
-    assert not result.complete
-    assert any("fell back" in reason for reason in result.reasons)
-
-
-def test_stopping_short_of_the_corridor_end_is_caught():
-    result = verdict(snapshots([-30.0 + 1.0 * i for i in range(6)]))
-    assert not result.complete
-    assert any("corridor end" in reason for reason in result.reasons)
-
-
-def test_a_single_sample_cannot_judge_a_traversal():
-    result = verdict(snapshots([-24.0]))
-    assert not result.complete
-    assert any("at least two" in reason for reason in result.reasons)
+def test_unknown_points_and_revoked_gates_are_rejected(tmp_path):
+    import yaml
+    raw = yaml.safe_load(REQUEST_PATH.read_text())
+    path = tmp_path / "bad.yaml"
+    raw["formation_phase"]["interest_point_ids"] = ["undefined"]
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(ValueError, match="undefined"):
+        load_formation_phase(path)
+    raw["formation_phase"]["interest_point_ids"] = []
+    raw["formation_phase"]["corridor_half_width_m"] = 1.5
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(ValueError, match="unsupported"):
+        load_formation_phase(path)

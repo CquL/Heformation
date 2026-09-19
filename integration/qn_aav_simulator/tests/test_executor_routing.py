@@ -80,9 +80,9 @@ def test_disjoint_units_do_not_block_each_other():
     assert conflicting_active_unit(units, ["aav_2", "aav_3"], "aav_1") is None
 
 
-def test_reoccupying_the_same_unit_is_not_a_conflict_with_itself():
+def test_reoccupying_an_active_unit_is_a_resource_conflict():
     units = routing()
-    assert conflicting_active_unit(units, ["aav_1"], "aav_1") is None
+    assert conflicting_active_unit(units, ["aav_1"], "aav_1").executor_id == "aav_1"
 
 
 def test_an_unknown_active_unit_is_an_error_not_a_silent_pass():

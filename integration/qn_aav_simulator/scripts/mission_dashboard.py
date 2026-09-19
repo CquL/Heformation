@@ -23,6 +23,7 @@ what the recording settles as.  This shows what is true right now.
 from __future__ import annotations
 
 import math
+import json
 import sys
 import threading
 from collections import deque
@@ -39,7 +40,7 @@ from nav_msgs.msg import Odometry
 from sensor_msgs.msg import CompressedImage
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from plot_mission_overview import AIR_FLOOR_M, slot_target  # noqa: E402
+from plot_mission_overview import AIR_FLOOR_M_FALLBACK as AIR_FLOOR_M, slot_target  # noqa: E402
 
 AGENTS = tuple(range(7))
 COLOURS = matplotlib.pyplot.get_cmap("tab10")
@@ -56,7 +57,21 @@ class MissionDashboard:
         self.rate = float(rospy.get_param("~rate", 5.0))
         self.show_window = bool(rospy.get_param("~window", False))
         self.publish_raw = bool(rospy.get_param("~publish_raw", False))
+        if self.show_window:
+            matplotlib.use("TkAgg", force=True)
 
+        self.planning_mode = rospy.get_param("~planning_mode", "fixed_coalition")
+        if self.planning_mode == "executor":
+            import matplotlib.pyplot as plt
+            self.figure, self.task_axis = plt.subplots(figsize=(13, 8))
+            if self.show_window:
+                self.figure.canvas.manager.set_window_title("Monitoring request — live task status")
+                window = self.figure.canvas.manager.window
+                width = min(1300, window.winfo_screenwidth() // 2 - 40)
+                window.geometry("{}x850+{}+70".format(width, window.winfo_screenwidth() // 2 + 20))
+            self.image_publisher = rospy.Publisher("~image/compressed", CompressedImage, queue_size=1)
+            self.raw_publisher = None
+            return
         self.epsilon_p = float(rospy.get_param("/formation_action_server/epsilon_p", 0.5))
         self.platform_radius = float(
             rospy.get_param("/formation_action_server/platform_radius_m", 0.25))
@@ -307,6 +322,8 @@ class MissionDashboard:
             }
 
     def draw(self, now):
+        if self.planning_mode == "executor":
+            return self.draw_task_authority(now)
         snapshot = self.snapshot()
         started = snapshot["started"]
         if started is None:
@@ -415,6 +432,40 @@ class MissionDashboard:
         self.ax_status.text(0.0, 1.0, "\n".join(lines), transform=self.ax_status.transAxes,
                             fontsize=9, va="top", family="monospace")
         self.ax_status.set_title("live status: allocation, adoption, liveness and verdicts")
+
+    def draw_task_authority(self, now):
+        raw = rospy.get_param("/formation_mission_runner/task_state", "{}")
+        state = json.loads(raw)
+        axis = self.task_axis
+        axis.clear()
+        axis.axis("off")
+        age = now - state.get("updated_at_ros_s", now)
+        action = state.get("current_action") or {}
+        lines = ["TASK AUTHORITY — " + state.get("request_id", "waiting for runner"),
+                 "Status: {}   update age: {:.1f}s".format(state.get("status", "UNAVAILABLE"), age),
+                 "Current action: {} / {}".format(action.get("task_id", "none"), action.get("phase", "-")),
+                 "Selected endpoint: " + action.get("endpoint", "-"),
+                 "Occupied / locked units: " + str(state.get("resource_locks", [])),
+                 "Observed geometry: {}   Received observations: {}".format(
+                     state.get("observed_fraction", "unknown"), state.get("delivered_fraction", "unknown")),
+                 "Received results: " + str(state.get("results_received", [])),
+                 "Failure: " + state.get("failure_reason", ""),
+                 "Image/payload quality: " + state.get("payload_quality", "UNVERIFIED"), "",
+                 "Task                        Executor             Status          Planned start / finish"]
+        for item in (state.get("plan") or {}).get("items", []):
+            lines.append("{:<27} {:<20} {:<15} {:.1f} / {:.1f}".format(
+                item["task_id"], item["executor_id"], item["status"], item["planned_start"], item["planned_finish"]))
+        lines.extend(["", "Point observations (geometric surrogate, no camera-quality claim):"])
+        coverage = state.get("coverage") or {}
+        received = coverage.get("delivered_point_ids", [])
+        for point, observation in coverage.get("points", {}).items():
+            lines.append("{}: observed={} received={} member={} dwell={:.2f}s".format(
+                point, observation["observed"], point in received,
+                observation["member_id"], observation["dwell_s"]))
+        axis.text(.01, .99, "\n".join(lines), transform=axis.transAxes, va="top",
+                  fontsize=10, family="monospace", wrap=True)
+        self.figure.tight_layout()
+        return self.render()
 
     def render(self):
         self.figure.canvas.draw()

@@ -1,59 +1,190 @@
-# 文献与开源成果：V2选型矩阵
+# 当前核心文献与工程作用
 
-**这是对2026-09-15 V2核查记录的整理，不是本次重新在线检索的结果。**源码存在、原文阅读、本地复现、组合通过和定理适用性分别记录。引用编号与V2保持一致，入口见[13](13_references.md)。
+**更新：2026-09-19**
 
-## 1. 文献角色与当前阶段位置
+详细全文状态以：
 
-| 成果 | 用途 | 采用状态与边界 |
-|---|---|---|
-| [R01 Swarm-Formation，ICRA 2022](13_references.md#r01) | 已有UAV编队轨迹规划基线 | 用户确认复现；不是完整任务系统 |
-| [R03 Primitive-Swarm，T-RO 2025](13_references.md#r03) | 轻量多机导航/避让，官方仓库Primitive-Planner | 后续导航对照；不是本阶段必接后端或严格编队方法 |
-| [R09 Calvo MRTA，T-RO 2025](13_references.md#r09) | 能源、长期任务、任务拆分/工作接替和计划修复 | 本阶段采用受限v9 Python移植；不启用电池/拆分/接替，不含一般前置关系/任意开始时间窗 |
-| [R10 Calvo配套执行架构](13_references.md#r10) | 中央任务规划与本地行为树、原生Action | 当前FormationAction不依赖此执行框架；其原生低层动作只是简化示例 |
-| [R08 D-ITAGS，RA-L 2023](13_references.md#r08) | 显式任务依赖、调度与运动查询、定向修复 | 后续上层对照；本阶段唯一在线上层已选受限Calvo v9 |
+```text
+research/literature/manifest.yaml
+research/literature/notes/
+```
 
-V2曾建议用这些小例子辅助选型；2026-09-17的用户决定已冻结本阶段主链，详见[plan.md](../plan.md)。原始复现继续独立保留，不要求所有依赖进入当前在线栈。
+为准。
 
-## 2. 编队与运动补充
+本页只保留当前真正改变接口、约束或实验的工作。
 
-| 成果 | 值得借鉴什么 | 不当作什么 |
-|---|---|---|
-| [R02 同作者T-RO 2023](13_references.md#r02) | 编队对齐/槽位分配、重组、全局与局部协调 | 原ICRA仓库已完整覆盖全部后续功能；业务任务调度 |
-| [R04 Number Adaptive Formation，2025预印本](13_references.md#r04) | 成员数变化、狭窄环境可变形引导 | 已确认正式顶会/顶刊和完整开源；受限水声现成方案 |
-| [R05 CAT-ORA，T-RO 2025](13_references.md#r05) | 有原生服务/C++接口的开阔区重排 | 任意带障碍环境和任意异构动力学全局最优导航 |
-| [R06 AMSwarmX，ICRA 2024](13_references.md#r06) | 复杂障碍多机规划对照 | 任务资源和跨域通信总框架 |
+## 1. 任务分配与执行反馈
 
-V2记录：Primitive论文报告1000机仿真和8机实飞；大规模仿真使用共享内存，并讨论重规划加速度不连续。不能改写成1000机实飞或已经验证千机受限无线网络。T-RO 2023代码入口仍指向Swarm，完整后续实现覆盖未核实，不等于确定未开源。
+### Calvo / Capitán
 
-## 3. 理论与联合协调对照
+**Heterogeneous Multi-robot Task Allocation for Long-Endurance Missions in Dynamic Scenarios**
 
-| 成果 | 对我们的方法定位意味着什么 |
-|---|---|
-| [R07 GRSTAPS，IJRR 2022](13_references.md#r07) | 任务、分配、调度与运动交错已有来源，不把总框架名称当创新 |
-| [R11 H-LTL/GCS，RSS 2025](13_references.md#r11) | 任务逻辑与连续运动结合已有近期理论和代码；不是首版强制搬入全部机械臂/Drake场景 |
-| [R14 CoCoPlan，RA-L 2026](13_references.md#r14) | 任务与间歇通信已有强近邻；V2尚未确认完整官方源码，不列必装依赖 |
+当前作用：
 
-## 4. 通信与执行的专门参考
+- 受限 v9 调度依据；
+- DelayEvent / planRepair；
+- 等待与时序传播概念；
+- 不把受限 Python port 写成完整 MATLAB 等价复现。
 
-| 成果 | 用途及边界 |
-|---|---|
-| [R12 RMADER，RA-L 2024/ICRA 2023](13_references.md#r12) | 有界通信延迟、异步轨迹更新；不保证任意失联 |
-| [R13 DMPC-Swarm，Autonomous Robots 2025](13_references.md#r13) | 消息恢复与分布式MPC；有同步通信/计算、初始可行性和跟踪界条件 |
-| [R15 DANCERS，SIMPAR 2025](13_references.md#r15) | 物理—网络联合仿真支撑；不是T-RO，不自带完整水声/任务控制 |
-| [R16 ROS-NetSim，RA-L 2021](13_references.md#r16) | 联合仿真方法参照；不与DANCERS重复建设同一层 |
+状态：全文已下载并阅读。
 
-## 5. 海洋模型
+### GRSTAPS
 
-[R17 Stonefish](13_references.md#r17)有OCEANS 2019基础及ICRA 2025更新；采用所需海洋物理和接口，不把图像学习扩展变成任务范围。[R18 Fossen](13_references.md#r18)提供海面/水下模型和GNC软件来源，不作为新顶会算法。
+**Graphically Recursive Simultaneous Task Allocation, Planning, and Scheduling**
 
-这两个来源尚未与本项目上层、UAV分支接通并验证。没有找到的连接不能用“开源所以兼容”填补。
+当前作用：
 
-## 6. 采用时如何使用已有核查
+- 任务分配、调度和运动可行性应双向交换；
+- 单一欧氏标称 travel time 不能证明连续运动可执行。
 
-先读[V2核查记录](sources/literature_audit_2026-09-15.md)中的对应条目，包括方法、假设、代码覆盖及未确认项；再在真正开始复现时访问那个官方入口，核对当前文件与原版本。不要把本次资料包的生成时间当作每个仓库的最新在线验证时间。
+状态：当前资料库标记 abstract-only。
 
-选题查新时继续查近期与经典的直接相关工作；正式发表、预印本、仿真工具和原型软件分别标注，不按年份单独决定好坏。不要因为只搜索到少量条目就声称没有先行研究。
+### APEX-MR
 
+**Multi-Robot Asynchronous Planning and Execution for Cooperative Assembly**
 
----
-整理依据：[V2实施方案](sources/implementation_plan_v2_2026-09-15.md)与[V2核查记录](sources/literature_audit_2026-09-15.md)。本页是资料重组，不表示新增代码或实验已完成。返回：[资料索引](README.md)。
+当前作用：
+
+- 实际执行完成而非计划时间决定后继释放；
+- 延迟和偏序执行语义。
+
+状态：全文已读。
+
+## 2. AAV 编队与轨迹
+
+### Swarm-Formation ICRA 2022
+
+**Distributed Swarm Trajectory Optimization for Formation Flight in Dense Environments**
+
+当前作用：
+
+- 当前开源代码和 formation similarity term 的主要依据；
+- `weight_formation` 是队形相似度代价权重，不是“编队模式成功”的自动证明；
+- 任务层必须另外判断组级作业是否完成。
+
+状态：全文已读，源码已接入。
+
+### Swarm-Formation T-RO 2023
+
+**Robust and Efficient Trajectory Planning for Formation Flight in Dense Environments**
+
+当前作用：
+
+- 编队槽位、重组、局部轨迹与上层 execution context 边界；
+- 不能把论文后续能力自动等同于当前仓库源码全部已经实现。
+
+状态：全文已读。
+
+### MINCO / GCOPTER 相关
+
+用于理解 Swarm 的连续轨迹表示和几何约束。
+
+重要边界：
+
+```text
+规划轨迹约束满足
+!=
+真实 qn 轨迹自动满足
+```
+
+## 3. 规划—跟踪安全
+
+### FaSTrack
+
+当前作用：
+
+- 规划参考与真实跟踪状态必须分开；
+- 误差预算只有在对应模型和保证条件下才能当理论界。
+
+当前项目的 `e_budget` 是工程预算，不能冒充 FaSTrack 的 HJ 保证。
+
+状态：全文已读。
+
+### Robust MADER
+
+当前作用：
+
+- optimized trajectory 与 committed trajectory 区分；
+- 通信延迟安全依赖明确的延迟上界。
+
+当前尚未把其通信安全机制接入主链。
+
+状态：全文已读。
+
+## 4. 监测任务与完成判据
+
+### CARIC
+
+**Cooperative Aerial Robot Inspection Challenge: A Benchmark for Heterogeneous Multi-UAV Planning and Lessons Learned**
+
+直接影响：
+
+- 有效观测不能只看半径；
+- `q_seen * q_blur * q_res`；
+- 每兴趣点取最佳观测，避免重复累计；
+- 安全失败不能被 coverage=1 覆盖；
+- 结果由控制站收到后才结算。
+
+当前项目使用的是基于这些原则的解析代理，不是原 CARIC 相机模型。
+
+状态：全文已读。
+
+## 5. 通信与任务联合
+
+### CoCoPlan
+
+当前作用：
+
+- precedence / mutual exclusion / concurrency；
+- 运行期才能知道的通信条件；
+- “数据到达”可成为任务释放条件；
+- 通信质量与运动/任务可能需要联合协调。
+
+当前只吸收了语义和反例，没有接入其求解器。
+
+状态：全文已读。
+
+## 6. 海上异构协同
+
+### Xiroi II
+
+**Xiroi II, an Evolved ASV Platform for Marine Multirobot Operations**
+
+直接启发：
+
+- ASV/USV 可以作为 AUV 与地面站之间的中继；
+- 中继的目标不是单纯“到一个点”，而是维持有效链路/邻近关系；
+- 中继任务需要链路性能证据。
+
+状态：全文已读。
+
+### USV/UUV cooperative surveys
+
+海洋机器人综述和 USV-UUV 集成工作用于确认：
+
+- 水下通信不是免费无线网络；
+- 水下定位与通信往往依赖 USV 或外部基准；
+- UUV 不能简单套用 AAV travel time 和运动模型；
+- 中继、定位支援、数据汇聚是明确角色。
+
+当前均为后续五平台设计依据。
+
+### IEEE JOE 2022 heterogeneous marine collaboration
+
+直接支持：
+
+- UAV/USV/UUV 的跨域感知协同；
+- 水面节点可承担集中协调/数据汇聚角色。
+
+当前资料库为 abstract-only，不能据此声称阅读全文细节。
+
+## 7. 文献使用规则
+
+每篇核心论文只提取：
+
+1. 它解决什么问题；
+2. 它采用什么任务/资源/通信/运动假设；
+3. 它改变我们哪个接口或约束；
+4. 它要求增加什么反例或实验。
+
+下载论文不是为了堆算法，而是为了减少拍脑袋定义任务接口和完成条件。

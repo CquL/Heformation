@@ -16,13 +16,11 @@ service_time_s: 4.0
 deadline_s: 900.0
 delivery_required: true
 
+# Explicit scenario geometry; not calibrated camera specifications.
 requirement:
   footprint_radius_m: 2.5
   min_dwell_s: 1.0
   cruise_altitude_m: 0.8
-  exposure_s: 0.02
-  blur_tolerance_m: 0.005
-  nominal_standoff_m: 0.8
   max_distance_from_altitude_m: 3.0
 
 regions:
@@ -48,13 +46,12 @@ regions:
       - {point_id: c1, position: [-21.0, 3.4, 0.0], weight: 1.0}
       - {point_id: c2, position: [-19.0, 4.5, 0.0], weight: 1.0}
 
-# A group stage: the three AAVs fly the shoreline corridor as a line abreast and
-# observe the shoreline points.  It is complete only when the shape was held AND
-# the points were observed - the member count is not evidence of a formation.
+# Group transfer demonstration, retained separately from geometric observations.
+# No corridor, fixed heading, backtracking or uncalibrated shape pass threshold.
+# s1/s2/s3 were undefined; no shoreline payload observation is claimed.
 formation_phase:
-  phase_id: shoreline_corridor
+  phase_id: formation_transfer
   path_start: [-30.0, 6.0, 0.8]
   path_end: [-18.0, 6.0, 0.8]
-  interest_point_ids: [s1, s2, s3]
-  shape_tolerance_m: 0.6
+  interest_point_ids: []
   required_agent_count: 3

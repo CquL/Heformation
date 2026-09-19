@@ -123,13 +123,17 @@ def run_segment(name, endpoint, centre, intended, expected_landing, before):
         note = (note + "; " if note else "") + "unaddressed members moved: " + \
                str({a: round(v, 3) for a, v in unaddressed_moved.items()})
 
-    completed = terminal == GoalStatus.SUCCEEDED
+    completed = terminal == GoalStatus.SUCCEEDED and result is not None
     # FormationActionResult carries the verdict fields directly (task_id,
     # task_outcome, ...).  "Usable for release" means the result identifies this
     # task and carries a terminal verdict, not merely that a message arrived.
     release = bool(result is not None
                    and getattr(result, "task_id", None) == name
-                   and getattr(result, "task_outcome", 0) != 0)
+                   and terminal == GoalStatus.SUCCEEDED
+                   and getattr(result, "reason", -1) == 0
+                   and getattr(result, "task_outcome", 0) == 1
+                   and getattr(result, "safety_outcome", 0) == 1
+                   and getattr(result, "experiment_validity", 0) == 1)
 
     print("  topics reached: {} (expected subset of {})".format(
         sorted(seen_topics), sorted(expected_topics)), flush=True)
@@ -162,6 +166,10 @@ def main():
     segments.append(("single-aav2", "/aav_2/formation_action", single_target, (1,),
                      {1: single_target}))
 
+    next_single_target = (single_target[0] + 1.0, single_target[1], 0.8)
+    segments.append(("single-aav2-next", "/aav_2/formation_action", next_single_target,
+                     (1,), {1: next_single_target}))
+
     # Deliberately a centre every member has to travel to.  If a member were
     # already sitting on its slot the planner might emit no new trajectory, and a
     # task that cannot observe a new trajectory can never confirm adoption - which
@@ -172,16 +180,23 @@ def main():
     segments.append(("group-formation", "/aav_formation/formation_action",
                      group_centre, AGENTS, group_expected))
 
-    before_third = {a: state[a] for a in AGENTS}
-    third_target = (before_third[0][0] + 1.5, before_third[0][1], 0.8)
+    # This segment starts after the group, not at the pre-run position.
+    # Move laterally from the group's centre instead of through drone_1's slot.
+    third_target = (group_centre[0] + 1.5, group_centre[1], 0.8)
     segments.append(("single-aav1-again", "/aav_1/formation_action", third_target, (0,),
                      {0: third_target}))
 
+    # Same-position boundary: the adapted planner must publish and qn must
+    # adopt a fresh native hold reference, not fabricate a successful receipt.
+    segments.append(("single-same-position", "/aav_1/formation_action", third_target,
+                     (0,), {0: third_target}))
     results = []
     for name, endpoint, centre, intended, expected in segments:
         snapshot = {a: state[a] for a in AGENTS}
         results.append((name, run_segment(name, endpoint, centre, intended, expected,
                                           snapshot)))
+        if not all(results[-1][1][k] for k in ("routing", "landing", "result", "release")):
+            break  # Never issue the next reference after an uncertain result.
 
     print("\n=== summary ===")
     ok = True

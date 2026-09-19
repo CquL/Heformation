@@ -1,19 +1,7 @@
-"""High-level monitoring request and its expansion into observation tasks.
+"""Declared geometric monitoring surrogate; no calibrated camera/payload model.
 
-The user supplies where to look, what counts as a valid observation, by when and
-whether the result must be delivered.  They do not supply task lists, service
-times or per-platform parameters; those are derived here.
-
-The expansion is the part that must not be arbitrary.  CARIC scores inspection
-per interest point with a footprint and a line-of-sight test, and the plan says
-the number of waypoints is derived from the coverage requirement rather than from
-the number of interest points.  So the expansion clusters interest points that a
-single observation position can cover - a greedy set cover over the footprint
-relation - and emits one task per cluster.  Two points inside one footprint
-produce one task, not two.
-
-A request that asks for something no online platform can do (underwater work, or
-delivery via a surface relay) is rejected here rather than silently dropped.
+Greedy footprint set cover is a project integration choice, not CARIC's planner.
+Lengths and dwell times are scenario inputs, not literature-derived thresholds.
 """
 
 from __future__ import annotations
@@ -53,17 +41,16 @@ class ObservationRequirement:
     footprint_radius_m: float
     min_dwell_s: float
     cruise_altitude_m: float
-    #: exposure time used by the blur term; blur is judged on the distance the
-    #: point moves across the image plane during it (CARIC's q_blur).
-    exposure_s: float = 0.02
-    #: how far the member may travel during the exposure before the score decays
-    blur_tolerance_m: float = 0.05
-    #: the standoff at which resolution is taken to be fully satisfactory, and
-    #: the distance at which it reaches zero.  A declared proxy for the resolution
-    #: term, anchored on the observation geometry rather than on a camera model
-    #: this project does not have.
-    nominal_standoff_m: float = 0.8
     max_distance_from_altitude_m: float = 3.0
+
+    def __post_init__(self):
+        for name in ("footprint_radius_m", "min_dwell_s", "max_distance_from_altitude_m"):
+            value = getattr(self, name)
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(name + " must be finite and positive")
+        if not math.isfinite(self.cruise_altitude_m):
+            raise ValueError("cruise_altitude_m must be finite")
+
 
 
 @dataclass(frozen=True)
@@ -110,14 +97,9 @@ def unsupported_reasons(request: MonitoringRequest,
     available = {str(value).upper() for value in online_capabilities}
     reasons: List[str] = []
     if request.requires_underwater or any(r.kind == UNDERWATER for r in request.regions):
-        if UNDERWATER not in available:
-            reasons.append(
-                "underwater observation was requested but no platform with an "
-                "UNDERWATER execution endpoint is configured")
-    if request.requires_relay_delivery and SURFACE not in available:
-        reasons.append(
-            "delivery via a surface relay was requested but no platform with a "
-            "SURFACE execution endpoint is configured")
+        reasons.append("UNDERWATER observation has no supported online expansion/execution adapter")
+    if request.requires_relay_delivery:
+        reasons.append("delivery via a SURFACE relay has no supported online delivery adapter")
     for region in request.regions:
         if region.kind not in KINDS:
             reasons.append("unknown region kind {} for {}".format(region.kind, region.region_id))
@@ -184,6 +166,7 @@ def expand(request: MonitoringRequest,
     the configured platforms: it must be reported, not quietly omitted, because a
     request with an unexecutable part cannot be reported as complete.
     """
+    validate_request(request)
     reasons = unsupported_reasons(request, online_capabilities)
     if reasons:
         raise UnsupportedRequirement("; ".join(reasons))
@@ -225,3 +208,28 @@ def expand(request: MonitoringRequest,
     if not tasks:
         raise UnsupportedRequirement("the request expands to no observable task")
     return tuple(tasks)
+
+
+def validate_request(request: MonitoringRequest) -> None:
+    """Reject unusable geometry/timing before any dispatch or division."""
+    if not request.request_id or not request.regions or not request.required_capabilities:
+        raise ValueError("request id, regions and capabilities must be nonempty")
+    if (not math.isfinite(request.service_time_s)
+            or request.service_time_s < request.requirement.min_dwell_s):
+        raise ValueError("service_time_s must be finite and at least min_dwell_s")
+    if not math.isfinite(request.deadline_s) or request.deadline_s <= 0:
+        raise ValueError("deadline_s must be finite and positive")
+    region_ids, point_ids = set(), set()
+    for region in request.regions:
+        if not region.region_id or region.region_id in region_ids or not region.interest_points:
+            raise ValueError("region ids must be unique and regions nonempty")
+        region_ids.add(region.region_id)
+        for vector in (region.corner_a, region.corner_b) + tuple(p.position for p in region.interest_points):
+            if len(vector) != 3 or not all(math.isfinite(x) for x in vector):
+                raise ValueError("coordinates must be finite 3-vectors")
+        for point in region.interest_points:
+            if not point.point_id or point.point_id in point_ids:
+                raise ValueError("point ids must be globally unique")
+            point_ids.add(point.point_id)
+            if not math.isfinite(point.weight) or point.weight <= 0:
+                raise ValueError("point weights must be finite and positive")

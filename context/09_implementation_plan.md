@@ -1,45 +1,135 @@
-# 当前实施计划：受限v9与七机AIR闭环
+# 当前实施路线
 
-**更新：2026-09-17。详细且唯一的本阶段实施计划见[plan.md](../plan.md)。本页保留步骤索引与长期路线。**
+**更新：2026-09-19**
 
-## 1. 当前阶段目标
+本文件只保存阶段路线，不复制一份巨大的第二实施方案。最新用户明确决定优先于旧 `plan.md` 中与当前状态冲突的历史 P0–P3 表述。
 
-当前主链固定为Calvo v9 restricted-domain Python port→ROS1 FormationAction→Swarm七机AIR→qn→实际Odometry→DelayEvent→planRepair→更新Plan。目标是可观察的任务时间与实际执行反馈闭环，不只是运动演示；不声称完整MATLAB等价或全系统理论保证。
+## 当前已经完成
 
-## 2. 本轮执行顺序
+### A. 三机编队与 Action
 
-| 步骤 | 工作 | 必须留下的实际交付 |
-|---|---|---|
-| 1 受限v9 | 完善模型、唯一Plan状态、原码奖励与旅行时间估计 | 可手算自由任务例、能力/人数/时间校验、可重复排序 |
-| 2 Test B | 完成幂等事件与已有协作关系的时间传播 | 完成任务保护、零延迟不变、正延迟传播、重复事件无效 |
-| 3 Test A | 完善七机Action与实际Odometry连续驻留判定 | 单次组级目标、真实到位、名义提前结束/陈旧状态/超时处理 |
-| 4 三任务执行 | A区→B区→返回起点，各有独立GoalID | 三项真实动作、时刻与结果可关联 |
-| 5 Test C | 实际小/大延迟进入repair，后续派发使用更新Plan | 完整任务→运动→实际反馈→计划改变及可复查实验记录 |
+完成：
 
-本版固定七机为一个执行单元，wait_time为零；正等待吸收和多个逻辑执行单元资源竞争后移。不实现v13重分配，禁用电池约束、充电、fragmentation、relay、动态联盟人数。
+- 3 节点声明式编队图；
+- 单机/组级模式复位；
+- 单机→组级→再单机；
+- 路由、落点、Result、释放判据实跑通过。
 
-## 3. 当前最小待办
+### B. 任务计划语义
 
-沿用已存在的Python/Action切片，按上述顺序补足与用户冻结语义的差距。当前四项旧测试与服务冒烟不等于Test A/B/C完成；最新实际结果见02/15。
+完成并单测：
 
-未获得本地证据时不填成功结果。原始MATLAB保持独立，受限Python移植不冒充原版运行；MATLAB/Gurobi及其他候选依赖不作为本次集成前置条件。
+- `serial=True`；
+- 物理成员预测位置；
+- 无在线端点的平台不占在线串行时钟；
+- `observed AND received`；
+- 全区间 formation / corridor 判据。
 
-## 4. 阶段边界
+当前总计：
 
-本轮固定ROS1 Noetic、Swarm与qn AIR，不同时迁移操作系统、替换运动算法或改动力学。长期再扩展多执行单元、正等待、海洋模型与受限通信；Primitive/D-ITAGS等保持后续对照位置。
+```text
+240 tests passed
+```
 
-海洋平台模型可以从一开始并行做独立核对，但对应控制链未通过前不作全域验收。图像识别和未知传感器不是任何步骤的必需前置任务。
+## 当前下一步
 
-## 5. 不再存在的前置工作
+### Step 1：runner 双模式
 
-旧方案P0/W01的“读取旧HUC、盘点Sxx、复用Envelope/现有调度器”全部撤销。当前没有审计旧HUC后才能工作的门槛，也不把旧ROS 2外壳或OR-Tools作为必须继承的环境。
+同一 runner 显式支持：
 
-## 6. 排期与记录
+```text
+fixed_coalition
+executor
+```
 
-按原例是否可运行和接口是否闭合推进，不在未知依赖与许可下承诺固定几天。一次工作结束用一段交接说明当前版本、实际结果、阻塞和唯一下一步即可；有必要再用[简短实验记录](templates/experiment_report.md)。
+七机回归保持原路径。
 
-Swarm + qn AIR运动基线已有记录，本轮完整任务闭环正在实施。只在实际验收后更新完成状态，详见[02](02_current_status.md)、[15](15_handoff.md)。
+三机任务线：
 
+```text
+load_request
+→ expand
+→ build_executor_plan(serial=True)
+```
 
----
-整理依据：[V2实施方案](sources/implementation_plan_v2_2026-09-15.md)与[V2核查记录](sources/literature_audit_2026-09-15.md)。V2来源保留为历史依据；当前决定按用户最新冻结方案更新，实验完成情况仅以实际运行记录为准。返回：[资料索引](README.md)。
+### Step 2：PlanItem 真正选择 Action endpoint
+
+不能只把 `executor_id/action_endpoint` 记录进 evidence。
+
+实际派发必须：
+
+```text
+selected Executor
+→ selected Action client
+→ real Result
+```
+
+结果超时或终态未知时继续保持资源锁定语义。
+
+### Step 3：用户确认
+
+目标流程：
+
+```text
+启动三机系统待命
+→ 加载请求
+→ 打印任务、分配和限制
+→ 用户确认
+→ 才开始派发
+```
+
+默认不自动运行。
+
+### Step 4：完整请求实跑
+
+一次运行贯通：
+
+```text
+单机巡查
+→ 岸线三机编队阶段
+→ observation
+→ delivery
+→ 必要时一次复测
+→ mission result
+```
+
+### Step 5：实时展示
+
+dashboard 只读任务层权威状态：
+
+```text
+Plan
+Executor
+current action
+coverage
+delivery
+resource occupancy
+failure reason
+```
+
+不自己重新推导另一套成功判据。
+
+### Step 6：七机 M2
+
+独立完成：
+
+- 原盒子时间线；
+- `d_ref / d_actual`；
+- 局部扫描中断；
+- 可追溯基线元数据；
+- `e_budget` 口径。
+
+## 后续阶段
+
+三机任务闭环稳定后：
+
+```text
+USV backend
+→ UUV backend
+→ 五平台在线资源选择
+→ 通信窗口 / 中继 / 缓存
+→ 能量
+→ 跨介质 AAV
+```
+
+不在当前三机任务线完成前同时展开这些工作。

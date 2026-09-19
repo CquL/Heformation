@@ -499,3 +499,96 @@ def test_windowed_odometry_is_accepted_by_the_ledger_and_obstacle_check(
     clearance = server._obstacle_clearance(windows)
     # Agent 0 is the closest member to the single cloud point.
     assert clearance == pytest.approx(0.002)
+
+
+def test_single_action_checks_idle_fleet_member_clearance(server_module):
+    server = make_server(server_module, state=READY_IDLE)
+    server.agent_ids = [0]
+    server.safety_agent_ids = [0, 1, 2]
+    server.model_time_window = .06
+    server.platform_radius_m = .25
+    server.inter_agent_clearance = .5
+    server.odom_timeout = .25
+    Sample = server_module.OdometrySample
+    server.odom = {0: Sample(1.0, (0, 0, .8), (0, 0, 0))}
+    server.peer_odom = {1: Sample(1.0, (.6, 0, .8), (0, 0, 0)),
+                        2: Sample(1.0, (0, 3, .8), (0, 0, 0))}
+    assert not server._fleet_safety(1.01)["ok"]
+    server.peer_odom[1] = Sample(1.0, (0, -3, .8), (0, 0, 0))
+    assert server._fleet_safety(1.01)["ok"]
+    server.peer_odom.pop(2)
+    assert not server._fleet_safety(1.01)["ok"]
+
+
+@pytest.mark.parametrize("topics", [
+    ["/move_base_simple/goal"] * 7,
+    ["/drone_0_formation_goal", "/drone_1_formation_goal", "/drone_2_formation_goal"]])
+def test_each_actual_goal_topic_is_published_once(server_module, topics):
+    server = server_module.FormationActionServer.__new__(server_module.FormationActionServer)
+    calls = []
+    server.goal_route = lambda: ("FORMATION_CENTER", list(enumerate(topics)))
+    server.goal_publishers = {t: SimpleNamespace(publish=lambda msg, topic=t: calls.append(topic))
+                              for t in set(topics)}
+    server.member_goal_publishers = {}
+    _, route, sent = server._publish_routed_goal(object())
+    assert len(route) == len(topics)
+    assert sorted(calls) == sorted(set(topics))
+    assert sent == set(topics)
+
+
+@pytest.mark.parametrize("diagnostics,outcome,minimum", [
+    ({"min_inter_agent_distance": .9763809779}, "FAIL", .4763809779),
+    ({"fleet_safety": {"ok": False, "reason": "missing or stale fleet odometry"}}, "NOT_VERIFIED", .6),
+    ({"fleet_safety": {"ok": False, "reason": "missing or stale fleet odometry",
+                       "min_surface_clearance_m": .8}}, "NOT_VERIFIED", .6),
+    ({"stale_local_scans": [("scan", 3.1)]}, "PASS", .6),
+])
+def test_final_safety_preserves_online_extrema(server_module, diagnostics, outcome, minimum):
+    from qn_aav_simulator.experiment_verdict import SafetyResult
+    server = make_server(server_module, state=READY_IDLE)
+    server.platform_radius_m = .25
+    server.inter_agent_clearance = .5
+    safety = SafetyResult("PASS", "DISCRETE_SAMPLED", min_inter_agent_surface_clearance_m=.6)
+    server._merge_online_safety(safety, diagnostics)
+    assert safety.outcome == outcome
+    assert safety.min_inter_agent_surface_clearance_m == pytest.approx(minimum)
+
+
+def test_three_aav_optimizer_pair_boundary_covers_native_safety_boundary():
+    import yaml
+    from pathlib import Path
+    config = yaml.safe_load((Path(__file__).resolve().parents[1] / "config" /
+                             "formation_aav3.yaml").read_text())
+    # PolyTrajOptimizer::swarmGradCostP uses 1.5 * swarm_clearance for XY.
+    # FormationActionServer defaults: .25 m radius and .5 m body clearance.
+    assert 1.5 * config["optimization"]["swarm_clearance"] >= 2 * .25 + .5
+
+@pytest.mark.parametrize("was_ready", [True, False])
+def test_startup_timeout_does_not_kill_previously_ready_server(server_module, monkeypatch, was_ready):
+    server = server_module.FormationActionServer.__new__(server_module.FormationActionServer)
+    server.startup_timeout = 120
+    server.state_machine = ActionResourceStateMachine()
+    server._refresh_topic_existence = lambda: None
+    snapshots = iter(([True, False, True] if was_ready else [False]))
+    observed = []
+    def snapshot(_):
+        value = next(snapshots)
+        observed.append(value)
+        return {"ready": value, "reason": "ok" if value else "stale odometry"}
+    server._readiness_snapshot = snapshot
+    server._cached_baseline_report = lambda: SimpleNamespace(as_dict=lambda: {})
+    shutdowns = []
+    count = 3 if was_ready else 1
+    checks = iter([False] * count + [True])
+    ticks = iter([0., 121.])
+    monkeypatch.setattr(server_module.time, "monotonic", lambda: next(ticks))
+    for name, value in {
+        "is_shutdown": lambda: next(checks), "set_param": lambda *a: None,
+        "loginfo_throttle": lambda *a: None, "logwarn_throttle": lambda *a: None,
+        "logerr": lambda *a: None, "signal_shutdown": shutdowns.append,
+        "rostime": SimpleNamespace(wallsleep=lambda _: None),
+    }.items():
+        monkeypatch.setattr(server_module.rospy, name, value, raising=False)
+    server._readiness_loop()
+    assert bool(shutdowns) is (not was_ready)
+    assert observed == ([True, False, True] if was_ready else [False])

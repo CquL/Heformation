@@ -54,6 +54,12 @@ class MissionRunner:
     def __init__(self):
         self.output = Path(rospy.get_param("~output_dir", "/experiments/current"))
         self.output.mkdir(parents=True, exist_ok=True)
+        self.planning_mode = rospy.get_param("~planning_mode", "fixed_coalition")
+        if self.planning_mode == "executor":
+            self._init_executor()
+            return
+        if self.planning_mode != "fixed_coalition":
+            raise ValueError("planning_mode must be fixed_coalition or executor")
         self.mode = rospy.get_param("~mode", "mission")
         if self.mode not in ("single", "mission"):
             raise ValueError("mode must be single or mission")
@@ -146,6 +152,380 @@ class MissionRunner:
             "initial_plan": asdict(self.plan), "plan_history": [],
             "executions": [], "events": [], "test_c": {},
         }
+
+    def _init_executor(self):
+        """Opt-in task line; preserve the original seven-member runner path."""
+        from nav_msgs.msg import Odometry
+        from qn_aav_simulator.task_line import load_request, load_formation_phase
+        from qn_aav_simulator.observation_coverage import CoverageResult
+        configured = rospy.get_param("~executors")
+        self.routing = load_routing(configured, default_members=(),
+                                    default_initial_target_ref="start")
+        self.units = dispatchable_units(self.routing)
+        if not self.units:
+            raise ValueError("no online executors")
+        self.request_path = Path(rospy.get_param("~request_file"))
+        self.request = load_request(self.request_path)
+        self.formation_phase = load_formation_phase(self.request_path)
+        self.fleet = sorted({m for u in self.units for m in u.physical_agent_ids})
+        self.condition = threading.Condition()
+        self.actual = {}
+        self.goal_ids, self.native_results = {}, {}
+        self.active_executor_ids = set(rospy.get_param("~resource_locks", []))
+        if self.active_executor_ids:
+            raise RuntimeError("UNKNOWN_LOCKED from previous run: restart the whole execution chain")
+        self.clients, self.action_subs = {}, []
+        self.server_nodes, self.member_slots = {}, {}
+        self.coverage = CoverageResult()
+        self.final_events = {}
+        self.plan_revision = 0
+        self.speed = float(rospy.get_param("~nominal_speed_mps", 1.5))
+        self.seed = int(rospy.get_param("~seed", 0))
+        self.metrics = {"planning_mode": "executor", "status": "STANDBY",
+                        "request_id": self.request.request_id, "executions": [],
+                        "plan_history": [], "results_received": [], "failure_reason": "",
+                        "observation_model": "DECLARED_GEOMETRY_AND_DWELL_ONLY",
+                        "payload_quality": "UNVERIFIED", "delivery_model": "ZERO_LATENCY_LOCAL_RESULT",
+                        "formation_business_shape_verdict": "NOT_DEFINED"}
+        self.plan = None
+        for unit in self.units:
+            endpoint = unit.action_endpoint.rstrip("/")
+            self.clients[unit.executor_id] = actionlib.SimpleActionClient(endpoint, FormationAction)
+            self.action_subs.extend([
+                rospy.Subscriber(endpoint + "/goal", FormationActionGoal, self.on_goal, queue_size=20),
+                rospy.Subscriber(endpoint + "/result", FormationActionResult, self.on_result, queue_size=20)])
+        for member in self.fleet:
+            self.action_subs.append(rospy.Subscriber("/" + member + "_qn/odometry", Odometry,
+                self._on_executor_odom, callback_args=member, queue_size=10))
+
+    def _on_executor_odom(self, message, member):
+        from qn_aav_simulator.odometry import parse_standard_odometry, OdometryContractError
+        try:
+            sample = parse_standard_odometry(message, member)
+        except OdometryContractError:
+            with self.condition:
+                self.actual.pop(member, None)
+            return
+        with self.condition:
+            self.actual[member] = sample
+            self.condition.notify_all()
+
+    def _wait_executor_ready(self, unit, timeout=120.0):
+        import rosgraph
+        endpoint = unit.action_endpoint.rstrip("/")
+        deadline = time.monotonic() + timeout
+        client = self.clients[unit.executor_id]
+        while not rospy.is_shutdown() and time.monotonic() < deadline:
+            if client.wait_for_server(rospy.Duration(.2)):
+                publishers = dict(rosgraph.Master(rospy.get_name()).getSystemState()[0])
+                nodes = publishers.get(endpoint + "/status", [])
+                if len(nodes) != 1:
+                    raise RuntimeError("Action endpoint must have exactly one owner: " + endpoint)
+                node = nodes[0]
+                self.server_nodes[unit.executor_id] = node
+                if rospy.get_param(node + "/ready", False):
+                    declared = rospy.get_param(node + "/agent_ids")
+                    if {"drone_{}".format(a) for a in declared} != unit.members():
+                        raise RuntimeError("endpoint member configuration disagrees with routing")
+                    safety_members = rospy.get_param(node + "/safety_agent_ids", declared)
+                    if {"drone_{}".format(a) for a in safety_members} != set(self.fleet):
+                        raise RuntimeError("endpoint does not monitor whole-fleet collision safety")
+                    raw = rospy.get_param(node + "/relative_slots")
+                    scale = float(rospy.get_param(node + "/swarm_scale"))
+                    self.member_slots[unit.executor_id] = {
+                        "drone_" + str(a): tuple(scale*float(x) for x in raw[str(a)]) for a in declared}
+                    return
+            rospy.sleep(.1)
+        node = self.server_nodes.get(unit.executor_id, "")
+        raise RuntimeError("endpoint not ready: {}: {}".format(endpoint,
+            rospy.get_param(node + "/readiness_reason", "unavailable")))
+
+    def _actual_positions(self):
+        now = rospy.Time.now().to_sec()
+        # Use the action servers' existing freshness contract.
+        timeout = min(float(rospy.get_param(n + "/odom_timeout", .25))
+                      for n in self.server_nodes.values())
+        with self.condition:
+            missing = [m for m in self.fleet if m not in self.actual
+                       or not self.actual[m].is_fresh(now, timeout)]
+            if missing:
+                raise RuntimeError("missing/fresh actual positions: " + str(missing))
+            return {m: self.actual[m].position for m in self.fleet}
+
+    def _executor_plan(self, observations, *, include_formation=False, release=0.0):
+        from mrta_python import Executor, ExecutorPlan, ExecutorTravelTimeProvider, build_executor_plan
+        from qn_aav_simulator.task_line import request_centres, to_plan_tasks
+        positions = self._actual_positions()
+        centers = request_centres(observations)
+        centers["start"] = positions[self.fleet[0]]  # member positions, not this fallback, determine cost
+        executors = [Executor(u.executor_id, u.physical_agent_ids, frozenset(u.capabilities),
+                              release, self.speed, "start") for u in self.units]
+        travel = ExecutorTravelTimeProvider(centers, {u.executor_id: self.speed for u in self.units},
+                    member_slots=self.member_slots, member_positions=dict(positions))
+        tasks = list(to_plan_tasks(observations))
+        plan = build_executor_plan(executors, tasks, travel, initial_target_ref="start", seed=self.seed, serial=True,
+                                  serial_units={u.executor_id for u in self.units}) if tasks else ExecutorPlan()
+        if include_formation and self.formation_phase:
+            phase = self.formation_phase
+            # Explicit assembly then transfer stages, appended with the same
+            # serial release and physical-member predictions. No online USV clock.
+            for suffix, point in (("assemble", phase.path_start), ("transfer", phase.path_end)):
+                task_id = phase.phase_id + "-" + suffix
+                if task_id in centers:
+                    raise ValueError("formation task id collides with observation")
+                centers[task_id] = point
+                task = Task(task_id, frozenset({"AIR"}), phase.required_agent_count,
+                            self.request.service_time_s, self.request.deadline_s, task_id)
+                start = max(release, plan.makespan)
+                from dataclasses import replace
+                staged = [replace(e, available_from=start) for e in executors]
+                part = build_executor_plan(staged, [task], travel, initial_target_ref="start", seed=self.seed, serial=True,
+                                            serial_units={e.executor_id for e in staged})
+                plan.items.extend(part.items)
+                tasks.append(task)
+        self.centers = getattr(self, "centers", {})
+        self.centers.update(centers)
+        self.tasks_by_id = getattr(self, "tasks_by_id", {})
+        self.tasks_by_id.update({t.task_id: t for t in tasks})
+        self.observation_tasks = getattr(self, "observation_tasks", {})
+        self.observation_tasks.update({t.task_id: t for t in observations})
+        return plan
+
+    def _save_executor(self):
+        self.metrics["plan"] = asdict(self.plan) if self.plan is not None else None
+        self.metrics["plan_revision"] = self.plan_revision
+        self.metrics["resource_locks"] = sorted(self.active_executor_ids)
+        self.metrics["coverage"] = asdict(self.coverage)
+        self.metrics["observed_fraction"] = self.coverage.observed_fraction(self.weights)
+        self.metrics["delivered_fraction"] = self.coverage.delivered_fraction(self.weights)
+        self.metrics["updated_at_ros_s"] = rospy.Time.now().to_sec()
+        save_json(self.output / "metrics.json", self.metrics)
+        # A compact view of the task authority, using the existing ROS parameter
+        # service. No new message definition or independent dashboard completion.
+        state = {key: self.metrics[key] for key in (
+            "status", "request_id", "plan", "plan_revision", "resource_locks", "coverage",
+            "observed_fraction", "delivered_fraction", "results_received", "failure_reason",
+            "observation_model", "payload_quality", "updated_at_ros_s")}
+        state["current_action"] = self.metrics.get("current_action")
+        rospy.set_param("~task_state", json.dumps(state, default=json_default, allow_nan=False))
+        rospy.set_param("~resource_locks", sorted(self.active_executor_ids))
+
+    def _refresh_executor_timing(self, release):
+        """Fixed remaining assignments, costs refreshed from actual physical members."""
+        from mrta_python import ExecutorTravelTimeProvider
+        travel = ExecutorTravelTimeProvider(self.centers,
+            {u.executor_id: self.speed for u in self.units}, member_slots=self.member_slots,
+            member_positions=self._actual_positions())
+        for item in self.plan.items:
+            if item.status != "PLANNED":
+                continue
+            task = self.tasks_by_id[item.task_id]
+            item.travel_time = travel(item.executor_id, "start", task.target_ref)
+            item.planned_start = max(item.planned_start, release)
+            item.planned_finish = item.planned_start + item.travel_time + item.service_time
+            release = item.planned_finish
+            for member in item.coalition:
+                slot = self.member_slots[item.executor_id][member]
+                travel.member_positions[member] = tuple(self.centers[task.target_ref][a] + slot[a]
+                                                       for a in range(3))
+        self.plan_revision += 1
+        self.metrics["plan_history"].append({"revision": self.plan_revision,
+                                            "plan": asdict(self.plan)})
+
+    @staticmethod
+    def _release_result_ok(state, result, execution_id):
+        return (state == GoalStatus.SUCCEEDED and result is not None
+                and result.task_id == execution_id and bool(result.goal_id)
+                and result.reason == 0 and result.task_outcome == 1
+                and result.safety_outcome == 1 and result.experiment_validity == 1)
+
+    def _dispatch_executor_item(self, item):
+        from mrta_python.repair import process_executor_completion
+        unit = unit_for_coalition(self.routing, item.coalition)
+        if unit is None or unit.executor_id != item.executor_id:
+            raise RuntimeError("plan coalition has no matching online endpoint")
+        if conflicting_active_unit(self.routing, self.active_executor_ids, unit.executor_id):
+            raise RuntimeError("physical members already occupied")
+        self._wait_executor_ready(unit)
+        point = self.centers[self.tasks_by_id[item.task_id].target_ref]
+        goal = FormationGoal()
+        goal.task_id = item.execution_id
+        goal.formation_center.header.frame_id = "world"
+        goal.formation_center.header.stamp = rospy.Time.now()
+        goal.formation_center.point.x, goal.formation_center.point.y, goal.formation_center.point.z = point
+        goal.hold_duration = rospy.Duration(item.service_time)
+        item.status = "RUNNING"
+        self.active_executor_ids.add(unit.executor_id)
+        self.metrics["current_action"] = {"task_id": item.task_id, "execution_id": item.execution_id,
+                                         "endpoint": unit.action_endpoint, "phase": "DISPATCHING"}
+        self._save_executor()  # reserve before sending, survive runner interruption
+        client = self.clients[unit.executor_id]
+        def feedback(message):
+            self.metrics["current_action"]["phase"] = "HOLDING" if message.phase == 1 else "MOVING"
+        client.send_goal(goal, feedback_cb=feedback)
+        node = self.server_nodes[unit.executor_id]
+        deadline = time.monotonic() + float(rospy.get_param(node + "/execution_timeout", 180)) + 10.0
+        while not rospy.is_shutdown():
+            if client.wait_for_result(rospy.Duration(.5)):
+                break
+            self._save_executor()
+            if time.monotonic() >= deadline:
+                raise RuntimeError("result timeout; endpoint={} client_state={} server_state={}".format(
+                    unit.action_endpoint, client.get_state(), rospy.get_param(node + "/run_state", "unknown")))
+        result = client.get_result()
+        state = client.get_state()
+        if not self._release_result_ok(state, result, item.execution_id):
+            detail = "missing native Result"
+            if result is not None:
+                detail = "reason={} task={} safety={} validity={}".format(
+                    result.reason, result.task_outcome, result.safety_outcome, result.experiment_validity)
+                evidence_path = self.output / result.evidence_file
+                if evidence_path.parent == self.output and evidence_path.is_file():
+                    failed_evidence = json.loads(evidence_path.read_text())
+                    if failed_evidence.get("goal_id") == result.goal_id:
+                        detail += "; " + failed_evidence.get("reason_text", "")
+                self.metrics["executions"].append({"task_id": item.task_id,
+                    "execution_id": item.execution_id, "endpoint": unit.action_endpoint,
+                    "goal_id": result.goal_id, "result_received_at": rospy.Time.now().to_sec(),
+                    "evidence_file": result.evidence_file, "result": "NOT_ACCEPTED",
+                    "native_state": state, "native_execution_id": result.task_id,
+                    "plan_updated": False, "detail": detail})
+                self.metrics["results_received"].append(item.task_id)
+            raise RuntimeError("native Result cannot release members; endpoint={} state={} {}".format(
+                unit.action_endpoint, state, detail))
+        goal_id, native = self.native_result(item.execution_id)
+        if goal_id != result.goal_id or native.status.status != GoalStatus.SUCCEEDED:
+            raise RuntimeError("native GoalID/Result envelope mismatch")
+        evidence = json.loads((self.output / result.evidence_file).read_text())
+        if (evidence.get("goal_id") != goal_id or not evidence.get("accepted_for_dispatch")
+                or not evidence.get("resource_released")):
+            raise RuntimeError("server evidence does not authorize physical release")
+        received = rospy.Time.now().to_sec()
+        event = DelayEvent(goal_id, item.execution_id, item.task_id, item.planned_finish,
+                           max(result.actual_finish_time.to_sec(), received) - self.epoch)
+        self.plan, changed = process_executor_completion(self.plan, event, self.final_events)
+        self.metrics["executions"].append({"task_id": item.task_id, "execution_id": item.execution_id,
+            "endpoint": unit.action_endpoint, "goal_id": goal_id, "result_received_at": received,
+            "evidence_file": result.evidence_file, "result": "SUCCEEDED", "plan_updated": changed,
+            "formation_geometry": evidence.get("formation_geometry")})
+        self.metrics["results_received"].append(item.task_id)
+        self._receive_observations(item, evidence)
+        # No finally-discard: every exceptional/unknown exit keeps the reservation.
+        self.active_executor_ids.remove(unit.executor_id)
+        self.metrics["current_action"] = None
+        self._refresh_executor_timing(received - self.epoch)
+        self._save_executor()
+
+    def _receive_observations(self, item, evidence):
+        from qn_aav_simulator.observation_coverage import ObservationSample, evaluate_coverage, record_delivery
+        task = self.observation_tasks.get(item.task_id)
+        if task is None:
+            return
+        # Only this execution's actual successful holding interval is eligible;
+        # no old trajectory, inferred target position or previous-task observation.
+        hold = evidence.get("successful_hold_window") or {}
+        if hold.get("start") is None or hold.get("end") is None:
+            raise RuntimeError("successful holding interval missing")
+        samples = []
+        for member, rows in evidence.get("member_samples", {}).items():
+            previous = None
+            for row in rows:
+                stamp = row["state_stamp_s"]
+                if stamp is None or not hold["start"] <= stamp <= hold["end"]:
+                    continue
+                if stamp == previous:
+                    continue
+                previous = stamp
+                samples.append(ObservationSample("drone_" + member, stamp, tuple(row["position"])))
+        coverage = evaluate_coverage(samples, {p: self.points[p] for p in task.covers},
+            self.request.requirement, self.obstacles, sample_timeout_s=evidence["sample_timeout_s"])
+        for point_id, observation in coverage.points.items():
+            if observation.observed or point_id not in self.coverage.points:
+                self.coverage.points[point_id] = observation
+        # The local Result carries access to the observation evidence. Receipt is
+        # explicit and zero-latency in this simulator; no radio link is claimed.
+        record_delivery(self.coverage, task.covers)
+
+    def _run_executor(self):
+        from qn_aav_simulator.monitoring_request import expand
+        from qn_aav_simulator.task_line import retest_tasks
+        from qn_aav_simulator.observation_coverage import ObstacleBox
+        self.points = {p.point_id: p.position for r in self.request.regions for p in r.interest_points}
+        self.weights = {p.point_id: p.weight for r in self.request.regions for p in r.interest_points}
+        scene = rospy.get_param("/scene", {})
+        self.obstacles = ([ObstacleBox(tuple(scene["obstacle_center"]), tuple(scene["obstacle_size"]))]
+                          if scene.get("obstacle_present", False) else [])
+        self._save_executor()
+        try:
+            for unit in self.units:
+                self._wait_executor_ready(unit)
+            observations = expand(self.request, {c for u in self.units for c in u.capabilities})
+            self.plan = self._executor_plan(observations, include_formation=True)
+            self.metrics["initial_plan"] = asdict(self.plan)
+            self.metrics["status"] = "AWAITING_CONFIRMATION"
+            self._save_executor()
+            print(json.dumps({"request_id": self.request.request_id, "tasks": asdict(self.plan),
+                "targets": self.centers, "endpoints": {u.executor_id: u.action_endpoint for u in self.units},
+                "limits": ["declared geometric visibility/dwell only; image quality unverified",
+                           "zero-latency local result delivery; no USV/UUV online execution",
+                           "formation transfer has no business shape/corridor pass threshold",
+                           "one optional retest of uncovered points; no new batch during execution"]},
+                 indent=2, default=json_default), flush=True)
+            try:
+                answer = input("Confirm this request and at most one retest? Type yes to dispatch: ")
+            except (EOFError, KeyboardInterrupt):
+                answer = ""
+            if answer.strip().lower() != "yes":
+                self.metrics["status"] = "NOT_CONFIRMED"
+                self._save_executor()
+                return
+            self.metrics["confirmation"] = {"answer": "yes", "at_ros_s": rospy.Time.now().to_sec()}
+            self.epoch = rospy.Time.now().to_sec()
+            self.metrics["mission_epoch"] = self.epoch
+            self.metrics["status"] = "RUNNING"
+            self._refresh_executor_timing(0.0)
+            retested = False
+            while not rospy.is_shutdown():
+                pending = next((i for i in self.plan.items if i.status == "PLANNED"), None)
+                if pending is None:
+                    extra = retest_tasks(self.request, observations, self.coverage, self.weights,
+                        delivery_recorded=all(t.task_id in self.metrics["results_received"] for t in observations),
+                        already_retested=retested)
+                    if extra:
+                        retested = True
+                        self.plan.items.extend(self._executor_plan(extra, release=rospy.Time.now().to_sec()-self.epoch).items)
+                        self.plan_revision += 1
+                        continue
+                    break
+                while rospy.Time.now().to_sec() - self.epoch < pending.planned_start:
+                    if rospy.is_shutdown():
+                        raise RuntimeError("shutdown before dispatch")
+                    rospy.sleep(.1)
+                self._dispatch_executor_item(pending)
+            if rospy.is_shutdown():
+                raise RuntimeError("runner shutdown")
+            fraction = (self.coverage.delivered_fraction(self.weights) if self.request.delivery_required
+                        else self.coverage.observed_fraction(self.weights))
+            elapsed = rospy.Time.now().to_sec() - self.epoch
+            self.metrics["deadline_met"] = elapsed <= self.request.deadline_s
+            self.metrics["status"] = ("FAIL_COVERAGE" if fraction != 1.0 else
+                                      "PASS_GEOMETRIC_PROXY" if self.metrics["deadline_met"] else "FAIL_DEADLINE")
+            self.metrics["formation_motion_complete"] = all(
+                i.status == "COMPLETED" for i in self.plan.items if i.task_id not in self.observation_tasks)
+            if fraction != 1.0:
+                self.metrics["failure_reason"] = "points remain unobserved after the permitted retest"
+            self._save_executor()
+        except BaseException as error:
+            self.metrics["failure_reason"] = str(error)
+            self.metrics["status"] = "UNKNOWN_LOCKED" if self.active_executor_ids else "FAIL"
+            if self.metrics.get("current_action"):
+                self.metrics["current_action"]["phase"] = self.metrics["status"]
+            if self.plan:
+                for item in self.plan.items:
+                    if item.status == "RUNNING":
+                        item.status = "UNKNOWN_LOCKED"
+            self._save_executor()
+            raise
 
     # ------------------------------------------------------------ callbacks
     def on_goal(self, message):
@@ -394,6 +774,8 @@ class MissionRunner:
             for agent_id in range(7))
 
     def run(self):
+        if self.planning_mode == "executor":
+            return self._run_executor()
         self.save()
         try:
             self.wait_ready_or_raise()
@@ -433,15 +815,10 @@ class MissionRunner:
                 point.x, point.y, point.z = self.centers[task.target_ref]
                 goal.hold_duration = rospy.Duration.from_sec(task.service_time)
                 item.status = "RUNNING"
-                # Occupancy starts here and ends when this dispatch is resolved,
-                # whatever the outcome: a unit that shares members with another
-                # may not be entered while this one is still occupied.
+                # Unknown/failed outcomes retain ownership of the physical members.
                 self.active_executor_ids.add(unit.executor_id)
-                try:
-                    state, result, dispatch_ros_time_s, timed_out, attempts = \
-                        self.dispatch_goal_with_retry(goal, task)
-                finally:
-                    self.active_executor_ids.discard(unit.executor_id)
+                state, result, dispatch_ros_time_s, timed_out, attempts = \
+                    self.dispatch_goal_with_retry(goal, task)
                 if timed_out:
                     item.status = "UNKNOWN_LOCKED"
                     self.metrics["status"] = "UNKNOWN_LOCKED"
@@ -571,6 +948,7 @@ class MissionRunner:
                     item.status = "COMPLETED"
                     execution["plan_updated"] = False
                     execution["plan_revision_after_completion"] = self.plan_revision
+                self.active_executor_ids.discard(unit.executor_id)
                 rospy.loginfo(
                     "%s complete actual=%.3f planned=%.3f delay=%.3f "
                     "plan_updated=%s dispatch_changed=%s",
@@ -635,7 +1013,10 @@ class MissionRunner:
 
 def main():
     rospy.init_node("formation_mission_runner")
-    MissionRunner().run()
+    runner = MissionRunner()
+    runner.run()
+    if runner.metrics["status"] not in ("PASS", "PASS_GEOMETRIC_PROXY", "NOT_CONFIRMED"):
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

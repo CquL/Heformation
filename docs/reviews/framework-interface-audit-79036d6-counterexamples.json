@@ -1,0 +1,58 @@
+{
+  "undefined_phase_point_ids": [
+    "s1",
+    "s2",
+    "s3"
+  ],
+  "expanded_tasks": [
+    "zone_A-obs0",
+    "zone_B-obs1",
+    "zone_C-obs2"
+  ],
+  "mid_corridor_start": {
+    "complete": true,
+    "max_shape_error_m": 0.0,
+    "reasons": []
+  },
+  "missing_interval_999_seconds": {
+    "complete": true,
+    "max_shape_error_m": 0.0,
+    "reasons": []
+  },
+  "reversed_timestamps": {
+    "complete": true,
+    "max_shape_error_m": 0.0,
+    "reasons": []
+  },
+  "requested_corridor_half_width_m": 0.2,
+  "loaded_corridor_half_width_m": 1.5,
+  "low_quality_observation": {
+    "point_id": "p",
+    "observed": true,
+    "score": 0.0025,
+    "member_id": "d0",
+    "dwell_s": 1.0,
+    "reason": "observed with score 0.003 after 1.00 s of continuous dwell"
+  },
+  "true_cumulative_small_backtrack": {
+    "complete": false,
+    "max_shape_error_m": 0.0,
+    "reasons": [
+      "centre fell back 1.600 m from its furthest progress (limit 0.100 m)"
+    ]
+  },
+  "executor_plan_into_existing_completion": "ValueError: plan coalition must contain seven unique agents",
+  "single_member_safety": {
+    "outcome": "PASS",
+    "pairs": []
+  },
+  "whole_fleet_same_location_safety": {
+    "outcome": "FAIL",
+    "pairs": [
+      [
+        0,
+        1
+      ]
+    ]
+  }
+}

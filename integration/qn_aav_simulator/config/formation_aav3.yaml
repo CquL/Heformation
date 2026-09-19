@@ -2,7 +2,7 @@
 #
 # The upstream normal_hexagon.yaml describes a seven-member hexagon at scale 2.
 # This file is the same structure for the three AAVs the task line actually
-# commands: a line abreast perpendicular to the shoreline corridor, 2 m apart,
+# commands: a line abreast at 2 m spacing for the declared assembly/transfer demonstration,
 # scale 1.0 so the offsets below are the real spacing.
 #
 # Slot layout and shape must agree with the action server's relative_slots for
@@ -34,7 +34,11 @@ optimization:
   weight_time: 80.0
   weight_formation: 15000.0
   obstacle_clearance: 0.5
-  swarm_clearance: 0.5
+  # Upstream activates pair avoidance below 1.5 * this value in metres.
+  # Action safety requires centre distance >= 2 * 0.25 m radius + 0.50 m
+  # surface clearance = 1.00 m.  The next representable decimal is used so
+  # the optimizer is not less strict than the Action safety boundary.
+  swarm_clearance: 0.6666666666666667
 
 fsm:
   replan_trajectory_time: 0.1

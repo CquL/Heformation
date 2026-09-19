@@ -1,51 +1,109 @@
-# 海上异构无人集群：项目背景与AI协作目录 V2.0
+# 海上异构无人集群：项目背景与 AI 协作入口
 
-**日期：2026-09-15｜全量修订版，不是V1补丁。**
+**更新：2026-09-19**
 
-本包更新用户指定的`AGENT.md`、`prompt/`、`context/`，用于新项目的背景与AI协作。它不是机器人软件框架、上游源码集合或已完成的系统验证。
+本目录用于给 AI 和开发者提供项目的稳定背景、当前事实、接口边界、文献依据与接续入口。它不是机器人运行时协议，也不是“写在这里就代表已经实现”。
 
-## 当前唯一主线
+## 当前目标
 
-**不参考或继承旧HUC → 独立复现有明确依据的上游成果 → 选择原生接口做最小集成 → 第一版具有完整联合规划与分布式执行闭环 → 用资源、运动和通信反例定位缺口 → 形成自己的算法与理论。**
+最终目标系统：
 
-任务侧不研发业务感知。一个近海多区段作业场景中包含多项任务、资源竞争和按需编队；不是同时实现四类业务，也不是只播放几条预设轨迹。
+```text
+3 AAV + 1 USV + 1 UUV
+```
+
+母船负责上层任务与资源协调，各平台本地执行运动规划、控制和状态闭环。
+
+当前主推进不是七机业务系统，而是：
+
+```text
+近岸监测 AAV 子系统
+→ 3 AAV
+→ 单机 / 三机编队两种执行方式
+→ 高层请求驱动
+→ 实际 qn 状态决定监测完成
+```
+
+七机配置保留用于 M2 与回归。
+
+## 当前代码状态基线
+
+整理本背景时远端：
+
+```text
+repo: CquL/Heformation
+branch: main
+commit: 79036d66178deacada2b4f4a30dc588899eeb094
+```
+
+已完成的重要工程事实：
+
+- 三机声明式编队图；
+- 单机 / 组级规划模式切换；
+- 单机→组级→单机 Action 全生命周期探针；
+- 任务线串行计划；
+- 共享物理成员预测状态；
+- `observed AND received` 交付不变式；
+- 全区间队形与岸线走廊判据；
+- 240 项单元测试通过。
+
+尚未完成的重要连接：
+
+- runner 的 Executor 规划模式；
+- 按 PlanItem 选择真实 Action endpoint；
+- 用户确认开始；
+- 一次完整近岸监测在线闭环；
+- 任务层实时覆盖/交付展示；
+- M2 最后两个实跑场景；
+- USV/UUV 在线后端和真实通信。
 
 ## 目录职责
 
 ```text
-项目根目录/
-├── AGENT.md                    # 稳定项目规则与最小阅读入口
-├── AGENTS.md                   # 薄兼容入口，不重复正文
-├── PROJECT_CONTEXT.md          # 本说明，不替换项目README
-├── CHANGES_V2.md                # 撤销项、全量替换与迁移注意
-├── CONTENT_MANIFEST.json        # 资料文件校验，不是代码测试结果
-├── prompt/                     # 可直接使用的单次工作提示词
-└── context/
-    ├── 01…15_*.md              # 背景、现状、架构、接口、实验、研究和交接
-    ├── templates/              # 三种可选简短记录，不是运行时协议
-    └── sources/                # V2原文与原始指标截图，仅供溯源
+AGENT/
+├── AGENT.md             稳定工程规则与最小入口
+└── PROJECT_CONTEXT.md   本说明
+
+context/
+├── 01_project_background.md
+├── 02_current_status.md
+├── 03_system_architecture.md
+├── 04_inputs_outputs.md
+├── 05_state_communication.md
+├── 06_dynamics_and_theory.md
+├── 07_reproduction_integration.md
+├── 08_first_scenario_benchmark.md
+├── 09_implementation_plan.md
+├── 10_research_novelty.md
+├── 11_glossary.md
+├── 12_literature_review.md
+├── 13_references.md
+├── 14_decisions_and_unknowns.md
+├── 15_handoff.md
+└── 16_upstream_reproduction_status.md
 ```
 
-`prompt/`、`context/`均相对于项目根目录，不是在操作系统根目录创建文件夹。
+`06/07/16` 仍可作为理论、复现和独立上游台账，不应把其中历史候选自动提升为当前主链。
 
-## 先看哪里
+## 最小阅读入口
 
-入口：[AGENT.md](AGENT.md) → [当前状态](../context/02_current_status.md) → [最新交接](../context/15_handoff.md)。
+```text
+AGENT/AGENT.md
+→ context/02_current_status.md
+→ context/15_handoff.md
+```
 
-按任务使用：[提示词索引](../prompt/README.md)；按主题阅读：[背景索引](../context/README.md)。
+然后按问题阅读对应专题。
 
-当前阶段选型已由用户冻结：Calvo v9 restricted-domain Python port、ROS1 FormationAction、Swarm七机qn AIR与实际延迟修复；本版等待为零，正等待、多执行单元及v13重分配不在本轮。详见[实施计划](../plan.md)。Primitive、D-ITAGS等保留为后续对照；相关论文能力与源码范围仍以既有核查记录为准，不表示新增在线查新。
+## 当前路线
 
-## 如何安装这份资料
+```text
+先把三机任务线真正贯通
+→ 完成近岸监测 AAV 子系统验证
+→ 独立收尾七机 M2
+→ 再接 USV/UUV 平台后端
+→ 再进入真实通信窗口 / 中继 / 能量联合安排
+→ 用实验暴露的问题定义自己的研究方法
+```
 
-先读[变更与迁移说明](CHANGES_V2.md)。将本包作为完整资料目录解压到新工作区，再把需要的入口和目录放到新项目根目录。不能仅覆盖同名文件而继续让旧`prompt/`、`context/`中的继承规则处于活动状态。
-
-若此前文件全部来自V1资料包，先将原包管理的入口、`prompt/`与`context/`移到AI工作区之外备份，再使用本包。若这些目录已有用户自写文件，先区分并保留，不能整目录盲目删除。已有根级AI规则要合并保留无关要求，但必须移除与此次V2决定冲突的项目条款。
-
-本包没有旧HUC源码、旧V1实施正文、上游源码、模型或运行产物。`context/sources/`中的V2原文完整保留；旧V1只在变更说明中作为被取代的背景提及，不再提供可执行旧计划。
-
-## 当前接续入口
-
-> 阅读AGENT.md、context/02_current_status.md、context/15_handoff.md与plan.md，继续受限v9小算例、七机Action和实际延迟反馈闭环。不要重复打开已冻结的上层/ROS选型，不读取或审计旧HUC，也不以完成全部候选复现为当前集成前提。
-
-资料更新与工程工作分开：本包的文件完整性检查不代表论文复现、集成或理论证明通过。
+不要因为目标架构包含通信、USV、UUV 或能量，就把它们写成已经在线实现。

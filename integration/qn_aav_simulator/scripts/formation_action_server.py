@@ -104,6 +104,10 @@ class FormationActionServer:
         rospy.set_param("~ready", False)
         rospy.set_param("~readiness_reason", "BOOTING")
         self.agent_ids = list(rospy.get_param("~agent_ids", list(AGENT_IDS)))
+        self.safety_agent_ids = list(rospy.get_param("~safety_agent_ids", self.agent_ids))
+        if not set(self.agent_ids) <= set(self.safety_agent_ids):
+            raise ValueError("safety_agent_ids must include all controlled members")
+        self.peer_odom = {}
         self.scale = float(rospy.get_param("~swarm_scale", 2.0))
         self.epsilon_p = float(rospy.get_param("~epsilon_p", 0.5))
         self.epsilon_v = float(rospy.get_param("~epsilon_v", 0.25))
@@ -280,6 +284,10 @@ class FormationActionServer:
                                  self._sensing_callback,
                                  callback_args=agent_id, queue_size=1),
             ])
+        for agent_id in set(self.safety_agent_ids) - set(self.agent_ids):
+            self.subscribers.append(rospy.Subscriber(
+                odometry_topic(agent_id), Odometry, self._peer_odom_callback,
+                callback_args=agent_id, queue_size=1))
         # One node per execution unit, so the Action name has to be a parameter:
         # four units sharing "formation_action" would collide.
         self.action_name = str(rospy.get_param("~action_name", "formation_action"))
@@ -320,6 +328,42 @@ class FormationActionServer:
             self.odometry_errors.pop(agent_id, None)
             self.readiness.note_message(odometry_topic(agent_id),
                                         rospy.Time.now().to_sec())
+
+    def _peer_odom_callback(self, message, agent_id):
+        try:
+            sample = parse_standard_odometry(message, "drone_{}".format(agent_id))
+        except OdometryContractError:
+            with self.lock:
+                self.peer_odom.pop(agent_id, None)
+            return
+        with self.lock:
+            self.peer_odom[agent_id] = sample
+
+    def _fleet_safety(self, now_s):
+        """Discrete fleet clearance, including idle members of other units.
+
+        Reuse odometry freshness and model alignment window. Missing peers cannot
+        make a one-member Action report collision safety for the whole fleet.
+        """
+        with self.lock:
+            samples = dict(self.peer_odom)
+            samples.update(self.odom)
+        fresh = {a: samples[a] for a in self.safety_agent_ids
+                 if a in samples and samples[a].is_fresh(now_s, self.odom_timeout)}
+        if len(fresh) != len(self.safety_agent_ids):
+            return {"ok": False, "reason": "missing or stale fleet odometry",
+                    "missing": sorted(set(self.safety_agent_ids) - set(fresh))}
+        stamps = [v.stamp for v in fresh.values()]
+        if max(stamps) - min(stamps) > self.model_time_window:
+            return {"ok": False, "reason": "fleet odometry not time aligned"}
+        positions = [fresh[a].position for a in sorted(fresh)]
+        clearances = [math.dist(p, q) - 2*self.platform_radius_m
+                      for i, p in enumerate(positions) for q in positions[i+1:]]
+        minimum = min(clearances, default=None)
+        ok = minimum is None or minimum >= self.inter_agent_clearance
+        return {"ok": ok, "reason": "" if ok else "fleet inter-agent clearance violated",
+                "min_surface_clearance_m": minimum, "agent_ids": self.safety_agent_ids,
+                "evidence_kind": "DISCRETE_SAMPLED"}
 
     def _diagnostics_callback(self, message, agent_id):
         values = {}
@@ -486,6 +530,16 @@ class FormationActionServer:
         with self.lock:
             self.readiness.note_message(
                 topic, rospy.Time.now().to_sec(), valid=valid, empty=empty)
+
+    def _publish_routed_goal(self, command):
+        semantics, route = self.goal_route()
+        publishers = self.member_goal_publishers if semantics == "MEMBER_TARGET" else self.goal_publishers
+        topics = set()
+        for _agent, topic in route:
+            if topic not in topics:
+                publishers[topic].publish(command)
+                topics.add(topic)
+        return semantics, route, topics
 
     def goal_route(self):
         """Where the next dispatch goes and what the position means.
@@ -720,6 +774,7 @@ class FormationActionServer:
 
     def _readiness_loop(self):
         deadline = time.monotonic() + self.startup_timeout
+        startup_complete = False
         while not rospy.is_shutdown():
             now = rospy.Time.now().to_sec()
             try:
@@ -764,13 +819,14 @@ class FormationActionServer:
             if not snapshot["ready"]:
                 rospy.loginfo_throttle(5.0, "FormationAction not ready: %s",
                                        snapshot["reason"])
-                if time.monotonic() >= deadline:
+                if not startup_complete and time.monotonic() >= deadline:
                     rospy.logerr("FormationAction startup timed out: %s",
                                  snapshot["reason"])
                     rospy.signal_shutdown("formation startup timeout: " +
                                           snapshot["reason"])
                     return
             else:
+                startup_complete = True
                 rospy.loginfo_throttle(30.0, "FormationAction %s",
                                        self.state_machine.state)
             rospy.rostime.wallsleep(0.25)
@@ -987,15 +1043,11 @@ class FormationActionServer:
         #   several      -> a formation centre               (each member offsets)
         # The planner enforces the same split on its side, so the two entries must
         # stay in step; see plan_manage_member_goal_entry.patch.
-        semantics, route = self.goal_route()
-        for agent_id, topic in route:
-            publisher = (self.member_goal_publishers if semantics == "MEMBER_TARGET"
-                         else self.goal_publishers)[topic]
-            publisher.publish(command)
+        semantics, route, published_topics = self._publish_routed_goal(command)
         diagnostics["goal_semantics"] = semantics
         diagnostics["goal_publish_count"] = 1
-        diagnostics["goal_messages_published"] = len(route)
-        diagnostics["goal_topics"] = [topic for _agent, topic in route]
+        diagnostics["goal_messages_published"] = len(published_topics)
+        diagnostics["goal_topics"] = sorted(published_topics)
         diagnostics["dispatching_members"] = [agent for agent, _topic in route]
         diagnostics["dispatch_ros_time_s"] = dispatch_time
         diagnostics["group_goal_publisher"] = rospy.get_name()
@@ -1075,13 +1127,13 @@ class FormationActionServer:
                             snapshot.min_height_m if previous is None
                             else min(previous, snapshot.min_height_m))
                     diagnostics["stale_local_scans"] = self._stale_local_scans(now_s)
-                    violation = self._violation_reason(diagnostics, snapshot)
-                    if violation:
-                        diagnostics["violation_latched_at_s"] = now_s
-                        diagnostics["violation_reason"] = violation
-                        for agent_id in self.agent_ids:
-                            self._feed_adoption(agent_id, now_s)
-                        break
+                    if set(self.safety_agent_ids) != set(self.agent_ids):
+                        fleet = self._fleet_safety(now_s)
+                        previous = diagnostics.get("fleet_safety", {})
+                        distances = [v for v in (fleet.get("min_surface_clearance_m"),
+                                     previous.get("min_surface_clearance_m")) if v is not None]
+                        fleet["min_surface_clearance_m"] = min(distances, default=None)
+                        diagnostics["fleet_safety"] = fleet
                     self._record_member_samples(
                         member_samples, samples, references, monitor, now_s)
                     reference_missing += self._count_missing_references(references)
@@ -1095,6 +1147,14 @@ class FormationActionServer:
                                stale_agent_ids=";".join(map(str, snapshot.stale_agent_ids)))
                     writer.writerow(row)
                     stream.flush()
+                    # Persist the terminating observation before ending the loop.
+                    # Otherwise the native Result can omit the very safety
+                    # sample that caused its abort.
+                    violation = self._violation_reason(diagnostics, snapshot)
+                    if violation:
+                        diagnostics["violation_latched_at_s"] = now_s
+                        diagnostics["violation_reason"] = violation
+                        break
                     if snapshot.terminal_state:
                         break
                     rate.sleep()
@@ -1212,6 +1272,9 @@ class FormationActionServer:
         for the final summary would let a task keep flying after a failure it has
         already detected.
         """
+        fleet = diagnostics.get("fleet_safety")
+        if fleet is not None and not fleet["ok"]:
+            return fleet["reason"]
         stale = diagnostics.get("stale_local_scans")
         if stale:
             return "local scan stopped delivering: {}".format(", ".join(
@@ -1232,6 +1295,31 @@ class FormationActionServer:
         if self.air_domain_violation:
             return "the run left the AIR model"
         return None
+
+    def _merge_online_safety(self, safety, diagnostics):
+        """Retain online extrema when the coarser final ledger misses a sample."""
+        fleet = diagnostics.get("fleet_safety") or {}
+        clearances = []
+        distance = diagnostics.get("min_inter_agent_distance")
+        if distance is not None:
+            clearances.append(distance - 2 * self.platform_radius_m)
+        if fleet.get("min_surface_clearance_m") is not None:
+            clearances.append(fleet["min_surface_clearance_m"])
+        if safety.min_inter_agent_surface_clearance_m is not None:
+            clearances.append(safety.min_inter_agent_surface_clearance_m)
+        if clearances:
+            minimum = min(clearances)
+            safety.min_inter_agent_surface_clearance_m = minimum
+            safety.min_inter_agent_distance_m = minimum + 2 * self.platform_radius_m
+            if minimum < self.inter_agent_clearance:
+                safety.outcome = "FAIL"
+                safety.reasons += ("online inter-agent surface clearance {:.3f} m below {:.2f} m".format(
+                    minimum, self.inter_agent_clearance),)
+        if fleet.get("ok") is False and fleet.get("reason") in (
+                "missing or stale fleet odometry", "fleet odometry not time aligned"):
+            if safety.outcome != "FAIL":
+                safety.outcome = "NOT_VERIFIED"
+            safety.reasons += (fleet["reason"],)
 
     def _obstacle_clearance(self, samples):
         with self.lock:
@@ -1404,6 +1492,24 @@ class FormationActionServer:
             box_size=self.obstacle_size if self.obstacle_present else None,
             required_box_clearance_m=self.obstacle_clearance,
             obstacle_check_expected=self.obstacle_present)
+        self._merge_online_safety(safety, diagnostics)
+        # Persist the existing sample ledger inputs, not a second telemetry protocol.
+        diagnostics["member_samples"] = {
+            str(a): [asdict(row) for row in rows] for a, rows in member_samples.items()}
+        diagnostics["sample_timeout_s"] = self.odom_timeout
+        if len(self.agent_ids) > 1:
+            from qn_aav_simulator.task_line import formation_interval_metrics
+            times = sorted({row.ros_time_s for rows in member_samples.values() for row in rows})
+            by_time = {t: {} for t in times}
+            for a, rows in member_samples.items():
+                for row in rows:
+                    by_time[row.ros_time_s][str(a)] = row.position
+            try:
+                diagnostics["formation_geometry"] = formation_interval_metrics(
+                    list(by_time.items()), {str(a): p for a, p in self.slots.items()},
+                    sample_timeout_s=self.odom_timeout)
+            except ValueError as error:
+                diagnostics["formation_geometry"] = {"data_valid": False, "reason": str(error)}
         model_hold = diagnostics.get("model_hold") or {}
         min_model_hold = model_hold.get("min_model_hold_s")
         model_hold_satisfied = (
@@ -1436,7 +1542,10 @@ class FormationActionServer:
         reason = FormationResult.NONE
         text = "task_outcome={} safety_outcome={} experiment_validity={}".format(
             verdict.task_outcome, verdict.safety_outcome, verdict.experiment_validity)
-        if not motion_completed:
+        if diagnostics.get("violation_reason"):
+            reason = FormationResult.UNKNOWN_LOCKED
+            text += "; " + diagnostics["violation_reason"]
+        elif not motion_completed:
             if self.state_machine.unknown_locked_reason:
                 reason = FormationResult.UNKNOWN_LOCKED
             elif adoption_verdict.state != "ADOPTED":
@@ -1465,6 +1574,7 @@ class FormationActionServer:
         # or an AIR-domain violation locks the chain instead.
         accepted = (
             motion_completed
+            and reason == FormationResult.NONE
             and adoption_verdict.state == "ADOPTED"
             and time_ok
             and air["ok"]

@@ -1,21 +1,8 @@
-"""From a monitoring request to an executable plan, and back from results.
+"""Existing request/planner join and one staged retest.
 
-This is the join between the request layer (``monitoring_request``), the coverage
-verdict (``observation_coverage``) and the executor planner
-(``mrta_python.executors``).  It is deliberately ROS-free so the whole task line
-can be exercised without a simulator.
-
-Two rules carried from the literature shape the flow:
-
-* a retest is **released in stages** - it is created only after the observation
-  result has been *received*, not merely produced (CoCoPlan: the temporal
-  relation is known only when the information arrives; the plan is explicit that
-  the runner must not wait at the head of the queue for data that a later task
-  will produce);
-* a formation phase is complete only when the **shape** was held and the points
-  were observed.  ``required_agent_count = 3`` is not evidence that a formation
-  happened (Swarm-Formation ICRA: the formation is a cost term, so only the
-  measured shape error shows it participated).
+Formation geometry is diagnostic using Swarm's own normalized graph metric.
+Motion success comes from the native Action result; no invented task corridor,
+heading or similarity threshold is a business acceptance gate.
 """
 
 from __future__ import annotations
@@ -36,193 +23,62 @@ Vector3 = Tuple[float, float, float]
 
 @dataclass(frozen=True)
 class FormationPhase:
-    """A stage that must be flown as a group and observed as a group."""
+    """A declared group transfer; motion completion comes from native Action."""
 
     phase_id: str
     path_start: Vector3
     path_end: Vector3
     interest_point_ids: Tuple[str, ...]
-    shape_tolerance_m: float
     required_agent_count: int = 3
-    #: the tube is about the formation *centre*.  Members carry their own +-2 m
-    #: offsets and their own safety constraints, so requiring every member to sit
-    #: inside the centre's tube would be a different and much stronger demand.
-    corridor_half_width_m: float = 1.5
-    #: backtracking is judged against the furthest progress reached so far, not
-    #: against the previous sample: otherwise a long run of small retreats passes.
-    backtrack_tolerance_m: float = 0.1
-    arrival_tolerance_m: float = 0.5
 
 
-@dataclass
-class FormationVerdict:
-    complete: bool
-    max_shape_error_m: Optional[float]
-    reasons: Tuple[str, ...]
+def formation_similarity(positions: Mapping[str, Vector3],
+                         slots: Mapping[str, Vector3]) -> float:
+    """SwarmGraph::calcMatrices/calcFNorm2, squared Frobenius difference.
 
-
-def formation_shape_error(positions: Mapping[str, Vector3],
-                          slots: Mapping[str, Vector3],
-                          centre: Vector3,
-                          scale: float) -> float:
-    """Largest deviation of the actual formation from the commanded one.
-
-    Compares pairwise differences between members - the shape - rather than each
-    member against its nominal slot, so a formation that is translated but not
-    deformed is not counted as an error.  This is the quantity the plan asks for
-    and the only honest evidence that a formation was flown.
+    Source: upstream/Swarm-Formation/src/planner/swarm_graph/src/swarm_graph.cpp.
+    Translation, rotation and uniform scale invariant. Dimensionless diagnostic;
+    no calibrated business threshold has been established.
     """
-    members = sorted(positions)
-    if len(members) < 2:
-        raise ValueError("a formation needs at least two members")
-    worst = 0.0
-    for index, first in enumerate(members):
-        for second in members[index + 1:]:
-            actual = math.dist(positions[first], positions[second])
-            first_slot, second_slot = slots.get(first), slots.get(second)
-            if first_slot is None or second_slot is None:
-                raise ValueError("missing slot for member {}".format(
-                    first if first_slot is None else second))
-            wanted = scale * math.dist(
-                tuple(centre[i] + first_slot[i] for i in range(3)),
-                tuple(centre[i] + second_slot[i] for i in range(3)))
-            worst = max(worst, abs(actual - wanted))
-    return worst
+    members = sorted(slots)
+    if len(members) < 2 or set(positions) != set(slots):
+        raise ValueError("all declared formation members must be present")
+
+    def laplacian(points):
+        values = [points[m] for m in members]
+        if any(len(v) != 3 or not all(math.isfinite(x) for x in v) for v in values):
+            raise ValueError("formation positions must be finite 3-vectors")
+        adjacency = [[sum((x-y)**2 for x, y in zip(a, b)) for b in values] for a in values]
+        degrees = [sum(row) for row in adjacency]
+        if any(d <= 0 for d in degrees):
+            raise ValueError("degenerate formation graph")
+        return [[1.0 if i == j else -adjacency[i][j] / math.sqrt(degrees[i]*degrees[j])
+                 for j in range(len(members))] for i in range(len(members))]
+
+    actual, desired = laplacian(positions), laplacian(slots)
+    return sum((a-b)**2 for row, wanted in zip(actual, desired) for a, b in zip(row, wanted))
 
 
-def _formation_centre(positions: Mapping[str, Vector3]) -> Vector3:
-    members = sorted(positions)
-    if not members:
-        raise ValueError("no positions to average")
-    return tuple(sum(positions[m][axis] for m in members) / len(members)
-                 for axis in range(3))
+def formation_interval_metrics(samples, slots, *, sample_timeout_s):
+    """Aggregate every aligned sample; missing/invalid data are not zero error.
 
-
-def formation_relative_error(positions: Mapping[str, Vector3],
-                             slots: Mapping[str, Vector3],
-                             centre: Vector3,
-                             scale: float) -> float:
-    """Largest deviation of the actual member-difference vectors from the wanted ones.
-
-        E_form = max_{i<j} || (p_i - p_j) - s·(r_i - r_j) ||
-
-    This is the shape criterion the plan asks for.  Comparing member-to-member
-    *distances* instead is blind to a rotation: a line abreast turned into a line
-    astern keeps every distance, so a distance metric reports a perfect formation.
-    A translated formation still scores zero, because the differences cancel.
+    Caller uses the Action's existing alignment/ledger and freshness limits.
+    This reports measurements, never a shape/task PASS.
     """
-    members = sorted(positions)
-    if len(members) < 2:
-        raise ValueError("a formation needs at least two members")
-    worst = 0.0
-    for index, first in enumerate(members):
-        for second in members[index + 1:]:
-            first_slot, second_slot = slots.get(first), slots.get(second)
-            if first_slot is None or second_slot is None:
-                raise ValueError("missing slot for member {}".format(
-                    first if first_slot is None else second))
-            actual = tuple(positions[first][axis] - positions[second][axis]
-                           for axis in range(3))
-            wanted = tuple(scale * (first_slot[axis] - second_slot[axis])
-                           for axis in range(3))
-            worst = max(worst, math.dist(actual, wanted))
-    return worst
-
-
-def evaluate_formation_phase_over_interval(
-        phase: FormationPhase,
-        samples: Sequence[Tuple[float, Mapping[str, Vector3]]],
-        slots: Mapping[str, Vector3],
-        scale: float,
-        coverage: CoverageResult,
-        weights: Mapping[str, float]) -> FormationVerdict:
-    """Judge a group phase over the whole interval, not at one instant.
-
-    A single end snapshot cannot see a formation that dispersed mid-flight and
-    re-formed, and it cannot see the centre leave the corridor and come back.  The
-    four checks are the plan's: the tube, progress against the furthest point
-    reached, arrival, and the observations - plus the shape error across every
-    sample.
-    """
-    reasons: List[str] = []
     if len(samples) < 2:
-        return FormationVerdict(False, None,
-                                ("the phase interval has {} samples; at least two "
-                                 "are needed to judge a traversal".format(len(samples)),))
-    start = phase.path_start
-    end = phase.path_end
-    length = math.dist(start, end)
-    if length <= 0:
-        raise ValueError("the corridor start and end coincide")
-    unit = tuple((end[i] - start[i]) / length for i in range(3))
-
-    worst_shape = 0.0
-    worst_lateral = 0.0
-    furthest = 0.0
-    worst_backtrack = 0.0
-    for _time, positions in samples:
-        if len(positions) < phase.required_agent_count:
-            reasons.append("only {} members present".format(len(positions)))
-            break
-        shape = formation_relative_error(positions, slots, start, scale)
-        worst_shape = max(worst_shape, shape)
-        centre = _formation_centre(positions)
-        offset = tuple(centre[i] - start[i] for i in range(3))
-        progress = sum(offset[i] * unit[i] for i in range(3))
-        lateral = math.sqrt(max(0.0, sum(o * o for o in offset) - progress * progress))
-        worst_lateral = max(worst_lateral, lateral)
-        furthest = max(furthest, progress)
-        worst_backtrack = max(worst_backtrack, furthest - progress)
-
-    if worst_shape > phase.shape_tolerance_m:
-        reasons.append("formation shape error {:.3f} m exceeds {:.3f} m".format(
-            worst_shape, phase.shape_tolerance_m))
-    if worst_lateral > phase.corridor_half_width_m:
-        reasons.append("centre left the corridor by {:.3f} m (limit {:.3f} m)".format(
-            worst_lateral, phase.corridor_half_width_m))
-    if worst_backtrack > phase.backtrack_tolerance_m:
-        reasons.append("centre fell back {:.3f} m from its furthest progress "
-                       "(limit {:.3f} m)".format(worst_backtrack,
-                                                 phase.backtrack_tolerance_m))
-    final_centre = _formation_centre(samples[-1][1])
-    arrived = math.dist(final_centre, end)
-    if arrived > phase.arrival_tolerance_m:
-        reasons.append("centre finished {:.3f} m from the corridor end".format(arrived))
-    if furthest < length - phase.arrival_tolerance_m:
-        reasons.append("the centre never reached the corridor end along the path")
-    for point_id in phase.interest_point_ids:
-        observation = coverage.points.get(point_id)
-        if observation is None or not observation.observed:
-            reasons.append("interest point {} was not observed".format(point_id))
-    return FormationVerdict(complete=not reasons, max_shape_error_m=worst_shape,
-                            reasons=tuple(reasons))
-
-
-def evaluate_formation_phase(phase: FormationPhase,
-                             positions: Mapping[str, Vector3],
-                             slots: Mapping[str, Vector3],
-                             centre: Vector3,
-                             scale: float,
-                             coverage: CoverageResult,
-                             weights: Mapping[str, float]) -> FormationVerdict:
-    """A formation phase needs the shape held AND its points observed."""
-    reasons: List[str] = []
-    error: Optional[float] = None
-    if len(positions) < phase.required_agent_count:
-        reasons.append(
-            "{} members present, {} required".format(len(positions),
-                                                     phase.required_agent_count))
-    else:
-        error = formation_shape_error(positions, slots, centre, scale)
-        if error > phase.shape_tolerance_m:
-            reasons.append("formation shape error {:.3f} m exceeds {:.3f} m".format(
-                error, phase.shape_tolerance_m))
-    for point_id in phase.interest_point_ids:
-        observation = coverage.points.get(point_id)
-        if observation is None or not observation.observed:
-            reasons.append("interest point {} was not observed".format(point_id))
-    return FormationVerdict(complete=not reasons, max_shape_error_m=error,
-                            reasons=tuple(reasons))
+        raise ValueError("at least two aligned formation samples are required")
+    previous, errors = None, []
+    for stamp, positions in samples:
+        if not math.isfinite(stamp):
+            raise ValueError("formation sample time must be finite")
+        if previous is not None and not 0 < stamp - previous <= sample_timeout_s:
+            raise ValueError("formation sample times are unordered or missing")
+        errors.append(formation_similarity(positions, slots))
+        previous = stamp
+    return {"metric": "Swarm normalized Laplacian squared Frobenius difference",
+            "sample_count": len(errors), "max_similarity_error": max(errors),
+            "mean_similarity_error": sum(errors) / len(errors),
+            "business_shape_verdict": "NOT_DEFINED"}
 
 
 def request_centres(tasks: Sequence[ObservationTask]) -> Dict[str, Vector3]:
@@ -304,12 +160,25 @@ def load_formation_phase(path: Path) -> Optional[FormationPhase]:
     entry = (raw or {}).get("formation_phase")
     if entry is None:
         return None
+    allowed = {"phase_id", "path_start", "path_end", "interest_point_ids", "required_agent_count"}
+    if set(entry) - allowed:
+        raise ValueError("unsupported formation fields: " + str(sorted(set(entry) - allowed)))
+    request = load_request(path)
+    point_ids = {p.point_id for r in request.regions for p in r.interest_points}
+    if not set(entry.get("interest_point_ids", ())) <= point_ids:
+        raise ValueError("formation phase references undefined interest points")
+    if entry.get("interest_point_ids"):
+        raise ValueError("formation observation is not configured; this phase supports transfer only")
+    for key in ("path_start", "path_end"):
+        if len(entry[key]) != 3 or not all(math.isfinite(x) for x in entry[key]):
+            raise ValueError("formation endpoints must be finite 3-vectors")
+    if entry.get("required_agent_count", 3) != 3:
+        raise ValueError("this online formation phase requires three members")
     return FormationPhase(
         phase_id=str(entry["phase_id"]),
         path_start=tuple(entry["path_start"]),
         path_end=tuple(entry["path_end"]),
         interest_point_ids=tuple(entry["interest_point_ids"]),
-        shape_tolerance_m=float(entry["shape_tolerance_m"]),
         required_agent_count=int(entry.get("required_agent_count", 3)))
 
 
@@ -337,7 +206,7 @@ def load_request(path: Path) -> MonitoringRequest:
         regions.append(SurveyRegion(str(entry["region_id"]), str(entry["kind"]).upper(),
                                     tuple(entry["corner_a"]), tuple(entry["corner_b"]),
                                     points))
-    return MonitoringRequest(
+    request = MonitoringRequest(
         request_id=str(raw["request_id"]), regions=tuple(regions),
         requirement=requirement,
         required_capabilities=frozenset(raw["required_capabilities"]),
@@ -346,3 +215,7 @@ def load_request(path: Path) -> MonitoringRequest:
         delivery_required=bool(raw.get("delivery_required", True)),
         requires_underwater=bool(raw.get("requires_underwater", False)),
         requires_relay_delivery=bool(raw.get("requires_relay_delivery", False)))
+
+    from .monitoring_request import validate_request
+    validate_request(request)
+    return request

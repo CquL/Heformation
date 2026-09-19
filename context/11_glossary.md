@@ -1,54 +1,149 @@
-# 项目术语与易混淆概念
+# 术语表
 
-本页统一当前资料中的语义，不要求为了术语一致重命名上游代码。
+## Platform / Physical Agent
 
-| 术语 | 本项目采用的含义/边界 |
-|---|---|
-| Mission / 业务任务 | 整体作业目标，可包含多项待分配子任务；不是一条轨迹 |
-| Task / 子任务 | 所选上层能够描述和调度的作业单元 |
-| Task planning / 任务规划 | 选择需要哪些动作及其组织；与执行者分配分开 |
-| Task allocation / 任务分配 | 将任务或任务角色分给符合资格的平台 |
-| Scheduling / 调度 | 安排时间、顺序、资源占用与等待 |
-| Resource / 资源 | 平台时间、能源、联合参与者等；具体资源按采用模型定义 |
-| Capability / 能力 | 由资料或配置给定的任务资格，不虚构传感器型号 |
-| Coalition / 任务联盟 | 为某项任务共同参与的机器人集合，不必一直几何编队 |
-| Task precedence / 任务前置关系 | 某任务必须在另一任务之后；所选模型不支持时不能默默忽略 |
-| Work relay / 作业接替 | Calvo论文中的relay主要指接替执行工作，不是无线转发 |
-| Communication relay / 通信中继 | 帮助转送消息；必须具有对应链路和设备条件 |
-| Cooperation / 协同 | 为整体任务合作，包括并行、接替、共享资源和几何协作 |
-| Formation / 编队 | 指定相对位置或形状的协作动作，不等于全体必须同步 |
-| Formation assignment / 槽位分配 | 机器人与编队目标位置的匹配，不是风机/区域业务分配 |
-| Reshaping / 编队重排 | 从一组队形位置转到另一组；CAT-ORA在限定问题下处理 |
-| Path / 路径 | 几何运动路线，本身通常不指定完整时间演化 |
-| Trajectory / 轨迹 | 随时间变化的位置及必要导数/状态参考 |
-| Motion primitive / 运动基元 | Primitive方法用于在线选择的预生成运动片段，不能等同任意平台动力学 |
-| Motion backend / 运动后端 | 承担具体路径/轨迹求解的上游组件，不重复承担所有任务调度 |
-| Joint coordinator / 联合规划协调器 | 分配、时序与运动可行性/耗时反馈的闭环职责，不预设一个巨大求解器 |
-| Behavior tree / 行为树 | 执行与监督动作的组织方式，不自动等于最优任务规划 |
-| Native interface / 原生接口 | 上游已有Action、topic、函数和消息语义 |
-| Thin adapter / 薄适配 | 两端确有差异时做最小动作或结果映射，不重新实现整套上游 |
-| State / 状态 | 实际仿真或外部估计的当前位置、速度等，不是期望轨迹 |
-| Reference / 参考 | 控制器需要跟踪的期望运动，不能当作实际表现评分 |
-| Own state / 本机状态 | 本机可经接口读取的自身状态，不经过母船远程网络 |
-| Neighbor information / 邻机信息 | 实际收到的状态/轨迹；收到前不能从真值替代 |
-| UAV / UUV / 水面平台 | 分别按空中、水下和水面模型工作，不能只靠类型标签变化 |
-| AAV / 跨介质航行器 | 本项目语境下的跨域平台；同一身份、能量与当前模式，不默认所有切换已验证 |
-| Distributed execution / 分布式执行 | 各节点独立执行与反馈，可以有中央任务调度 |
-| Multi-hop / 多跳 | 消息经中间节点按时间因果转发，不是ROS订阅的自动物理属性 |
-| Delay / 时延 | 从发送/生成到接收的时间代价，具体定义随实验记录 |
-| Loss / 丢包 | 某消息未到达；不同于某节点物理退出 |
-| Age of Information / 信息年龄 | 接收者所持有效信息相对源生成时刻的陈旧程度，不是任意重盖接收戳 |
-| Deadlock / 死锁 | 不能推进但尚未完成任务；有计划的等待不应被误判 |
-| Replanning / 重规划 | 改变已有计划；可能只修复一部分，也可能重新分配 |
-| Feasibility / 可行性 | 在指定模型和约束下存在合法解；超时不是无解证明 |
-| Safety guarantee / 安全保证 | 在明确模型、信息与初始条件下的性质，不是几个采样点没有碰撞 |
-| Tracking bound / 跟踪误差界 | 规定条件下实际状态与参考的范围；经验最大值不自动是理论界 |
-| Reproduction / 原始复现 | 原文/原代码在相应条件下跑出可比结果 |
-| Integration / 集成 | 将组件通过接口运行成系统，不自动相加能力和保证 |
-| Benchmark / 评测场景 | 任务、环境、可用信息、成功条件与评分的组合，不仅是三维地图 |
+真实或仿真的物理平台实例，例如：
 
-遇到上游使用同一个词但定义不同，保留原文并显式说明映射。具体论文含义以[来源表](13_references.md)所指正文为准。
+```text
+drone_0
+drone_1
+drone_2
+usv_1
+uuv_1
+```
 
+## Executor
 
----
-整理依据：[V2实施方案](sources/implementation_plan_v2_2026-09-15.md)与[V2核查记录](sources/literature_audit_2026-09-15.md)。本页是资料重组，不表示新增代码或实验已完成。返回：[资料索引](README.md)。
+可被任务规划器预订的执行单元。
+
+Executor 不等于物理机器人。
+
+例如：
+
+```text
+aav_1         -> {drone_0}
+aav_formation -> {drone_0, drone_1, drone_2}
+```
+
+两个 Executor 可以静态共享物理成员，但不能同时占用共享成员。
+
+## Single-member Executor
+
+只包含一个物理平台的执行单元。
+
+当前单机 AAV 使用 member target。
+
+## Formation Executor
+
+包含多个物理成员并以组级语义执行任务的执行单元。
+
+当前：
+
+```text
+aav_formation -> drone_0,1,2
+```
+
+## Offline-only Executor
+
+存在于能力/资源模型中，但无真实 Action endpoint。
+
+不能产生实际完成事件。
+
+## Member Target
+
+某个成员自己的世界系目标位置：
+
+```text
+p_goal = g_i
+```
+
+不加 formation slot。
+
+## Formation Centre
+
+组级目标中心：
+
+```text
+p_i_goal = centre + scale * slot_i
+```
+
+## Declared Formation
+
+由配置声明 N 和 N 个 slot 生成的期望编队图。
+
+当前三机使用该模式；七机继续使用原六边形类型。
+
+## Observation
+
+某兴趣点满足声明的可见性、遮挡、驻留和质量条件后形成的有效观测。
+
+不是“机器人到了附近”。
+
+## Delivery
+
+观测结果被下一阶段/控制站接收的事件。
+
+```text
+Observation != Delivery
+```
+
+## C_observed
+
+有效观测权重占总要求权重的比例。
+
+## C_delivered
+
+同时满足：
+
+```text
+observed AND received
+```
+
+的权重比例。
+
+## Task Outcome
+
+低层运动动作是否按 Action 语义完成。
+
+## Objective Outcome
+
+任务层作业目标是否满足，例如监测覆盖、交付、编队阶段完成。
+
+两者不是同一个概念。
+
+## Experiment Validity
+
+本次实验是否具备足够证据支持结论，例如参考采用是否可归属、状态是否新鲜。
+
+## Conditional Retest
+
+初测结果被接收后，对未达标点最多释放一次的补测。
+
+## Formation Shape Error
+
+当前岸线阶段使用：
+
+```text
+E_form(t) =
+max_{i<j} ||(p_i-p_j)-s(r_i-r_j)||
+```
+
+比较相对向量，不只比较成员间距离。
+
+## Corridor Progress
+
+实际编队中心沿 `path_start → path_end` 的投影进度。
+
+回退相对历史最远进度判断，不只比较相邻样本。
+
+## Authoritative State
+
+对某一语义唯一可信的状态来源。
+
+当前物理运动状态以 qn 实际状态为权威，不以规划轨迹或 RViz 显示代替。
+
+## UNKNOWN_LOCKED
+
+任务结果未知或安全/状态异常后资源不能安全释放的状态。
+
+不应因为客户端超时就把资源重新分给下一任务。

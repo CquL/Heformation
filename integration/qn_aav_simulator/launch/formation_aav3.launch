@@ -63,7 +63,7 @@
   <param name="/drone_1_ego_planner_node/fsm/member_goal_topic" value="/drone_1_member_goal"/>
   <param name="/drone_2_ego_planner_node/fsm/member_goal_topic" value="/drone_2_member_goal"/>
 
-  <!-- Line abreast at the corridor start, matching the slots above. -->
+  <!-- Initial line formation at the declared assembly point. -->
   <rosparam ns="drone_0_qn_aav">{init_x: -30.0, init_y: 6.0, init_z: 0.8}</rosparam>
   <rosparam ns="drone_1_qn_aav">{init_x: -30.0, init_y: 4.0, init_z: 0.8}</rosparam>
   <rosparam ns="drone_2_qn_aav">{init_x: -30.0, init_y: 8.0, init_z: 0.8}</rosparam>
@@ -115,6 +115,7 @@
     <param name="action_name" value="/aav_1/formation_action"/>
     <rosparam param="agent_ids">[0]</rosparam>
     <rosparam param="relative_slots">{"0": [0.0, 0.0, 0.0]}</rosparam>
+    <rosparam param="safety_agent_ids">[0, 1, 2]</rosparam>
     <param name="swarm_scale" value="1.0"/>
     <param name="cruise_altitude_m" value="0.8"/>
     <param name="goal_topic_format" value="/drone_{}_formation_goal"/>
@@ -125,6 +126,7 @@
     <param name="action_name" value="/aav_2/formation_action"/>
     <rosparam param="agent_ids">[1]</rosparam>
     <rosparam param="relative_slots">{"1": [0.0, 0.0, 0.0]}</rosparam>
+    <rosparam param="safety_agent_ids">[0, 1, 2]</rosparam>
     <param name="swarm_scale" value="1.0"/>
     <param name="cruise_altitude_m" value="0.8"/>
     <param name="goal_topic_format" value="/drone_{}_formation_goal"/>
@@ -135,6 +137,7 @@
     <param name="action_name" value="/aav_3/formation_action"/>
     <rosparam param="agent_ids">[2]</rosparam>
     <rosparam param="relative_slots">{"2": [0.0, 0.0, 0.0]}</rosparam>
+    <rosparam param="safety_agent_ids">[0, 1, 2]</rosparam>
     <param name="swarm_scale" value="1.0"/>
     <param name="cruise_altitude_m" value="0.8"/>
     <param name="goal_topic_format" value="/drone_{}_formation_goal"/>
@@ -145,6 +148,7 @@
     <param name="action_name" value="/aav_formation/formation_action"/>
     <rosparam param="agent_ids">[0, 1, 2]</rosparam>
     <rosparam param="relative_slots">{"0": [0.0, 0.0, 0.0], "1": [0.0, -2.0, 0.0], "2": [0.0, 2.0, 0.0]}</rosparam>
+    <rosparam param="safety_agent_ids">[0, 1, 2]</rosparam>
     <param name="swarm_scale" value="1.0"/>
     <param name="cruise_altitude_m" value="0.8"/>
     <param name="goal_topic_format" value="/drone_{}_formation_goal"/>
@@ -157,4 +161,6 @@
     <rosparam param="size" subst_value="true">$(arg obstacle_size)</rosparam>
     <rosparam param="obstacle" subst_value="true">$(arg obstacle)</rosparam>
   </node>
+  <node if="$(arg record)" pkg="rosbag" type="record" name="formation_recorder" output="screen"
+        args="-O $(arg output_dir)/execution.bag --buffsize=256 --regex /aav_(1|2|3|formation)/formation_action/.*|/drone_[0-2]_(member|formation)_goal|/drone_[0-2]_planning/(pos_cmd|trajectory|start|finish)|/drone_[0-2]_qn/(odometry|used_reference_pose|used_reference_twist|diagnostics|medium_flag)|/scene/global_cloud|/drone_[0-2]_pcl_render_node/cloud|/mission_dashboard/image/compressed"/>
 </launch>

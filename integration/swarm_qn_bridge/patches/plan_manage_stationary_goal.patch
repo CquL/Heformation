@@ -1,0 +1,111 @@
+Reuse the existing stationary polynomial for settled adapted goals; log graph evaluation even at zero cost.
+--- a/src/planner/plan_manage/include/plan_manage/ego_replan_fsm.h
++++ b/src/planner/plan_manage/include/plan_manage/ego_replan_fsm.h
+@@ -105,6 +105,8 @@
+     // it must not have the formation slot offset added, and it must not wait for
+     // predecessor trajectories the way a simultaneous swarm start does.
+     bool member_goal_active_ = false;
++    bool member_entry_enabled_ = false;
++    bool publishStationaryReference();
+     ros::Subscriber broadcast_ploytraj_sub_;
+     // result file and file name
+     string result_fn_;
+--- a/src/planner/plan_manage/src/ego_replan_fsm.cpp
++++ b/src/planner/plan_manage/src/ego_replan_fsm.cpp
+@@ -127,6 +127,8 @@
+       nh.param("fsm/member_goal_topic", member_goal_topic, std::string(""));
+       if (!member_goal_topic.empty())
+       {
++        member_entry_enabled_ = true;
++        planner_manager_->traj_.preserve_local_traj_ids = true;
+         member_goal_sub_ = nh.subscribe(member_goal_topic, 1, &EGOReplanFSM::memberWaypointCallback, this);
+         ROS_INFO("member goal entry enabled on %s", member_goal_topic.c_str());
+       }
+@@ -677,6 +679,8 @@
+                     swarm_relative_pts_[id][1],
+                     swarm_relative_pts_[id][2];
+     end_pt_ = swarm_central_pos_ + swarm_scale_ * relative_pos;
++    if (publishStationaryReference())
++      return;
+ 
+     std::vector<Eigen::Vector3d> one_pt_wps;
+     one_pt_wps.push_back(end_pt_);
+@@ -721,6 +725,29 @@
+   // formation callback deliberately adds swarm_scale_ * swarm_relative_pts_[id],
+   // which is right for a formation centre and wrong for a single-member target
+   // (and wrong for a hold command, which would push the member off its hold).
++  // Reuse the native stationary MinJerk trajectory for a settled goal within
++  // the FSM's existing 0.1 m endpoint resolution. Publish a real new trajectory;
++  // adoption is still confirmed independently from qn consuming that id.
++  // Restricted to the opt-in member entry; the seven-member path is unchanged.
++  bool EGOReplanFSM::publishStationaryReference()
++  {
++    if (!member_entry_enabled_ || !have_odom_ ||
++        (end_pt_ - odom_pos_).norm() >= 0.1 || odom_vel_.norm() >= 0.1)
++      return false;
++    callEmergencyStop(odom_pos_);
++    traj_utils::PolyTraj msg;
++    polyTraj2ROSMsg(msg);
++    broadcast_ploytraj_pub_.publish(msg);
++    local_target_pt_ = end_pt_;
++    end_vel_.setZero();
++    have_target_ = true;
++    have_local_traj_ = true;
++    have_new_target_ = false;
++    changeFSMExecState(EXEC_TRAJ, "STATIONARY_GOAL");
++    ROS_INFO("stationary goal: published new native trajectory");
++    return true;
++  }
++
+   void EGOReplanFSM::memberWaypointCallback(const geometry_msgs::PoseStampedPtr &msg)
+   {
+     if (msg->pose.position.z < -0.1)
+@@ -737,6 +764,8 @@
+     // a local copy leaves it at its default (0, 0, 0), which sends the member to
+     // the origin instead of its target.
+     end_pt_ << msg->pose.position.x, msg->pose.position.y, msg->pose.position.z;
++    if (publishStationaryReference())
++      return;
+ 
+     std::vector<Eigen::Vector3d> one_pt_wps;
+     one_pt_wps.push_back(end_pt_);
+--- a/src/planner/traj_opt/src/poly_traj_optimizer.cpp
++++ b/src/planner/traj_opt/src/poly_traj_optimizer.cpp
+@@ -438,8 +438,6 @@
+     double similarity_error;
+     swarm_graph_->calcFNorm2(similarity_error);
+ 
+-    if (similarity_error > 0)
+-    {
+       static bool reported_formation_cost = false;
+       if (!reported_formation_cost)
+       {
+@@ -448,6 +446,8 @@
+                  formation_size_);
+       }
+ 
++    if (similarity_error > 0)
++    {
+       ret = true;
+ 
+       costp = wei_formation_ * similarity_error;
+--- a/src/planner/traj_utils/include/traj_utils/plan_container.hpp
++++ b/src/planner/traj_utils/include/traj_utils/plan_container.hpp
+@@ -44,6 +44,7 @@
+   class TrajContainer
+   {
+   public:
++    bool preserve_local_traj_ids = false; // enabled only for adapted member/group sessions
+     GlobalTrajData global_traj;
+     LocalTrajData local_traj;
+     SwarmTrajData swarm_traj;
+@@ -64,7 +65,8 @@
+ 
+       local_traj.drone_id = -1;
+       local_traj.duration = 0.0;
+-      local_traj.traj_id = 0;
++      if (!preserve_local_traj_ids)
++        local_traj.traj_id = 0;
+     }
+ 
+     void setLocalTraj(const poly_traj::Trajectory &trajectory, const double &world_time, const int drone_id = -1)

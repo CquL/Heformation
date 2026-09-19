@@ -1,102 +1,238 @@
-# 必要输入输出：不再预先定义一套巨大数据包
+# 当前必要输入输出
 
-**2026-09-17：当前接口按用户最新决定冻结；下方V2上游接口仅保留为后续对照。完整字段与验收见[plan.md](../plan.md)。**
+**更新：2026-09-19**
 
-## 当前阶段接口
+本项目不预设“大一统全能消息”。当前只定义真实连接所必需的输入、状态和结果。
 
-- Python层使用用户指定的`Agent`、`Task`、`PlanItem`、`Plan`、`DelayEvent`；`Plan.items`唯一权威，队列、联盟、任务时间和makespan均派生。
-- 任务空间只保存`target_ref`；`travel_time_provider(executor, from_target_ref, to_target_ref)`使用编队中心距离/名义速度。本版`wait_time = 0`。
-- ROS1 `Formation.action` Goal为`task_id`、`PointStamped formation_center`、`hold_duration`；Feedback为`MOVING | HOLDING`；Result为实际起止时间与`reason`。
-- 目标固定`world`、`z = 0.5 m`，成员固定0—6；槽位、缩放和完成阈值由节点配置提供，不将禁用的能源/充电等字段加入Action。
-- 顶层失败原因仅`INVALID_TARGET`、`ODOMETRY_TIMEOUT`、`EXECUTION_TIMEOUT`。误差、速度、成员和间距等放实验记录；planning/finish只记录名义结束。
-- 每次执行的`execution_id`对应actionlib GoalID。七机实际完成只产生一个组级DelayEvent，按event_id去重后驱动已有协作关系的时间修复。
+## 1. 用户层输入
 
-## 1. 输入分三类
+第一版使用结构化 Monitoring Request。
 
-| 类别 | 必要内容 | 提供方式 |
-|---|---|---|
-| 任务请求 | 动作/任务类型、区域/位置、资格或人数、工作要求/时长、截止时间 | 任务文件、面板或外部任务系统 |
-| 启动配置 | 平台列表、模型/工作域、运动限制、能源、地图、运行与通信条件 | 原生配置文件及最少补充 |
-| 在线反馈 | 本机状态、实际收到的邻机轨迹、任务完成/失败、能源和必要故障信息 | 原生发布订阅或Action反馈 |
-
-不要求用户每次重填全部配置。作业结果是执行输出，再作为上层反馈，不是预先填好的成功标记。日志内容也不是每层必须复制的通信载荷。
-
-任务关系只采用所选上层实际支持的形式。第一版必须优化一般前置关系时，应选择相应模型；不能把不支持的输入默默忽略。
-
-## 2. Calvo原生执行框架接口：后续对照
-
-下述内容来源于V2核查的`multirobot-use/mrta_execution_architecture`，适用于采用该执行框架的分支。[R10](13_references.md#r10)
-
-### 规划请求：`action/HeuristicPlanning.action`
+核心字段：
 
 ```text
-# request
-string scenario_id
-string[] available_agents
-string[] remaining_tasks
----
-# result
-bool success
-TaskQueue[] planning_result
----
-# feedback
-string status
+request_id
+regions
+interest_points
+weights
+observation requirement
+required_capabilities
+service_time_s
+deadline_s
+delivery_required
+requires_underwater
+requires_relay_delivery
 ```
 
-### 单平台任务队列：`action/NewTaskList.action`
+缺失必须字段时直接报错，不静默补默认 service time 或 deadline。
+
+当前请求文件：
 
 ```text
-string agent_id
-Task[] task_list
----
-bool ack
----
-string status
+integration/qn_aav_simulator/config/monitoring_request_coastal.yaml
 ```
 
-### 任务结束：`action/TaskResult.action`
+## 2. 系统配置输入
 
-原生结果区分FAILURE、SUCCESS、HALTED，携带Task和ack/status；原应用还有近距离检查参数。这里复用必要语义，不由字段名字推断本项目需要研发感知。
-
-`msg/Task.msg`已有id、type及动作专用参数；`GenericTaskParams.msg`只有Td、Tw、Te，不能仅凭“Generic”一词推断它已经能描述任意海上作业几何。
-
-## 3. Primitive的原生输入输出：后续对照
-
-V2定位到`src/planner/plan_manage/src/pp_replan_fsm.cpp`：[R03](13_references.md#r03)
+由系统配置，不要求用户每次重填：
 
 ```text
-本机状态         odom_world
-目标             /goal_with_id 或预置waypoints，取决于配置
-接收邻机轨迹     planning/broadcast_primitive_recv
-对外轨迹广播     planning/broadcast_primitive_send
-运动输出         planning/selected_path_id、planning/polynomial_traj 等
+平台清单
+Executor 路由
+physical_agent_ids
+capabilities
+Action endpoint
+三机 formation slots
+cruise altitude
+地图 / scene
+运动限制
+安全阈值
 ```
 
-消息类型、namespace、remap、触发条件和输出消费者以实际锁定版本为准。收到多项式或基元不是已经得到电机推力，后面要接原生轨迹服务器/控制器；这些无需再次包成一个自定义“全能指令”。
-
-Swarm已经有本机里程计和轨迹收发；沿用已复现版本的入口，不要求改成与Primitive完全相同的内部结构。[R01](13_references.md#r01)
-
-## 4. 第一轮只写两个方向的适配
+最终目标平台：
 
 ```text
-上层任务动作 → 所选后端的原生目标/协作请求
-实际完成、失败或延迟 → 上层原生任务反馈
+3 AAV + 1 USV + 1 UUV
 ```
 
-确实要增加的适配应说明：源字段/语义、目标字段/语义、差异、错误处理。已有字段能表达的就映射，不再新增同义对象。
+当前在线 Action endpoint 只有 AAV。
 
-例如区段跟随任务可能需要按原生航点输入或逐段目标执行；局部目标到达不等于整个作业完成，适配器只在全部要求满足时返回原生任务成功。若原后端不支持指定编队人数，先报告限制，不擅自把任何联盟当作合法编队。
+## 3. 任务展开输出
 
-## 5. 最少一致性
+请求经 `expand()` 产生 `ObservationTask`。
 
-只要求实际连接所必需的一致性：机器人ID、坐标系与单位、时间基准、任务开始/结束/取消含义、状态与参考区分、控制接口层级、一次只有一个有效命令来源。
+航点数量由覆盖需求决定，不等于兴趣点数量。
 
-状态戳和任务ID优先使用原生字段。不能为了“未来可能需要”预设几十种Envelope、证书、缓存或权限包。必要的版本/重发语义若原生接口缺失且实验确实暴露问题，先记录缺口，再做最小改动。
+单机 ObservationTask 默认：
 
-## 6. 当前规范与历史接口的边界
+```text
+required_agent_count = 1
+allow_larger_unit = false
+```
 
-当前阶段规范已经冻结，是否实现通过以02/15的实际证据为准。V2记录的Calvo执行框架与Primitive接口不构成当前ROS依赖，也不表示已实现全平台统一消息或精确运动旅行时间查询。
+因此三机 Formation Executor 不会因为“人数更多且能力也满足”自动抢走普通单机任务。
+
+## 4. Executor 计划
+
+三机任务线使用：
+
+```text
+Executor
+ExecutorPlan
+ExecutorPlanItem
+```
+
+当前静态执行单元：
+
+```text
+aav_1         -> drone_0
+aav_2         -> drone_1
+aav_3         -> drone_2
+aav_formation -> drone_0, drone_1, drone_2
+```
+
+静态成员重叠合法；同时占用共享成员非法。
+
+任务线使用：
+
+```text
+build_executor_plan(..., serial=True)
+```
+
+串行起点：
+
+```text
+max(
+  上一项在线串行任务结束时间,
+  本执行单元各物理成员的预计可用时间
+)
+```
+
+## 5. Action 输入语义
+
+`Formation.action` 消息结构保持薄接口，不扩成任务总线。
+
+### 单机
+
+外部目标：
+
+```text
+成员自己的世界系目标 g_i
+```
+
+规划器：
+
+```text
+p_goal = g_i
+```
+
+不叠加 formation slot，不等待前序成员，不启用编队相似度项。
+
+### 三机组级
+
+外部目标：
+
+```text
+formation centre c
+```
+
+规划器：
+
+```text
+p_i_goal = c + scale * slot_i
+```
+
+三机配置使用声明式 3 节点期望编队图。
+
+## 6. qn 状态与参考
+
+权威实际状态：
+
+```text
+/drone_i_qn/odometry
+```
+
+参考采用证据包括：
+
+```text
+trajectory_id
+source_trajectory_id
+used_outer_step
+used_reference
+```
+
+目标送达、Action 接受、规划成功和 qn 采用是不同事件。
+
+## 7. 观测与交付结果
+
+任务层至少区分：
+
+```text
+observed_fraction
+delivered_fraction
+uncovered_points
+formation geometry diagnostics
+formation Action results
+retest decision
+objective_outcome
+```
+
+定义：
+
+```text
+C_delivered =
+Σ w_j * 1[observed_j AND received_j] / Σ w_j
+```
+
+Delivery 不能单靠 `delivered_point_ids` 越过 Observation。
+
+## 8. 运动结果与任务目标结果分开
+
+运动 Action 继续输出：
+
+```text
+task_outcome
+safety_outcome
+experiment_validity
+```
+
+任务层另外判断：
+
+```text
+objective_outcome
+coverage / delivery
+formation phase complete
+mission complete
+```
+
+机器人到达目标并不自动表示监测任务完成。
+
+## 9. 用户确认
+
+当前交互：
+
+```text
+加载请求
+→ 展示展开任务与分配
+→ 用户确认
+→ 才开始派发
+```
+
+默认未确认时不运动。
+
+入口：`scripts/docker_run_monitoring_request.sh [request.yaml] [新实验目录]`。
+runner 使用 `planning_mode=executor`；原七机路径使用默认 `fixed_coalition`。
+不提供默认/隐藏自动确认；输入非 yes 或 EOF 都不派发。执行中不接收新批次。
+
+几何代理只保留 footprint_radius_m、min_dwell_s、cruise_altitude_m 与垂直范围。
+删除 exposure_s、blur_tolerance_m、nominal_standoff_m；旧字段不能被静默接受。
+
+消息继续复用 `Formation.action`、原生 GoalID/Result、Odometry、PositionCommand，未增加消息层。
+Result 的既有 evidence_file 指向既有采样记录，任务层据此计算覆盖；未在 ROS Action 中重复传输整条轨迹。
+dashboard 从 `/formation_mission_runner/task_state` 读取任务层的计划、占用、当前动作、覆盖、接收和失败原因，
+更新年龄同时显示；不从落点或收到任意状态消息自行推断整个任务已完成。
 
 
----
-整理依据：[V2实施方案](sources/implementation_plan_v2_2026-09-15.md)与[V2核查记录](sources/literature_audit_2026-09-15.md)。V2来源保留为历史依据；当前决定按用户最新冻结方案更新，实验完成情况仅以实际运行记录为准。返回：[资料索引](README.md)。
+## 2026-09-19 本轮验收记录
+
+完整请求 r3 已在同次运行贯通 CLI 确认、执行单元串行派发、真实 Result、几何观测/接收和实时显示，五段成功、六点观测/接收均 1.0。故意近距穿越的安全负例返回 SAFETY_FAIL，失败 Result 记录但保留资源并阻断重叠后继。证据见 `docs/reviews/taskline-implementation-20260919.md`。该完成口径仅为声明的几何代理，不能推广为真实图像或岸线载荷质量通过。

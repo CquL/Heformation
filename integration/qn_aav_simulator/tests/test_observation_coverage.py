@@ -7,13 +7,8 @@ from qn_aav_simulator.observation_coverage import (
     ObstacleBox, ObservationSample, evaluate_coverage, record_delivery,
 )
 
-# blur_tolerance is deliberately tight: at 1 m/s and 20 ms the member moves
-# 0.02 m, so a 0.005 m tolerance makes the blur term bite, as it would with a
-# real exposure.
 REQ = ObservationRequirement(footprint_radius_m=2.5, min_dwell_s=1.0,
-                             cruise_altitude_m=0.8, exposure_s=0.02,
-                             blur_tolerance_m=0.005, nominal_standoff_m=0.8,
-                             max_distance_from_altitude_m=3.0)
+                             cruise_altitude_m=0.8, max_distance_from_altitude_m=3.0)
 POINT = {"p": (-28.0, 4.0, 0.0)}
 WEIGHTS = {"p": 1.0}
 
@@ -23,7 +18,7 @@ def dwell_samples(member="m0", start=0.0, end=1.2, step=0.2, xy=(-28.0, 4.0),
     rows = []
     t = start
     while t <= end + 1e-9:
-        rows.append(ObservationSample(member, t, (xy[0], xy[1], z), speed))
+        rows.append(ObservationSample(member, t, (xy[0], xy[1], z)))
         t += step
     return rows
 
@@ -80,28 +75,24 @@ def test_an_obstacle_beside_the_line_of_sight_does_not_block():
     assert result.points["p"].observed
 
 
-def test_the_best_score_across_members_is_taken_once():
-    """Deduplication: one point contributes once, from the best member."""
+def test_observed_point_counts_once_across_members():
+    """Deduplication: one point contributes once, regardless of member count."""
     rows = dwell_samples(member="slow", speed=0.0)
     rows += dwell_samples(member="fast", speed=3.0)
     result = evaluate_coverage(rows, POINT, REQ)
     assert result.points["p"].member_id == "slow"
     assert result.observed_fraction(WEIGHTS) == pytest.approx(1.0)
-    # observing from the nominal standoff scores full marks once motion is slow
-    assert result.points["p"].score == pytest.approx(1.0)
+    assert "image quality unverified" in result.points["p"].reason
 
 
-def test_fast_motion_reduces_the_score():
-    slow = evaluate_coverage(dwell_samples(speed=0.0), POINT, REQ).points["p"].score
-    fast = evaluate_coverage(dwell_samples(speed=5.0), POINT, REQ).points["p"].score
-    assert slow == pytest.approx(1.0)
-    assert fast < slow
+def test_vertical_range_matches_the_expansion_geometry():
+    assert evaluate_coverage(dwell_samples(z=3), POINT, REQ).points["p"].observed
+    assert not evaluate_coverage(dwell_samples(z=3.01), POINT, REQ).points["p"].observed
 
 
-def test_a_distant_observation_scores_lower_than_a_close_one():
-    near = evaluate_coverage(dwell_samples(z=0.8), POINT, REQ).points["p"].score
-    far = evaluate_coverage(dwell_samples(z=3.0), POINT, REQ).points["p"].score
-    assert far < near
+def test_unordered_samples_cannot_manufacture_dwell():
+    with pytest.raises(ValueError, match="strictly increase"):
+        evaluate_coverage(list(reversed(dwell_samples())), POINT, REQ)
 
 
 def test_observed_is_not_the_same_as_delivered():

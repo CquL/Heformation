@@ -53,6 +53,11 @@ def load_routing(configured: Optional[Sequence[Mapping]], *,
     routing: Dict[str, ExecutionUnit] = {}
     for entry in configured:
         executor_id = str(entry["executor_id"])
+        if not executor_id or executor_id in routing:
+            raise ValueError("executor ids must be nonempty and unique")
+        members = tuple(entry["physical_agent_ids"])
+        if not members or len(set(members)) != len(members):
+            raise ValueError("unit members must be nonempty and unique")
         endpoint = entry.get("action_endpoint")
         routing[executor_id] = ExecutionUnit(
             executor_id=executor_id,
@@ -98,8 +103,6 @@ def conflicting_active_unit(routing: Mapping[str, ExecutionUnit],
     except KeyError as error:
         raise ValueError("unknown executor_id: {}".format(candidate_id)) from error
     for other_id in active_executor_ids:
-        if other_id == candidate_id:
-            continue
         try:
             other = routing[other_id]
         except KeyError as error:
