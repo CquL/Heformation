@@ -44,7 +44,7 @@ from qn_aav_simulator.action_lifecycle import (
 )
 from qn_aav_simulator.experiment_verdict import (
     MemberSample, SAFETY_PASS, TASK_PASS, VALIDITY_VALID, box_surface_clearance,
-    build_ledger, compute_metrics, decide, evaluate_safety,
+    build_ledger, compute_metrics, decide, evaluate_safety, StaticSceneGeometry,
 )
 from qn_aav_simulator.formation_monitor import (
     AGENT_IDS, DEFAULT_RELATIVE_SLOTS, GroupCompletionMonitor, OdometrySample,
@@ -148,6 +148,7 @@ class FormationActionServer:
         # verifier.  The box is the *actual* geometric truth for the clearance
         # check; the point cloud stays a diagnostic.
         scene = rospy.get_param("/scene", {})
+        self.static_scene=StaticSceneGeometry.from_mapping(scene)
         self.map_topic = str(rospy.get_param(
             "~global_map_topic", scene.get("topic", GLOBAL_MAP_TOPIC)))
         self.scene_source = bool(rospy.get_param(
@@ -1169,6 +1170,10 @@ class FormationActionServer:
                         previous = diagnostics.get("min_member_height_m")
                         diagnostics["min_member_height_m"] = height if previous is None else min(previous, height)
                     clearance = self._box_clearance(samples)
+                    scene_reason=self._scene_violation(samples)
+                    if scene_reason:
+                        diagnostics['scene_violation']=scene_reason
+                        hold['reason']='ACTUAL_SAFETY_VIOLATION'
                     if clearance is not None:
                         previous = diagnostics.get("min_box_surface_clearance_m")
                         diagnostics["min_box_surface_clearance_m"] = clearance if previous is None else min(previous, clearance)
@@ -1463,6 +1468,8 @@ class FormationActionServer:
                     # Whole-run latches: the plane envelope and the declared box
                     # are checked over the entire task, not only at the end.
                     box_clearance = self._box_clearance(samples)
+                    scene_reason=self._scene_violation(samples)
+                    if scene_reason:diagnostics['scene_violation']=scene_reason
                     if box_clearance is not None:
                         previous = diagnostics.get("min_box_surface_clearance_m")
                         diagnostics["min_box_surface_clearance_m"] = (
@@ -1576,6 +1583,16 @@ class FormationActionServer:
                 missing += 1
         return missing
 
+    def _scene_violation(self,samples):
+        scene=getattr(self,'static_scene',None)
+        if scene is None:return ''
+        for agent in self.agent_ids:
+            sample=self._latest_sample(samples.get(agent))
+            if sample is not None:
+                reason=scene.violation(sample.position,self.platform_radius_m)
+                if reason:return 'member {} {}'.format(agent,reason)
+        return ''
+
     def _box_clearance(self, samples):
         """Actual surface clearance to the declared obstacle box.
 
@@ -1627,6 +1644,7 @@ class FormationActionServer:
         already detected.
         """
         fleet = diagnostics.get("fleet_safety")
+        if diagnostics.get('scene_violation'):return diagnostics['scene_violation']
         if fleet is not None and not fleet["ok"]:
             return fleet["reason"]
         stale = diagnostics.get("stale_local_scans")
@@ -1653,6 +1671,9 @@ class FormationActionServer:
     def _merge_online_safety(self, safety, diagnostics):
         """Retain online extrema when the coarser final ledger misses a sample."""
         fleet = diagnostics.get("fleet_safety") or {}
+        if diagnostics.get('scene_violation'):
+            safety.outcome='FAIL'
+            safety.reasons+=(diagnostics['scene_violation'],)
         clearances = []
         distance = diagnostics.get("min_inter_agent_distance")
         if distance is not None:

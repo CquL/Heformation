@@ -204,8 +204,12 @@ class QnAavNode:
     def step(self):
         # Ownership change, snapshot adoption and model integration share one
         # local boundary. No in-flight normal snapshot crosses a handover.
-        with self.lock:
-            self._step_locked()
+        if self.platform_action is None:
+            with self.lock:self._step_locked()
+        else:
+            # actionlib callbacks already own server.lock before taking the
+            # model lock. Terminal feedback/Result in tick uses the same order.
+            with self.platform_action.server.lock,self.lock:self._step_locked()
 
     def _step_locked(self):
         dt_s = self.outer_dt_s

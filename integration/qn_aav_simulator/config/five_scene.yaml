@@ -1,0 +1,23 @@
+# Declared benchmark geometry, not surveyed bathymetry or equipment dimensions.
+# world = ENU, shared origin; metre units. No waves/current or sonar model.
+scene:
+  geometry_enabled: true
+  topic: /scene/global_cloud
+  frame_id: world
+  surface_z_m: 0.0
+  seabed_z_m: -6.0
+  required_clearance_m: 0.2  # existing obstacle-clearance requirement
+  resolution: 0.2
+  obstacle_present: true
+  obstacle_center: &pier_center [-18.0, 0.0, -1.0]
+  obstacle_size: &pier_size [2.0, 2.0, 4.0]
+  objects:
+    - {id: pier, kind: SOLID, center: *pier_center, size: *pier_size}
+    - {id: rock, kind: SOLID, center: [6.0, 1.0, -3.0], size: [2.0, 2.0, 2.0]}
+    - {id: exclusion, kind: FORBIDDEN, center: [-12.0, 10.0, -2.0], size: [2.0, 2.0, 8.0]}
+  # Task geometry is metadata, never sampled as a physical obstacle.
+  mother_ship_position: [15.0, -8.0, 0.0]
+  transition_sites: [{id: aav_entry, position: [-28.0, 6.0, 0.0]}]
+  observation_targets:
+    - {id: air_overview, position: [-28.0, 4.0, 0.8], domain: AIR}
+    - {id: underwater_sample, position: [0.0, 8.0, -2.0], domain: WATER}

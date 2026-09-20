@@ -1,0 +1,24 @@
+--- a/src/planner/traj_opt/include/optimizer/root_finder.hpp
++++ b/src/planner/traj_opt/include/optimizer/root_finder.hpp
+@@ -671,10 +671,17 @@
+             nonzeroCoeffs(nonzeros++) = tempEle;
+         }
+     }
+-    nonzeroCoeffs = nonzeroCoeffs.head(nonzeros).eval();
+-    Eigen::VectorXd kojimaVec = nonzeroCoeffs.tail(nonzeros - 1).cwiseQuotient(nonzeroCoeffs.head(nonzeros - 1)).cwiseAbs();
+-    kojimaVec.tail(1) /= 2.0;
+-    double rho_k = 2.0 * kojimaVec.maxCoeff();
++    // Normalization can leave only the leading coefficient above epsilon.
++    // Then the ratio vector is empty: keep the already computed Cauchy
++    // bound instead of indexing an empty vector or declaring no roots.
++    double rho_k = INFINITY;
++    if (nonzeros > 1)
++    {
++        nonzeroCoeffs = nonzeroCoeffs.head(nonzeros).eval();
++        Eigen::VectorXd kojimaVec = nonzeroCoeffs.tail(nonzeros - 1).cwiseQuotient(nonzeroCoeffs.head(nonzeros - 1)).cwiseAbs();
++        kojimaVec.tail(1) /= 2.0;
++        rho_k = 2.0 * kojimaVec.maxCoeff();
++    }
+ 
+     // Choose a sharper one then loosen it by 1.0 to get an open interval
+     double rho = std::min(rho_c, rho_k) + 1.0;

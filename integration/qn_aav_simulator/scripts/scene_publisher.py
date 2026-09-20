@@ -6,10 +6,10 @@ map.  This node is the only publisher on that scene topic, so the map is always
 one complete, consistent description of the world instead of two publishers
 overwriting each other.
 
-The scene is deliberately minimal: an optional axis-aligned obstacle box, and
-nothing else.  ``~obstacle`` only adds or removes that box, so the with/without
-comparison differs in exactly one thing.  When the box is absent the map is an
-explicitly empty cloud, which is a data state ("known to contain no obstacles"),
+The legacy profile has one optional box. The five-platform profile declares
+multiple SOLID boxes and separate FORBIDDEN/task metadata; only SOLID is sampled
+as physical sensor-map geometry. Seabed clearance is checked analytically, not
+presented as a sonar measurement. A declared empty solid map is an empty cloud,
 not a missing message.
 
 The box centre and size are defined once and used for both the sampled cloud and
@@ -24,7 +24,7 @@ import rospy
 from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Header
 
-from qn_aav_simulator.experiment_verdict import box_sample_points
+from qn_aav_simulator.experiment_verdict import box_sample_points,StaticSceneGeometry
 
 DEFAULT_TOPIC = "/scene/global_cloud"
 
@@ -53,6 +53,7 @@ def cloud_message(frame_id, stamp, points):
 def main():
     rospy.init_node("scene_publisher")
     scene = rospy.get_param("/scene", {})
+    geometry=StaticSceneGeometry.from_mapping(scene)
     topic = rospy.get_param("~topic", scene.get("topic", DEFAULT_TOPIC))
     frame_id = rospy.get_param("~frame_id", scene.get("frame_id", "world"))
     obstacle = bool(rospy.get_param("~obstacle", scene.get("obstacle_present", False)))
@@ -66,6 +67,11 @@ def main():
         raise ValueError("resolution and rate must be positive")
 
     points = box_sample_points(center, size, resolution) if obstacle else []
+    if geometry:
+        if frame_id!=geometry.frame:raise ValueError('scene frame mismatch')
+        obstacle=any(kind=='SOLID' for _,kind,_,_ in geometry.objects)
+        points=[p for _,kind,c,s in geometry.objects if kind=='SOLID'
+                for p in box_sample_points(c,s,resolution)]
     publisher = rospy.Publisher(topic, PointCloud2, queue_size=1, latch=True)
     rospy.loginfo("scene publisher: %d points on %s (obstacle=%s, frame=%s)",
                   len(points), topic, obstacle, frame_id)

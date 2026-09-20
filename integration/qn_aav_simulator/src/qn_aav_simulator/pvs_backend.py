@@ -1,14 +1,30 @@
 """Thin Otter/REMUS100 boundary over the vendored Fossen implementation.
 
-All integration and actuator/control dynamics remain in PVS. ROS map is ENU,
+All integration and actuator/control dynamics remain in PVS. The ROS scene is ENU,
 body is FLU; native PVS is NED/FRD. No position is assigned after initialization.
 """
 import math
+import copy
+import time
 import numpy as np
 
 
 ENU_FROM_NED=np.array([[0.,1.,0.],[1.,0.,0.],[0.,0.,-1.]])
 FLU_FROM_FRD=np.diag([1.,-1.,-1.])
+NATIVE_START_TOLERANCE_M=.2
+
+
+def advance_path_target(paths,segment,point,position):
+    """The same finite path progression for native execution and prediction."""
+    points=paths[segment]
+    start,target=points[point-1:point+1]
+    direction=tuple(b-a for a,b in zip(start,target))
+    progress=sum((position[i]-start[i])*direction[i] for i in range(3))
+    if progress>=sum(v*v for v in direction):
+        if point+1<len(points):point+=1
+        elif segment+1<len(paths):segment,point=segment+1,1
+        else:return segment,point,None,True
+    return segment,point,target,False
 
 
 def quaternion_product(a,b):
@@ -56,6 +72,11 @@ class PvsBackend:
             self.vehicle.z_d=-position[2]
         self.time_s=0.
         self.steps=0
+        if model=='otter':
+            height=max(self.vehicle.T,abs(float(self.vehicle.rp[2])))
+            self.collision_radius_m=math.sqrt((self.vehicle.L/2)**2+(self.vehicle.B/2)**2+height**2)
+        else:
+            self.collision_radius_m=math.hypot(self.vehicle.L/2,self.vehicle.diam/2)
         self.trim_command=0.
         if initialization_mode not in ('NATIVE_ZERO','STATIC_TRIM'):
             raise ValueError('unknown PVS initialization mode')
@@ -125,11 +146,105 @@ class PvsBackend:
         self.time_s+=dt
         return self.snapshot()
 
+    def predict_native_fragment(self,paths,effort,scene,deadline,dt=.01,
+                                terminal_speed=.03,hold_duration=4.,max_model_time=180.,include_state=False):
+        """Read-only rollout, including native actuator lag and terminal coast.
+
+        Copy all controller/actuator state; never reset or step the live model.
+        Results describe sampled feasibility of this snapshot, not a robust
+        safety certificate. The caller owns the ONE monotonic query deadline.
+        """
+        if not math.isfinite(deadline) or any(not math.isfinite(v) or v<=0 for v in
+                (dt,terminal_speed,hold_duration,max_model_time)):
+            raise ValueError('finite query budget and terminal conditions required')
+        paths=tuple(tuple(tuple(p) for p in path) for path in paths)
+        if not paths or any(len(path)<2 for path in paths):raise ValueError('finite path fragment required')
+        for path in paths:
+            if any(len(p)!=3 or not all(math.isfinite(v) for v in p) for p in path):
+                raise ValueError('finite three-dimensional path required')
+            if any(math.dist(a,b)==0 for a,b in zip(path,path[1:])):raise ValueError('zero-length path leg')
+        if any(math.dist(a[-1],b[0])>1e-9 for a,b in zip(paths,paths[1:])):
+            raise ValueError('fragment paths are disconnected')
+        if math.dist(paths[0][0],self.snapshot()['position'])>NATIVE_START_TOLERANCE_M:
+            raise ValueError('prediction path start differs from supplied state')
+        model=copy.deepcopy(self)
+        start=model.time_s
+        mode='SURFACE' if model.model=='otter' else 'WATER'
+        segment,point=0,1
+        coasting=False;coast_start=None;settled=None
+        samples=[(0.,model.snapshot()['position'])]
+        summary=dict(status='UNKNOWN',reason='MODEL_HORIZON_EXHAUSTED',snapshot_steps=self.steps,
+                     snapshot_model_time_s=self.time_s,collision_radius_m=self.collision_radius_m,
+                     geometry_checked=scene is not None)
+        initial_reason=scene.violation(model.snapshot()['position'],model.collision_radius_m) if scene else ''
+        if model.snapshot()['actual_mode']!=mode:initial_reason=initial_reason or 'NATIVE_DOMAIN_VIOLATION'
+        if initial_reason:summary.update(status='INFEASIBLE',reason=initial_reason)
+        while not initial_reason and model.time_s-start<max_model_time:
+            if time.monotonic()>=deadline:
+                summary['reason']='QUERY_BUDGET_EXHAUSTED';break
+            target=None
+            if not coasting:
+                segment,point,target,coasting=advance_path_target(paths,segment,point,model.snapshot()['position'])
+                if coasting:coast_start=model.time_s-start
+            state=model.step(dt,target,0. if coasting else effort)
+            elapsed=model.time_s-start
+            samples.append((elapsed,state['position']))
+            reason=scene.violation(state['position'],model.collision_radius_m) if scene else ''
+            if reason or state['actual_mode']!=mode:
+                summary.update(status='INFEASIBLE',reason=reason or 'NATIVE_DOMAIN_VIOLATION');break
+            speed=math.sqrt(sum(v*v for v in state['world_velocity']))
+            if coasting and speed<=terminal_speed:
+                if settled is None:settled=model.time_s
+            else:settled=None
+            if settled is not None and model.time_s-settled>=hold_duration:
+                summary.update(status='FEASIBLE' if scene is not None else 'UNKNOWN',
+                    reason='NATIVE_TERMINAL_VERIFIED_IN_ROLLOUT' if scene is not None else 'SCENE_GEOMETRY_NOT_PROVIDED')
+                break
+        duration=model.time_s-start
+        summary.update(duration_s=duration,coast_start_s=coast_start,
+            motion_s=duration if coast_start is None else coast_start,
+            terminal_s=0. if coast_start is None else duration-coast_start,
+            terminal_position=model.snapshot()['position'],terminal_mode=model.snapshot()['actual_mode'],
+            trajectory=samples)
+        if include_state:summary['terminal_backend']=model
+        return summary
+
+    def predict_idle(self,duration,scene,deadline,dt=.01):
+        """Propagate the existing zero-propulsion terminal behavior while waiting.
+
+        COAST_STOP is a measured low-speed condition, not a frozen pose. This
+        forecast retains native controller and actuator state for a bounded wait.
+        """
+        if not math.isfinite(duration) or duration<0 or not math.isfinite(deadline):
+            raise ValueError('finite idle duration and deadline required')
+        if not math.isfinite(dt) or not 0<dt<=.05:raise ValueError('invalid native step')
+        model=copy.deepcopy(self);start=model.time_s
+        mode='SURFACE' if model.model=='otter' else 'WATER'
+        samples=[(0.,model.snapshot()['position'])]
+        status='FEASIBLE' if scene is not None else 'UNKNOWN'
+        reason='BOUNDED_NATIVE_IDLE' if scene is not None else 'SCENE_GEOMETRY_NOT_PROVIDED'
+        initial_reason=scene.violation(model.snapshot()['position'],model.collision_radius_m) if scene else ''
+        if model.snapshot()['actual_mode']!=mode:initial_reason=initial_reason or 'NATIVE_DOMAIN_VIOLATION'
+        if initial_reason:status,reason='INFEASIBLE',initial_reason
+        # The real node uses fixed outer steps. Quantize the bounded wait up
+        # to a whole step instead of inventing fractional integration samples.
+        for _ in range(0 if initial_reason else math.ceil(duration/dt)):
+            if time.monotonic()>=deadline:status,reason='UNKNOWN','QUERY_BUDGET_EXHAUSTED';break
+            state=model.step(dt,None,0.)
+            samples.append((model.time_s-start,state['position']))
+            violation=scene.violation(state['position'],model.collision_radius_m) if scene else ''
+            if violation or state['actual_mode']!=mode:
+                status,reason='INFEASIBLE',violation or 'NATIVE_DOMAIN_VIOLATION';break
+        return dict(status=status,reason=reason,duration_s=model.time_s-start,requested_wait_s=duration,
+                    terminal_position=model.snapshot()['position'],trajectory=samples,terminal_backend=model)
+
     def snapshot(self):
         from python_vehicle_simulator.lib.gnc import Rzyx
         rotation=Rzyx(*self.eta[3:])
         mode=('SURFACE' if abs(self.eta[2])<=self.vehicle.T else 'OUTSIDE_NATIVE_DOMAIN') if self.model=='otter' else ('WATER' if self.eta[2]>0 else 'OUTSIDE_NATIVE_DOMAIN')
         return dict(model=self.model,model_time_s=self.time_s,steps=self.steps,
+                    collision_radius_m=self.collision_radius_m,
+                    collision_geometry='PVS_DECLARED_HULL_PROXY_NOT_EQUIPMENT_ENVELOPE',
                     actual_mode=mode,
                     position=tuple(ENU_FROM_NED@self.eta[:3]),
                     quaternion_wxyz=ned_attitude_to_ros(*self.eta[3:]),

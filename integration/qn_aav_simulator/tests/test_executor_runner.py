@@ -10,6 +10,7 @@ import pytest
 
 from test_formation_action_server import server_module
 from mrta_python import ExecutorPlan, ExecutorPlanItem
+from mrta_python.models import NativeActionSpec,NativeSegmentSpec,Task
 from qn_aav_simulator.executor_routing import load_routing, dispatchable_units
 from qn_aav_simulator.task_line import load_request, load_formation_phase
 from qn_aav_simulator.monitoring_request import expand
@@ -58,6 +59,70 @@ def make_runner(module, tmp_path):
     runner._save_executor = lambda: None
     runner._wait_executor_ready = lambda unit: None
     return runner
+
+
+def native_setup(module,tmp_path):
+    runner=make_runner(module,tmp_path)
+    unit=load_routing([dict(executor_id='uuv_native',physical_agent_ids=['uuv'],
+        capabilities=['WATER'],action_endpoint='/uuv/platform_task',action_type='PlatformTaskAction',
+        operations=['WATER_PATH'],odometry_topics={'uuv':'/uuv/odometry'})],
+        default_members=(),default_initial_target_ref='start')['uuv_native']
+    spec=NativeActionSpec((NativeSegmentSpec('WATER_PATH',((-5.,8.,-2.),(0.,8.,-2.))),),'COAST_STOP',150.)
+    item=ExecutorPlanItem('native-e','native-t','uuv_native',('uuv',),0.,65.,65.,0.,0.,status='RUNNING',native_action=spec)
+    item.native_prediction=dict(status='FEASIBLE',geometry_checked=True,duration_s=65.,
+                                terminal_position=(9.,8.,-2.),terminal_mode='WATER')
+    runner.routing[unit.executor_id]=unit
+    runner.plan=ExecutorPlan([item]);runner.tasks_by_id={'native-t':Task('native-t',frozenset({'WATER'}),1,0.,150.,'water')}
+    runner.observation_tasks={};runner.active_executor_ids={unit.executor_id}
+    runner._refresh_executor_timing=lambda _:None
+    runner.native_result=lambda _:('native-goal',SimpleNamespace(status=SimpleNamespace(status=3)))
+    result=SimpleNamespace(task_id=item.execution_id,goal_id='native-goal',task_completed=True,
+        terminal_verified=True,actual_mode='WATER',reason='COAST_STOP_VERIFIED_IN_QUALIFICATION',
+        resource_locked=False,model_time_s=65.)
+    return runner,item,unit,result
+
+
+def test_native_result_commits_motion_without_creating_coverage(runner_module,tmp_path):
+    runner,item,unit,result=native_setup(runner_module,tmp_path)
+    runner._commit_executor_result(item,unit,3,result)
+    assert runner.plan.item(item.execution_id).status=='COMPLETED'
+    assert not runner.active_executor_ids
+    assert runner.metrics['native_qualification_only']
+    assert runner.metrics['executions'][0]['scope']=='NATIVE_MOTION'
+    # A duplicate old Result must not clear a new booking of the same member.
+    runner.active_executor_ids.add(unit.executor_id)
+    runner._commit_executor_result(item,unit,3,result)
+    assert runner.active_executor_ids=={unit.executor_id}
+
+
+def test_native_motion_cannot_fabricate_observation_or_release_unknown_mode(runner_module,tmp_path):
+    runner,item,unit,result=native_setup(runner_module,tmp_path)
+    result.actual_mode='AIR'
+    with pytest.raises(RuntimeError,match='cannot release'):
+        runner._commit_executor_result(item,unit,3,result)
+    assert unit.executor_id in runner.active_executor_ids
+    result.actual_mode='WATER';runner.observation_tasks[item.task_id]=object()
+    with pytest.raises(RuntimeError,match='observation products'):
+        runner._commit_executor_result(item,unit,3,result)
+    assert unit.executor_id in runner.active_executor_ids
+
+
+def test_native_goal_uses_path_message_and_selected_operation(runner_module,tmp_path,monkeypatch):
+    runner,item,unit,result=native_setup(runner_module,tmp_path)
+    from types import ModuleType
+    nav=ModuleType('nav_msgs.msg');nav.Path=lambda:SimpleNamespace(header=SimpleNamespace(),poses=[])
+    monkeypatch.setitem(sys.modules,'nav_msgs.msg',nav)
+    geometry=sys.modules['geometry_msgs.msg']
+    monkeypatch.setattr(geometry,'PoseStamped',lambda:SimpleNamespace(header=SimpleNamespace(),
+        pose=SimpleNamespace(position=SimpleNamespace(),orientation=SimpleNamespace())),raising=False)
+    messages=sys.modules['qn_aav_simulator.msg']
+    monkeypatch.setattr(messages,'PlatformTaskGoal',lambda **kw:SimpleNamespace(segments=[],**kw),raising=False)
+    monkeypatch.setattr(messages,'PlatformSegment',lambda **kw:SimpleNamespace(**kw),raising=False)
+    goal=runner._executor_goal(item,unit)
+    assert goal.task_id==item.execution_id and goal.terminal_behavior=='COAST_STOP'
+    assert goal.segments[0].operation=='WATER_PATH'
+    assert goal.segments[0].path.poses[-1].pose.position.z==-2.
+    assert not hasattr(goal,'formation_center')
 
 
 def test_parallel_dispatch_books_members_before_workers_and_waits_for_group(runner_module,tmp_path):

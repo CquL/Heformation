@@ -338,6 +338,64 @@ def box_surface_clearance(point, center, size, platform_radius_m) -> float:
     return box_signed_distance(point, center, size) - float(platform_radius_m)
 
 
+@dataclass(frozen=True)
+class StaticSceneGeometry:
+    """Declared public geometry; pure checks, no sampler or planning layer.
+
+    Boxes retain SOLID/FORBIDDEN semantics. Only SOLID enters the sensor map.
+    The water surface is a mode boundary, not an obstacle for marine/transition
+    actions. Existing AIR checks continue to enforce their surface envelope.
+    """
+    frame: str
+    seabed_z: float
+    clearance: float
+    objects: tuple
+
+    @classmethod
+    def from_mapping(cls,config):
+        if not config.get('geometry_enabled',False):return None
+        frame=config.get('frame_id')
+        bed=float(config['seabed_z_m']);clearance=float(config['required_clearance_m'])
+        if not frame or not math.isfinite(bed) or bed>=0 or not math.isfinite(clearance) or clearance<0:
+            raise ValueError('invalid declared scene frame/seabed/clearance')
+        objects=[];names=set()
+        for raw in config['objects']:
+            name=raw['id'];kind=raw['kind'];center=tuple(raw['center']);size=tuple(raw['size'])
+            if (not name or name in names or kind not in ('SOLID','FORBIDDEN') or
+                    len(center)!=3 or len(size)!=3 or not all(math.isfinite(v) for v in center+size) or
+                    any(v<=0 for v in size)):
+                raise ValueError('invalid/duplicate scene box')
+            names.add(name);objects.append((name,kind,center,size))
+        return cls(frame,bed,clearance,tuple(objects))
+
+    def clearances(self,position,radius):
+        if len(position)!=3 or not all(math.isfinite(v) for v in position) or not math.isfinite(radius) or radius<0:
+            raise ValueError('finite state and declared nonnegative collision radius required')
+        return [('seabed',position[2]-radius-self.seabed_z)]+[
+            (name,box_surface_clearance(position,center,size,radius))
+            for name,_kind,center,size in self.objects]
+
+    def violation(self,position,radius):
+        values=self.clearances(position,radius)
+        failed=[(name,value) for name,value in values if value<self.clearance]
+        return '' if not failed else 'SCENE_CLEARANCE: '+','.join('{}={:.6f}m'.format(n,v) for n,v in failed)
+
+    def path_violation(self,points,radius):
+        from .observation_coverage import ObstacleBox
+        if len(points)<2:raise ValueError('path requires at least two points')
+        margin=radius+self.clearance
+        for p in points:
+            reason=self.violation(p,radius)
+            if reason:return reason
+        for name,_kind,center,size in self.objects:
+            # Inflated AABB slab intersection conservatively contains the
+            # swept sphere. This is preflight geometry, not a tracking bound.
+            box=ObstacleBox(center,tuple(v+2*margin for v in size))
+            if any(box.blocks(a,b) for a,b in zip(points,points[1:])):
+                return 'SCENE_PATH_INTERSECTION: '+name
+        return ''
+
+
 def evaluate_safety(samples: Dict[int, Sequence[MemberSample]], *,
                     obstacle_clearances: Optional[Sequence[float]] = None,
                     required_inter_agent_clearance_m: float = _MIN_INTER_AGENT_CLEARANCE_M,

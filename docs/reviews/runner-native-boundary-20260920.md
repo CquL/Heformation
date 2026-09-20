@@ -1,0 +1,13 @@
+# 现有runner原生执行边界
+
+已在原MissionRunner内按选定ExecutorPlanItem的操作选择FormationAction或PlatformTaskAction，绑定明确的实际状态话题，并检查端点声明的物理成员。没有另建runner或后端工厂。
+
+原生执行规格附在候选PlanItem上，业务Task仍不预先指定某个平台的动作链。规格只包含现有PlatformTask需要的路径、操作、参考时长和终端行为；模型/控制参数没有复制进每个Goal。PVS参考时长不用于承诺到达时刻，完整时长来自原生查询。
+
+Native预测必须明确可行、已经检查几何、数值有限且最终模式正确；其终点用于成员预测，不能用任务目标点代替。完整Native动作时长已含终端，不再额外加标量service_time。模型副本及密集预测轨迹留在内部查询，不进入逐次发布的Plan元数据。
+
+运动Result必须满足匹配GoalID/执行ID、正确模式、实际终端和未锁定条件。重复旧Result不能解除新任务的预订。运动Result不产生观测/交付；若任务要求尚未提供的原生观测产品，runner明确阻断。当前Native成功仍标资格运动，不升级为完整请求PASS。
+
+真实ROS边界验证位于`experiments/20260920-runner-native/run-r2/`：现有MissionRunner向`/uuv/platform_task`发送原生路径，收到并提交真实Result；覆盖和交付没有被伪造。run-r1的测试初始化失败保留。**该验证没有运行请求展开和用户确认，也不是完整五平台请求。** 相关现有确认门测试继续通过。
+
+下一步必须让请求与模式候选真正生成这些PlanItem，接入完整运动/等待查询和平台间在线约束，再继续预承诺通信、有限交付与最终UI/科研验收。不能把边界实跑替代这些出口。

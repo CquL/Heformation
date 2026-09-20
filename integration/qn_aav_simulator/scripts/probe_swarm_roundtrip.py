@@ -18,20 +18,23 @@ from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path as RosPath, Odometry
 from quadrotor_msgs.msg import PositionCommand
 from std_srvs.srv import Trigger
+from traj_utils.msg import PolyTraj
 from qn_aav_simulator.msg import FormationAction,FormationGoal,PlatformTaskAction,PlatformTaskGoal,PlatformSegment
 from qn_aav_simulator.srv import TakeReference
 
 
 class Probe:
-    def __init__(self,output,scenario):
+    def __init__(self,output,scenario,final_fault_probe=True):
         self.output=output
         self.scenario=scenario
+        self.final_fault_probe=final_fault_probe
         self.lock=threading.RLock()
         self.rows=[]
         self.latest={}
         self.status={}
         self.positions={}
         self.events=[]
+        self.native_feedback=None
         self.subs=[rospy.Subscriber('/drone_0_qn/diagnostics',DiagnosticArray,self.diag,queue_size=1000),
                    rospy.Subscriber('/drone_0_planning/safety_status',DiagnosticArray,self.planner,queue_size=1000)]
         self.subs.extend(rospy.Subscriber('/drone_'+str(i)+'_qn/odometry',Odometry,self.odom,callback_args=i,queue_size=20) for i in range(3))
@@ -39,6 +42,7 @@ class Probe:
         self.native=actionlib.SimpleActionClient('/drone_0_qn_aav/platform_task',PlatformTaskAction)
         self.old_reference=rospy.Publisher('/drone_0_planning/pos_cmd',PositionCommand,queue_size=1)
         self.old_goal=rospy.Publisher('/drone_0_member_goal',PoseStamped,queue_size=1)
+        self.invalid_poly=rospy.Publisher('/drone_0_planning/trajectory',PolyTraj,queue_size=1)
 
     def diag(self,message):
         for status in message.status:
@@ -56,6 +60,9 @@ class Probe:
     def odom(self,message,member):
         point=message.pose.pose.position
         with self.lock:self.positions[member]=(message.header.stamp.to_sec(),(point.x,point.y,point.z))
+
+    def feedback(self,message):
+        with self.lock:self.native_feedback=message
 
     def wait(self,predicate,timeout,description):
         deadline=time.monotonic()+timeout
@@ -144,10 +151,32 @@ class Probe:
         assert state==3 and result.safety_outcome==1 and result.experiment_validity==1
         self.wait(lambda:self.latest.get('reference_active')=='false',5,'AIR resource release')
         before_id=int(self.latest['source_trajectory_id'])
+        if self.scenario=='invalid-polynomial':
+            self.wait(lambda:self.invalid_poly.get_num_connections()>0,5,'trajectory subscriber')
+            for case in range(4):
+                msg=PolyTraj(drone_id=0,traj_id=before_id+100+case,order=5,start_time=rospy.Time.now(),
+                    duration=[1.],coef_x=[0.,0.,0.,0.,0.,-28.],
+                    coef_y=[0.,0.,0.,0.,0.,6.],coef_z=[0.,0.,0.,0.,0.,.8])
+                if case==0:msg.duration=[float('nan')]
+                elif case==1:msg.coef_x[0]=float('nan')
+                elif case==2:msg.coef_y=[]
+                else:msg.duration=[0.]
+                self.invalid_poly.publish(msg)
+                time.sleep(.3)
+                assert int(self.latest['source_trajectory_id'])==before_id
+                assert float(self.latest['reference_position_z'])>.25
+            self.events.append(dict(label='invalid-polynomials-rejected',cases=4,retained_trajectory_id=before_id))
+            return
         old_stamp=rospy.Time.now().to_sec()
         goal,end=self.fragment()
-        self.native.send_goal(goal)
-        self.wait(lambda:self.latest.get('actual_mode')=='WATER',60,'actual WATER')
+        self.native.send_goal(goal,feedback_cb=self.feedback)
+        if self.scenario in ('cancel-entry','cancel-exit'):
+            operation='ENTER_WATER' if self.scenario=='cancel-entry' else 'EXIT_WATER'
+            self.wait(lambda:self.native_feedback is not None and
+                      self.native_feedback.operation==operation and
+                      self.latest.get('actual_mode')=='TRANSITION',90,'actual '+operation+' transition')
+        else:
+            self.wait(lambda:self.latest.get('actual_mode')=='WATER',60,'actual WATER')
         assert self.status.get('ordinary_reference_paused')=='true'
         self.inject_old(before_id,old_stamp)
         self.air_goal('forbidden-during-native',(-25.,6.,.8),ready=False)
@@ -156,7 +185,7 @@ class Probe:
         response=rospy.ServiceProxy('/drone_0_qn_aav/take_reference',TakeReference)(
             'foreign-air','AIR_SWARM',int(self.latest['reference_generation']))
         assert not response.accepted
-        if self.scenario=='cancel-native':
+        if self.scenario in ('cancel-native','cancel-entry','cancel-exit'):
             self.native.cancel_goal()
             self.native.cancel_goal()
         elif self.scenario=='missing-planner':
@@ -165,8 +194,19 @@ class Probe:
             assert success and not failure
         state,result=self.result(self.native,'native-fragment')
         if self.scenario!='normal':
-            assert state==(2 if self.scenario=='cancel-native' else 4)
+            canceled=self.scenario in ('cancel-native','cancel-entry','cancel-exit')
+            assert state==(2 if canceled else 4)
             assert not result.task_completed and result.resource_locked
+            if canceled:assert result.terminal_verified
+            if self.latest.get('transition_fault_behavior')=='COMPLETE_ACCEPTED_VERTICAL_SEGMENT':
+                if self.scenario=='cancel-entry':assert result.actual_mode=='WATER'
+                elif self.scenario=='cancel-exit':assert result.actual_mode=='AIR'
+            # Action completion must not terminate/reclassify local fault hold.
+            started=float(self.latest['model_time_s'])
+            self.wait(lambda:float(self.latest['model_time_s'])>=started+4.,15,'post-Result model hold')
+            after=[r for r in self.rows if float(r['model_time_s'])>=started]
+            assert after and all(r.get('platform_resource_locked','').lower()=='true' for r in after)
+            assert all(r.get('domain_violation')=='false' for r in after)
             return
         assert state==3 and result.task_completed and result.terminal_verified
         assert result.actual_mode=='AIR'
@@ -185,6 +225,7 @@ class Probe:
         assert float(self.latest['reference_position_x'])<0
         assert self.latest['air_domain_violation']=='false'
         # A real safety latch must survive the completed NORMAL roundtrip.
+        if not self.final_fault_probe:return
         rospy.ServiceProxy('/drone_0_planning/safety_hold',Trigger)()
         self.wait(lambda:self.latest.get('platform_resource_locked','').lower()=='true',5,'persistent safety lock')
         response=rospy.ServiceProxy('/drone_0_qn_aav/take_reference',TakeReference)(
@@ -195,7 +236,7 @@ class Probe:
 def main():
     p=argparse.ArgumentParser()
     p.add_argument('--output',type=Path,required=True)
-    p.add_argument('--scenario',choices=['normal','cancel-air','cancel-native','missing-planner'],default='normal')
+    p.add_argument('--scenario',choices=['normal','cancel-air','cancel-native','cancel-entry','cancel-exit','missing-planner','invalid-polynomial'],default='normal')
     args=p.parse_args()
     rospy.init_node('probe_swarm_roundtrip',anonymous=True)
     probe=Probe(args.output,args.scenario)

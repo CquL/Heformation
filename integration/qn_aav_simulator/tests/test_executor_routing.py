@@ -96,3 +96,27 @@ def test_an_unknown_active_unit_is_an_error_not_a_silent_pass():
 def test_membership_is_compared_as_a_set_not_a_sequence():
     units = routing()
     assert unit_for_coalition(units, ["drone_2", "drone_0", "drone_1"]).executor_id == "aav_formation"
+
+
+def test_same_physical_member_routes_by_operation_and_keeps_shared_lock():
+    entries=fleet_configuration()+[dict(executor_id='aav_1_native',
+        physical_agent_ids=['drone_0'], action_endpoint='/drone_0_qn_aav/platform_task',
+        action_type='PlatformTaskAction', operations=['ENTER_WATER','WATER_PATH','EXIT_WATER'],
+        odometry_topics={'drone_0':'/drone_0_qn/odometry'})]
+    units=load_routing(entries,default_members=[],default_initial_target_ref='harbor')
+    with pytest.raises(ValueError,match='ambiguous'):
+        unit_for_coalition(units,['drone_0'])
+    assert unit_for_coalition(units,['drone_0'],operations=['AIR_MOVE']).executor_id=='aav_1'
+    native=unit_for_coalition(units,['drone_0'],operations=['ENTER_WATER','WATER_PATH','EXIT_WATER'])
+    assert native.action_endpoint=='/drone_0_qn_aav/platform_task'
+    assert native.action_type=='PlatformTaskAction'
+    assert conflicting_active_unit(units,['aav_1'],native.executor_id).executor_id=='aav_1'
+    assert unit_for_coalition(units,['drone_0'],operations=['WATER_PATH'],executor_id='aav_1') is None
+    assert unit_for_coalition(units,['drone_0'],operations=['SURFACE_PATH']) is None
+
+
+def test_native_route_requires_its_actual_state_topic():
+    native=dict(executor_id='uuv',physical_agent_ids=['uuv'],action_endpoint='/uuv/platform_task',
+                action_type='PlatformTaskAction',operations=['WATER_PATH'])
+    with pytest.raises(ValueError,match='odometry'):
+        load_routing([native],default_members=[],default_initial_target_ref='harbor')

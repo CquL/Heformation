@@ -77,15 +77,27 @@ def distance(first, second):
 
 
 def nearest(series, stamp, window):
-    best = None
-    best_distance = None
-    for sample in series:
-        difference = abs(sample[0] - stamp)
-        if best_distance is None or difference < best_distance:
-            best, best_distance = sample, difference
-    if best is None or best_distance > window:
-        return None
-    return best
+    """Nearest sample in a time-sorted series, preserving first-match ties.
+
+    BagEvidence sorts these streams once. Scanning an entire stream for every
+    sample made long failed runs quadratic; indexed lower bounds keep the
+    same alignment/missing-data rule without building another sample system.
+    """
+    if not series:return None
+    def lower_bound(value):
+        lo,hi=0,len(series)
+        while lo<hi:
+            mid=(lo+hi)//2
+            if series[mid][0]<value:lo=mid+1
+            else:hi=mid
+        return lo
+    index=lower_bound(stamp)
+    candidates=[i for i in (index-1,index) if 0<=i<len(series)]
+    chosen=min(candidates,key=lambda i:(abs(series[i][0]-stamp),i))
+    # index-1 can be the last of several equal timestamps; the old scan
+    # selected their first occurrence, including ties between two timestamps.
+    best=series[lower_bound(series[chosen][0])]
+    return best if abs(best[0]-stamp)<=window else None
 
 
 def slope(points):

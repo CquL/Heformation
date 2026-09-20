@@ -1,0 +1,91 @@
+--- a/src/planner/traj_opt/src/poly_traj_optimizer.cpp
++++ b/src/planner/traj_opt/src/poly_traj_optimizer.cpp
+@@ -9,7 +9,9 @@
+       const Eigen::MatrixXd &initInnerPts, const Eigen::VectorXd &initT,
+       Eigen::MatrixXd &optimal_points, const bool use_formation)
+   {
+-    if (initInnerPts.cols() != (initT.size() - 1))
++    if (initT.size()<1 || initInnerPts.cols() != (initT.size() - 1) ||
++        !iniState.allFinite() || !finState.allFinite() || !initInnerPts.allFinite() ||
++        !initT.allFinite() || (initT.array()<=0.0).any())
+     {
+       ROS_ERROR("initInnerPts.cols() != (initT.size()-1)");
+       return false;
+@@ -72,6 +74,51 @@
+         PolyTrajOptimizer::earlyExitCallback,
+         this,
+         &lbfgs_params);
++
++    // The callback owns jerkOpt_ side effects. A failed line search restores q
++    // but does NOT restore that cached polynomial (see lbfgs.hpp). A finite
++    // restored iterate is a candidate, not a convergence claim. Re-evaluate it
++    // before collision checking; never submit the failed trial cache.
++    const bool candidate_status = result>=0 || result==lbfgs::LBFGSERR_MAXIMUMITERATION ||
++        result==lbfgs::LBFGSERR_ROUNDING_ERROR || result==lbfgs::LBFGSERR_MINIMUMSTEP ||
++        result==lbfgs::LBFGSERR_WIDTHTOOSMALL || result==lbfgs::LBFGSERR_MAXIMUMLINESEARCH;
++    if (!candidate_status ||
++        !Eigen::Map<Eigen::VectorXd>(q,variable_num_).allFinite())
++    {
++      use_formation_=use_formation_temp;
++      ROS_WARN("Reject native optimizer result: %s",lbfgs::lbfgs_strerror(result));
++      return false;
++    }
++    Eigen::Map<const Eigen::MatrixXd> finalP(q,3,piece_num_-1);
++    Eigen::Map<const Eigen::VectorXd> finalVt(q+3*(piece_num_-1),piece_num_);
++    Eigen::VectorXd finalT(piece_num_);
++    VirtualT2RealT(finalVt,finalT);
++    if (!finalT.allFinite() || (finalT.array()<=0.0).any() ||
++        !finalT.cast<float>().allFinite() || (finalT.cast<float>().array()<=0.0f).any())
++    {
++      use_formation_=use_formation_temp;
++      ROS_WARN("Reject non-finite/nonpositive native durations");
++      return false;
++    }
++    Eigen::VectorXd final_gradient(variable_num_);
++    final_cost=costFunctionCallback(this,q,final_gradient.data(),variable_num_);
++    if (!std::isfinite(final_cost) || !final_gradient.allFinite())
++    {
++      use_formation_=use_formation_temp;
++      ROS_WARN("Reject non-finite re-evaluated native iterate");
++      return false;
++    }
++    if (result<0)
++      ROS_WARN_THROTTLE(2.0,"Re-evaluating finite non-converged native iterate: %s",lbfgs::lbfgs_strerror(result));
++    const auto finalTraj=jerkOpt_.getTraj();
++    for (const auto &piece:finalTraj)
++      if (!piece.getCoeffMat().allFinite() || !piece.getCoeffMat().cast<float>().allFinite())
++      {
++        use_formation_=use_formation_temp;
++        ROS_WARN("Reject non-finite native coefficients");
++        return false;
++      }
++    cps_.points=jerkOpt_.getInitConstrainPoints(cps_num_prePiece_);
+ 
+     // test collision
+     bool occ = false;
+--- a/src/planner/plan_manage/src/traj_server.cpp
++++ b/src/planner/plan_manage/src/traj_server.cpp
+@@ -60,11 +60,22 @@
+     ROS_ERROR("[traj_server] Only support trajectory order equals 5 now!");
+     return;
+   }
+-  if (msg->duration.size() * (msg->order + 1) != msg->coef_x.size())
++  if (msg->duration.empty() ||
++      msg->duration.size() * (msg->order + 1) != msg->coef_x.size() ||
++      msg->coef_y.size()!=msg->coef_x.size() || msg->coef_z.size()!=msg->coef_x.size())
+   {
+     ROS_ERROR("[traj_server] WRONG trajectory parameters, ");
+     return;
+   }
++
++  // Validate before touching the active reference. NaN durations make all
++  // time comparisons false and previously produced a spurious origin command.
++  for (const auto duration:msg->duration)
++    if (!std::isfinite(duration) || duration<=0.0)
++    { ROS_ERROR("[traj_server] Reject invalid duration; keeping committed trajectory"); return; }
++  for (size_t i=0;i<msg->coef_x.size();++i)
++    if (!std::isfinite(msg->coef_x[i]) || !std::isfinite(msg->coef_y[i]) || !std::isfinite(msg->coef_z[i]))
++    { ROS_ERROR("[traj_server] Reject non-finite coefficients; keeping committed trajectory"); return; }
+ 
+   int piece_nums = msg->duration.size();
+   std::vector<double> dura(piece_nums);

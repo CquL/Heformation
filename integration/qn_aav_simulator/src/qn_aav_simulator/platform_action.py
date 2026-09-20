@@ -13,6 +13,7 @@ from qn_aav_simulator.srv import TakeReference, TakeReferenceResponse
 from qn_aav_simulator.platform_execution import ReferenceOwnership, Segment, actual_mode, validate_fragment, PlannerAcknowledgement
 from qn_aav_simulator.qn_dynamics import medium_flag
 from qn_aav_simulator.time_alignment import DEFAULT_MAX_ABS_DRIFT_S
+from qn_aav_simulator.experiment_verdict import StaticSceneGeometry
 
 
 class LocalPlatformAction:
@@ -20,6 +21,13 @@ class LocalPlatformAction:
         self.node=node
         self.owner=ReferenceOwnership()
         self.work=None
+        self.fault_hold_modes=None
+        self.fault_hold_operation=''
+        self.fault_transition=None
+        self.scene=StaticSceneGeometry.from_mapping(rospy.get_param('/scene',{}))
+        if self.scene and self.scene.frame!=node.world_frame:raise ValueError('scene frame mismatch')
+        self.scene_radius=float(rospy.get_param('~platform_radius_m',.25))
+        self.scene_failure=''
         self.hold_point=node.state.position
         self.last_air_id=-1
         self.air_floor=-1
@@ -37,6 +45,9 @@ class LocalPlatformAction:
         self.planner_stamp=0.
         self.ack_timeout=float(rospy.get_param('~reference_status_timeout_s',1.))
         self.qualification_only=bool(rospy.get_param('~qualification_only',True))
+        self.transition_fault_behavior=str(rospy.get_param('~transition_fault_behavior','FIXED_REFERENCE'))
+        if self.transition_fault_behavior not in ('FIXED_REFERENCE','COMPLETE_ACCEPTED_VERTICAL_SEGMENT'):
+            raise ValueError('unsupported transition fault behavior')
         if not self.qualification_only:
             raise ValueError('Swarm round-trip and mode fault qualification are incomplete; this endpoint is experimental only')
         self.position_tolerance=float(rospy.get_param('~platform_position_tolerance_m',.2))
@@ -88,6 +99,11 @@ class LocalPlatformAction:
             self.owner.generation,paused,time.monotonic(),self.ack_timeout)
 
     def allowed_modes(self):
+        # A Result ends observation, not the persistent local fault behavior.
+        # Retain the authorized fault phase instead of reclassifying a
+        # transition hold as AIR from its last instantaneous medium sample.
+        if self.owner.source=='PLATFORM' and self.fault_hold_modes is not None:
+            return self.fault_hold_modes
         if self.work and self.owner.source=='PLATFORM':
             if self.work.get('fault_allowed') is not None:return self.work['fault_allowed']
             if self.work.get('waiting_start'):return frozenset({self.terminal_mode})
@@ -98,6 +114,12 @@ class LocalPlatformAction:
     def note_adopted(self,snapshot):
         self.applied_source=snapshot.reference_source
         self.applied_generation=snapshot.reference_generation
+        if self.scene and self.owner.source=='PLATFORM':
+            reason=self.scene.violation(self.node.state.position,self.scene_radius)
+            if reason:
+                self.scene_failure=self.scene_failure or reason
+                if self.work:self._begin_disposition('SCENE_SAFETY_VIOLATION')
+                else:self.owner.locked=True
         if self.node.domain_history.violation:
             if self.work:self._begin_disposition('DOMAIN_VIOLATION')
             else:self.owner.locked=True
@@ -164,12 +186,19 @@ class LocalPlatformAction:
                         raise ValueError('path frame must match the declared scene frame: '+self.node.world_frame)
                     points=tuple((p.pose.position.x,p.pose.position.y,p.pose.position.z) for p in raw.path.poses)
                     segments.append(Segment(raw.operation,points,raw.duration.to_sec()))
+                    if self.scene:
+                        reason=self.scene.path_violation(points,self.scene_radius)
+                        if reason:raise ValueError(reason)
                 permitted=frozenset(('ENTER_WATER','WATER_PATH','EXIT_WATER'))
                 validate_fragment(segments,self.mode(),goal.terminal_behavior,permitted)
                 for segment in segments:
                     end_mode=actual_mode(medium_flag(segment.points[-1][2],self.node.backend.constants.hg_m))
                     if end_mode!=segment.target_mode:
                         raise ValueError('segment endpoint is outside its required actual medium')
+                    if (self.transition_fault_behavior=='COMPLETE_ACCEPTED_VERTICAL_SEGMENT' and
+                            segment.operation in ('ENTER_WATER','EXIT_WATER') and
+                            any(p[:2]!=segment.points[0][:2] for p in segment.points)):
+                        raise ValueError('transition fault continuation requires an accepted vertical segment')
                 if math.dist(segments[0].points[0],self.node.state.position)>self.position_tolerance:
                     raise ValueError('path start does not match actual position')
                 if math.sqrt(sum(v*v for v in self.node.state.velocity))>self.speed_tolerance:
@@ -182,7 +211,8 @@ class LocalPlatformAction:
                     raise ValueError(reason)
             except ValueError as exc:
                 handle.set_rejected(PlatformTaskResult(task_id=goal.task_id,goal_id=ident,
-                    reason=str(exc),actual_mode=self.mode(),resource_locked=self.owner.locked))
+                    reason=str(exc),actual_mode=self.mode(),resource_locked=self.owner.locked,
+                    model_time_s=self.node.clock.model_time_s))
                 return
             self._flush_reference()
             self.work=dict(handle=handle,id=ident,task=goal.task_id,segments=segments,index=0,
@@ -200,8 +230,27 @@ class LocalPlatformAction:
 
     def _begin_disposition(self,reason):
         if not self.work:return
+        if reason in ('DOMAIN_VIOLATION','SCENE_SAFETY_VIOLATION') and self.fault_transition is not None:
+            # State validity overrides an earlier cancellation continuation.
+            # Freeze the last accepted reference, never an unreliable position.
+            segment,start=self.fault_transition
+            self.hold_point=segment.reference(self.node.clock.model_time_s-start)
+            self.fault_transition=None
+            self.work['cause']=reason
+            self.work['settled']=None
+            return
         if not self.work['cause']:
+            segment=self.work['segments'][self.work['index']]
+            if (self.transition_fault_behavior=='COMPLETE_ACCEPTED_VERTICAL_SEGMENT' and
+                    reason in ('CANCEL_REQUEST','PLANNER_CONTEXT_UNAVAILABLE') and
+                    self.mode()=='TRANSITION' and not self.work['waiting_start'] and
+                    segment.operation in ('ENTER_WATER','EXIT_WATER')):
+                # Finish only this already accepted conversion, never the
+                # remaining job. Keep its original clock, endpoint and path.
+                self.fault_transition=(segment,self.work['start'])
             self.work['fault_allowed']=self.allowed_modes()
+            self.fault_hold_modes=self.work['fault_allowed']
+            self.fault_hold_operation=self.work['segments'][self.work['index']].operation
             self.work['settled']=None
             self.work['waiting_start']=False
             self.hold_point=self.node.state.position
@@ -232,7 +281,10 @@ class LocalPlatformAction:
             return None
         work=self.work
         t=self.node.clock.model_time_s
-        target=self.hold_point
+        # The observation worker can time out before physical disposition ends.
+        # Its Result must not discard the committed transition reference.
+        target=(self.fault_transition[0].reference(t-self.fault_transition[1])
+                if self.fault_transition is not None else self.hold_point)
         if work is not None:
             if work['waiting_start'] and self.planner_ready(True):
                 work['waiting_start']=False
@@ -241,9 +293,15 @@ class LocalPlatformAction:
                 self._begin_disposition('PLANNER_CONTEXT_UNAVAILABLE')
             segment=work['segments'][work['index']]
             elapsed=t-work['start']
-            target=self.hold_point if work['cause'] or work['waiting_start'] else segment.reference(elapsed)
-            terminal_due=not work['waiting_start'] and (bool(work['cause']) or elapsed>=segment.duration)
-            consistent=(self.mode() in self.allowed_modes() if work['cause'] else self.mode()==segment.target_mode)
+            finishing=self.fault_transition is not None
+            if finishing:
+                target=self.fault_transition[0].reference(t-self.fault_transition[1])
+            else:
+                target=self.hold_point if work['cause'] or work['waiting_start'] else segment.reference(elapsed)
+            terminal_due=not work['waiting_start'] and (
+                elapsed>=segment.duration if finishing else bool(work['cause']) or elapsed>=segment.duration)
+            consistent=(self.mode() in self.allowed_modes() if work['cause'] and not finishing
+                        else self.mode()==segment.target_mode)
             drift=abs((t-work['clock_start'])-(rospy.Time.now().to_sec()-work['ros_start']))
             time_valid=drift<=DEFAULT_MAX_ABS_DRIFT_S
             adopted=self.applied_source=='PLATFORM' and self.applied_generation==self.owner.generation
@@ -270,7 +328,8 @@ class LocalPlatformAction:
             if self.work is not None and t-work['last_feedback']>=.1:
                 work['last_feedback']=t
                 work['handle'].publish_feedback(PlatformTaskFeedback(
-                    segment_index=work['index'],operation='WAIT_PLANNER_ACK' if work['waiting_start'] else work['segments'][work['index']].operation,
+                    segment_index=work['index'],operation=('WAIT_PLANNER_ACK' if work['waiting_start'] else
+                        'FAULT_FINISH_'+segment.operation if finishing else work['segments'][work['index']].operation),
                     reference_source=self.owner.source,actual_mode=self.mode(),
                     reference_generation=self.owner.generation,model_time_s=t))
         return dict(position=target,velocity=(0.,0.,0.),acceleration=(0.,0.,0.),yaw_rad=0.,
@@ -281,6 +340,14 @@ class LocalPlatformAction:
 
     def diagnostics(self):
         return [('reference_source',self.applied_source),('reference_generation',str(self.owner.generation)),
+                ('transition_fault_behavior',self.transition_fault_behavior),
+                ('scene_failure',self.scene_failure),
+                ('execution_phase',('FAULT_FINISH_'+self.fault_hold_operation if self.fault_transition is not None and
+                    self.node.clock.model_time_s<self.fault_transition[1]+self.fault_transition[0].duration else
+                    'FAULT_HOLD_AFTER_'+self.fault_hold_operation if self.fault_hold_modes is not None else
+                    self.work['segments'][self.work['index']].operation if self.work is not None else
+                    'AIR_SAFETY_HOLD' if self.owner.source=='AIR_SWARM' and self.planner.latched else
+                    'AIR_MOVE' if self.owner.source=='AIR_SWARM' and self.owner.active else 'IDLE')),
                 ('requested_reference_source',self.owner.source),
                 ('adopted_reference_generation',str(self.applied_generation)),
                 ('reference_active',str(self.owner.active).lower()),

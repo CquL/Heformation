@@ -1,3 +1,243 @@
+## 2026-09-20 UTC — 阶段核对与main提交准备
+
+- 计划：响应用户“现在进行到什么阶段了，push到github”，归档当前增量，不扩展实施范围。
+- 实际：核对代码、当前状态、交接及阶段报告；origin/main与本地92f2b1b无分叉，无运行Docker容器。提交前重新运行完整模块套件，319项通过（9.96s）；三个相关启动脚本bash语法检查通过。同步当前阶段汇总，保留历史失败与当时的未提交说明。
+- 效果：当前为G2–G3接线阶段；五实例固定动作与自动原生计划/runner边界实跑不等于完整五平台请求。此次上传实现、配置、测试与文献依据/报告；原始实验包、忽略的PDF及用户未跟踪资料不纳入提交。
+- 证据：docs/reviews/complete-candidates-20260920.md及其引用的真实运行；测试命令：PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest integration/mrta_python/tests integration/qn_aav_simulator/tests -q。补丁文件保留原生diff上下文，普通文件另行进行暂存差异空白检查；远端提交结果以随后Git推送与SHA核对为准。
+- 未完成/下一步：请求模式展开、AAV实际完整候选、复合派发、平台间在线安全约束、G4有限交付及G5完整请求/UI/对照；不声明总目标完成。
+
+## 2026-09-20 UTC — 自动原生候选计划接入runner并实跑
+
+- 计划：不用手工填PlanItem代价验证新接口，让原生查询/完整候选搜索生成计划后实际派发。
+- 实际：正常场景自动生成UUV计划，总时长约62.43s，终态位置包含减速尾段；runner-r1由现有MissionRunner实际发送并完成。新增转换成本改变平台选择、同成员未选晚可用方法不阻塞的逻辑反例；319项模块测试通过。真实运行仍是计划/runner边界验证，未执行完整请求展开或确认。复合链尚未派发的部分明确拒绝，防止静默执行单步或用欧氏代价覆盖整链。
+- 效果：新入口选择完整计划并更新位置/模式，内部原生状态不写入Plan数据包；不将合成成本测试写成AAV/UUV动力学优劣结论。原尾段障碍的两个候选失败保留。
+- 证据：native-normal-plan.json；runner-r1/runner-boundary.json与metrics.json；tests-all.log；docs/reviews/complete-candidates-20260920.md。
+- 未完成/下一步：请求模式展开、AAV完整候选/复合派发、平台间在线约束及G4–G5；完整目标保持，未提交/推送。
+
+## 2026-09-20 UTC — 完整候选计划搜索与原生运动查询接入
+
+- 计划：保持完整目标，在现有调度器内比较完整执行链，替代新模式的距离/速度退化；上轮为runner边界的实质进展。
+- 实际：新增显式execution_candidates入口，默认Calvo路径保留。有限搜索比较完整计划工期，统一前置关系/物理成员可用时间/硬截止，分支复制成员位置/模式，查询共用本次截止时刻；预算耗尽仍保留已经找到的完整候选，UNKNOWN不称最优。5项针对性反例、101项相关测试通过。现有TravelTimeProvider可用原PVS状态和有限路由生成候选，等待先推进原终端模型。尝试在coast_rock场景增加目标后转向候选，两条均被原生预测判冲突，未放宽条件或称数学无解；正常场景原生计划生成开始验证。
+- 效果：执行方式附在PlanItem，业务Task不预先绑定平台。完整链服务/终端时间只计一次，未实现的复合步骤派发明确阻断而非截断。当前仍不是完整请求/跨介质候选/复合runner都已完成。
+- 证据：models.py::ExecutionStep/ExecutionCandidate；executors.py完整搜索/native候选方法；test_complete_candidates.py；experiments/20260920-mode-candidates。
+- 未完成/下一步：正常原生候选计划与实际runner对接、复合链派发和请求模式展开；G4–G5及平台间在线约束仍保留。
+
+## 2026-09-20 UTC — 现有runner原生ROS边界通过，保持业务完成边界
+
+- 计划：核对更新后的现有runner真的使用PlatformTask客户端/Goal，并按匹配Result提交运动完成。
+- 实际：run-r1在派发前因测试脚本未初始化请求覆盖权重退出，无运动Goal；保留失败并用原请求的真实权重修正测试初始化。run-r2现有MissionRunner成功派发/uuv/platform_task，收到原生匹配Result、PlanItem完成、物理预订释放；覆盖/交付均未补造，状态保持QUALIFICATION_NATIVE_CODEC。测试明确未执行请求展开/用户确认。312项模块测试通过；重复旧Result不能清除新预订。追加运行中Native预测终点及完成后时序刷新，防止落回任务目标点/欧氏代价。
+- 效果：已接编码、端点、状态源和结果提交这一边界；完整请求生产者及模式候选还未接入，Native资格结果不能成为请求PASS。内部模型/整段预测轨迹不得进入频繁发布的Plan元数据。
+- 证据：experiments/20260920-runner-native/run-r{1,2}；run-r2/runner-boundary.json与metrics.json；checks/tests.log；test_executor_runner.py。
+- 未完成/下一步：连接请求展开、模式候选和运动查询到选定PlanItem，补平台间在线约束及G4–G5；完整目标保持，源码增量未提交/推送。
+
+## 2026-09-20 UTC — runner按已选操作编码与提交原生运动结果
+
+- 计划：在现有runner接通Native Action边界，保留确认/物理锁/旧入口；上轮为实际查询与实跑进展，完整目标继续。
+- 实际：重读附件并核对工作树。新增内部NativeSegmentSpec/NativeActionSpec，放在已选ExecutorPlanItem而非业务Task上，避免预先绑定任务平台。runner按执行单元ID和操作选择消息类型、客户端/订阅及唯一物理状态源；原生Goal不再编码成FormationGoal。原生运动Result校验原GoalID、模式、终端、锁定和正常原因，不制造观测/交付；重复旧Result不清除新预订。Native预测时长与终点保留，禁止被欧氏距离或额外service_time覆盖/重复计时。96项相关runner/调度测试通过。
+- 效果：资格运动与请求业务通过继续分开；原生观测产品尚未接入时明确拒绝冒充覆盖完成。请求展开/完整模式候选仍未生成这些原生PlanItem，不能因此宣称五平台完整请求贯通。
+- 证据：models.py、executors.py、formation_mission_runner.py；test_executor_runner.py新增Native编码/结果/重复事件测试。
+- 未完成/下一步：用真实ROS端点核对runner边界，随后接请求模式候选/原生观测和平台间在线约束；G4–G5保持原范围。
+
+## 2026-09-20 UTC — 原生查询阶段收尾及后续正式接线边界
+
+- 计划：整理实跑与模型查询证据，不以查询存在替代完整任务调度。
+- 实际：309项模块测试通过；normal-cost-r1、coast-preflight-r1实际场景审计通过，后者为候选被拒绝而未发生碰撞。查询预算/取消与预测实际对账记录归档。补拒绝Result的实际模型时刻和实际介质，避免默认0被误当模型重置；脚本编译与diff检查通过。本轮全部进程已结束。
+- 效果：明确区分预测可行性、动作接纳、实际完成与资源锁；未知预算不作无解，预计完成不解锁。高层完整模式候选和正式runner还没有自动使用这些原生成本/终态，平台间在线约束亦待接通。
+- 证据：docs/reviews/native-motion-query-20260920.md；module-tests-final.log；normal-cost-r1/prediction-comparison.json与scene-audit.json；context/02、15。
+- 未完成/下一步：正式runner/模式候选接线（含终态后等待推进）、平台间在线约束，随后预承诺有限交付和G5完整验收；原始完整目标保持，代码未提交/推送。
+
+## 2026-09-20 UTC — 预算未知与查询/执行对账通过，补终态后有界等待预测
+
+- 计划：核对预测是否真实涵盖终端，并保留低速终态之后仍在运动的事实。
+- 实际：query-budget-r1在0.001s预算下REJECTED/UNKNOWN，未接受任务，模型继续推进、参考代次未增。normal-cost-r1五实例正常完成；按GoalID对账，Otter预测/实际约32.56s、UUV约62.42s，终点残差0，时间差约1e-13s。增加内部预测终态副本与有界等待查询，复用原零推进控制，证明Result后20s仍有残余滑行而非冻结位置。首次等待测试因浮点剩余时间导致微小分数步耗尽预算，保留失败；改为原模型完整步向上量化后4项查询测试通过。
+- 效果：没有改变物理终端速度/保持条件或增加制动界；预测state只用于内部查询，不放入Goal/逐帧诊断。高层正式调度仍需使用实际等待时段推进成员预测；当前不是完整模式候选搜索已完成。
+- 证据：query-budget-r1；normal-cost-r1/prediction-comparison.json；query-tests-idle.log原失败；test_native_motion_query.py；query_native_idle。
+- 未完成/下一步：最终查询测试/实跑审计归档，继续正式runner、模式候选和平台间在线约束；G4–G5不缩减。
+
+## 2026-09-20 UTC — 接纳前取消实跑通过，查询/执行成本开始对账
+
+- 计划：验证查询不阻塞积分、取消不会被晚返回的查询覆盖，并补UNKNOWN预算负例。
+- 实际：pending-cancel-r1在PENDING阶段取消，RECALLED、未锁定未接受的新动作，模型steps推进且参考代次未增；随后同一实例正常接纳并完成UUV任务，五实例其余动作成功。查询摘要改为明确JSON并按GoalID记录预测/实际时长及终端位置；查询异常统一返回UNKNOWN，不能让后台线程异常留下永久PENDING。开始0.001s共享查询预算的受控负例，未修改物理终端或执行超时。
+- 效果：已接受动作的锁定规则保持，未接受查询取消不能冒充已执行任务。原始样本/控制状态在预测中不改动；高层候选搜索仍未自动使用这些成本，不能宣称G3已完成。
+- 证据：pending-cancel-r1/five-integration.json；native-motion-query-basis.md；query-budget-r1；pvs_node.py。
+- 未完成/下一步：预算负例、正常查询与实际成本对账，随后正式runner/模式候选与平台间约束；完整目标继续。
+
+## 2026-09-20 UTC — 原生完整运动查询与接纳前尾段拒绝
+
+- 计划：继续完整目标；把上轮已知滑行尾段碰撞接入已有运动查询，不用固定9m代价/安全界。
+- 实际：重读目标附件并核查当前工作树、无运行容器。ExecutorTravelTimeProvider新增原生片段查询入口，复制PVS完整控制/执行器状态并调用同一原生积分，复用运行时路径推进，计入COAST_STOP/TRIM尾段及4s终端。首个UUV查询约0.82s，模型预测62.43s且原模型steps保持0。3项针对性测试通过。PVS在接纳前以同一个单调预算运行查询子进程，控制循环不等待；GoalID令牌/代次/当前起点复核后才接受。coast-preflight-r1在实际移动前REJECTED，原因明确是预测尾段coast_rock净距不足，资源未被已接受动作占用，UUV原地待命；其他动作正常完成。
+- 效果：查询不是第二个实际状态源、不是新模拟器/控制算法，也不是严格安全证书；模型不可满足场景与预算未知分开。检查ROS Noetic actionlib源码后统一server锁→模型锁顺序，避免查询/取消/终态交叉死锁。待接纳取消实跑开始，检查模型时钟继续推进且旧查询不能提交新Goal。
+- 证据：pvs_backend.py::predict_native_fragment/advance_path_target；executors.py::query_native_fragment；pvs_node.py；experiments/20260920-native-query/{first-query.json,query-tests.log,coast-preflight-r1,pending-cancel-r1}。
+- 未完成/下一步：待接纳取消、完整正常执行与查询对账、有限预算负例；正式模式调度/runner及平台间在线约束/G4–G5仍未完成。
+
+## 2026-09-20 UTC — 场景阶段证据归档与继续工作边界
+
+- 计划：归档当前实际结果并保持完整目标，避免把静态场景检查当作任务系统已经完成。
+- 实际：305项模块测试通过；修改的ROS脚本/几何脚本语法检查及diff检查通过。coast-obstacle-r2独立审计保持FAIL（实际尾段安全失败），正常场景审计PASS。所有本轮运行均已结束，报告与当前状态/交接同步。
+- 效果：在线静态场景、尾段失败锁定及重新派发拒绝有证据；平台间在线安全、完整尾段的计划可行性与正式runner尚未接通，不扩大完成声明。
+- 证据：module-tests-final.log；docs/reviews/five-scene-safety-20260920.md；context/02_current_status.md、15_handoff.md。
+- 未完成/下一步：继续上述G2/G3接线及G4–G5完整目标。主分支工作树保存增量，未提交/推送，原失败与用户资料保留。
+
+## 2026-09-20 UTC — 场景正例审计通过，尾段失败与再派发拒绝得到实跑证据
+
+- 计划：核对整段实际运动，不让通过目标或终端速度代替安全结果。
+- 实际：normal-r1静态场景审计通过，点云内容/发布者与SOLID定义一致；声明代理下五实例最低相互净距约1.50m，最小场景净距为UUV至海底约3.160m。coast-obstacle-r1/r2中UUV先经过目标，后在滑行尾段触发SCENE_SAFETY_VIOLATION，ABORTED、task_completed=false、资源锁定；r2再次下发同成员任务被MEMBER_BUSY_OR_LOCKED拒绝。原始负例审计为FAIL，测试脚本的通过仅表示正确检测/锁定。补PVS诊断已知场景/原生域违规显示FAIL，未知完整安全仍NOT_VERIFIED；域违规在待命时也锁存。
+- 效果：实际停止速度验证与安全失败继续分开；没有绕开尾段、不放宽净距、不改原动力学。下一规划接线必须把完整减速尾段计入可行性/占用，而非用固定9m数字当通用制动界。当前平台间净距是独立评测，在线平台间阻断仍待接线。
+- 证据：normal-r1/scene-audit.json；coast-obstacle-r{1,2}/five-integration.json；coast-obstacle-r1/scene-audit.json；pvs_node.py。
+- 未完成/下一步：平台间在线约束、全路径/尾段运动查询与正式runner，随后G3–G5；完整目标继续，新改动未提交。
+
+## 2026-09-20 UTC — 实体场景正例与滑行尾段安全负例开始
+
+- 计划：证明实际点云只包含SOLID，并检查路径结束后的真实运动与锁定。
+- 实际：normal-r1五实例7项所需动作均成功。独立审计扩展公共场景解析距离、原模型船体代理、五实例相互净距，并逐包核对实际点云SHA/发布者与SOLID几何，标记/禁入区不得混入。305项模块测试通过。加入派发前穿过rock/exclusion的真实拒绝测试；另在UUV滑行尾段x=8m布置coast_rock，保持原控制/路径/阈值，coast-obstacle-r1实跑中。
+- 效果：负例的目标是经过样点后仍因尾段安全失败而中止锁定；不得将此负例的处理通过写成UUV任务成功。本轮在线检查为静态场景，平台间距离仍独立评测，不宣称在线全平台联动已齐备。
+- 证据：normal-r1；coast-profile/scene.yaml；coast-obstacle-r1；audit_swarm_roundtrip.py；five-scene-geometry-basis.md。
+- 未完成/下一步：核对静态场景审计/负例实际Result与资源状态，继续在线平台间约束与正式runner；G3–G5不缩减。
+
+## 2026-09-20 UTC — G2共同实体场景、海底及船体代理接线
+
+- 计划：在已通过五实例基础上补共同场景和实际安全检查；上轮属于实际代码/实跑进展，完整目标继续。
+- 实际：重读目标附件并核对当前main工作树及无运行容器。复用现有盒体距离/线段slab检查，在experiment_verdict增加纯静态几何检查，接入AIR Action、qn原生片段及PVS正常/滑行尾段。加入公共场景YAML：实体pier/rock、独立FORBIDDEN区、海底-6m、海面0及任务标记。只有SOLID进入原点云，标记/禁入区不伪装成实体扫描。PVS碰撞球代理由原模型L/B/diam/T和已建模载荷点推导，明确不包含未建模装备/附体外形。15项针对性测试通过；完整五实例实体场景normal-r1开始。
+- 效果：新检查默认仅geometry_enabled配置启用；旧单盒/七机语义保留。路径预查不替代实际积分过程，尾段碰撞会失败并锁定。船体代理不是实艇外形认证，也不把本轮公共静态地图当声呐模型。
+- 证据：five_scene.yaml；StaticSceneGeometry；scene_publisher.py、pvs_node.py、platform_action.py、formation_action_server.py；experiments/20260920-five-scene/normal-r1。
+- 未完成/下一步：完整实跑、碰撞尾段与非法路径负例、全平台状态对齐安全复核；G3–G5仍未完成。
+
+## 2026-09-20 UTC — 最新五实例/七机通过，离线对齐性能修正并保留失败
+
+- 计划：完成最新实际镜像回归，不用上一版通过替代；处理旧失败bag的长时间离线验证。
+- 实际：five-finite-wire的wire-integration-r3退出0，7项所需原生动作全部成功，1项故意重叠AIR目标拒绝；五实例独立审计通过，最大模型/ROS漂移0.000708s，三AAV最低净距约1.50m。seven-wire-r2退出0，185检查0失败。定位旧失败离线verify仍以CPU运行，是nearest每样本遍历全序列导致平方复杂度；改为对已排序数据二分查找，保持重复时间戳/并列及缺样规则。2项回归测试通过；停止旧离线进程，仅在原bag重新评测，旧实验仍FAIL，七机正例完整verification JSON与优化前完全一致。模块测试302项通过。
+- 效果：NaN提交修正与七机近似候选语义均有当前镜像实际证据；不把未收敛称为最优。离线提速未改变采样阈值、数据或结论，也没有重跑旧仿真。当前所有本轮仿真/重放/离线验证进程均已结束。
+- 证据：wire-integration-r3/{five-integration.json,independent-audit.json}；seven-wire-r2/{verification.json,verification-before-index.json,reverification.log}；seven-finite-regression/reverification.log；test_verifier_nearest.py；module-tests-final.log。
+- 未完成/下一步：G2完整实体场景/海洋包络/全平台安全与正式runner、G3模式代价、G4预承诺有限交付、G5完整UI和科研对照仍未完成；五实例固定探针只是接通证据。新增代码未提交/推送。
+
+## 2026-09-20 UTC — 真实float32表达检查与新版本回归
+
+- 计划：保持原七机近似候选语义，同时保证最终数据包不会因double转float32变成非法轨迹。
+- 实际：核对PolyTraj.msg系数/时长均为float32，提交前增加转换后有限性/正时长检查；five-finite-wire构建通过，seven-wire-r2实跑中。旧失败回归的ROS已关闭，但独立verify进程仍以实际CPU运行，保持其已有句柄等待，不重复启动旧实验。开发探针默认镜像更新为five-finite-wire并补关键patch/worker哈希，避免默认调用已知缺陷旧镜像。
+- 效果：数值表达检查来自实际消息类型，不是额外物理阈值。五实例上一版成功与最新版本回归分开记录；未扩大科研完成声明。
+- 证据：numeric-fix/build-wire.log；seven-wire-r2；PolyTraj.msg；两个Docker探针入口；docs/reviews/five-common-integration-20260920.md。
+- 未完成/下一步：最新七机/五实例回归收尾，然后继续G2完整场景及实际模式端点接线、G3–G5。当前代码仍为main工作树增量。
+
+## 2026-09-20 UTC — 五实例联调通过；七机暴露近似候选兼容边界
+
+- 计划：核对五实例实际结果，并用原七机入口验证优化提交修正的兼容性。
+- 实际：finite-integration-r2退出0；三AAV、Otter、REMUS全部原生成功结果，一台qn连续跨介质往返。五实例坐标/时间/原生工作域审计通过，最大模型/ROS漂移0.006611s，三AAV最小净距约1.50m；海洋船体包络仍未验证。七机回归大量线搜索ROUNDING_ERROR使第一条轨迹无法生成，进入失败收尾；调用停止录制时master已结束，未因此重新启动旧实例。修改为对明确恢复到前一x的线搜索停止重新计算成本/梯度/轨迹，通过有限性与原碰撞检查才使用，其他错误拒绝；five-finite-iterate构建中。
+- 效果：五实例固定开发动作真实接通，不等同五平台任务调度/业务交付；七机原近似候选语义不能误作必须收敛。无论状态如何，失败试探缓存都不能再发布。原失败与首版严格拒绝的回归记录保留。
+- 证据：finite-integration-r2/{five-integration.json,independent-audit.json}；seven-finite-regression；traj_opt_finite_commit.patch；numeric-fix/build-iterate.log。
+- 未完成/下一步：七机与五实例新版本复验；G2实体场景/全平台安全、G3模式计划、G4受限交付和G5全链仍未完成。
+
+## 2026-09-20 UTC — 四类原生非法轨迹均拒绝，五实例复跑
+
+- 计划：确认接收端真正拒绝非法包，不能仅靠规划端日志声称已保护。
+- 实际：invalid-poly-r1退出0，NaN时长、NaN系数、y系数长度错误、零时长四包均由真实traj_server记录拒绝，qn持续使用原轨迹ID且参考高度不变。five-finite五实例第二轮已开始。独立审计从rosbag的connection_header读取/解码发布者（修复直接读消息属性及bytes类型的两次分析脚本失败），first-integration-r1明确检出原生ID6非法多项式及AIR包络失败。
+- 效果：非法包不能覆盖已提交参考有原生接口证据；五实例完整第二轮仍待终态。入/出水取消候选的目标介质分别固定核验WATER/AIR，原固定参考配置仍保留。
+- 证据：invalid-poly-r1/{roundtrip.json,launch.log,handover.bag}；first-integration-r1/independent-audit-r3.json；finite-integration-r2。
+- 未完成/下一步：五实例全部Result与时钟/域审计，相关七机回归；G2完整环境安全与G3–G5仍未完成。
+
+## 2026-09-20 UTC — 有限轨迹提交补丁构建及原生非法包验证
+
+- 计划：先验证拒绝非法轨迹且原参考不丢失，再重跑五实例。
+- 实际：首次补丁生成遇到上游文件缺尾换行造成unified diff拼接错误，构建在patch阶段退出，未运行；规范差异文本后five-finite镜像构建通过，失败build.log与成功build-r2.log均保留。新增四类非法PolyTraj包的真实订阅/发布探针，当前实跑。独立审计补AIR机体包络和原生多项式有限性，first-integration-r1保持失败。
+- 效果：接收端在修改当前参考前检查全部维度/有限正时长/系数；优化端从返回变量重建并拒绝失败。300项模块测试此前通过，未将构建成功替代原生注入与五实例验证。
+- 证据：numeric-fix/build*.log；invalid-poly-r1；traj_opt_finite_commit.patch；audit_swarm_roundtrip.py。
+- 未完成/下一步：非法包实跑结果与五实例第二轮，原七机受影响路径回归；G2全场景安全与后续完整任务仍未完成。
+
+## 2026-09-20 UTC — 五实例首轮失败定位为NaN原生轨迹被提交
+
+- 计划：真实五实例联调，失败时先核对实际采用参考与原生数据包。
+- 实际：first-integration-r1跨介质片段成功，返回AIR时ID6时长/系数NaN，被traj_server输出为(0,0,0)参考，实际高度降至0.244m、机体包络越过水面后Action失败。上游OptimizeTrajectory_lbfgs未使用返回码且直接使用回调缓存；lbfgs在线搜索失败时恢复x却不恢复jerkOpt_副作用。参考GCOPTER成功后按最终变量重建的源码，补失败拒绝、有限正时长/系数检查及最终重建；traj_server在覆盖参考前拒绝非法包。新five-finite镜像构建中，新增原生非法包注入探针。
+- 效果：五实例首轮未通过；不将NaN后的原点参考误判成目标/坐标变换错误。不更换算法，保留原实时最大迭代的有限候选，失败不覆盖已提交参考。与上一轮仅独立复现的Kojima空向量问题区分。
+- 证据：first-integration-r1/handover.bag ID6、air-after diagnostics；traj_opt_finite_commit.patch；上游lbfgs.hpp及本地GCOPTER optimize；numeric-fix/build.log。
+- 未完成/下一步：构建、非法包拒绝实跑与五实例复验；完整环境安全/任务调度/有限交付仍未完成。
+
+## 2026-09-20 UTC — 入/出水分阶段取消正例与五实例开发联调开始
+
+- 计划：验证转换处置实际结果与既有框架复用，再推进G2共同坐标/实际端点，不只停留在合同单测。
+- 实际：complete-exit-cancel-r1到原AIR端点保持、complete-entry-cancel-r1到原WATER端点保持，均PREEMPTED、terminal_verified=true、resource_locked=true，Result后4s模型观察通过；出水独立审计通过。新增状态域故障覆盖取消继续转换的优先级及原生worker测试。PVS增加声明scene frame（默认map保留），五实例launch统一world=ENU、海面z0，仍采用原NED/FRD变换，不改坐标数值或动力学。五实例固定开发动作探针开始。
+- 效果：新取消语义为“完成当前已接受转换段后保持”，不称立即停止，不执行其后业务；原固定参考失败保留。G2此轮为无障碍分区路径的共同实例/接口联调，不宣称完整静态场景/全平台安全/调度/有限交付验收。
+- 证据：complete-{entry,exit}-cancel-r1/roundtrip.json；five_qualification.launch、probe_five_qualification.py、docker_probe_five_qualification.sh；experiments/20260920-five-common/first-integration-r1。
+- 未完成/下一步：五实例真实Result、坐标/模型时钟与实际占用复核；完整G1故障资格及G2–G5出口仍按完整目标推进。
+
+## 2026-09-20 UTC — 依据原模型与P17验证分阶段转换取消候选
+
+- 计划：继续完整目标，上一轮属于源码/实跑/失败定位的进展；先决定有依据的转换故障行为，不盲目改qn参数。
+- 实际：重读目标附件、原qn.slx chart_912及P17 §3.3/算法1正文。确认浮力跳变来自原模型；论文使用垂直穿出转换区的可行段，并仅在可行时停止。按冻结的模式故障合同加入显式资格选项COMPLETE_ACCEPTED_VERTICAL_SEGMENT：仅转换中取消/规划器确认丢失沿当前已接受垂直段到原端点保持，不执行后续业务、不改模型/控制、不清锁；原FIXED_REFERENCE默认及失败保留。转换尾段在观察worker超时后仍保留。开始出水取消实跑。
+- 效果：此候选是基于已验证普通转换和终端能力的工程推导，不称论文原取消算法；不是瞬间停止，必须另验实际退出过程和安全。域违规/尚未开始的段不采用继续转换。
+- 证据：reference-handover-basis.md；platform_action.py、swarm_roundtrip.launch；complete-exit-cancel-r1；test_local_transition_disposition.py。
+- 未完成/下一步：实际取消处置、有限期限尾段保持和安全审计；候选未通过前G1仍不通过。五平台范围不缩减。
+
+## 2026-09-20 UTC — 同容器原方程重现出水振荡，已记录位置残差为0
+
+- 计划：固定相同原后端、容器Python/数学库及采用参考，定位执行接线以外的转换失败。
+- 实际：同handover-rootfix容器重放结束，所有有记录的实际位置残差为0；步4886仍缺实际状态，脚本因此非零退出、不声称完整逐步等价。末20s与原实跑同样z约[-0.795,0.008]m、vz约[-0.959,0.687]m/s；原buoyancy_wrench分支切换80次，浮力z为-78.4至0N；完整WATER边界切换4次。原函数按两浮力作用点在水线上下决定0/全浮力，而质量/执行器插值使用hg=0.17m内的连续介质标志。
+- 效果：确认实际振荡可以由原qn方程与原采用参考重现，不是延长Action等待或重发参考能解决的问题。水线浮力与控制门控是下一步核对点，尚未用干预试验证明其单独因果，更不擅自添加机体几何/调整增益。主机重放数值环境差异记录保留。
+- 证据：rootfix-cancel-exit-r1/original-replay-container.json、replay-container.log；qn_dynamics.py::buoyancy_wrench/mass_and_inertia/actuator_wrench；qn_python_backend.py::_channel_active/controller_output_and_derivatives。
+- 未完成/下一步：核对原qn.slx与直接跨介质文献，按允许的隔离修正/分阶段故障行为边界验证；G1仍未通过，G2–G5完整目标继续。本轮新改动未提交/推送，实际源码基线仍92f2b1b。
+
+## 2026-09-20 UTC — 离线重放尚未建立逐步等价，核对数值运行环境
+
+- 计划：先证明原方程重放与记录相符，再把它用于定位，不直接据不一致的重放调参。
+- 实际：提取的原采用参考可覆盖全部模型步，但实际状态步4886仍缺失。主机Python重放在约50s时残差1.2e-14m，后续放大至约0.795m，返回非零，未达记录等价。重放改用原handover-rootfix容器的Python/数学库环境继续核对；原实际失败及主机重放失败均保留。
+- 效果：不能把未对齐的离线轨迹冒充独立精确复现；本轮未改qn控制参数或动力学。缺失实际样本不纳入通过，后续报告区分观测点残差与完整逐步等价。
+- 证据：rootfix-cancel-exit-r1/{original-replay-partial-comparison.json,replay-with-reference.log,replay-container.log}；scripts/replay_qn_handover.py。
+- 未完成/下一步：核对同容器重放结果与原转换分支，决定后续有依据的隔离处理；完整目标继续保持，G1不通过。
+
+## 2026-09-20 UTC — 入水持续保持修正及七机回归通过，出水失败开始离线定位
+
+- 计划：确认Result不结束本地故障处置；保留出水固定参考振荡，先逐步复现原后端。
+- 实际：rootfix-cancel-entry-r2返回PREEMPTED且实际TRANSITION，追加Result后4s模型观察通过，资源持续锁定、域未违规，独立bag审计通过；seven-single-rootfix退出0，185检查0失败。295项模块测试、脚本语法及diff检查通过。新增离线重放原qn后端脚本，仅一次初始化，记录位置仅作比较、不回灌控制。
+- 效果：首轮离线重放遇到模型步4886诊断缺失后明确退出。探针与bag均缺该诊断/实际Odometry，但同一间隔唯一的used_reference_pose仍在，提取其原始参考以继续动力学分析，实际状态仍记缺失；不会宣称该步实际状态已验证。新的重放运行中，完整逐步等价仍未证明。
+- 证据：rootfix-cancel-entry-r2/{roundtrip.json,independent-audit.json}；seven-single-rootfix/verification.json；tests-current.log；replay_qn_handover.py；rootfix-cancel-exit-r1/{replay.log,replay-input-with-reference.json,replay-with-reference.log}。
+- 未完成/下一步：从出水取消实测与原方程重放定位振荡；原始转换故障资格未通过，不能开放完整跨介质生产任务。G2路由只是静态合同，五平台共同运行/有限交付/总验收仍待完成。
+
+## 2026-09-20 UTC — 转换故障范围出现两个不同断点，G1不通过
+
+- 计划：对转换取消按实际终端与后续持续行为验收，不凭Action状态提前通过。
+- 实际：入水取消独立审计在Result后0.42s发现TRANSITION outside AIR：worker结束后按瞬时AIR重分类，但固定保持参考仍在转换边界。保留该失败，修正本地故障处置上下文在Result后仍保留原授权模式与动作，故障锁/保持点/参考不变，不清已有违规历史。探针补Result后4s模型时间观察。出水取消rootfix-cancel-exit-r1最终ABORTED、terminal_verified=false、资源锁定；最后20s固定参考z=-0.080293m，实际z约[-0.79485,0.00817]m，vz约[-0.95868,0.68655]m/s。
+- 效果：入水后续失败是处置生命周期错误；出水失败是采用正确固定参考后的实际振荡，不能靠前者代码修正宣称解决后者。原生转换固定参考保持尚不具备本状态资格，G1未通过，不开放相关生产动作链。没有扩大位置/速度/期限。
+- 证据：rootfix-cancel-entry-r1/independent-audit.json保留失败；rootfix-cancel-exit-r1/roundtrip.json与bag；platform_action.py::allowed_modes/_begin_disposition；probe_swarm_roundtrip.py。
+- 未完成/下一步：复验入水Result后的持续处置；核对qn原转换动力学/控制分支的垂向振荡来源，依据已授权隔离修正边界开展定位；七机代表回归与G2后续工作仍保留。
+
+## 2026-09-20 UTC — 入水取消通过与后续动作路由歧义约束
+
+- 计划：检查转换实际状态而非目标模式，并为G2同一成员的两类端点消除注册顺序歧义。
+- 实际：rootfix-cancel-entry-r1在实际ENTER_WATER/TRANSITION时重复取消，返回PREEMPTED、terminal_verified=true、资源锁定，最终实际AIR，未把被取消入水写成成功。出水取消正在实跑。现有ExecutionUnit静态映射增加Action类型、允许操作和成员实际状态话题；按成员加所选操作/执行单元匹配，单看成员存在多个候选时明确拒绝，物理锁仍按成员。25项路由/runner针对性测试通过。
+- 效果：对应用户附件“成员集合不能独自选后端”要求，复用现有路由，无动态注册/新工厂。尚未把Native/PVS配置注册到生产runner，不将此静态合同单测当作五平台实际派发。
+- 证据：rootfix-cancel-entry-r1/roundtrip.json；executor_routing.py；test_executor_routing.py的同一成员跨操作/错误执行单元/状态源缺失反例。
+- 未完成/下一步：出水取消及七机回归；G2共同场景、真实双消息派发和全平台评测仍待接入。
+
+## 2026-09-20 UTC — 非调试镜像往返通过，继续转换取消与七机回归
+
+- 计划：用实际编译后的求根防护做正常往返，随后验证转换中取消及原七机兼容。
+- 实际：handover-rootfix构建成功（manifest 147d78ee…）；293项模块测试通过。rootfix-normal-r1三段SUCCEEDED、独立审计通过，最小采样净距1.499999994m；此前AIR取消、水下取消、规划器缺失三个独立bag审计均通过。入水TRANSITION取消探针正在运行。七机原测试入口增加FORMATION_IMAGE环境覆盖，默认仍noetic，便于在同一入口验证新镜像。
+- 效果：得到非gdb正常运行正例；不以该正例声称normal-r2原生失败调用栈已明确。独立审计使用现有对齐规则与原0.25m半径/0.5m净距，未新增走廊/姿态业务要求。前几条新增日志因插入位置错误落在文件末尾，现原文移至顶部，保留内容及旧失败。
+- 证据：root-fix/build.log、module-tests.log；rootfix-normal-r1/{roundtrip.json,independent-audit.json,handover.bag}；scripts/docker_test_qn_formation_action.sh。
+- 未完成/下一步：入/出水转换取消结果及七机代表回归；五平台任务仍未贯通，资格出口不提前判定。
+
+## 2026-09-20 UTC — 原生求根退化反例与最小防护
+
+- 计划：从源码与可重复反例定位原生断言风险，不猜测控制增益或放宽资格。
+- 实际：原始root_finder.hpp对大系数六次多项式在归一化后得到空Kojima比值向量，gdb定位tail(1)越界。添加独立补丁：退化时使用源码已有Cauchy根界，其余路径不变；编译回归检查解析两实根与普通六实根，通过。新开发镜像handover-rootfix构建中。规划器缺失实跑已ABORTED、terminal_verified=true、实际WATER、资源锁定，原因PLANNER_CONTEXT_UNAVAILABLE。
+- 效果：修复有确定输入和调用栈的上游缺陷，没有引入新根算法或控制参数；仍不将normal-r2无调用栈的ROS失败直接标记已定位。扩展探针将分别在实际入水/出水TRANSITION阶段取消，避免水下取消代替转换故障资格。
+- 证据：root_finder_degenerate_bound.patch；test_root_finder_patch.py；debug/root-repro-stack.log；root-fix/native-test.log；debug-missing-planner-r1/roundtrip.json。
+- 未完成/下一步：镜像构建、非调试往返复验、入/出水取消与独立审计；G1及完整五平台仍未验收。
+
+## 2026-09-20 UTC — 交接取消负例与独立记录复核
+
+- 计划：继续完整G0–G5目标，优先核查G1取消、确认缺失与全程实际证据；上一轮归档推送属于实质进展，远端为92f2b1b。
+- 实际：重新读取目标附件558行并核查工作树；debug-cancel-air-r1原任务PREEMPTED，safety_hold.verified=true，锁保持；debug-cancel-native-r1重复取消返回PREEMPTED、terminal_verified=true、实际WATER且resource_locked=true。debug-missing-planner-r1开始实跑。新增独立bag审计复用现有时间对齐/插值规则，检查三机时间、采样净距、介质历史与暂停后的轨迹发布。
+- 效果：debug-r1任务区间795个位置网格点无缺样，最低净距约1.50m，最大模型/ROS漂移0.004495s，暂停后无普通轨迹发布。初版审计发现的一个缺样实际在首个任务前的录制起始边缘（并非结束边缘）；修正版明确按Action Goal至最终Result区间判定，区间外缺样仍记录，未填补缺样或放宽阈值。
+- 证据：scripts/audit_swarm_roundtrip.py；debug-r1/independent-audit.json（原失败）、independent-audit-r2.json；两个取消目录的roundtrip.json、AIR diagnostics及bag。
+- 未完成/下一步：定位normal-r2原生Eigen断言，验证规划器缺失结果；目前正例不代表所有模式资格或五平台总验收。独立审计只证明已声明无障碍场景的采样证据，不保证未知环境安全。
+
+## 2026-09-20 UTC — 按用户要求归档并准备推送参考交接增量
+
+- 计划：将当前实现、验证结果与未完成边界提交到GitHub main。
+- 实际：复核debug-r1已结束，roundtrip.json的passed=true；首次AIR、原生跨介质片段、返回AIR均收到SUCCEEDED，原生片段期间新AIR目标REJECTED，末尾故障锁拒绝接管。四个关键源码哈希与运行记录一致。推送前重跑292项模块测试全部通过，两个启动脚本bash语法及git diff检查通过；远端main与本地提交前基线6011944一致。
+- 效果：仅证明本次调试镜像下单成员往返探针通过。normal-r2的Eigen断言尚未定位，未完成取消/确认缺失负例及完整安全审计，G1与五平台总计划均不标通过。暂存检查对新.patch文件提示上游空白上下文行的尾空格；保留补丁原始匹配内容，其余暂存文件diff检查通过。
+- 证据：docs/reviews/reference-handover-progress-20260920.md；本地experiments/20260920-g1-handover/{normal-r1,normal-r2,debug-r1}/。大型bag/日志按既有忽略规则留本地，本次不纳入用户未跟踪资料包。
+- 未完成/下一步：继续定位原生断言、完成G1负例与独立状态/安全复核，再推进G2–G5。实际推送是否成功以Git远端核对及本轮回复为准。
+
 ## 2026-09-20 UTC — 第二轮在原生重规划处断言失败
 
 - 计划：复验采用边界修正后的往返，检查原生进程而非只等客户端超时。
@@ -1172,10 +1412,3 @@
 - 效果：确认必须补齐点云本地看门狗、所有共享端点的锁存接纳检查，以及有单调期限的处置观察。
 - 证据：已确认计划及本地任务书/文献对照；原生停止仅是固定位置参考，尚不能宣称 qn 停止保持通过。
 - 未完成/下一步：实施最小补丁与单机首个实跑；每阶段继续追加本日志，失败不删。
-## 2026-09-20 UTC — 按用户要求归档并准备推送参考交接增量
-
-- 计划：将当前实现、验证结果与未完成边界提交到GitHub main。
-- 实际：复核debug-r1已结束，roundtrip.json的passed=true；首次AIR、原生跨介质片段、返回AIR均收到SUCCEEDED，原生片段期间新AIR目标REJECTED，末尾故障锁拒绝接管。四个关键源码哈希与运行记录一致。推送前重跑292项模块测试全部通过，两个启动脚本bash语法及git diff检查通过；远端main与本地提交前基线6011944一致。
-- 效果：仅证明本次调试镜像下单成员往返探针通过。normal-r2的Eigen断言尚未定位，未完成取消/确认缺失负例及完整安全审计，G1与五平台总计划均不标通过。暂存检查对新.patch文件提示上游空白上下文行的尾空格；保留补丁原始匹配内容，其余暂存文件diff检查通过。
-- 证据：docs/reviews/reference-handover-progress-20260920.md；本地experiments/20260920-g1-handover/{normal-r1,normal-r2,debug-r1}/。大型bag/日志按既有忽略规则留本地，本次不纳入用户未跟踪资料包。
-- 未完成/下一步：继续定位原生断言、完成G1负例与独立状态/安全复核，再推进G2–G5。实际推送是否成功以Git远端核对及本轮回复为准。

@@ -173,6 +173,7 @@ class MissionRunner:
         self.fleet = sorted({m for u in self.units for m in u.physical_agent_ids})
         self.condition = threading.Condition()
         self.actual = {}
+        self.executor_diagnostics={}
         self.goal_ids, self.native_results = {}, {}
         self.active_executor_ids = set(rospy.get_param("~resource_locks", []))
         if self.active_executor_ids:
@@ -194,13 +195,32 @@ class MissionRunner:
         self.plan = None
         for unit in self.units:
             endpoint = unit.action_endpoint.rstrip("/")
-            self.clients[unit.executor_id] = actionlib.SimpleActionClient(endpoint, FormationAction)
+            action_type,goal_type,result_type=FormationAction,FormationActionGoal,FormationActionResult
+            if unit.action_type=='PlatformTaskAction':
+                from qn_aav_simulator.msg import PlatformTaskAction,PlatformTaskActionGoal,PlatformTaskActionResult
+                action_type,goal_type,result_type=PlatformTaskAction,PlatformTaskActionGoal,PlatformTaskActionResult
+            self.clients[unit.executor_id] = actionlib.SimpleActionClient(endpoint, action_type)
             self.action_subs.extend([
-                rospy.Subscriber(endpoint + "/goal", FormationActionGoal, self.on_goal, queue_size=20),
-                rospy.Subscriber(endpoint + "/result", FormationActionResult, self.on_result, queue_size=20)])
-        for member in self.fleet:
-            self.action_subs.append(rospy.Subscriber("/" + member + "_qn/odometry", Odometry,
+                rospy.Subscriber(endpoint + "/goal", goal_type, self.on_goal, queue_size=20),
+                rospy.Subscriber(endpoint + "/result", result_type, self.on_result, queue_size=20)])
+        sources={}
+        for unit in self.units:
+            for member,topic in unit.odometry_topics:
+                if member in sources and sources[member]!=topic:raise ValueError('conflicting physical state sources: '+member)
+                sources[member]=topic
+        for member,topic in sources.items():
+            self.action_subs.append(rospy.Subscriber(topic, Odometry,
                 self._on_executor_odom, callback_args=member, queue_size=10))
+            self.action_subs.append(rospy.Subscriber(topic.rsplit('/',1)[0]+'/diagnostics',DiagnosticArray,
+                self._on_executor_diagnostics,callback_args=member,queue_size=10))
+
+    def _on_executor_diagnostics(self,message,member):
+        for status in message.status:
+            if status.hardware_id!=member:continue
+            values={v.key:v.value for v in status.values}
+            with self.condition:
+                self.executor_diagnostics[member]=(message.header.stamp.to_sec(),values)
+                self.condition.notify_all()
 
     def _on_executor_odom(self, message, member):
         from qn_aav_simulator.odometry import parse_standard_odometry, OdometryContractError
@@ -227,6 +247,29 @@ class MissionRunner:
                     raise RuntimeError("Action endpoint must have exactly one owner: " + endpoint)
                 node = nodes[0]
                 self.server_nodes[unit.executor_id] = node
+                if unit.action_type=='PlatformTaskAction':
+                    if len(unit.physical_agent_ids)!=1:raise RuntimeError('native endpoint must own one physical member')
+                    member=unit.physical_agent_ids[0]
+                    declared=rospy.get_param(node+'/agent_id',None)
+                    if declared is None:
+                        drone=rospy.get_param(node+'/drone_id',None)
+                        declared=None if drone is None else 'drone_'+str(drone)
+                    if declared!=member:raise RuntimeError('native endpoint member disagrees with routing')
+                    with self.condition:
+                        stamp,values=self.executor_diagnostics.get(member,(None,{}))
+                    now=rospy.Time.now().to_sec()
+                    if stamp is not None and 0<=now-stamp<=.25:
+                        if any(str(values.get(k,'false')).lower()=='true' for k in
+                               ('resource_locked','platform_resource_locked','domain_failure')) or values.get('scene_failure'):
+                            raise RuntimeError('native member locked or unsafe: '+member)
+                        busy=(values.get('active_goal_id') or values.get('pending_goal_id') or
+                              values.get('platform_action_active')=='true' or values.get('reference_active')=='true')
+                        if not busy:
+                            self.metrics['native_qualification_only']=self.metrics.get('native_qualification_only',False) or bool(rospy.get_param(node+'/qualification_only',True))
+                            self.member_slots[unit.executor_id]={member:(0.,0.,0.)}
+                            return
+                    rospy.sleep(.1)
+                    continue
                 if rospy.get_param(node + "/safety_latched_members", []):
                     raise RuntimeError("physical member safety hold locked: " + endpoint)
                 if rospy.get_param(node + "/ready", False):
@@ -234,7 +277,8 @@ class MissionRunner:
                     if {"drone_{}".format(a) for a in declared} != unit.members():
                         raise RuntimeError("endpoint member configuration disagrees with routing")
                     safety_members = rospy.get_param(node + "/safety_agent_ids", declared)
-                    if {"drone_{}".format(a) for a in safety_members} != set(self.fleet):
+                    air_members={m for u in self.units if u.action_type=='FormationAction' for m in u.physical_agent_ids}
+                    if {"drone_{}".format(a) for a in safety_members} != air_members:
                         raise RuntimeError("endpoint does not monitor whole-fleet collision safety")
                     raw = rospy.get_param(node + "/relative_slots")
                     scale = float(rospy.get_param(node + "/swarm_scale"))
@@ -377,12 +421,20 @@ class MissionRunner:
                         availability[member]=max(availability.get(member,release),finishes[committed.task_id])
                         if committed.status=="RUNNING":
                             slot=self.member_slots[committed.executor_id][member]
-                            travel.member_positions[member]=tuple(self.centers[self.tasks_by_id[committed.task_id].target_ref][a]+slot[a] for a in range(3))
+                            travel.member_positions[member]=(tuple(self._checked_native_prediction(committed)['terminal_position'])
+                                if getattr(committed,'native_action',None) else
+                                tuple(self.centers[self.tasks_by_id[committed.task_id].target_ref][a]+slot[a] for a in range(3)))
         for item in self.plan.items:
             if item.status != "PLANNED":
                 continue
+            if len(getattr(item,'execution_steps',()))>1:
+                raise RuntimeError('composite plan timing requires complete candidate re-evaluation')
             task = self.tasks_by_id[item.task_id]
-            item.travel_time = travel(item.executor_id, "start", task.target_ref)
+            native=getattr(item,'native_action',None)
+            if native:
+                prediction=self._checked_native_prediction(item)
+                item.travel_time=float(prediction['duration_s'])
+            else:item.travel_time = travel(item.executor_id, "start", task.target_ref)
             item.planned_start = max(item.planned_start, release)
             if parallel:
                 item.planned_start=max(item.planned_start,
@@ -396,8 +448,8 @@ class MissionRunner:
                 release = item.planned_finish
             for member in item.coalition:
                 slot = self.member_slots[item.executor_id][member]
-                travel.member_positions[member] = tuple(self.centers[task.target_ref][a] + slot[a]
-                                                       for a in range(3))
+                travel.member_positions[member] = (tuple(item.native_prediction['terminal_position']) if native else
+                    tuple(self.centers[task.target_ref][a] + slot[a] for a in range(3)))
         self.plan_revision += 1
         self.metrics["plan_history"].append({"revision": self.plan_revision,
                                             "plan": asdict(self.plan)})
@@ -409,21 +461,78 @@ class MissionRunner:
                 and result.reason == 0 and result.task_outcome == 1
                 and result.safety_outcome == 1 and result.experiment_validity == 1)
 
+    @staticmethod
+    def _checked_native_prediction(item):
+        prediction=item.native_prediction
+        if 'terminal_backend' in prediction or 'trajectory' in prediction:
+            raise RuntimeError('internal model/trajectory must not be copied into plan metadata')
+        if prediction.get('status')!='FEASIBLE' or not prediction.get('geometry_checked'):
+            raise RuntimeError('native plan lacks a complete checked motion prediction')
+        duration=float(prediction['duration_s']);position=prediction['terminal_position']
+        if not math.isfinite(duration) or duration<0 or len(position)!=3 or not all(math.isfinite(v) for v in position):
+            raise RuntimeError('invalid native motion prediction')
+        if prediction.get('terminal_mode')!=item.native_action.final_mode:
+            raise RuntimeError('native prediction final mode mismatch')
+        if item.service_time!=0:
+            raise RuntimeError('native action duration already includes its terminal; scalar service would double count')
+        return prediction
+
+    def _executor_goal(self,item,unit):
+        """Encode the selected task operation in its actual native Action type.
+
+        This is a codec at the existing runner boundary, not a second plan or
+        a backend factory. Physical ownership remains keyed by unit members.
+        """
+        if len(getattr(item,'execution_steps',()))>1:
+            raise RuntimeError('composite candidate chain requires step dispatch; refusing to truncate it')
+        task=self.tasks_by_id[item.task_id]
+        native=getattr(item,'native_action',None)
+        if native is None:
+            if unit.action_type!='FormationAction':raise RuntimeError('AIR task routed to non-AIR Action')
+            goal=FormationGoal();goal.task_id=item.execution_id
+            goal.formation_center.header.frame_id='world'
+            goal.formation_center.header.stamp=rospy.Time.now()
+            goal.formation_center.point.x,goal.formation_center.point.y,goal.formation_center.point.z=self.centers[task.target_ref]
+            goal.hold_duration=rospy.Duration(item.service_time)
+            return goal
+        if unit.action_type!='PlatformTaskAction':raise RuntimeError('native fragment routed to AIR Action')
+        self._checked_native_prediction(item)
+        if not {s.operation for s in native.segments}<=set(unit.operations):
+            raise RuntimeError('selected unit does not implement every fragment operation')
+        from geometry_msgs.msg import PoseStamped
+        from nav_msgs.msg import Path as RosPath
+        from qn_aav_simulator.msg import PlatformTaskGoal,PlatformSegment
+        goal=PlatformTaskGoal(task_id=item.execution_id,terminal_behavior=native.terminal_behavior,
+                              execution_timeout=rospy.Duration(native.execution_timeout_s))
+        for segment in native.segments:
+            path=RosPath();path.header.frame_id='world'
+            for xyz in segment.points:
+                point=PoseStamped();point.header.frame_id='world';point.pose.orientation.w=1.
+                point.pose.position.x,point.pose.position.y,point.pose.position.z=xyz;path.poses.append(point)
+            goal.segments.append(PlatformSegment(operation=segment.operation,path=path,duration=rospy.Duration(segment.duration_s)))
+        return goal
+
+    @staticmethod
+    def _native_motion_result_ok(state,result,execution_id,native):
+        reason={'FIXED_REFERENCE':'COMPLETED_LOCAL_FRAGMENT','COAST_STOP':'COAST_STOP_VERIFIED_IN_QUALIFICATION',
+                'TRIM_PROPULSION':'TRIM_PROPULSION_VERIFIED_IN_QUALIFICATION'}[native.terminal_behavior]
+        return (state==GoalStatus.SUCCEEDED and result is not None and
+                result.task_id==execution_id and bool(result.goal_id) and
+                result.task_completed and result.terminal_verified and not result.resource_locked and
+                result.actual_mode==native.final_mode and result.reason==reason)
+
     def _dispatch_executor_item(self, item, reserved=False):
         from mrta_python.repair import process_executor_completion
-        unit = unit_for_coalition(self.routing, item.coalition)
+        task=self.tasks_by_id[item.task_id]
+        native=getattr(item,'native_action',None)
+        operations=tuple(s.operation for s in native.segments) if native else ('AIR_MOVE',)
+        unit = unit_for_coalition(self.routing, item.coalition,executor_id=item.executor_id,operations=operations)
         if unit is None or unit.executor_id != item.executor_id:
             raise RuntimeError("plan coalition has no matching online endpoint")
         if not reserved and conflicting_active_unit(self.routing, self.active_executor_ids, unit.executor_id):
             raise RuntimeError("physical members already occupied")
         self._wait_executor_ready(unit)
-        point = self.centers[self.tasks_by_id[item.task_id].target_ref]
-        goal = FormationGoal()
-        goal.task_id = item.execution_id
-        goal.formation_center.header.frame_id = "world"
-        goal.formation_center.header.stamp = rospy.Time.now()
-        goal.formation_center.point.x, goal.formation_center.point.y, goal.formation_center.point.z = point
-        goal.hold_duration = rospy.Duration(item.service_time)
+        goal = self._executor_goal(item,unit)
         action = {"task_id": item.task_id, "execution_id": item.execution_id,
                                          "endpoint": unit.action_endpoint, "phase": "DISPATCHING"}
         with self.executor_mutex:
@@ -435,7 +544,7 @@ class MissionRunner:
         client = self.clients[unit.executor_id]
         def feedback(message):
             with self.executor_mutex:
-                action["phase"] = "HOLDING" if message.phase == 1 else "MOVING"
+                action["phase"] = (message.operation if native else 'HOLDING' if message.phase==1 else 'MOVING')
         client.send_goal(goal, feedback_cb=feedback)
         node = self.server_nodes[unit.executor_id]
         disposition_budget = (float(rospy.get_param(node + "/safety_hold_timeout_s", 180))
@@ -462,6 +571,9 @@ class MissionRunner:
 
     def _commit_executor_result(self,item,unit,state,result):
         from mrta_python.repair import process_executor_completion
+        native=getattr(item,'native_action',None)
+        if native is not None:
+            return self._commit_native_executor_result(item,unit,state,result,native)
         if not self._release_result_ok(state, result, item.execution_id):
             detail = "missing native Result"
             if result is not None:
@@ -505,6 +617,41 @@ class MissionRunner:
         self.metrics.setdefault("current_actions", {}).pop(item.execution_id,None)
         if getattr(self,"executor_serial",True):self.metrics["current_action"] = None
         self._refresh_executor_timing(received - self.epoch)
+        self._save_executor()
+
+    def _commit_native_executor_result(self,item,unit,state,result,native):
+        """Commit a motion Result; never synthesize observation or delivery."""
+        from mrta_python.repair import process_executor_completion
+        payload=None if result is None else {key:getattr(result,key) for key in (
+            'task_id','goal_id','task_completed','terminal_verified','actual_mode','reason','resource_locked','model_time_s')}
+        previous=next((r for r in self.metrics['executions'] if r.get('execution_id')==item.execution_id
+                       and r.get('result')=='SUCCEEDED'),None)
+        if previous is not None:
+            if previous.get('native_result')!=payload or state!=GoalStatus.SUCCEEDED:
+                raise RuntimeError('conflicting repeated native Result')
+            return  # May now be booked by another task; never remove its lock.
+        if not self._native_motion_result_ok(state,result,item.execution_id,native):
+            detail='missing Result' if result is None else result.reason
+            self.metrics['executions'].append(dict(task_id=item.task_id,execution_id=item.execution_id,
+                endpoint=unit.action_endpoint,result='NON_SUCCESS',native_state=state,native_result=payload,detail=detail))
+            raise RuntimeError('native motion Result cannot release members: '+detail)
+        goal_id,envelope=self.native_result(item.execution_id)
+        if goal_id!=result.goal_id or envelope.status.status!=GoalStatus.SUCCEEDED:
+            raise RuntimeError('native GoalID/Result envelope mismatch')
+        if item.task_id in self.observation_tasks:
+            raise RuntimeError('native motion Result does not contain validated observation products')
+        received=rospy.Time.now().to_sec()
+        event=DelayEvent(goal_id,item.execution_id,item.task_id,item.planned_finish,received-self.epoch)
+        self.plan,changed=process_executor_completion(self.plan,event,self.final_events)
+        self.metrics['executions'].append(dict(task_id=item.task_id,execution_id=item.execution_id,
+            endpoint=unit.action_endpoint,goal_id=goal_id,result_received_at=received,
+            result='SUCCEEDED',plan_updated=changed,scope='NATIVE_MOTION',safety_outcome='NOT_VERIFIED',native_result=payload))
+        self.metrics['results_received'].append(item.task_id)
+        self.metrics['native_qualification_only']=True
+        self.active_executor_ids.remove(unit.executor_id)
+        self.metrics.setdefault('current_actions',{}).pop(item.execution_id,None)
+        if getattr(self,'executor_serial',True):self.metrics['current_action']=None
+        self._refresh_executor_timing(received-self.epoch)
         self._save_executor()
 
     def _execute_parallel_pending(self):
@@ -640,6 +787,8 @@ class MissionRunner:
             self.metrics["deadline_met"] = elapsed <= self.request.deadline_s
             self.metrics["status"] = ("FAIL_COVERAGE" if fraction != 1.0 else
                                       "PASS_GEOMETRIC_PROXY" if self.metrics["deadline_met"] else "FAIL_DEADLINE")
+            if self.metrics.get('native_qualification_only') and self.metrics['status']=='PASS_GEOMETRIC_PROXY':
+                self.metrics['status']='QUALIFICATION_ONLY'
             self.metrics["formation_motion_complete"] = all(
                 i.status == "COMPLETED" for i in self.plan.items if i.task_id not in self.observation_tasks)
             if fraction != 1.0:

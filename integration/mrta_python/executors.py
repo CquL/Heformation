@@ -27,6 +27,7 @@ from typing import Callable, Dict, FrozenSet, List, Mapping, Sequence, Tuple
 from typing import Optional
 
 from .validation import identifier, nonnegative
+from .models import NativeActionSpec, ExecutionStep, ExecutionCandidate
 
 
 ExecutorTravelTimeFunction = Callable[[str, str, str], float]
@@ -192,6 +193,12 @@ class ExecutorPlanItem:
     service_time: float
     status: str = "PLANNED"
     actual_finish: Optional[float] = None
+    # Selected method belongs to a candidate PlanItem, not the business Task.
+    native_action: Optional[NativeActionSpec] = None
+    native_prediction: Mapping = field(default_factory=dict)
+    execution_steps: Tuple[ExecutionStep, ...] = ()
+    candidate_id: str = ''
+    predicted_member_states: Mapping = field(default_factory=dict)
 
 
 @dataclass
@@ -199,6 +206,8 @@ class ExecutorPlan:
     items: List[ExecutorPlanItem] = field(default_factory=list)
     serial: bool = True
     precedence_edges: Tuple[Tuple[str, str], ...] = ()
+    search_complete: Optional[bool] = None
+    evaluated_candidates: int = 0
 
     def item(self, execution_id: str) -> ExecutorPlanItem:
         for item in self.items:
@@ -263,6 +272,76 @@ class ExecutorTravelTimeProvider:
     # from execution feedback, or advanced by the planner as it schedules.
     member_positions: Mapping[str, Tuple[float, float, float]] = field(
         default_factory=dict)
+    native_routes: Mapping = field(default_factory=dict)
+    native_models: Mapping = field(default_factory=dict)
+    native_efforts: Mapping = field(default_factory=dict)
+    scene_geometry: object = None
+
+    def execution_candidates(self,unit,task,start,states,deadline):
+        """Evaluate declared finite PVS route alternatives with native state.
+
+        Unqualified/missing methods remain unknown; they never inherit a
+        nominal AIR distance/speed estimate. Models are internal forecast state.
+        """
+        routes=self.native_routes.get((unit.executor_id,task.task_id),())
+        if len(unit.physical_agent_ids)!=1 or not routes:
+            return [ExecutionCandidate('unqualified',(),{},status='UNKNOWN',reason='EXECUTION_METHOD_NOT_QUALIFIED')]
+        member=unit.physical_agent_ids[0];state=states[member]
+        backend=state.get('native_backend',self.native_models.get(member))
+        if backend is None or unit.executor_id not in self.native_efforts:
+            return [ExecutionCandidate('unknown-state',(),{},status='UNKNOWN',reason='NATIVE_STATE_NOT_AVAILABLE')]
+        if getattr(backend,'model',None) not in ('otter','remus100'):
+            return [ExecutionCandidate('unqualified-model',(),{},status='UNKNOWN',reason='MODEL_METHOD_NOT_QUALIFIED')]
+        actual=backend.snapshot()
+        if tuple(actual['position'])!=tuple(state['position']) or actual['actual_mode']!=state['mode']:
+            return [ExecutionCandidate('unknown-state',(),{},status='UNKNOWN',reason='NATIVE_SNAPSHOT_STATE_MISMATCH')]
+        idle=max(0.,start-state.get('available_from',0.))
+        if idle:
+            waited=self.query_native_idle(backend,idle,self.scene_geometry,deadline)
+            if waited['status']!='FEASIBLE':
+                return [ExecutionCandidate('idle-unavailable',(),{},status=waited['status'],reason=waited['reason'])]
+            backend=waited['terminal_backend']
+        alternatives=[]
+        from dataclasses import replace
+        for index,route in enumerate(routes):
+            expected='SURFACE_PATH' if backend.model=='otter' else 'WATER_PATH'
+            if any(s.operation!=expected for s in route.segments):
+                alternatives.append(ExecutionCandidate('unqualified-operation-'+str(index),(),{},
+                    status='UNKNOWN',reason='NATIVE_OPERATION_NOT_QUALIFIED'))
+                continue
+            position=tuple(backend.snapshot()['position'])
+            if route.segments[0].operation=='SURFACE_PATH':position=(position[0],position[1],0.)
+            first=replace(route.segments[0],points=(position,)+route.segments[0].points[1:])
+            bound=replace(route,segments=(first,)+route.segments[1:])
+            query=self.query_native_fragment(backend,[s.points for s in bound.segments],
+                self.native_efforts[unit.executor_id],self.scene_geometry,deadline,
+                max_model_time=bound.execution_timeout_s,include_state=True)
+            name=unit.executor_id+'-'+task.task_id+'-'+str(index)
+            if query['status']!='FEASIBLE':
+                alternatives.append(ExecutionCandidate(name,(),{},status=query['status'],reason=query['reason']))
+                continue
+            summary={k:v for k,v in query.items() if k not in ('terminal_backend','trajectory')}
+            summary['pre_execution_idle_s']=idle
+            terminal=dict(position=query['terminal_position'],mode=query['terminal_mode'],native_backend=query['terminal_backend'])
+            alternatives.append(ExecutionCandidate(name,
+                (ExecutionStep(unit.executor_id,query['duration_s'],task.target_ref,bound,native_prediction=summary),),
+                {member:terminal}))
+        return alternatives
+
+    @staticmethod
+    def query_native_fragment(backend,paths,effort,scene,deadline,dt=.01,
+                              terminal_speed=.03,hold_duration=4.,max_model_time=180.,include_state=False):
+        """Motion query using a supplied native state snapshot, including coast.
+
+        No endpoint or controller factory is introduced. Unknown/horizon/budget
+        outcomes remain distinct from a witnessed geometric infeasibility.
+        """
+        return backend.predict_native_fragment(paths,effort,scene,deadline,dt,
+            terminal_speed,hold_duration,max_model_time,include_state)
+
+    @staticmethod
+    def query_native_idle(backend,duration,scene,deadline,dt=.01):
+        return backend.predict_idle(duration,scene,deadline,dt)
 
     def __post_init__(self) -> None:
         for target_ref, center in self.centers.items():
@@ -323,7 +402,8 @@ def build_executor_plan(executors: Sequence[Executor], tasks: Sequence,
                         serial: bool = False,
                         serial_units: Optional[Iterable[str]] = None,
                         precedence_edges=(), budget_s=None,
-                        hard_deadlines: bool = False) -> ExecutorPlan:
+                        hard_deadlines: bool = False,
+                        execution_candidates=None, member_states=None) -> ExecutorPlan:
     """Allocate every task to one eligible unit with the v9 reward order.
 
     Generalization of the fixed-coalition port: each unit keeps its own queue
@@ -350,6 +430,10 @@ def build_executor_plan(executors: Sequence[Executor], tasks: Sequence,
     if budget_s is not None and (not math.isfinite(budget_s) or budget_s<=0):
         raise ValueError('planning budget must be finite and positive')
     deadline=None if budget_s is None else started+budget_s
+    if execution_candidates is not None:
+        if deadline is None:raise ValueError('complete candidate search requires an invocation budget')
+        return _build_complete_candidate_plan(executors,tasks,execution_candidates,
+            member_states,deadline,serial,serial_units,precedence_edges,hard_deadlines)
     validate_executor_inputs(executors, tasks)
     predecessors=checked_predecessors(tasks,precedence_edges)
     finishes={}
@@ -464,6 +548,105 @@ def build_executor_plan(executors: Sequence[Executor], tasks: Sequence,
     if deadline is not None and time.monotonic()>deadline:
         raise PlanningBudgetExceeded('complete candidate exceeded invocation budget')
     return plan
+
+
+def _build_complete_candidate_plan(executors,tasks,provider,member_states,deadline,
+                                   serial,serial_units,precedence_edges,hard_deadlines):
+    """Finite complete-plan enumeration inside the existing scheduler.
+
+    The motion provider evaluates complete chains from a physical-member
+    snapshot. It owns mode/transition qualification and must include all motion,
+    work, terminal and return costs; this search never substitutes distance/v.
+    """
+    validate_executor_inputs(executors,tasks)
+    predecessors=checked_predecessors(tasks,precedence_edges)
+    members={m for e in executors for m in e.physical_agent_ids}
+    if member_states is None or set(member_states)!=members:
+        raise ValueError('candidate search requires every physical member state')
+    states=copy.deepcopy(member_states)
+    for member,value in states.items():
+        if (len(value.get('position',()))!=3 or not all(math.isfinite(v) for v in value['position'])
+                or value.get('mode') not in ('AIR','WATER','SURFACE','TRANSITION')):
+            raise ValueError('invalid physical predicted state: '+member)
+        nonnegative(value.get('available_from',0.),'member availability')
+        value['available_from']=value.get('available_from',0.)
+    participants=set(serial_units) if serial_units is not None else {e.executor_id for e in executors}
+    unit_members={e.executor_id:set(e.physical_agent_ids) for e in executors}
+    edges=tuple((p,t) for t,values in predecessors.items() for p in sorted(values))
+    best=None;count=0;complete=True;unknown=False
+    # Iterative search avoids recursion-depth dependence on task count.
+    frontier=[([],tuple(tasks),states,{},0.)]
+    while frontier:
+        if time.monotonic()>=deadline:complete=False;break
+        items,remaining,snapshot,finishes,serial_release=frontier.pop()
+        if not remaining:
+            candidate_plan=ExecutorPlan(items,serial,edges)
+            if best is None or candidate_plan.makespan<best.makespan:best=candidate_plan
+            continue
+        if best is not None and max(finishes.values(),default=0.)>=best.makespan:continue
+        exhausted=False
+        for task in sorted(remaining,key=lambda t:t.task_id):
+            if not predecessors[task.task_id]<=finishes.keys():continue
+            for unit in eligible_executors(executors,task):
+                if any(snapshot[m].get('locked',False) for m in unit.physical_agent_ids):continue
+                start=max(max(snapshot[m]['available_from'] for m in unit.physical_agent_ids),
+                    unit.available_from,
+                    max((finishes[p] for p in predecessors[task.task_id]),default=0.),
+                    serial_release if serial and unit.executor_id in participants else 0.)
+                try:
+                    alternatives=bounded_travel_query(provider,
+                        (unit,task,start,copy.deepcopy(snapshot),deadline),deadline)
+                except PlanningBudgetExceeded:
+                    complete=False;unknown=True;exhausted=True;break
+                for alternative in alternatives:
+                    if time.monotonic()>=deadline:
+                        complete=False;exhausted=True;break
+                    count+=1
+                    if not isinstance(alternative,ExecutionCandidate):raise ValueError('typed execution candidate required')
+                    if alternative.status!='FEASIBLE':
+                        unknown |= alternative.status=='UNKNOWN';continue
+                    if set(alternative.terminal_states)!=set(unit.physical_agent_ids):
+                        raise ValueError('candidate must update exactly its physical members')
+                    if any(unit_members.get(step.executor_id)!=set(unit.physical_agent_ids) for step in alternative.steps):
+                        raise ValueError('candidate step must use the reserved physical members')
+                    finish=start+alternative.duration_s
+                    nonnegative(finish,'candidate finish')
+                    if hard_deadlines and finish>task.deadline:continue
+                    next_states=copy.deepcopy(snapshot)
+                    published={}
+                    for member,terminal in alternative.terminal_states.items():
+                        if (len(terminal.get('position',()))!=3 or not all(math.isfinite(v) for v in terminal['position'])
+                                or terminal.get('mode') not in ('AIR','WATER','SURFACE')):
+                            raise ValueError('invalid candidate terminal state')
+                        next_states[member]=copy.deepcopy(terminal)
+                        next_states[member]['available_from']=finish
+                        published[member]={k:terminal[k] for k in ('position','mode')}
+                    step=alternative.steps[0] if len(alternative.steps)==1 else None
+                    service=step.service_time_s if step else 0.
+                    item=ExecutorPlanItem('exec-{:04d}-{}'.format(len(items),task.task_id),task.task_id,
+                        unit.executor_id,unit.physical_agent_ids,start,finish,alternative.duration_s-service,0.,service,
+                        native_action=step.native_action if step else None,
+                        native_prediction=copy.deepcopy(step.native_prediction) if step else {},
+                        execution_steps=alternative.steps,candidate_id=alternative.candidate_id,
+                        predicted_member_states=published)
+                    next_finishes=dict(finishes);next_finishes[task.task_id]=finish
+                    next_remaining=tuple(t for t in remaining if t.task_id!=task.task_id)
+                    if not next_remaining:
+                        candidate_plan=ExecutorPlan(items+[item],serial,edges)
+                        if best is None or candidate_plan.makespan<best.makespan:best=candidate_plan
+                    else:
+                        frontier.append((items+[item],next_remaining,next_states,next_finishes,
+                            finish if serial and unit.executor_id in participants else serial_release))
+                if exhausted:break
+            if exhausted:break
+        if exhausted:break
+    if best is None:
+        if not complete:raise PlanningBudgetExceeded('no complete feasible candidate within shared budget')
+        raise ValueError('no complete candidate found'+(' (some mode/motion queries remain unknown)' if unknown else '')+
+                         '; not a proof of mathematical infeasibility')
+    best.search_complete=complete and not unknown
+    best.evaluated_candidates=count
+    return best
 
 
 def validate_executor_plan(plan: ExecutorPlan, executors: Sequence[Executor],

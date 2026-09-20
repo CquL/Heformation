@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+FORMATION_IMAGE="${FORMATION_IMAGE:-swarm-formation-qn:noetic}"
 MODE="${1:-single}"
 PLANNER_SPEED="${2:-1.5}"
 ARTIFACT_DIR="${3:-${ROOT}/experiments/$(date -u +%Y%m%dT%H%M%SZ)-${MODE}-${PLANNER_SPEED}}"
@@ -19,7 +20,7 @@ if [[ -e "$ARTIFACT_DIR/metrics.json" || -e "$ARTIFACT_DIR/execution.bag" ]]; th
   exit 2
 fi
 
-docker image inspect swarm-formation-qn:noetic --format '{{.Id}}' > "$ARTIFACT_DIR/image-id.txt"
+docker image inspect "$FORMATION_IMAGE" --format '{{.Id}}' > "$ARTIFACT_DIR/image-id.txt"
 git -C "$ROOT" rev-parse HEAD > "$ARTIFACT_DIR/workspace-base-commit.txt"
 git -C "$ROOT" status --short > "$ARTIFACT_DIR/workspace-status.txt"
 printf '%q ' "$0" "$MODE" "$PLANNER_SPEED" "$ARTIFACT_DIR" "$REPAIR_MODE" "$OBSTACLE" "$FAULT" > "$ARTIFACT_DIR/command.txt"
@@ -48,7 +49,7 @@ docker run --rm --init --user "$(id -u):$(id -g)" \
   --volume "$STAGE_DIR:/experiments/current" \
   --volume "$ROOT/integration/qn_aav_simulator:/workspace/src/src/qn_aav_simulator:ro" \
   --volume "$ROOT/integration/mrta_python:/workspace/integration/mrta_python:ro" \
-  swarm-formation-qn:noetic bash -c '
+  "$FORMATION_IMAGE" bash -c '
     set -eo pipefail
     source /opt/ros/noetic/setup.bash
     source /workspace/devel/setup.bash

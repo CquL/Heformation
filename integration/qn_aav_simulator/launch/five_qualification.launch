@@ -1,0 +1,30 @@
+<launch>
+  <!-- G2 integration, fixed development actions; NOT a production MRTA plan.
+       world: common ENU origin, sea level z=0. PVS keeps native NED dynamics. -->
+  <arg name="output_dir" default="/experiments/current"/>
+  <arg name="scene_file" default="$(find qn_aav_simulator)/config/five_scene.yaml"/>
+  <include file="$(find qn_aav_simulator)/launch/swarm_roundtrip.launch">
+    <arg name="output_dir" value="$(arg output_dir)"/>
+    <arg name="transition_fault_behavior" value="COMPLETE_ACCEPTED_VERTICAL_SEGMENT"/>
+  </include>
+  <group if="$(eval arg('scene_file') != '')">
+    <rosparam file="$(arg scene_file)"/>
+  </group>
+  <node pkg="qn_aav_simulator" type="pvs_node.py" name="usv" output="screen">
+    <param name="agent_id" value="usv"/>
+    <param name="model" value="otter"/>
+    <param name="world_frame" value="world"/>
+    <param name="initialization_mode" value="STATIC_TRIM"/>
+    <rosparam param="initial_position">[-5.0, -8.0, 0.0]</rosparam>
+    <param name="propulsion_effort" value="20.0"/>
+    <param name="qualification_only" value="true"/>
+  </node>
+  <node pkg="qn_aav_simulator" type="pvs_node.py" name="uuv" output="screen">
+    <param name="agent_id" value="uuv"/>
+    <param name="model" value="remus100"/>
+    <param name="world_frame" value="world"/>
+    <rosparam param="initial_position">[-5.0, 8.0, -2.0]</rosparam>
+    <param name="propulsion_effort" value="500.0"/>
+    <param name="qualification_only" value="true"/>
+  </node>
+</launch>

@@ -2,6 +2,88 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Dict, FrozenSet, List, Tuple
+import math
+
+
+@dataclass(frozen=True)
+class NativeSegmentSpec:
+    operation: str
+    points: Tuple[Tuple[float,float,float], ...]
+    duration_s: float = 0.0
+
+    def __post_init__(self):
+        object.__setattr__(self,'points',tuple(tuple(p) for p in self.points))
+        if self.operation not in ('ENTER_WATER','EXIT_WATER','WATER_PATH','SURFACE_PATH'):
+            raise ValueError('unsupported native operation')
+        if len(self.points)<2 or any(len(p)!=3 or not all(math.isfinite(v) for v in p) for p in self.points):
+            raise ValueError('native segment needs finite path points')
+        if not math.isfinite(self.duration_s) or self.duration_s<0:
+            raise ValueError('invalid native reference duration')
+        if self.operation in ('ENTER_WATER','EXIT_WATER') and self.duration_s<=0:
+            raise ValueError('qn transitions need positive reference duration')
+
+
+@dataclass(frozen=True)
+class NativeActionSpec:
+    segments: Tuple[NativeSegmentSpec, ...]
+    terminal_behavior: str
+    execution_timeout_s: float = 180.0
+
+    def __post_init__(self):
+        object.__setattr__(self,'segments',tuple(self.segments))
+        if not all(isinstance(s,NativeSegmentSpec) for s in self.segments):
+            raise ValueError('native fragments require typed segment specifications')
+        if not 1<=len(self.segments)<=16 or self.terminal_behavior not in ('FIXED_REFERENCE','COAST_STOP','TRIM_PROPULSION'):
+            raise ValueError('invalid native fragment/terminal contract')
+        if not math.isfinite(self.execution_timeout_s) or self.execution_timeout_s<=0:
+            raise ValueError('native observation timeout must be finite and positive')
+        if any(a.points[-1]!=b.points[0] for a,b in zip(self.segments,self.segments[1:])):
+            raise ValueError('native fragment paths must connect')
+
+    @property
+    def final_mode(self):
+        return {'ENTER_WATER':'WATER','WATER_PATH':'WATER','EXIT_WATER':'AIR','SURFACE_PATH':'SURFACE'}[self.segments[-1].operation]
+
+
+@dataclass(frozen=True)
+class ExecutionStep:
+    """One already evaluated step of a candidate's complete execution chain."""
+    executor_id: str
+    duration_s: float
+    target_ref: str
+    native_action: 'NativeActionSpec | None' = None
+    service_time_s: float = 0.0
+    native_prediction: dict = field(default_factory=dict)
+
+    def __post_init__(self):
+        if not self.executor_id or not self.target_ref or not math.isfinite(self.duration_s) or self.duration_s<0:
+            raise ValueError('invalid candidate execution step')
+        if not math.isfinite(self.service_time_s) or not 0<=self.service_time_s<=self.duration_s:
+            raise ValueError('invalid step service duration')
+        if self.native_action is not None and self.service_time_s!=0:
+            raise ValueError('native step already includes its terminal duration')
+        if any(k in self.native_prediction for k in ('trajectory','terminal_backend')):
+            raise ValueError('keep dense trajectory/model state outside published step metadata')
+
+
+@dataclass(frozen=True)
+class ExecutionCandidate:
+    candidate_id: str
+    steps: Tuple[ExecutionStep, ...]
+    terminal_states: Dict[str, dict]
+    status: str = 'FEASIBLE'
+    reason: str = ''
+
+    def __post_init__(self):
+        object.__setattr__(self,'steps',tuple(self.steps))
+        if not self.candidate_id or self.status not in ('FEASIBLE','INFEASIBLE','UNKNOWN'):
+            raise ValueError('invalid candidate status')
+        if self.status=='FEASIBLE' and (not self.steps or not all(isinstance(s,ExecutionStep) for s in self.steps)):
+            raise ValueError('feasible candidate needs a complete execution chain')
+
+    @property
+    def duration_s(self):
+        return sum(step.duration_s for step in self.steps)
 
 
 @dataclass(frozen=True)

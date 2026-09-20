@@ -34,6 +34,7 @@ catkin_install_python(
   scripts/pvs_node.py scripts/measure_qn_modes.py scripts/probe_platform_fragment.py
   scripts/mission_console.py scripts/probe_pvs_actions.py
   scripts/probe_swarm_roundtrip.py
+  scripts/probe_five_qualification.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
