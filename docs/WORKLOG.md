@@ -1,3 +1,43 @@
+## 2026-09-20 UTC — 约束驱动协同与减少封装的文献/代码复核
+
+- 计划：响应用户要求调研顶刊顶会，将何时入水、任务分配、资源安排与Swarm编队真实结合；纠正把优化变量交给用户选择及无依据加层的问题。保持实施目标暂停，仅开展本轮明确授权的研究。
+- 实际：使用prompt/wenxianSKILL.md，复核Calvo T-RO问题定义/修复、GRSTAPS IJRR任务/运动与局限、D-ITAGS RA-L任务约束/修复、APEX-MR RSS实际事件、Guo–Zavlanos T-RO承诺会合、CoCoPlan RA-L通信事件及Swarm ICRA/T-RO编队边界。新增Gosrich ICRA2023正文副本，重点读§III–V，校验PDF/哈希；未标全部重新精读。按作者出版记录纠正Calvo旧“尚未发表”台账。核查请求仍拒绝水下/中继、强制deadline、runner末尾追加编队、仅PVS真实候选及复合派发阻断；标出PlanItem与steps双份方法等具体收敛点。
+- 结果：形成docs/requirements/cooperation-source-design-20260920.md：业务输入/平台能力/决策变量分离，三类实际协同、必要约束与反例、单一主目标、Swarm职责、现有文件的直接修改点和理论边界。明确不靠任意编队奖励/假期限制造协作，不把通信连通当交付；不再新增协调器/BackendFactory/统一信封。新方案是项目综合设计，逐项标明论文机制与不能继承的假设。
+- 证据：新设计文件、research/literature/notes/gosrich-coordination-icra2023.md、manifest.yaml；本次文本抽取在experiments/20260920-coordination-review。正式源码及已有仿真未改动，未进行新的ROS实跑，原失败与VRX未提交状态保留。
+- 未完成/下一步：等待恢复实施后按新文档顺序收敛请求与方法结构、解决时间问题、接完整动作/预承诺交付，最后同请求验证与对照。研究结论不等于系统已实现或创新已证明。
+
+## 2026-09-20 UTC — 用户要求关闭并暂停
+
+- 计划：按“关闭，先暂停”停止仿真/显示与持续目标，保存现场，不继续开发。
+- 实际：目标设为paused；保存five-r3 GPU渲染日志，停止记录器，并关闭本轮VRX容器及之前五平台显示容器。文件保留在experiments/20260920-vrx与20260920-five-live，当前源码增量尚未提交。
+- 结果：five-r3海面真实显示已恢复且GPU渲染成立，五代理同步位置回读一致；动作实验却因missing or stale fleet odometry进入UNKNOWN_LOCKED，不能称完整试接运行通过。模块319项通过（24s）。未清故障锁、未改判原Result。
+- 证据：five-r3/{rendered.png,ogre-gpu.log,world-ready.json,vrx-state-view.json,air-before_1789884451559746742.diagnostics.json}；module-tests.log。暂停为用户要求，不是总目标已完成。
+- 未完成/下一步：等待用户恢复；恢复时先核对运行状态，再定位GUI启动/实际状态新鲜度，并继续统一任务地图与协同链。
+
+## 2026-09-20 UTC — VRX加载停留定位与实际画面恢复
+
+- 计划：用户反馈Preparing your world一直停留，核对真实GUI，不用后台状态回读替代可视化验收。
+- 实际：five-r2脚本错误指向src下不存在的example_course.world，Gazebo退回empty.world；该次即使五个代理位置回读成功，也不能称VRX场景接通。结束该轮保留记录。改用/vrx_ws/devel/share/vrx_gazebo/worlds/example_course.world，启动前检查非空，检查sydneyregatta/ocean_waves与五个代理齐备才进入确认。five-r3原GPU显示进程退出，容器OOM计数为0，不能据此推断退出原因。重开显示并限制IGN_IP为127.0.0.1后仍有加载等待；gdb子进程栈显示进入NVIDIA/OpenGL Camera::RenderImpl，之后真实画面恢复，截图约28FPS。仅重启显示端，qn/PVS未重置；GUI服务与首帧耗时的唯一原因尚未证明。
+- 结果：five-r3实际显示官方海面/地形，NVIDIA渲染器成立，五平台只读代理持续更新；确认后固定动作验证继续。启动master竞争、错误路径、裸client重开及显卡库缺失各有失败记录，未将它们静默删掉。
+- 证据：experiments/20260920-vrx/five-r{1,2,3}；five-r3/{world-ready.json,gui-debug-stack.txt,rendered.png,vrx-state-view.json}。原生显示与任务安全地图仍分离，不声明完整环境物理接入。
+- 未完成/下一步：收齐本轮动作结果，固化显示启动诊断/日志，继续共同地图与任务链；总目标未完成。
+
+## 2026-09-20 UTC — VRX原生运行与GPU实际渲染核对
+
+- 计划：原生运行后检查用户询问的GPU是否真正生效，不以容器能运行nvidia-smi作证明。
+- 实际：独立VRX镜像编译完成；官方Sydney场景、海面/码头/植被/WAM-V显示。短时原生推力测试模型时间推进约2.947s、WAM-V位移约0.214m。发现初始实际GL_RENDERER=llvmpipe；尽管已有--gpus all，当前主机595.84驱动所需libnvidia-gpucomp未被容器runtime挂载。补齐同主机版本库并启用NVIDIA GLX后，glxinfo与Gazebo ogre.log均显示RTX5070，nvidia-smi出现gzclient。启动脚本保存同版本库只读挂载及GLX选择，不修改qn/PVS控制。
+- 结果：GPU渲染已实际证实；原生启动保留旧SDF重复插件名与渲染服务告警。第一次直接重开裸gzclient因ROS未初始化报错；通过gazebo_ros包装重开又因默认节点重名影响原server，已结束该原生试验，不将后续读数当作连续原生运行。下一次整链使用脚本正确启动名称。
+- 证据：experiments/20260920-vrx/{build.log,native-r1/native-check.json,native-r1/ogre-gpu.log,native-r1/run.log}；原生截图scene.png。GPU负责渲染，动力学/调度未改为GPU计算。
+- 未完成/下一步：启动五平台单向状态视图并对账，整理使用入口和不支持的边界；完整协同与时间问题仍未完成。
+
+## 2026-09-20 UTC — 用户授权拉取并试接VRX海面环境
+
+- 计划：按“pull下来，我们这里接入试试”，先复现官方海面环境，再接已有实际状态；保留既有qn/PVS为唯一平台动力学源，不擅自迁移总系统。
+- 实际：重读目标附件、规则及当前交接；前一阶段有代码/实跑证据，为实质进展。拉取官方VRX gazebo_classic至upstream/VRX，HEAD=c9b9388308f8976c724da4af6685f69c9c378983，约513 MB。现有镜像已有Gazebo 11/Noetic；rosdep核查缺6组ROS依赖。新增独立Dockerfile.vrx与固定版本构建入口，原镜像不覆盖，上游副本保留原许可证并由脚本获取。
+- 结果：源码拉取完成；原生场景编译/运行及状态试接尚待验证。当前原五平台容器仍在，不因启动新试验擅自清其资源或修改已提交Result。
+- 证据：upstream/VRX/README.md与vrx_gazebo/launch/sydneyregatta.launch；scripts/docker_build_vrx.sh；docker/Dockerfile.vrx；原生场景采用Gazebo自身时钟，后续外部状态视图不把该时钟冒充qn实际模型时间。
+- 未完成/下一步：编译、原生海面运行、实际状态同步和可视化核对；整个G0–G5目标仍保留，试接不等于五平台任务完成。
+
 ## 2026-09-20 UTC — 可视化增量与README命令提交准备
 
 - 计划：按用户“先push到github”及“在readme加可视化仿真命令”，归档当前成果和失败，不继续扩展功能。

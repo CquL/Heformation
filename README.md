@@ -24,6 +24,28 @@ models/qn/qn.slx
 
 ## 五平台实时可视化仿真
 
+### 新增：VRX官方海面环境试接
+
+本机NVIDIA GPU环境下，首次构建后运行官方场景：
+
+```bash
+cd /home/lhj/Swarm-Formation
+bash scripts/docker_build_vrx.sh
+bash scripts/docker_run_vrx.sh native
+```
+
+尝试将现有五平台实际状态显示到VRX：
+
+```bash
+bash scripts/docker_run_vrx.sh five-view
+```
+
+`five-view`需要终端输入`yes`才运行固定动作，Ctrl+C结束。该试接保持qn/PVS动力学，
+GPU负责Gazebo渲染；**VRX地形/海况尚未接入现有任务安全判定，也不是完整协同任务**。
+依赖与实跑边界见[VRX试接记录](docs/reviews/vrx-integration-20260920.md)。
+
+### 原RViz资格实验入口
+
 在有桌面 `DISPLAY` 的终端运行（需要 Docker、`fonts-noto-cjk` 中文字体，以及
 `swarm-formation-qn:five-finite-wire` 镜像）：
 

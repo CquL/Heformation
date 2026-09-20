@@ -4,6 +4,11 @@
 
 当前已拉取：
 
+VRX海面环境试接入（2026-09-20）：`VRX/`为官方`gazebo_classic`分支，固定提交
+`c9b9388308f8976c724da4af6685f69c9c378983`，来源 https://github.com/osrf/vrx 。
+本地保留原源码/许可证；该约513 MB副本不重复提交，由`scripts/docker_build_vrx.sh`获取与核对。
+属于用户新授权的环境试接入，不替代已有qn/PVS动力学与完整协同任务验收。
+
 | 目录 | 项目 | 来源 |
 |---|---|---|
 | `Swarm-Formation/` | Swarm-Formation | https://github.com/ZJU-FAST-Lab/Swarm-Formation |

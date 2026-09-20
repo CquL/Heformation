@@ -6,14 +6,34 @@ policy:
   structure: papers/<category>/ per prompt/wenxianSKILL.md
   pdf_acceptance: file reports PDF and size > 50 kB
 papers:
+- key: gosrich-coordination-icra2023
+  title: Multi-Robot Coordination and Cooperation with Task Precedence Relationships
+  authors: [Walker Gosrich, Siddharth Mayya, Saaketh Narayan, Matthew Malencia, Saurav Agarwal, Vijay Kumar]
+  year: 2023
+  venue: ICRA 2023, 5800–5806
+  doi: 10.1109/ICRA48891.2023.10160998
+  url: https://arxiv.org/abs/2209.14417
+  publication_verified_url: https://www.modlabupenn.org/publications/
+  category: mrta
+  pdf_file: papers/mrta/gosrich-coordination-icra2023.pdf
+  pdf_status: downloaded
+  pdf_size_bytes: 1627192
+  pdf_sha256: 65ec417262d81d8183855848cf3dcb135506e6adeadd5944e489f8fca4e2bb8a
+  read_scope: selected-full-text-sections-III-V-20260920
+  notes: notes/gosrich-coordination-icra2023.md
+  relevance_to_interface:
+  - 联盟人数/任务收益关系需要作业依据，不能把Swarm形状代价当监测收益
+  - 任务前置与方法选择结合；不移植其同类机器人/固定时长假设或整套网络流方法
 - key: calvo-2024-delay-propagation
   title: Heterogeneous Multi-robot Task Allocation for Long-Endurance Missions in
     Dynamic Scenarios
   authors:
   - Álvaro Calvo
   - Jesús Capitán
-  year: 2024
-  venue: arXiv preprint arXiv:2411.02062 [cs.RO]（v3, 2025-11-26）
+  year: 2025
+  venue: IEEE Transactions on Robotics 41:6494–6513 (2025)；arXiv初版2024，阅读副本v3
+  doi: 10.1109/TRO.2025.3626651
+  publication_verified_url: https://personal.us.es/jcapitan/publications/publicationBib.php?key=calvo_tro25
   url: https://arxiv.org/abs/2411.02062
   pdf_file: papers/mrta/calvo-2024-delay-propagation.pdf
   pdf_status: downloaded

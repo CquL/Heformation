@@ -1,0 +1,26 @@
+{
+  "package": "Heformation_background_update_2026-09-19",
+  "source_repo": "CquL/Heformation",
+  "source_branch": "main",
+  "source_commit": "79036d66178deacada2b4f4a30dc588899eeb094",
+  "files_sha256": {
+    "AGENT/AGENT.md": "953b079b9efdad28adc6bc134b9529f5f1c282284b0f3f5ff97e825ec3e28319",
+    "AGENT/PROJECT_CONTEXT.md": "c53c56ae93649cf1f37d27ac63ec0cd21b61455df338a7b4db8a09c51179f78c",
+    "README_APPLY.md": "c10ad93f4b9ca019f8d6a7ac6d0bf61d4a3856ce8fb4880b42084579bc68a9e9",
+    "context/01_project_background.md": "bde666e3c43503872eaa320cf5a3415d1832564982150292385a0fd674b4ffb6",
+    "context/02_current_status.md": "6e59b2179f873f076ce6888e02a52044e3d52b4ab29cb46d94dd12d859b93a2b",
+    "context/03_system_architecture.md": "7782d5cf3ffc6aee976ad230cc19e224b21a479a901e32ed13cde80abbcefc55",
+    "context/04_inputs_outputs.md": "048dd18f26339fd08ffb4cdb6ec0f7fdbd171095caa1fa239e5fe1a07320d5f1",
+    "context/05_state_communication.md": "129bd6bef7bf96930a523f5e352cb863837ac47d4b9e577f5f7d6f4357d96d61",
+    "context/08_first_scenario_benchmark.md": "8ab697a6cbeee7a7bd266f7000e9533198a8328eee27af324dd5344fa599ca1e",
+    "context/09_implementation_plan.md": "213f7538474ffc3f12bd4ab93ebc75cd234c70d18425b1afc8e54c43e2d93a9c",
+    "context/10_research_novelty.md": "c4218faf2f896d8b72a082cde64c8884af8ff6010603399ceb645b40c2c5b173",
+    "context/11_glossary.md": "d51a790e54b05318fd12f77bc9e92ff8100e277aff4c88ced2ccdc778e9265ad",
+    "context/12_literature_review.md": "8fa7258c27401b23f7aa3061b3d994ee7f01c4fa8a63dc0a96c3f26ec09069f2",
+    "context/13_references.md": "a42b561dcf10866ab3476d5fc353f621b5ec231860f7640cd6dd9f3661bcecab",
+    "context/14_decisions_and_unknowns.md": "7a7726275f62b7241754d432ac0f389a9269f40a4b0cccb6833cd6bcaa12079f",
+    "context/15_handoff.md": "b5976a38100c08a711657aa5c48e06efc0afd42c5b2dc9d8a5a13c889a33d703",
+    "context/README.md": "e090491a68e2584e31ae4e7931328cf25406156a76025f72e38ce51e2e61b568"
+  },
+  "note": "This manifest covers only this delivery package. It does not replace the project's AGENT/CONTENT_MANIFEST.json."
+}

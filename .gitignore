@@ -35,3 +35,6 @@ upstream/GCOPTER/
 upstream/libMultiRobotPlanning/
 upstream/stonefish_ros/
 upstream/CARIC/
+
+# VRX official pinned checkout; fetched by docker_build_vrx.sh, not vendored twice.
+upstream/VRX/

@@ -1,5 +1,7 @@
 # Calvo & Capitán 2024：延迟传播、等待吸收、repair 与全量重规划
 
+> 2026-09-20出处更正：已核对作者[出版记录](https://personal.us.es/jcapitan/publications/publicationBib.php?key=calvo_tro25)，正式发表于IEEE T-RO 2025，41:6494–6513，DOI 10.1109/TRO.2025.3626651。下方“尚未见正式出处”为旧记录，已过时。本轮重点复核正文§III–VI，不声称重新精读全部论文。原问题无一般前置关系，其relay是作业接替；这些边界必须保留。新协同设计见`docs/requirements/cooperation-source-design-20260920.md`。
+
 ## 文献记录
 
 - 作者：Álvaro Calvo, Jesús Capitán
