@@ -36,6 +36,7 @@ class AgentAdoptionEvidence:
     pre_dispatch_trajectory_id: Optional[int] = None
     pre_dispatch_qn_source_trajectory_id: Optional[int] = None
     pre_dispatch_used_outer_step: Optional[int] = None
+    pre_dispatch_handover_floor: Optional[int] = None
     post_dispatch_trajectory_ids: List[int] = field(default_factory=list)
     qn_source_trajectory_ids: List[int] = field(default_factory=list)
     adopted_trajectory_id: Optional[int] = None
@@ -54,12 +55,16 @@ class AgentAdoptionEvidence:
         and reporting it as ``source_trajectory_id``.  That observable id is the
         prior reference, not "unknown".
         """
+        if self.pre_dispatch_handover_floor is not None:
+            return self.pre_dispatch_handover_floor
         if self.pre_dispatch_trajectory_id is not None:
             return self.pre_dispatch_trajectory_id
         return self.pre_dispatch_qn_source_trajectory_id
 
     @property
     def new_trajectory_observed(self) -> bool:
+        if self.pre_dispatch_handover_floor is not None:
+            return any(t>self.pre_dispatch_handover_floor for t in self.post_dispatch_trajectory_ids)
         return any(trajectory_id != self.prior_trajectory_id
                    for trajectory_id in self.post_dispatch_trajectory_ids)
 
@@ -81,6 +86,7 @@ class AgentAdoptionEvidence:
             "pre_dispatch_qn_source_trajectory_id":
                 self.pre_dispatch_qn_source_trajectory_id,
             "pre_dispatch_used_outer_step": self.pre_dispatch_used_outer_step,
+            "pre_dispatch_handover_floor": self.pre_dispatch_handover_floor,
             "post_dispatch_trajectory_ids": list(self.post_dispatch_trajectory_ids),
             "qn_source_trajectory_ids": list(self.qn_source_trajectory_ids),
             "adopted_trajectory_id": self.adopted_trajectory_id,
@@ -156,6 +162,20 @@ class TrajectoryAdoptionTracker:
         self._last_seen: Dict[int, Tuple[Optional[int], Optional[int]]] = {}
 
     # -- observation -------------------------------------------------------
+    def note_reference_handover(self,agent_id:int,retired_id:int,used_outer_step:int):
+        """A confirmed CPP floor is not a claim that qn used that AIR id.
+
+        qn may still be holding a PLATFORM reference. Preserve its actual model
+        step while recording the independent planner counter boundary.
+        """
+        if self.dispatch_ros_time_s is not None:
+            raise ValueError('handover boundary must precede dispatch')
+        if agent_id not in self.evidence or retired_id<0 or used_outer_step<0:
+            raise ValueError('invalid handover evidence')
+        evidence=self.evidence[agent_id]
+        evidence.pre_dispatch_handover_floor=retired_id
+        evidence.pre_dispatch_used_outer_step=used_outer_step
+
     def note_position_command(self, agent_id: int, trajectory_id: int,
                               stamp_s: float, ros_time_s: float) -> None:
         if agent_id not in self.evidence:
@@ -198,7 +218,8 @@ class TrajectoryAdoptionTracker:
         already_adopted = evidence.adopted_trajectory_id is not None
         if already_adopted:
             return
-        is_new = source_trajectory_id != prior_id
+        is_new = (source_trajectory_id > prior_id if evidence.pre_dispatch_handover_floor is not None
+                  else source_trajectory_id != prior_id)
         owned = source_trajectory_id in evidence.post_dispatch_trajectory_ids
         advanced = pre_step is None or used_outer_step > pre_step
         if is_new and owned and advanced:

@@ -89,7 +89,7 @@ def main():
                 resource_lock=bool(result and result.resource_locked == args.cancel),
                 medium_evidence=('WATER' in modes if args.cancel else {'AIR','TRANSITION','WATER'}<=modes),
                 time_consistent=drift<=.05,
-                single_generation=len({r['reference_generation'] for r in active})==1,
+                reference_generation_count=len({r['reference_generation'] for r in active})==(2 if args.cancel else 1),
                 native_reference_persists=final.get('reference_source')=='PLATFORM')
     report={'scope':'single qn native fragment qualification; not full Swarm/request/fleet acceptance',
             'checks':checks,'passed':all(checks.values()),'action_status':status,

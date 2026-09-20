@@ -46,6 +46,8 @@ class CommandSnapshot:
     velocity: Vector3
     acceleration: Vector3
     yaw_rad: float
+    reference_source: str = "AIR_SWARM"
+    reference_generation: int = 0
 
     def __post_init__(self):
         if not self.agent_id:

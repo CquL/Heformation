@@ -34,6 +34,7 @@ from qn_aav_simulator.contracts import (
 )
 from qn_aav_simulator.qn_python_backend import QnPythonClosedLoopBackend
 from qn_aav_simulator.odometry import ros_odometry_fields
+from qn_aav_simulator.platform_execution import DomainHistory
 from qn_aav_simulator.qn_telemetry import (
     CommandAdoptionBuffer,
     CommandSnapshot,
@@ -47,6 +48,10 @@ class QnAavNode:
     def __init__(self):
         self.drone_id = int(rospy.get_param("~drone_id", 0))
         self.agent_id = "drone_{}".format(self.drone_id)
+        self.world_frame = str(rospy.get_param("~world_frame", "world"))
+        if not self.world_frame:
+            raise ValueError("world_frame must be declared")
+        self.domain_history = DomainHistory()
         # One authoritative outer-step configuration.  The control rate is
         # derived from it, so no second rate parameter can disagree with it.
         self.outer_dt_s = float(rospy.get_param("~outer_dt_s", 0.01))
@@ -142,6 +147,8 @@ class QnAavNode:
                                      message.acceleration.z)),
             "yaw_rad": float(message.yaw),
             "received_ros_time_s": rospy.Time.now().to_sec(),
+            "reference_source": "AIR_SWARM",
+            "reference_generation": self.platform_action.owner.generation if self.platform_action else 0,
         }
         self.commands.note(snapshot_fields)
         with self.lock:
@@ -168,6 +175,8 @@ class QnAavNode:
             velocity=adopted["velocity"],
             acceleration=adopted["acceleration"],
             yaw_rad=adopted["yaw_rad"],
+            reference_source=adopted.get("reference_source", "AIR_SWARM"),
+            reference_generation=adopted.get("reference_generation", 0),
         )
 
     # -- control loop ------------------------------------------------------
@@ -225,6 +234,8 @@ class QnAavNode:
                 velocity=latest["velocity"],
                 acceleration=latest["acceleration"],
                 yaw_rad=latest["yaw_rad"],
+                reference_source=latest.get("reference_source", "INITIAL_HOLD"),
+                reference_generation=latest.get("reference_generation", 0),
             )
         usage = self.usage.record(snapshot, dt_s, self.clock.model_time_s)
         command = ControlCmd(
@@ -236,6 +247,7 @@ class QnAavNode:
             desired_velocity=usage.velocity,
             desired_acceleration=snapshot.acceleration,
             desired_yaw_rad=snapshot.yaw_rad,
+            frame_id=self.world_frame,
         )
         result = self.backend.step(
             PlantStepInput(
@@ -265,6 +277,8 @@ class QnAavNode:
             medium_flag=result.medium_flag,
         )
         self._latch_air_domain()
+        if self.platform_action is not None:
+            self.platform_action.note_adopted(snapshot)
         self.publish(now, usage, result, model_time_s, integration_step_s)
 
     def _latch_air_domain(self):
@@ -277,10 +291,12 @@ class QnAavNode:
         """
         height = float(self.state.position[2])
         flag = float(self.state.medium_flag or 0.0)
-        self.min_height_m = min(self.min_height_m, height)
-        self.max_medium_flag = max(self.max_medium_flag, flag)
-        if flag > 0.0 or height < self.air_floor_m:
-            self.air_domain_violation = True
+        allowed = (self.platform_action.allowed_modes() if self.platform_action
+                   else frozenset({'AIR'}))
+        self.domain_history.observe(height, flag, allowed, self.air_floor_m)
+        self.min_height_m = self.domain_history.min_height
+        self.max_medium_flag = self.domain_history.max_medium
+        self.air_domain_violation = self.domain_history.air_violation
 
     @property
     def air_floor_m(self):
@@ -290,7 +306,7 @@ class QnAavNode:
     # -- publication -------------------------------------------------------
     def _fill_pose(self, message, stamp, fields):
         message.header.stamp = stamp
-        message.header.frame_id = "world"
+        message.header.frame_id = self.world_frame
         message.pose.pose.position.x = fields.position[0]
         message.pose.pose.position.y = fields.position[1]
         message.pose.pose.position.z = fields.position[2]
@@ -345,7 +361,7 @@ class QnAavNode:
 
         pose = PoseStamped()
         pose.header.stamp = stamp
-        pose.header.frame_id = "world"
+        pose.header.frame_id = self.world_frame
         pose.pose.position.x, pose.pose.position.y, pose.pose.position.z = reference_position
         # The used reference attitude is a yaw-only rotation: the task boundary
         # commands yaw and holds roll/pitch at zero.
@@ -355,7 +371,7 @@ class QnAavNode:
 
         twist = TwistStamped()
         twist.header.stamp = stamp
-        twist.header.frame_id = "world"
+        twist.header.frame_id = self.world_frame
         twist.twist.linear.x, twist.twist.linear.y, twist.twist.linear.z = reference_velocity
         self.used_twist_pub.publish(twist)
 
@@ -415,6 +431,12 @@ class QnAavNode:
         ]
         if self.platform_action is not None:
             entries.extend(self.platform_action.diagnostics())
+            entries.extend([
+                ("domain_policy_version", "1"),
+                ("air_scope_min_height_m", repr(self.domain_history.air_min_height)),
+                ("air_scope_max_medium_flag", repr(self.domain_history.air_max_medium)),
+                ("domain_violation", str(self.domain_history.violation).lower()),
+                ("domain_first_violation", self.domain_history.first_violation)])
         status = DiagnosticStatus()
         status.name = "{}/qn_reference".format(self.agent_id)
         status.hardware_id = self.agent_id

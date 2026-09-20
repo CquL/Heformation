@@ -19,7 +19,7 @@ docker run --rm --init \
       sleep .25
     done
     python3 /workspace/src/src/qn_aav_simulator/scripts/qn_aav_node.py \
-      __name:=qualification_qn _init_z:=0.5 _enable_platform_action:=true \
+      __name:=qualification_qn _init_z:=0.5 _world_frame:=map _enable_platform_action:=true \
       _qualification_only:=true _water_guidance_mode:=LOS_VELOCITY_REFERENCE \
       _water_horizontal_controller_mode:=LOS_SURGE_YAW > /evidence/qn.log 2>&1 &
     qn=$!

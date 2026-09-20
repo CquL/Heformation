@@ -14,6 +14,57 @@ def actual_mode(flag):
     return 'AIR' if flag == 0 else 'WATER' if flag == 1 else 'TRANSITION'
 
 
+class DomainHistory:
+    """Historical physical facts and violations of the authorized phase differ.
+
+    Entry/exit authorization comes from an accepted local segment, never from
+    a request to change reference source alone. Violations never reset.
+    """
+    def __init__(self):
+        self.min_height=float('inf')
+        self.max_medium=0.
+        self.air_min_height=float('inf')
+        self.air_max_medium=0.
+        self.air_violation=False
+        self.violation=False
+        self.first_violation=''
+
+    def observe(self,height,flag,allowed_modes,air_floor=None):
+        mode=actual_mode(flag)
+        finite=math.isfinite(height)
+        if finite:self.min_height=min(self.min_height,height)
+        if mode!='UNKNOWN':self.max_medium=max(self.max_medium,flag)
+        if allowed_modes==frozenset({'AIR'}):
+            if finite:self.air_min_height=min(self.air_min_height,height)
+            if mode!='UNKNOWN':self.air_max_medium=max(self.air_max_medium,flag)
+        bad_air_height=(air_floor is not None and allowed_modes==frozenset({'AIR'}) and height<air_floor)
+        if not finite or mode not in allowed_modes or bad_air_height:
+            self.violation=True
+            if allowed_modes==frozenset({'AIR'}):self.air_violation=True
+            if not self.first_violation:
+                self.first_violation='actual {} outside accepted {}'.format(mode,','.join(sorted(allowed_modes)))
+
+
+class PlannerAcknowledgement:
+    """Fresh ACK of the exact source/epoch, on existing local diagnostics."""
+    def __init__(self):
+        self.values={}
+        self.received_at=None
+        self.latched=False
+
+    def note(self,values,received_at):
+        self.latched=self.latched or values.get('latched')=='true'
+        self.values=dict(values)
+        self.received_at=received_at
+
+    def matches(self,generation,paused,now,timeout):
+        if self.received_at is None or self.latched or not 0<=now-self.received_at<=timeout:
+            return False
+        return (self.values.get('handover_enabled')=='true' and
+                self.values.get('reference_generation')==str(generation) and
+                self.values.get('ordinary_reference_paused')==str(paused).lower())
+
+
 class ReferenceOwnership:
     SOURCES = frozenset(('AIR_SWARM','PLATFORM'))
 
@@ -53,6 +104,11 @@ class ReferenceOwnership:
             self.locked=True
         # Keep the current source/reference until a valid successor takes over.
         return True
+
+    def latch_fault(self):
+        if not self.locked:
+            self.generation += 1
+            self.locked = True
 
     def accepts(self, source, generation):
         return source == self.source and generation == self.generation

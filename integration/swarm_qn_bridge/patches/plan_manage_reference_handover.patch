@@ -1,0 +1,224 @@
+--- a/src/planner/plan_manage/include/plan_manage/ego_replan_fsm.h
++++ b/src/planner/plan_manage/include/plan_manage/ego_replan_fsm.h
+@@ -134,6 +134,15 @@
+     void latchSafetyHold(const std::string &reason);
+     void publishSafetyStatus();
+     bool ordinaryReferenceAllowed();
++    // Normal ownership handover is independent of irreversible safety_hold.
++    bool reference_handover_enabled_ = false, reference_context_known_ = false;
++    bool ordinary_reference_paused_ = false;
++    unsigned int reference_generation_ = 0;
++    unsigned long reference_commit_epoch_ = 0;
++    int reference_floor_id_ = 0;
++    ros::Time reference_context_time_, ordinary_goal_after_;
++    ros::Subscriber reference_context_sub_;
++    void referenceContextCallback(const diagnostic_msgs::DiagnosticArrayConstPtr &);
+     // result file and file name
+     string result_fn_;
+     fstream result_file_;
+--- a/src/planner/plan_manage/src/ego_replan_fsm.cpp
++++ b/src/planner/plan_manage/src/ego_replan_fsm.cpp
+@@ -80,6 +80,9 @@
+ 
+     poly_traj_pub_ = nh.advertise<traj_utils::PolyTraj>("planning/trajectory", 10);
+     nh.param("fsm/safety_hold_enabled", safety_hold_enabled_, false);
++    nh.param("fsm/reference_handover_enabled", reference_handover_enabled_, false);
++    if (reference_handover_enabled_ && !safety_hold_enabled_)
++      throw std::runtime_error("reference handover requires existing safety diagnostics");
+     if (safety_hold_enabled_)
+     {
+       nh.param("fsm/safety_cloud_timeout", safety_cloud_timeout_, 3.0);
+@@ -87,6 +90,9 @@
+       if (safety_cloud_timeout_ <= 0 || safety_odom_timeout_ <= 0)
+         throw std::runtime_error("invalid safety hold freshness limits");
+       const std::string prefix = "/drone_" + std::to_string(planner_manager_->pp_.drone_id);
++      if (reference_handover_enabled_)
++        reference_context_sub_ = nh.subscribe(prefix + "_qn/diagnostics", 1,
++                                             &EGOReplanFSM::referenceContextCallback, this);
+       safety_status_pub_ = nh.advertise<diagnostic_msgs::DiagnosticArray>(prefix + "_planning/safety_status", 1, true);
+       safety_hold_service_ = nh.advertiseService(prefix + "_planning/safety_hold", &EGOReplanFSM::safetyHoldRequest, this);
+       safety_cloud_sub_ = nh.subscribe(prefix + "_pcl_render_node/cloud", 1, &EGOReplanFSM::safetyCloudCallback, this);
+@@ -151,6 +157,7 @@
+ 
+   void EGOReplanFSM::execFSMCallback(const ros::TimerEvent &e)
+   {
++    std::lock_guard<std::recursive_mutex> context_guard(reference_mutex_);
+     if (!ordinaryReferenceAllowed()) return;
+     exec_timer_.stop(); // To avoid blockage
+ 
+@@ -313,6 +320,7 @@
+ 
+   void EGOReplanFSM::checkCollisionCallback(const ros::TimerEvent &e)
+   {
++    std::lock_guard<std::recursive_mutex> context_guard(reference_mutex_);
+     if (!ordinaryReferenceAllowed()) return;
+ 
+     LocalTrajData *info = &planner_manager_->traj_.local_traj;
+@@ -418,6 +426,8 @@
+ 
+   void EGOReplanFSM::waypointCallback(const geometry_msgs::PoseStampedPtr &msg)
+   {
++    std::lock_guard<std::recursive_mutex> context_guard(reference_mutex_);
++    if (reference_handover_enabled_ && msg->header.stamp <= ordinary_goal_after_) return;
+     if (!ordinaryReferenceAllowed()) return;
+     safety_hold_armed_ = true;
+     if (msg->pose.position.z < -0.1)
+@@ -667,6 +677,9 @@
+   
+   void EGOReplanFSM::formationWaypointCallback(const geometry_msgs::PoseStampedPtr &msg)
+   {
++    std::lock_guard<std::recursive_mutex> context_guard(reference_mutex_);
++    if (reference_handover_enabled_ && msg->header.stamp <= ordinary_goal_after_) return;
++    const auto context_epoch = reference_commit_epoch_;
+     if (!ordinaryReferenceAllowed()) return;
+     safety_hold_armed_ = true;
+     if (msg->pose.position.z < -0.1)
+@@ -711,6 +724,8 @@
+         odom_pos_, odom_vel_, Eigen::Vector3d::Zero(),
+         one_pt_wps, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
+ 
++    if (!ordinaryReferenceAllowed() || context_epoch != reference_commit_epoch_) return;
++
+     visualization_->displayGoalPoint(end_pt_, Eigen::Vector4d(0, 0.5, 0.5, 1), 0.3, 0);
+ 
+     if (success)
+@@ -753,7 +768,7 @@
+   bool EGOReplanFSM::publishStationaryReference()
+   {
+     std::lock_guard<std::recursive_mutex> guard(reference_mutex_);
+-    if (safety_hold_latched_) return true;
++    if (!ordinaryReferenceAllowed()) return true;
+     if (!member_entry_enabled_ || !have_odom_ ||
+         (end_pt_ - odom_pos_).norm() >= 0.1 || odom_vel_.norm() >= 0.1)
+       return false;
+@@ -773,6 +788,9 @@
+ 
+   void EGOReplanFSM::memberWaypointCallback(const geometry_msgs::PoseStampedPtr &msg)
+   {
++    std::lock_guard<std::recursive_mutex> context_guard(reference_mutex_);
++    if (reference_handover_enabled_ && msg->header.stamp <= ordinary_goal_after_) return;
++    const auto context_epoch = reference_commit_epoch_;
+     if (!ordinaryReferenceAllowed()) return;
+     safety_hold_armed_ = true;
+     if (msg->pose.position.z < -0.1)
+@@ -799,6 +817,8 @@
+         odom_pos_, odom_vel_, Eigen::Vector3d::Zero(),
+         one_pt_wps, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
+ 
++    if (!ordinaryReferenceAllowed() || context_epoch != reference_commit_epoch_) return;
++
+     visualization_->displayGoalPoint(end_pt_, Eigen::Vector4d(0, 0.5, 0.5, 1), 0.3, 0);
+ 
+     if (success)
+@@ -923,6 +943,8 @@
+ 
+   bool EGOReplanFSM::callReboundReplan(bool flag_use_poly_init, bool flag_randomPolyTraj, bool use_formation)
+   {
++    std::lock_guard<std::recursive_mutex> context_guard(reference_mutex_);
++    const auto context_epoch = reference_commit_epoch_;
+     if (!ordinaryReferenceAllowed()) return false;
+ 
+     planner_manager_->getLocalTarget(
+@@ -960,7 +982,7 @@
+       traj_utils::PolyTraj msg;
+       polyTraj2ROSMsg(msg);
+       std::lock_guard<std::recursive_mutex> guard(reference_mutex_);
+-      if (safety_hold_latched_) return false;
++      if (!ordinaryReferenceAllowed() || context_epoch != reference_commit_epoch_) return false;
+       poly_traj_pub_.publish(msg);
+       broadcast_ploytraj_pub_.publish(msg);
+       have_local_traj_ = true;
+@@ -972,7 +994,7 @@
+   bool EGOReplanFSM::callEmergencyStop(Eigen::Vector3d stop_pos)
+   {
+     std::lock_guard<std::recursive_mutex> guard(reference_mutex_);
+-    if (safety_hold_latched_) return false;
++    if (!ordinaryReferenceAllowed()) return false;
+     planner_manager_->EmergencyStop(stop_pos);
+ 
+     traj_utils::PolyTraj msg;
+@@ -985,7 +1007,50 @@
+   bool EGOReplanFSM::ordinaryReferenceAllowed()
+   {
+     std::lock_guard<std::recursive_mutex> guard(reference_mutex_);
+-    return !safety_hold_latched_;
++    if (safety_hold_latched_) return false;
++    if (!reference_handover_enabled_) return true;
++    const double age = (ros::Time::now() - reference_context_time_).toSec();
++    return reference_context_known_ && !ordinary_reference_paused_ &&
++           age >= 0.0 && age <= safety_odom_timeout_;
++  }
++
++  void EGOReplanFSM::referenceContextCallback(const diagnostic_msgs::DiagnosticArrayConstPtr &msg)
++  {
++    std::lock_guard<std::recursive_mutex> guard(reference_mutex_);
++    const double age = (ros::Time::now() - msg->header.stamp).toSec();
++    if (msg->header.stamp.isZero() || age < 0.0 || age > safety_odom_timeout_ ||
++        msg->header.stamp < reference_context_time_) return;
++    std::string source, generation;
++    const std::string member = "drone_" + std::to_string(planner_manager_->pp_.drone_id);
++    for (const auto &status : msg->status)
++      if (status.hardware_id == member)
++        for (const auto &entry : status.values)
++        {
++          if (entry.key == "requested_reference_source") source = entry.value;
++          if (entry.key == "reference_generation") generation = entry.value;
++        }
++    if (source != "AIR_SWARM" && source != "PLATFORM") return;
++    unsigned int next;
++    try { next = std::stoul(generation); } catch (...) { return; }
++    if (reference_context_known_ && next < reference_generation_) return;
++    const bool paused = source != "AIR_SWARM";
++    if (reference_context_known_ && next == reference_generation_ &&
++        paused != ordinary_reference_paused_) return;
++    reference_context_time_ = msg->header.stamp;
++    if (!reference_context_known_ || next != reference_generation_)
++    {
++      ++reference_commit_epoch_;
++      reference_generation_ = next;
++      ordinary_reference_paused_ = paused;
++      reference_floor_id_ = planner_manager_->traj_.local_traj.traj_id;
++      ordinary_goal_after_ = msg->header.stamp;
++      // A subsequent AIR goal must plan from current odometry, not old local
++      // trajectory continuation. Keep trajectory ids and fault history intact.
++      have_target_ = have_new_target_ = have_local_traj_ = false;
++      if (!safety_hold_latched_) changeFSMExecState(WAIT_TARGET, "REFERENCE_HANDOVER");
++      reference_context_known_ = true;
++      publishSafetyStatus();
++    }
+   }
+ 
+   void EGOReplanFSM::safetyCloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg)
+@@ -1037,7 +1102,11 @@
+ 
+   void EGOReplanFSM::safetyHoldTick(const ros::WallTimerEvent &)
+   {
+-    if (safety_hold_armed_ && !last_safety_cloud_.isZero() &&
++    std::lock_guard<std::recursive_mutex> guard(reference_mutex_);
++    if (reference_handover_enabled_ && reference_context_known_ &&
++        (ros::Time::now() - reference_context_time_).toSec() > safety_odom_timeout_)
++      latchSafetyHold("LOCAL_REFERENCE_CONTEXT_STALE");
++    if (!ordinary_reference_paused_ && safety_hold_armed_ && !last_safety_cloud_.isZero() &&
+         (ros::Time::now() - last_safety_cloud_).toSec() > safety_cloud_timeout_)
+       latchSafetyHold("LOCAL_CLOUD_STALE");
+     publishSafetyStatus();
+@@ -1045,6 +1114,7 @@
+ 
+   void EGOReplanFSM::publishSafetyStatus()
+   {
++    std::lock_guard<std::recursive_mutex> guard(reference_mutex_);
+     diagnostic_msgs::DiagnosticArray array;
+     array.header.stamp = ros::Time::now();
+     diagnostic_msgs::DiagnosticStatus status;
+@@ -1057,6 +1127,11 @@
+     };
+     auto number = [](double value) { std::ostringstream stream; stream << std::setprecision(17) << value; return stream.str(); };
+     add("latched", safety_hold_latched_ ? "true" : "false");
++    add("handover_enabled", reference_handover_enabled_ ? "true" : "false");
++    add("ordinary_reference_paused", ordinary_reference_paused_ ? "true" : "false");
++    add("reference_generation", std::to_string(reference_generation_));
++    add("reference_floor_id", std::to_string(reference_floor_id_));
++    add("last_native_trajectory_id", std::to_string(planner_manager_->traj_.local_traj.traj_id));
+     add("armed", safety_hold_armed_ ? "true" : "false");
+     add("reason", safety_reason_);
+     add("latched_at_s", number(safety_latched_at_.toSec()));

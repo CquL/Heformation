@@ -43,6 +43,8 @@ RUN patch -p1 -d /workspace/src \
       < /tmp/swarm_qn_patches/plan_manage_stationary_goal.patch
 RUN patch -p1 -d /workspace/src \
       < /tmp/swarm_qn_patches/plan_manage_safety_hold.patch
+RUN patch -p1 -d /workspace/src \
+      < /tmp/swarm_qn_patches/plan_manage_reference_handover.patch
 
 # matplotlib is in the base image but its Tk bindings are not, so the live
 # dashboard could only publish images.  This layer adds them; nothing else in

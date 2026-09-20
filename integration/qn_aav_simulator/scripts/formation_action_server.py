@@ -404,6 +404,17 @@ class FormationActionServer:
             self.max_diagnostics_callback_lag_s = max(
                 self.max_diagnostics_callback_lag_s, received - stamp)
             self.qn_source[agent_id] = {
+                "reference_source": values.get("reference_source", "AIR_SWARM"),
+                "requested_reference_source": values.get("requested_reference_source", "AIR_SWARM"),
+                "reference_handover_enabled": values.get("reference_handover_enabled", "false"),
+                "reference_generation": values.get("reference_generation", "0"),
+                "reference_air_floor_id": values.get("reference_air_floor_id", "-1"),
+                "reference_context_ready": values.get("reference_context_ready", "false"),
+                "reference_active": values.get("reference_active", "false"),
+                "reference_goal_id": values.get("reference_goal_id", ""),
+                "platform_action_active": values.get("platform_action_active", "false"),
+                "platform_resource_locked": values.get("platform_resource_locked", "false").lower(),
+                "actual_mode": values.get("actual_mode", "AIR"),
                 "source_trajectory_id": int(values.get("source_trajectory_id", -1)),
                 "used_outer_step": int(values.get("used_outer_step", -1)),
                 "source_command_stamp": float(values.get("source_command_stamp", "nan")),
@@ -461,8 +472,9 @@ class FormationActionServer:
                 return default
             return value if math.isfinite(value) else default
 
-        flag = number("max_medium_flag")
-        height = number("min_height_m")
+        scoped=values.get("domain_policy_version")=="1"
+        flag = number("air_scope_max_medium_flag" if scoped else "max_medium_flag")
+        height = number("air_scope_min_height_m" if scoped else "min_height_m")
         floor = number("air_floor_m")
         if floor is not None:
             self.air_floor_m = floor
@@ -515,7 +527,8 @@ class FormationActionServer:
             source = self.qn_source.get(agent_id)
         if trajectory is not None:
             tracker.note_position_command(agent_id, trajectory[0], trajectory[1], now_s)
-        if source is not None and source["source_trajectory_id"] >= 0:
+        if (source is not None and source["source_trajectory_id"] >= 0
+                and source.get("reference_source", "AIR_SWARM")=="AIR_SWARM"):
             tracker.note_qn_source(
                 agent_id, source["source_trajectory_id"], source["used_outer_step"],
                 source["ros_time_s"], source["source_command_stamp"])
@@ -754,6 +767,8 @@ class FormationActionServer:
         snapshot["planner_health"] = planner_health
         snapshot["runtime_health"] = health
         reasons = []
+        reference_reason=self._reference_dispatch_block()
+        if reference_reason:reasons.append(reference_reason)
         if not status.ready:
             reasons.append(status.reason)
         if getattr(self, "safety_hold_enabled", False):
@@ -875,6 +890,9 @@ class FormationActionServer:
         # The same boundary orders cancellation, local latch and terminal commit.
         with getattr(self, "terminal_lock", self.lock):
             safety_block = None
+            reference_block=self._reference_dispatch_block()
+            if reference_block:
+                self.state_machine.note_readiness(False)
             if getattr(self, "safety_hold_enabled", False):
                 safety_block = self._safety_dispatch_block()
                 if safety_block:
@@ -883,6 +901,8 @@ class FormationActionServer:
                 goal_handle.get_goal_id().id, validation_error=validation_error)
             if safety_block and not validation_error and status != ACCEPTED:
                 reason = safety_block
+            if reference_block and not validation_error and status != ACCEPTED:
+                reason = reference_block
         if status == ACCEPTED:
             goal_handle.set_accepted()
             self.work_queue.put(WorkItem(goal_handle, goal, received))
@@ -964,6 +984,67 @@ class FormationActionServer:
                         or not 0 <= now-status["stamp_s"] <= self.qn_state_timeout):
                     return "drone_{} safety status unavailable/stale".format(a)
         return None
+
+    def _reference_dispatch_block(self):
+        with self.lock:
+            for member in self.agent_ids:
+                row=self.qn_source.get(member,{})
+                if row.get('reference_handover_enabled')!='true':continue
+                if row.get('platform_resource_locked')=='true':
+                    return 'member {} local reference fault locked'.format(member)
+                if row.get('platform_action_active')=='true' or row.get('actual_mode')!='AIR':
+                    return 'member {} is executing a native segment or outside AIR'.format(member)
+                if row.get('reference_active')=='true' and row.get('reference_goal_id')!=self.state_machine.goal_id:
+                    return 'member {} reference belongs to another accepted Goal'.format(member)
+                if row.get('reference_context_ready')!='true':
+                    return 'member {} planner ownership confirmation unavailable'.format(member)
+        return None
+
+    def _claim_air_references(self,goal_id):
+        """Bounded local handover; ordinary goals are published only after ACK.
+
+        rosservice serializes the standard typed service response as YAML. This
+        is the existing bounded CLI-RPC approach used for safety requests, not
+        parsing control state from planner log messages.
+        """
+        import yaml
+        evidence=[]
+        deadline=time.monotonic()+10.
+        with self.lock:
+            enabled=[(m,dict(self.qn_source[m])) for m in self.agent_ids
+                     if self.qn_source.get(m,{}).get('reference_handover_enabled')=='true']
+        for member,row in enabled:
+            service='/drone_{}_qn_aav/take_reference'.format(member)
+            payload=yaml.safe_dump(dict(goal_id=goal_id,source='AIR_SWARM',
+                                       expected_generation=int(row['reference_generation'])))
+            process=subprocess.Popen(['rosservice','call',service,payload],
+                stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+            try:
+                output,error=process.communicate(timeout=max(.001,deadline-time.monotonic()))
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.communicate(timeout=1.)
+                raise RuntimeError('reference handover RPC timed out: '+service)
+            if process.returncode:
+                raise RuntimeError('reference handover RPC failed: '+error.decode(errors='replace'))
+            response=yaml.safe_load(output.decode())
+            if not response or response.get('accepted') is not True:
+                raise RuntimeError('reference handover refused: '+str(response))
+            generation=str(response['generation'])
+            while time.monotonic()<deadline and not rospy.is_shutdown():
+                with self.lock:current=dict(self.qn_source.get(member,{}))
+                if (current.get('reference_generation')==generation and
+                    current.get('requested_reference_source')=='AIR_SWARM' and
+                    current.get('reference_context_ready')=='true' and
+                    int(current.get('reference_air_floor_id',-1))>=0):
+                    evidence.append(dict(member=member,generation=int(generation),
+                                         retired_id=int(current['reference_air_floor_id']),
+                                         used_outer_step=current['used_outer_step'],
+                                         confirmed_at_s=rospy.Time.now().to_sec()))
+                    break
+                time.sleep(.01)
+            else:raise RuntimeError('planner did not acknowledge AIR handover')
+        return evidence
 
     def _safety_trigger(self, goal_id):
         if not getattr(self, "safety_hold_enabled", False):
@@ -1250,8 +1331,10 @@ class FormationActionServer:
     # ------------------------------------------------------------ execution
     def _run_task(self, work):
         goal = work.goal
+        handover=self._claim_air_references(work.goal_handle.get_goal_id().id)
         start = rospy.Time.now()
         diagnostics = self._new_diagnostics(work, start)
+        diagnostics['reference_handover']=handover
         self.executing_diagnostics = diagnostics
         monitor = GroupCompletionMonitor(
             diagnostics["formation_center"], goal.hold_duration.to_sec(), start.to_sec(),
@@ -1277,12 +1360,16 @@ class FormationActionServer:
                 if trajectory is not None:
                     adoption.note_position_command(agent_id, trajectory[0], trajectory[1],
                                                    rospy.Time.now().to_sec())
-                if source is not None and source["source_trajectory_id"] >= 0:
+                if (source is not None and source["source_trajectory_id"] >= 0 and
+                    source.get('reference_source','AIR_SWARM')=='AIR_SWARM'):
                     adoption.note_qn_source(
                         agent_id, source["source_trajectory_id"],
                         source["used_outer_step"], source["ros_time_s"],
                         source["source_command_stamp"])
             self.active_diagnostics = diagnostics
+
+        for boundary in handover:
+            adoption.note_reference_handover(boundary['member'],boundary['retired_id'],boundary['used_outer_step'])
 
         command = PoseStamped()
         command.header.frame_id = "world"

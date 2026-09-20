@@ -114,3 +114,16 @@ def test_a_broadcast_dispatch_records_the_single_topic():
     assert verdict.group_goal_publish_count == 1
     assert verdict.group_goal_topics == ("/move_base_simple/goal",)
     assert verdict.group_goal_authorized is True
+def test_handover_floor_records_step_without_pretending_native_reference_is_air():
+    from qn_aav_simulator.trajectory_adoption import TrajectoryAdoptionTracker
+    tracker=TrajectoryAdoptionTracker([0])
+    tracker.note_reference_handover(0,4,100)
+    tracker.begin_dispatch('new-air','goal',10.)
+    tracker.note_group_goal()
+    tracker.note_position_command(0,3,10.1,10.1)
+    tracker.note_qn_source(0,3,101,10.1,10.1)
+    assert tracker.verdict().state!='ADOPTED'
+    tracker.note_position_command(0,5,10.2,10.2)
+    tracker.note_qn_source(0,5,102,10.2,10.2)
+    assert tracker.verdict().state=='ADOPTED'
+    assert tracker.evidence[0].pre_dispatch_qn_source_trajectory_id is None
