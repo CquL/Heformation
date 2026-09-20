@@ -1,3 +1,51 @@
+## 2026-09-20 UTC — 可视化增量与README命令提交准备
+
+- 计划：按用户“先push到github”及“在readme加可视化仿真命令”，归档当前成果和失败，不继续扩展功能。
+- 实际：核对main与origin/main无分叉；重新运行模块套件319项通过（18.45s），Python/bash语法和diff空白检查通过。README加入五平台实时启动、yes确认、退出/归档、首次构建及资格实验边界；核实转换依赖的Stonefish原模型、纹理与许可已在版本库中。
+- 结果：本次提交源码、配置、文档与日志；原始bag、生成资源及用户未跟踪资料不纳入提交。保留harbor-r2各Action成功但全段时间审计FAIL，不能以模块测试或外观完成替代总验收。
+- 证据：README.md、docs/reviews/five-live-view-20260920.md、context/02与15；提交和远端SHA以随后git push及ls-remote核对结果为准。
+- 未完成/下一步：复杂场景时间一致性、请求模式/复合派发、预承诺会合、有限交付与复查；总目标保持未完成。
+
+## 2026-09-20 UTC — 港口动作Result通过但全段时间审计未通过；工作重点回到协同执行
+
+- 计划：核对港口实跑完整证据，回应用户“最终应是协同任务、是否直接3D入水”，不继续把外观改动当作总任务进展。
+- 实际：harbor-r2所需7项Action成功，缓存点云244248点的字节保持一致且时间戳更新；启动缺失标识/单点折线已修正。319项模块回归通过（15.29s）。独立bag审计仍为FAIL：全段模型/ROS偏差0.0795s、跨平台偏差0.0796s均超过原0.05s；采样完整且声明代理最小平台净距约1.5000m，静态场景几何未报违规。没有缩短统计区间或放宽阈值以改判。
+- 效果：当前显示的是固定动作资格测试，不是最终协同任务。AAV在约z=0.8m空中目标完成稳定后，原生ENTER_WATER垂直到-0.6m，水下约0.7m，再垂直EXIT_WATER；各片段含稳定验收。同一qn状态连续，但不是一般连续斜向跨水面的运动资格。五平台尚未按数据/资源依赖共同完成监测交付；场景母船模型不能替代中继行为。
+- 证据：harbor-r2/{five-integration.json,scene-audit.json,harbor-display-check.json}；asset-envelope-check.json；probe_swarm_roundtrip.py::fragment/run；platform_action.py::goal/tick；platform_execution.py::validate_fragment。
+- 未完成/下一步：停止继续扩充视觉资产；先定位并修正复杂场景的全段模型时间问题，同时继续现有runner的请求模式展开/完整候选/复合派发，然后接预承诺通信机会、有限交付与至多一轮复查。总目标未完成，新代码未提交。原r1/r2失败及显示退出错误均保留。
+
+## 2026-09-20 UTC — 核查Swarm复杂地图来源，复用本地船模并扩展近岸实体场景
+
+- 计划：按用户反馈替换母船/岩石占位方块，参考Swarm原复杂环境而非继续堆装饰文字；复用已有开源资源，不更换仿真器。
+- 实际：核对Swarm原normal_hexagon.launch，默认60柱/20环随机障碍，mockamap另有迷宫生成；它不是港口船模资源。复用本地Stonefish的aquadelmo.obj/texture与icosphere.obj，离线转换COLLADA、保留GPL许可/原文件哈希，不运行Stonefish。新增five_scene_harbor.yaml：岸壁、两段栈桥、礁石及母船包络均作为SOLID进入原点云/解析检查。显示船模按原海洋坐标翻转，所有顶点包含于声明母船安全包络；栈桥/岩石显示细节位于原包络内部。新可视化默认加载港口配置，原无窗口基线保持。
+- 结果：资源转换与脚本语法检查通过，港口配置实跑待验证。原r3的首个RViz进程在ROS关闭后被shell报告退出段错误，已保留原日志；重新打开的窗口与动力学运行未受影响，不将渲染器退出错误掩盖为正常退出。
+- 证据：upstream/Swarm-Formation/src/planner/plan_manage/launch/normal_hexagon.launch及map_generator；upstream/Stonefish/Tests/CameraTest/CameraTestManager.cpp、COPYING.txt；scripts/prepare_five_scene_assets.py及实验visual-assets/sources.json。
+- 未完成/下一步：实机核对纹理船模/中文港口场景和全部实际动作；此环境为声明式实验几何，不宣称原Swarm森林避障实验或完整五平台业务已通过。
+
+## 2026-09-20 UTC — 中文五平台实时复验通过，原失败与完成边界保留
+
+- 计划：核对中文短标识、原四旋翼、动作消息对账及显示生命周期，减少重复渲染工作；不放宽运动或时间验收条件。
+- 实际：r2原生片段最终为OBSERVATION_TIMEOUT_UNVERIFIED并锁定，实际已回AIR；首末模型/ROS相对偏差约0.143s，超过原0.05s。删除每帧DELETEALL，保留已有文字/材质，仅清理过期Marker。修复观察者漏Goal时从Result任务身份补齐与旧Result排序，受控回调检查通过，没有往控制端注入消息。chinese-r3重新整链确认运行，7项所需动作均SUCCEEDED，片段相对时间偏差约0.0329s。关闭RViz后模型17027→17047步持续推进，再只重开显示。
+- 结果：三机原mesh、15条短中文标签、USV/UUV不同外形及中文五行原生动作结果均实机显示；字体与matplotlib兼容性修正已生效。用户旧三机场景在r3时已退出，因此不将此次通过作为r2负载问题的唯一因果证明。319项模块回归与修改脚本语法检查通过；相机配置调整只影响默认取景。
+- 证据：experiments/20260920-five-live/chinese-r3/{five-integration.json,live-summary.json,view-close-check.json,dashboard-final.jpg}；chinese-r2/display-message-check.json；docs/reviews/five-live-view-20260920.md；失败与旧截图保留。
+- 未完成/下一步：完整请求、AAV完整候选与复合派发、平台间在线约束、有限交付与复查仍在原计划内；本轮为用户要求的显示接线/精简，不宣称G3–G5完成。新代码尚未提交/推送。
+
+## 2026-09-20 UTC — 按用户反馈精简中文标识并恢复四旋翼模型
+
+- 计划：场景标签只保留直观名称，删除GoalID、诊断年龄、资源字段等长串；中文动作状态放既有dashboard，AAV恢复原四旋翼外形。
+- 实际：首轮可视化normal-r1确认前六端点状态列表均为空，确认后7项所需动作成功，且障碍/禁入区入口拒绝得到真实Result。用户指出英文文字遮挡，随即改为短中文标签，三台AAV直接显示原odom_visualization/robot网格；USV双体船与UUV鱼雷形状为显示示意，不更改碰撞代理/控制。新增中文字体配置仅挂载本次RViz容器，原镜像不改。侧边复用mission_dashboard读取逐Goal的原生状态/Result，旧结果不覆盖新动作，入口拒绝不替代正常作业行。
+- 结果：实机中文场景已清晰显示。首个中文dashboard因Noetic镜像matplotlib不支持FontManager.addfont启动失败，保留dashboard.log；改为直接FontProperties(fname=...)后dashboard-r2.log无错误，中文窗口可读。319项模块回归通过（20.83s）。新chinese-r2确认后运动验证继续。
+- 证据：experiments/20260920-five-live/{normal-r1,chinese-r2,chinese-preview.png,chinese-dashboard.png}；scene_publisher.py、mission_dashboard.py、five_qualification.rviz、five_view.fontdef。RViz原生字形加载依据：https://docs.ros.org/en/noetic/api/rviz/html/c++/movable__text_8cpp_source.html（setFontName默认增加0..999，本次字体资源只补短中文标签需要的码点）。
+- 未完成/下一步：收齐中文界面实跑Result并验证关闭可视化后动力学继续；完整请求、有限交付/复查和平台间在线约束依然未完成，不将显示标签升级为业务观测。
+
+## 2026-09-20 UTC — 公共障碍场景与五平台实时入口开始接线
+
+- 计划：响应用户要求，将已有公共场景与五平台实际状态显示到同一实时入口，明确现有障碍和未完成业务。
+- 实际：在既有scene_publisher中增加可选被动Marker视图，显示实体/禁入区、水面/海底、声明作业点及五实例实际状态/轨迹和收到的Action结果；不向控制链发布新目标，不由位置推导任务成功。五实例现有脚本增加VISUALIZE=true、预览说明与yes确认门，关闭RViz不停止执行，Ctrl+C才结束整链。原无窗口入口保持。
+- 效果：补展示接线，不将固定资格动作称为任务调度/业务观测/中继复查。独立真值视图明确标注，母船和目标为声明位置，不是假造业务结果。码头/岩石沿用实际点云，禁入区和海底沿用既有几何检查。
+- 证据：scene_publisher.py、five_qualification.rviz、five_qualification.launch、docker_probe_five_qualification.sh；Python/bash语法与diff检查通过，实时运行验证待做。当前存在用户启动的旧容器，保持其运行，不擅自终止。
+- 未完成/下一步：核对确认前无Goal、真实画面/状态更新、正常动作Result与关闭UI后继续；随后继续完整任务/有限交付/复查及在线平台间约束，不能用展示代替G3–G5完成。
+
 ## 2026-09-20 UTC — 阶段核对与main提交准备
 
 - 计划：响应用户“现在进行到什么阶段了，push到github”，归档当前增量，不扩展实施范围。

@@ -1,0 +1,32 @@
+# Explicit nearshore experiment, not surveyed terrain or vessel specifications.
+# Same native models/tasks as five_scene.yaml; added physical static geometry.
+# Mother-ship visual: vendored Stonefish aquadelmo, NED -> ENU at the marker.
+scene:
+  geometry_enabled: true
+  topic: /scene/global_cloud
+  frame_id: world
+  surface_z_m: 0.0
+  seabed_z_m: -6.0
+  required_clearance_m: 0.2
+  resolution: 0.2
+  obstacle_present: true
+  obstacle_center: [-18.0, 0.0, -1.0]
+  obstacle_size: [2.0, 2.0, 4.0]
+  objects:
+    - {id: pier, kind: SOLID, center: [-18.0, 0.0, -1.0], size: [2.0, 2.0, 4.0], appearance: jetty}
+    - {id: rock, kind: SOLID, center: [6.0, 1.0, -3.0], size: [2.0, 2.0, 2.0], appearance: rock}
+    - {id: exclusion, kind: FORBIDDEN, center: [-12.0, 10.0, -2.0], size: [2.0, 2.0, 8.0]}
+    - {id: quay, kind: SOLID, center: [-7.0, 15.5, -1.5], size: [52.0, 3.0, 9.0], appearance: quay}
+    - {id: jetty_west, kind: SOLID, center: [-18.0, 10.0, -2.5], size: [2.0, 8.0, 7.0], appearance: jetty}
+    - {id: jetty_east, kind: SOLID, center: [14.0, 10.0, -2.5], size: [2.0, 8.0, 7.0], appearance: jetty}
+    - {id: reef_west, kind: SOLID, center: [-8.0, -3.0, -4.5], size: [3.0, 3.0, 3.0], appearance: rock}
+    - {id: reef_east, kind: SOLID, center: [10.0, 2.0, -4.5], size: [3.0, 2.0, 3.0], appearance: rock}
+    - {id: reef_outer, kind: SOLID, center: [19.0, 6.0, -4.5], size: [3.0, 3.0, 3.0], appearance: rock}
+    # Encloses all original visual vertices after (x,y,z)->(x,-y,-z).
+    - {id: mother_ship_hull, kind: SOLID, center: [14.403096, -8.0, 0.285414], size: [7.891588, 2.186304, 1.731388], appearance: mother_ship}
+  mother_ship_position: [15.0, -8.0, 0.0]
+  transition_sites: [{id: aav_entry, position: [-28.0, 6.0, 0.0]}]
+  observation_targets:
+    - {id: air_overview, position: [-28.0, 4.0, 0.8], domain: AIR}
+    - {id: underwater_sample, position: [0.0, 8.0, -2.0], domain: WATER}
+  visual_assets: /experiments/assets

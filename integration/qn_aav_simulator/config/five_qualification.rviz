@@ -1,0 +1,87 @@
+Panels:
+- Class: rviz/Displays
+  Name: Displays
+- Class: rviz/Views
+  Name: Views
+Visualization Manager:
+  Class: ''
+  Displays:
+  - Class: rviz/MarkerArray
+    Name: 场景与实际轨迹
+    Enabled: true
+    Marker Topic: /scene/view
+    Queue Size: 2
+  - Class: rviz/PointCloud2
+    Name: 安全几何（体素）
+    Enabled: false
+    Topic: /scene/global_cloud
+    Color Transformer: FlatColor
+    Position Transformer: XYZ
+    Color: 255; 150; 60
+    Style: Points
+    Size (Pixels): 2
+    Queue Size: 1
+  - Class: rviz/Marker
+    Name: 无人机1
+    Enabled: true
+    Marker Topic: /drone_0_odom_visualization/robot
+  - Class: rviz/Marker
+    Name: 无人机2
+    Enabled: true
+    Marker Topic: /drone_1_odom_visualization/robot
+  - Class: rviz/Marker
+    Name: 无人机3
+    Enabled: true
+    Marker Topic: /drone_2_odom_visualization/robot
+  - Class: rviz/Grid
+    Name: 海面网格（米）
+    Enabled: true
+    Alpha: 0.2
+    Cell Size: 2
+    Plane Cell Count: 40
+    Color: 90; 125; 150
+    Reference Frame: world
+  Global Options:
+    Background Color: 18; 28; 40
+    Fixed Frame: world
+    Frame Rate: 15
+  Tools:
+  - Class: rviz/MoveCamera
+  - Class: rviz/Interact
+  - Class: rviz/Select
+  - Class: rviz/FocusCamera
+  Views:
+    Current:
+      Class: rviz/Orbit
+      Name: Five platform overview
+      Target Frame: <Fixed Frame>
+      Distance: 65.0
+      Focal Point: {X: -9.0, Y: 0.0, Z: -1.0}
+      Pitch: 1.05
+      Yaw: 4.71
+      Near Clip Distance: 0.01
+      Field of View: 0.785398
+    Saved:
+    - Class: rviz/Orbit
+      Name: 母船近景
+      Target Frame: <Fixed Frame>
+      Distance: 16.0
+      Focal Point: {X: 14.4, Y: -8.0, Z: 0.4}
+      Pitch: 0.55
+      Yaw: 0.8
+      Near Clip Distance: 0.01
+      Field of View: 0.785398
+    - Class: rviz/Orbit
+      Name: 跨介质作业区
+      Target Frame: <Fixed Frame>
+      Distance: 18.0
+      Focal Point: {X: -27.0, Y: 6.0, Z: 0.0}
+      Pitch: 0.65
+      Yaw: 4.71
+      Near Clip Distance: 0.01
+      Field of View: 0.785398
+Window Geometry:
+  Width: 1750
+  Height: 950
+  X: 15
+  Y: 25

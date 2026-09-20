@@ -3,6 +3,8 @@
        world: common ENU origin, sea level z=0. PVS keeps native NED dynamics. -->
   <arg name="output_dir" default="/experiments/current"/>
   <arg name="scene_file" default="$(find qn_aav_simulator)/config/five_scene.yaml"/>
+  <arg name="visualize" default="false"/>
+  <param name="scene_publisher/visualize" value="$(arg visualize)"/>
   <include file="$(find qn_aav_simulator)/launch/swarm_roundtrip.launch">
     <arg name="output_dir" value="$(arg output_dir)"/>
     <arg name="transition_fault_behavior" value="COMPLETE_ACCEPTED_VERTICAL_SEGMENT"/>

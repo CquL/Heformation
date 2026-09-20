@@ -27,6 +27,7 @@ import json
 import sys
 import threading
 import textwrap
+import time
 from collections import deque
 from pathlib import Path
 
@@ -62,6 +63,9 @@ class MissionDashboard:
             matplotlib.use("TkAgg", force=True)
 
         self.planning_mode = rospy.get_param("~planning_mode", "fixed_coalition")
+        if self.planning_mode == 'five_qualification':
+            self.init_five_view()
+            return
         if self.planning_mode == "executor":
             import matplotlib.pyplot as plt
             self.figure, self.task_axis = plt.subplots(figsize=(13, 8))
@@ -323,6 +327,8 @@ class MissionDashboard:
             }
 
     def draw(self, now):
+        if self.planning_mode == 'five_qualification':
+            return self.draw_five_view()
         if self.planning_mode == "executor":
             return self.draw_task_authority(now)
         snapshot = self.snapshot()
@@ -433,6 +439,99 @@ class MissionDashboard:
         self.ax_status.text(0.0, 1.0, "\n".join(lines), transform=self.ax_status.transAxes,
                             fontsize=9, va="top", family="monospace")
         self.ax_status.set_title("live status: allocation, adoption, liveness and verdicts")
+
+    def init_five_view(self):
+        """Read native messages only; no generated business-completion state."""
+        import matplotlib.pyplot as plt
+        from matplotlib import font_manager
+        from qn_aav_simulator.msg import (FormationActionGoal,FormationActionResult,
+                                        PlatformTaskActionGoal,PlatformTaskActionResult)
+        font = '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc'
+        self.five_font = font_manager.FontProperties(fname=font)
+        self.figure,self.task_axis=plt.subplots(figsize=(8,7))
+        self.figure.canvas.manager.set_window_title('五平台实验 · 动作状态')
+        if self.show_window:
+            self.figure.canvas.manager.window.geometry('640x700+1480+50')
+        self.image_publisher=rospy.Publisher('~image/compressed',CompressedImage,queue_size=1)
+        self.raw_publisher=None
+        self.five_actions={}
+        self.five_status={}
+        self.five_active={}
+        self.five_subs=[]
+        endpoints=[('/aav_'+str(i+1)+'/formation_action',i,FormationActionGoal,FormationActionResult) for i in range(3)]
+        endpoints += [('/drone_0_qn_aav/platform_task',0,PlatformTaskActionGoal,PlatformTaskActionResult),
+                      ('/usv/platform_task',3,PlatformTaskActionGoal,PlatformTaskActionResult),
+                      ('/uuv/platform_task',4,PlatformTaskActionGoal,PlatformTaskActionResult)]
+        def goal(msg, endpoint, member):
+            with self.lock:
+                self.five_actions[(endpoint,msg.goal_id.id)]=dict(member=member,task=msg.goal.task_id,
+                    state='已发送',result=False,at=msg.goal_id.stamp.to_sec())
+        def status(msg, endpoint, member):
+            names={0:'待接纳',1:'执行中',2:'已取消',3:'结束，等待结果',4:'失败，等待结果',5:'已拒绝',6:'取消处理中',7:'撤回中',8:'已撤回',9:'状态未知'}
+            with self.lock:
+                self.five_active[endpoint]=(member,any(s.status in (0,1,6,7) for s in msg.status_list),time.monotonic())
+                for s in msg.status_list:
+                    row=self.five_actions.get((endpoint,s.goal_id.id))
+                    if row and not row['result']:row['state']=names.get(s.status,'未知')
+        def result(msg, endpoint, member):
+            names={2:'已取消',3:'动作完成',4:'动作失败',5:'已拒绝',8:'已撤回'}
+            with self.lock:
+                # Goal is not latched: a passive display can miss it while the
+                # Action client/server still work correctly. Result carries its
+                # own task identity; never invent completion from position.
+                row=self.five_actions.setdefault((endpoint,msg.status.goal_id.id),
+                    dict(member=member,task=msg.result.task_id,at=msg.status.goal_id.stamp.to_sec()))
+                row.update(state=names.get(msg.status.status,'未知终态'),result=True)
+        def diagnostic(msg, member):
+            values={v.key:v.value for s in msg.status for v in s.values}
+            with self.lock:self.five_status[member]=(values,time.monotonic())
+        for endpoint,member,G,R in endpoints:
+            self.five_subs.extend([
+                rospy.Subscriber(endpoint+'/goal',G,lambda m,e=endpoint,i=member:goal(m,e,i),queue_size=20),
+                rospy.Subscriber(endpoint+'/status',GoalStatusArray,lambda m,e=endpoint,i=member:status(m,e,i),queue_size=10),
+                rospy.Subscriber(endpoint+'/result',R,lambda m,e=endpoint,i=member:result(m,e,i),queue_size=20)])
+        for i,prefix in enumerate(['/drone_0_qn','/drone_1_qn','/drone_2_qn','/usv','/uuv']):
+            self.five_subs.append(rospy.Subscriber(prefix+'/diagnostics',DiagnosticArray,
+                lambda m,i=i:diagnostic(m,i),queue_size=1))
+
+    def draw_five_view(self):
+        axis=self.task_axis
+        axis.clear();axis.axis('off')
+        def text(*args, **kwargs):
+            return axis.text(*args, fontproperties=self.five_font, **kwargs)
+        with self.lock:
+            rows=[dict(row) for row in self.five_actions.values()]
+            diagnostics=dict(self.five_status)
+            active=list(self.five_active.values())
+        titles={'air-before':'入水前转场','native-roundtrip':'入水→水下航行→出水',
+                'air-after':'返回空中目标','aav_2-air':'空中转场','aav_3-air':'空中转场',
+                'usv-pass':'水面航行与减速','uuv-pass':'水下通过与减速',
+                'forbidden-during-native':'交接互斥检查','reject-rock':'岩石入口检查',
+                'reject-exclusion':'禁入区入口检查'}
+        text(0,1,'五平台联合运动验证',fontsize=19,weight='bold',va='top')
+        text(0,.92,'空中转场 · 跨介质往返 · 水面与水下航行',fontsize=12,va='top')
+        text(0,.86,'动作状态来自执行端；此窗口不判定业务任务完成。',fontsize=10,color='#626a73',va='top')
+        for i,name in enumerate(['无人机1','无人机2','无人机3','无人船','潜航器']):
+            actions=sorted([r for r in rows if r['member']==i],key=lambda r:r['at'])
+            # Entry rejection checks never replace the actual accepted work row.
+            normal=[r for r in actions if r['task'] in titles and r['task'] not in
+                    ('forbidden-during-native','reject-rock','reject-exclusion')]
+            current=normal[-1] if normal else None
+            y=.75-i*.125
+            text(0,y,name,fontsize=13,weight='bold',va='top')
+            action_text=(titles.get(current['task'],'原生动作')+'  ·  '+current['state']) if current else '尚未收到动作'
+            if any(member==i and busy and time.monotonic()-stamp<1. for member,busy,stamp in active) and (not current or current.get('result')):
+                action_text='原生动作执行中（名称待同步）'
+            values,stamp=diagnostics.get(i,({},0.))
+            if not stamp or time.monotonic()-stamp>1.:
+                action_text+='  / 状态更新中断'
+            if values.get('resource_locked',values.get('platform_resource_locked','')).lower()=='true':
+                action_text+='  / 资源锁定'
+            text(0,y-.047,action_text,fontsize=11,va='top')
+        text(0,.08,'场景：码头、岩石、禁入区；曲线为实际运动轨迹。',fontsize=10,color='#626a73')
+        text(0,.035,'观测点与母船为预设位置；监测交付、中继、复查尚未接通。',fontsize=10,color='#626a73')
+        self.figure.tight_layout()
+        return self.render()
 
     def draw_task_authority(self, now):
         raw = rospy.get_param("/formation_mission_runner/task_state", "{}")
