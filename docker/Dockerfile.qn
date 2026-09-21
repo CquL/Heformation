@@ -1,4 +1,16 @@
+FROM swarm-formation-upstream:noetic AS qn_query_build
+
+COPY integration/qn_aav_simulator/src/qn_aav_simulator /tmp/query_source/qn_aav_simulator
+COPY integration/mrta_python/build_query_extensions.py /tmp/build_query_extensions.py
+RUN python3 -m pip install --no-cache-dir --no-deps --target /tmp/query_build_tools Cython==3.2.9 && \
+    PYTHONPATH=/tmp/query_build_tools python3 /tmp/build_query_extensions.py \
+      --source-dir /tmp/query_source/qn_aav_simulator --output-dir /workspace/query_extensions
+
 FROM swarm-formation-upstream:noetic
+
+# Only the bounded-query worker enables these private modules after checking
+# source hashes and ABI. The online qn/PVS processes retain the source package.
+COPY --from=qn_query_build /workspace/query_extensions /workspace/query_extensions
 
 COPY integration/qn_aav_simulator /workspace/src/src/qn_aav_simulator
 COPY integration/mrta_python /workspace/integration/mrta_python
@@ -53,6 +65,12 @@ RUN patch -p1 -d /workspace/src \
       < /tmp/swarm_qn_patches/swarm_readonly_query.patch
 RUN patch -p1 -d /workspace/src \
       < /tmp/swarm_qn_patches/swarm_reference_time.patch
+# Optional physical peer clearance contract; the three-AAV launch enables it.
+# The upstream seven-member configuration keeps its existing thresholds.
+RUN patch -p1 -d /workspace/src \
+      < /tmp/swarm_qn_patches/swarm_peer_safety_contract.patch
+RUN patch -p1 -d /workspace/src \
+      < /tmp/swarm_qn_patches/swarm_reference_sampling.patch
 COPY integration/swarm_qn_bridge/src/swarm_readonly_query.cpp \
   /workspace/src/src/planner/plan_manage/src/swarm_readonly_query.cpp
 

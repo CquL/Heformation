@@ -2,6 +2,7 @@
 // parameters and a declared static map snapshot; no Goal/trajectory publisher.
 #include <ros/ros.h>
 #include <optimizer/poly_traj_optimizer.h>
+#include <plan_manage/trajectory_yaw.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
 #include <fstream>
@@ -103,7 +104,7 @@ int main(int argc,char **argv) {
       if (!map->isInMap(trajectory.getPos(t)) || map->getInflateOccupancy(trajectory.getPos(t))==1)
         throw std::runtime_error("nominal trajectory fails full-interval map check");
     if (!nh.getParam("",after) || before!=after) throw std::runtime_error("planner parameters changed during query");
-    result.put("status","FEASIBLE");result.put("reason","NATIVE_SWARM_STATIC_MAP_QUERY");
+    result.put("reason","NATIVE_SWARM_STATIC_MAP_QUERY");
     result.put("scope","nominal reference only; qn tracking and full task validity not certified");
     result.put("duration_s",trajectory.getTotalDuration());result.put("max_speed_mps",trajectory.getMaxVelRate());
     result.put("reference_start_time",reference_start);
@@ -116,6 +117,26 @@ int main(int argc,char **argv) {
       coefficients.push_back({"",matrix});
     }
     result.add_child("durations",durations);result.add_child("coefficients",coefficients);
+    if (request.count("initial_yaw") || request.count("initial_yaw_rate") || request.count("time_forward_s")) {
+      double yaw=request.get<double>("initial_yaw"), yaw_rate=request.get<double>("initial_yaw_rate");
+      const double lookahead=request.get<double>("time_forward_s");
+      if (!std::isfinite(yaw) || !std::isfinite(yaw_rate) || !std::isfinite(lookahead) || lookahead<0)
+        throw std::runtime_error("invalid command-server yaw context");
+      constexpr double dt=.01; // original traj_server command period
+      ptree samples;
+      for (int tick=0; tick<=static_cast<int>(std::ceil(trajectory.getTotalDuration()/dt)); ++tick) {
+        const double t=tick*dt;
+        const auto p=trajectory.getPos(std::min(t,trajectory.getTotalDuration()));
+        if (t<trajectory.getTotalDuration())
+          ego_planner::trajectoryYaw(trajectory,trajectory.getTotalDuration(),lookahead,t,p,dt,yaw,yaw_rate);
+        Eigen::VectorXd row(5);row<<t,p,yaw;
+        samples.push_back({"",values(row)});
+      }
+      result.put("reference_sample_period_s",dt);
+      result.put("reference_sampling_scope","native traj_server yaw rule at declared regular 10ms ticks; no online replan prediction");
+      result.add_child("reference_samples",samples);
+    }
+    result.put("status","FEASIBLE");
   } catch (const std::exception &error) {result.put("reason",error.what());}
   boost::property_tree::write_json(output,result);
   return result.get<std::string>("status")=="FEASIBLE"?0:1;

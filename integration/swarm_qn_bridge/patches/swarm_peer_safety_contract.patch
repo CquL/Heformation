@@ -1,0 +1,244 @@
+--- a/src/planner/traj_opt/include/optimizer/poly_traj_optimizer.h
++++ b/src/planner/traj_opt/include/optimizer/poly_traj_optimizer.h
+@@ -12,6 +12,8 @@
+ #include "munkres_algorithm.hpp"
+ #include <swarm_graph/swarm_graph.hpp>
+ #include <fstream>
++#include <stdexcept>
++#include "optimizer/peer_safety.hpp"
+ 
+ namespace ego_planner
+ {
+@@ -83,7 +85,9 @@
+     double wei_formation_;                   // swarm formation simllarity
+     
+     double obs_clearance_;                   // safe distance between uav and obstacles
+-    double swarm_clearance_;                 // safe distance between uav and uav
++    double swarm_clearance_;                 // upstream soft avoidance parameter
++    // Optional centre-distance contract; zero preserves upstream checks.
++    double hard_swarm_clearance_ = 0.0;
+     double max_vel_, max_acc_;               // dynamic limits
+     
+     int    formation_type_;
+@@ -111,6 +115,9 @@
+     inline const poly_traj::MinJerkOpt *getMinJerkOptPtr(void) { return &jerkOpt_; }
+     inline int get_cps_num_prePiece_() { return cps_num_prePiece_; };
+     inline double getSwarmClearance(void) { return swarm_clearance_; }
++    inline double getHardSwarmClearance(void) { return hard_swarm_clearance_; }
++    bool checkPeerCollision(const poly_traj::Trajectory &candidate,
++                            double candidate_start) const;
+     double getCollisionCheckTimeEnd() { return collision_check_time_end_; }
+ 
+     /* main planning API */
+--- a/src/planner/traj_opt/src/poly_traj_optimizer.cpp
++++ b/src/planner/traj_opt/src/poly_traj_optimizer.cpp
+@@ -125,6 +125,9 @@
+     // test collision
+     bool occ = false;
+     occ = checkCollision();
++    // A current-peer check is repeated at the actual selected commit start;
++    // later concurrent replacements are checked when their broadcasts arrive.
++    if (!occ) occ = checkPeerCollision(finalTraj, t_now_);
+ 
+     use_formation_ = use_formation_temp;
+ 
+@@ -142,6 +145,25 @@
+       return false;
+     else
+       return true;
++  }
++
++  bool PolyTrajOptimizer::checkPeerCollision(
++      const poly_traj::Trajectory &candidate, double candidate_start) const
++  {
++    if (hard_swarm_clearance_ <= 0.0 || !swarm_trajs_) return false;
++    for (const auto &peer : *swarm_trajs_)
++    {
++      if (peer.drone_id < 0 || peer.drone_id == drone_id_) continue;
++      const double end = std::max(candidate_start + candidate.getTotalDuration(),
++                                  peer.start_time + peer.duration);
++      if (peerTrajectoryConflict(candidate, candidate_start, peer.traj, peer.start_time,
++                                 candidate_start, end, hard_swarm_clearance_))
++      {
++        ROS_WARN("Reject candidate conflicting with committed peer %d", peer.drone_id);
++        return true;
++      }
++    }
++    return false;
+   }
+ 
+   bool PolyTrajOptimizer::checkCollision(void)
+@@ -806,6 +828,9 @@
+ 
+     nh.param("optimization/obstacle_clearance", obs_clearance_, -1.0);
+     nh.param("optimization/swarm_clearance", swarm_clearance_, -1.0);
++    nh.param("optimization/hard_swarm_clearance", hard_swarm_clearance_, 0.0);
++    if (!std::isfinite(hard_swarm_clearance_) || hard_swarm_clearance_ < 0.0)
++      throw std::invalid_argument("hard_swarm_clearance must be finite and nonnegative");
+     nh.param("optimization/formation_type", formation_type_, -1);
+     nh.param("optimization/max_vel", max_vel_, -1.0);
+     nh.param("optimization/max_acc", max_acc_, -1.0);
+--- a/src/planner/plan_manage/src/planner_manager.cpp
++++ b/src/planner/plan_manage/src/planner_manager.cpp
+@@ -263,11 +263,24 @@
+       double delta_replan_time = trajectory_start_time - ros::Time::now().toSec();
+       if (delta_replan_time > 0)
+         ros::Duration(delta_replan_time).sleep();
+-      traj_.setLocalTraj(ploy_traj_opt_->getMinJerkOptPtr()->getTraj(), trajectory_start_time);
++      const auto candidate = ploy_traj_opt_->getMinJerkOptPtr()->getTraj();
++      if (ploy_traj_opt_->checkPeerCollision(candidate, trajectory_start_time))
++      {
++        continous_failures_count_++;
++        return false;
++      }
++      traj_.setLocalTraj(candidate, trajectory_start_time);
+     }
+     else
+     {
+-      traj_.setLocalTraj(ploy_traj_opt_->getMinJerkOptPtr()->getTraj(), ros::Time::now().toSec()); // todo time
++      const auto candidate = ploy_traj_opt_->getMinJerkOptPtr()->getTraj();
++      const double committed_start = ros::Time::now().toSec();
++      if (ploy_traj_opt_->checkPeerCollision(candidate, committed_start))
++      {
++        continous_failures_count_++;
++        return false;
++      }
++      traj_.setLocalTraj(candidate, committed_start);
+     }
+ 
+     visualization_->displayOptimalList(cstr_pts, 0);
+@@ -297,6 +310,21 @@
+     if (traj_.local_traj.start_time < 1e9) // It means my first planning has not started
+       return false;
+ 
++    const double hard_clearance = ploy_traj_opt_->getHardSwarmClearance();
++    if (hard_clearance > 0.0)
++    {
++      const auto &own = traj_.local_traj;
++      const auto &peer = traj_.swarm_traj[drone_id];
++      // Recheck the current pair after each peer replacement, including the
++      // terminal holds actually emitted by traj_server. Do not replay the past.
++      const double now = ros::Time::now().toSec();
++      const double end = std::max(now, std::max(own.start_time + own.duration,
++                                              peer.start_time + peer.duration));
++      return peerTrajectoryConflict(own.traj, own.start_time, peer.traj,
++                                    peer.start_time, now,
++                                    end, hard_clearance);
++    }
++
+     double my_traj_start_time = traj_.local_traj.start_time;
+     double other_traj_start_time = traj_.swarm_traj[drone_id].start_time;
+ 
+--- a/src/planner/plan_manage/src/ego_replan_fsm.cpp
++++ b/src/planner/plan_manage/src/ego_replan_fsm.cpp
+@@ -340,13 +340,39 @@
+     /* ---------- check trajectory ---------- */
+     constexpr double time_step = 0.01;
+     double t_cur = ros::Time::now().toSec() - info->start_time;
+-    Eigen::Vector3d p_cur = info->traj.getPos(t_cur);
+-    const double CLEARANCE = 0.8 * planner_manager_->getSwarmClearance();
++    const double hard_clearance = planner_manager_->ploy_traj_opt_->getHardSwarmClearance();
++    Eigen::Vector3d p_cur = Eigen::Vector3d::Zero();
++    if (hard_clearance <= 0.0) p_cur = info->traj.getPos(t_cur);
++    const double CLEARANCE = hard_clearance > 0.0 ? hard_clearance :
++        0.8 * planner_manager_->getSwarmClearance();
+     double t_cur_global = ros::Time::now().toSec();
+     double t_2_3 = planner_manager_->ploy_traj_opt_->getCollisionCheckTimeEnd();
+-    double t_temp;
++    double t_temp = 0.0;
+     bool occ = false;
+-    for (double t = t_cur; t < info->duration; t += time_step)
++    if (hard_clearance > 0.0)
++    {
++      // Inspect each pair at the same absolute future time. The old inner loop
++      // reused p_cur and t_cur_global, so it only repeated a present-time test.
++      for (const auto &peer : planner_manager_->traj_.swarm_traj)
++      {
++        if (peer.drone_id < 0 || peer.drone_id == planner_manager_->pp_.drone_id)
++          continue;
++        double collision_time;
++        const double end = std::max(t_cur_global, std::max(
++            info->start_time + info->duration, peer.start_time + peer.duration));
++        if (peerTrajectoryConflict(info->traj, info->start_time, peer.traj,
++                                   peer.start_time, t_cur_global, end,
++                                   hard_clearance, &collision_time))
++        {
++          const double relative_collision = collision_time - info->start_time;
++          if (!occ || relative_collision < t_temp) t_temp = relative_collision;
++          occ = true;
++        }
++      }
++    }
++    // An earlier obstacle must still win over a later predicted peer conflict.
++    for (double t = hard_clearance > 0.0 ? std::max(0.0, t_cur) : t_cur;
++         t < info->duration && (hard_clearance <= 0.0 || !occ || t < t_temp); t += time_step)
+     {
+       // If t_cur < t_2_3, only the first 2/3 partition of the trajectory is considered valid and will get checked.
+       if (t_cur < t_2_3 && t >= t_2_3)
+@@ -361,6 +387,9 @@
+         break;
+       }
+ 
++      // The optional hard contract was checked over the complete pair horizon
++      // above; keep the legacy seven-agent branch and its thresholds unchanged.
++      if (hard_clearance > 0.0) continue;
+       for (size_t id = 0; id < planner_manager_->traj_.swarm_traj.size(); id++)
+       {
+         if ((planner_manager_->traj_.swarm_traj.at(id).drone_id != (int)id) ||
+@@ -565,7 +594,12 @@
+     planner_manager_->traj_.swarm_traj[recv_id].start_pos = trajectory.getPos(0.0);
+ 
+     /* Check Collision */
+-    if (planner_manager_->checkCollision(recv_id))
++    // A retired local polynomial must not restart an idle member merely because
++    // a newly received peer crosses where that old polynomial used to be.
++    const bool check_current_pair =
++        planner_manager_->ploy_traj_opt_->getHardSwarmClearance() <= 0.0 ||
++        (have_local_traj_ && exec_state_ != WAIT_TARGET && ordinaryReferenceAllowed());
++    if (check_current_pair && planner_manager_->checkCollision(recv_id))
+     {
+       changeFSMExecState(REPLAN_TRAJ, "SWARM_CHECK");
+     }
+--- /dev/null
++++ b/src/planner/traj_opt/include/optimizer/peer_safety.hpp
+@@ -0,0 +1,40 @@
++#ifndef SWARM_PEER_SAFETY_HPP
++#define SWARM_PEER_SAFETY_HPP
++
++#include <algorithm>
++#include <cmath>
++
++namespace ego_planner
++{
++// The command server holds the endpoint after a polynomial ends. A polynomial
++// with a future start does not describe its member before that start, so never
++// evaluate it at negative local time. This is sampled nominal-reference safety,
++// not a continuous-time proof or a bound on closed-loop tracking error.
++template <typename Trajectory>
++bool peerTrajectoryConflict(const Trajectory &own, double own_start,
++                            const Trajectory &peer, double peer_start,
++                            double from, double until, double clearance,
++                            double *first_conflict = nullptr)
++{
++  const double own_duration = own.getTotalDuration();
++  const double peer_duration = peer.getTotalDuration();
++  const double begin = std::max(from, std::max(own_start, peer_start));
++  if (!(clearance > 0.0) || !(own_duration > 0.0) || !(peer_duration > 0.0) ||
++      !std::isfinite(begin) || !std::isfinite(until) || until < begin)
++    return false;
++  constexpr double step = 0.01; // same sampling period as the native collision scan
++  for (double at = begin;; at = std::min(until, at + step))
++  {
++    const auto own_position = own.getPos(std::min(own_duration, at - own_start));
++    const auto peer_position = peer.getPos(std::min(peer_duration, at - peer_start));
++    if ((own_position - peer_position).norm() < clearance)
++    {
++      if (first_conflict) *first_conflict = at;
++      return true;
++    }
++    if (at >= until) break;
++  }
++  return false;
++}
++} // namespace ego_planner
++#endif

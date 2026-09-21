@@ -185,6 +185,9 @@ class QnPythonClosedLoopBackend:
         self._water_surge_alignment = 1.0
         self._water_horizontal_speed_mps = 0.0
         self._last_model_acceleration = None
+        self._reference_yaw_rad = None
+        self._reference_input_position_m = None
+        self._idle_reference = None
 
     @property
     def backend_id(self) -> str:
@@ -192,6 +195,9 @@ class QnPythonClosedLoopBackend:
 
     def reset(self, state: AgentState) -> None:
         self._last_model_acceleration = None
+        self._reference_yaw_rad = 0.0
+        self._reference_input_position_m = None
+        self._idle_reference = None
         quaternion = normalize_quaternion(state.orientation_quat_wxyz)
         body_linear = state.body_linear_velocity_mps
         if _norm3(body_linear) <= 1e-12 and _norm3(state.velocity) > 1e-12:
@@ -225,12 +231,96 @@ class QnPythonClosedLoopBackend:
         )
         if self.initialization_mode == "STATIC_TRIM":
             self._state = _static_trim_state(self._state, self.constants)
+        # Before any AIR command the node's INITIAL_HOLD takes the current
+        # actual position on each outer tick, rather than freezing the plant.
+        # Other initial ownership/mode combinations need explicit evidence.
+        if self.reference_mode == "ROUTE_POSITION" and medium_flag(state.position[2], self.constants.hg_m) == 0.0:
+            self._idle_reference = ("INITIAL_HOLD", None, 0.0, self._state)
 
     def hold_reference(self) -> None:
         """任务取消/首次保持时锁定实际位置，保留执行器和控制器的连续状态。"""
         if self._state is None:
             raise RuntimeError("qn backend must be reset before hold_reference")
         self._reference_position_m = self._state.plant.position_xyz_m
+        self._idle_reference = None
+
+    @property
+    def collision_radius_m(self):
+        return 0.25  # existing qn/AAV geometric proxy used by the Action server
+
+    def retain_idle_reference(self):
+        """Seal the last input only after its native terminal was verified.
+
+        The caller owns terminal/reference semantics. A normal model step alone
+        cannot establish that no later command from an active program is due.
+        This cold-path evidence is internal to a read-only terminal forecast.
+        """
+        target = self._reference_input_position_m
+        yaw = self._reference_yaw_rad
+        if (self._state is None or self.reference_mode != "ROUTE_POSITION" or
+                target is None or len(target) != 3 or
+                not all(math.isfinite(v) for v in target) or yaw is None or not math.isfinite(yaw)):
+            raise ValueError('qn terminal continuation needs the last complete position/yaw input')
+        self._idle_reference = ("FIXED_REFERENCE", tuple(target), float(yaw), self._state)
+
+    def predict_idle(self, duration, scene, deadline, dt=.01):
+        """Read-only continuation of a witnessed initial or terminal reference.
+
+        All physical, controller, actuator and guidance state is copied. An
+        arbitrary mid-program snapshot has no continuation evidence and cannot
+        be silently replaced by a position hold.
+        """
+        import copy
+        import time
+        from .contracts import ControlCmd, CommandMode, PlatformAdapterCmd
+        from .platform_execution import actual_mode
+        if not math.isfinite(duration) or duration < 0 or not math.isfinite(deadline):
+            raise ValueError('finite idle duration and deadline required')
+        if dt != .01 or self.model_step_s != .001:
+            return dict(status='UNKNOWN', reason='QN_IDLE_STEP_NOT_QUALIFIED', duration_s=0.)
+        if time.monotonic() >= deadline:
+            return dict(status='UNKNOWN', reason='QUERY_BUDGET_EXHAUSTED', duration_s=0.)
+        evidence = self._idle_reference
+        if (evidence is None or evidence[3] is not self._state or
+                self.reference_mode != 'ROUTE_POSITION'):
+            return dict(status='UNKNOWN', reason='QN_IDLE_REFERENCE_NOT_DETERMINED', duration_s=0.)
+        if scene is None:
+            return dict(status='UNKNOWN', reason='SCENE_GEOMETRY_NOT_PROVIDED', duration_s=0.)
+        behavior, target, yaw, _ = evidence
+        model = copy.deepcopy(self)
+        state = model.snapshot()
+        mode = actual_mode(state.medium_flag)
+        samples = [(0., state.position)]
+        t = 0.
+        status, reason = 'FEASIBLE', 'BOUNDED_QN_REFERENCE_CONTINUATION'
+        violation = scene.violation(state.position, self.collision_radius_m)
+        if violation or mode not in ('AIR', 'WATER'):
+            status, reason = 'INFEASIBLE', violation or 'QN_IDLE_TERMINAL_MODE_NOT_STABLE'
+        for _ in range(0 if status != 'FEASIBLE' else math.ceil(duration / dt)):
+            if time.monotonic() >= deadline:
+                status, reason = 'UNKNOWN', 'QUERY_BUDGET_EXHAUSTED'
+                break
+            point = state.position if behavior == 'INITIAL_HOLD' else target
+            command = ControlCmd('read-only-idle', state.agent_id, t, CommandMode.DESIRED_POSITION,
+                                 (0., 0., 0.), desired_position=point, desired_yaw_rad=yaw)
+            result = model.step(PlantStepInput(state, command, PlatformAdapterCmd(state.agent_id), dt, 2., 8.))
+            t += dt
+            state = model.snapshot(t)
+            samples.append((t, state.position))
+            for position in result.diagnostics['model_positions']:
+                violation = scene.violation(position, self.collision_radius_m)
+                if violation or actual_mode(medium_flag(position[2], self.constants.hg_m)) != mode:
+                    status, reason = 'INFEASIBLE', violation or 'QN_IDLE_MEDIUM_CHANGED'
+                    break
+            if status != 'FEASIBLE':
+                break
+        if time.monotonic() >= deadline and status == 'FEASIBLE':
+            status, reason = 'UNKNOWN', 'QUERY_BUDGET_EXHAUSTED'
+        model._idle_reference = (behavior, target, yaw, model._state)
+        return dict(status=status, reason=reason, duration_s=t, requested_wait_s=duration,
+                    terminal_position=state.position, terminal_mode=actual_mode(state.medium_flag),
+                    initial_mode=mode, collision_radius_m=self.collision_radius_m,
+                    trajectory=tuple(samples), terminal_backend=model)
 
     def snapshot(self, timestamp_s=0.0):
         """Physical state of this exact plant; controller/actuator state stays here."""
@@ -300,6 +390,7 @@ class QnPythonClosedLoopBackend:
             required_hold=hold_duration+(terminal_wait_s if index==len(segments)-1 else 0.)
             if settled is not None and t-settled>=required_hold:
                 if index==len(segments)-1:
+                    candidate.retain_idle_reference()
                     result=reply('FEASIBLE','COMPLETE_NATIVE_FRAGMENT_AND_TERMINAL',t,state)
                     if include_state:result.update(terminal_backend=candidate,trajectory=tuple(trajectory))
                     return result
@@ -331,6 +422,11 @@ class QnPythonClosedLoopBackend:
                 "qn outer dt_s must be an integer multiple of model_step_s "
                 f"({step_input.dt_s} / {self.model_step_s})"
             )
+        # Retain the existing input for cold terminal-continuation queries;
+        # an ordinary step does not prove that an active program has finished.
+        self._reference_yaw_rad = step_input.control_cmd.desired_yaw_rad
+        self._reference_input_position_m = step_input.control_cmd.desired_position
+        self._idle_reference = None
         previous_reference = self._reference_position_m
         reference_position = self._reference_position(step_input)
         # 原模型先对实际输入的xd/yd求导。不能用安全层未同步修改的desired_velocity
@@ -647,54 +743,55 @@ def qn_closed_loop_ode4_step(
     water_guidance: QnWaterActuatorGuidance | None = None,
 ) -> tuple[QnClosedLoopState, Vector10]:
     """按 qn 的 ode4 同时积分控制器、执行器和 13 状态刚体。"""
+    from itertools import chain
+
     flat = _flatten_closed_loop_state(state)
+    buoyancy_memory = state.plant.buoyancy_memory
+    controller_memories = state.controller_fxp_memory
 
     def derivative(values: tuple[float, ...]) -> tuple[float, ...]:
-        stage = _unflatten_closed_loop_state(
-            values,
-            state.plant.buoyancy_memory,
-            state.controller_fxp_memory,
-        )
-        plant = stage.plant
-        quaternion = normalize_quaternion(plant.quaternion_wxyz)
+        # RK stages already contain native float tuples. Build only the
+        # normalized algebraic plant, without an unused enclosing state or
+        # converting every controller scalar back to float at every stage.
+        controllers = tuple([
+            QnControllerState(values[index:index + 2], values[index + 2:index + 9])
+            for index in range(23, len(values), 9)
+        ])
+        actuator_outputs = values[13:23]
         normalized_plant = QnEquationState(
-            body_twist=plant.body_twist,
-            quaternion_wxyz=quaternion,
-            position_xyz_m=plant.position_xyz_m,
-            actuator_outputs=plant.actuator_outputs,
-            buoyancy_memory=plant.buoyancy_memory,
+            body_twist=values[:6],
+            quaternion_wxyz=normalize_quaternion(values[6:10]),
+            position_xyz_m=values[10:13],
+            actuator_outputs=actuator_outputs,
+            buoyancy_memory=buoyancy_memory,
         )
         commands, controller_dots, _ = controller_output_and_derivatives(
-            stage.controllers,
-            stage.controller_fxp_memory,
+            controllers,
+            controller_memories,
             normalized_plant,
             reference,
             constants,
             water_guidance,
         )
-        actuator_dot = tuple(
+        actuator_dot = tuple([
             constants.actuator_pole_radps
-            * (commands[index] - plant.actuator_outputs[index])
-            for index in range(10)
-        )
+            * (command - output)
+            for command, output in zip(commands, actuator_outputs)
+        ])
         plant_dot = rigid_body_derivative(normalized_plant, constants) + actuator_dot
-        return plant_dot + tuple(
-            value
-            for controller_dot in controller_dots
-            for value in controller_dot
-        )
+        return plant_dot + tuple(chain.from_iterable(controller_dots))
 
     k1 = derivative(flat)
     k2 = derivative(_add_scaled(flat, k1, dt_s * 0.5))
     k3 = derivative(_add_scaled(flat, k2, dt_s * 0.5))
     k4 = derivative(_add_scaled(flat, k3, dt_s))
-    next_flat = tuple(
-        flat[index]
+    next_flat = tuple([
+        value
         + dt_s
-        * (k1[index] + 2.0 * k2[index] + 2.0 * k3[index] + k4[index])
+        * (first + 2.0 * second + 2.0 * third + fourth)
         / 6.0
-        for index in range(len(flat))
-    )
+        for value, first, second, third, fourth in zip(flat, k1, k2, k3, k4)
+    ])
     next_state = _unflatten_closed_loop_state(
         next_flat,
         state.plant.buoyancy_memory,
@@ -775,13 +872,7 @@ def controller_output_and_derivatives(
         0.0,
         0.0,
     ]
-    active = tuple(
-        _channel_active(index, flag) for index in range(len(QN_CONTROLLER_NAMES))
-    )
-    gated_measurements = tuple(
-        measurements[index] if active[index] else 0.0
-        for index in range(len(measurements))
-    )
+    active = (flag != 1.0,) * 6 + (flag != 0.0,) * 7
 
     # 外环 x/y 先产生俯仰/滚转参考；其余通道参考均为未连接端口的默认 0。
     references = [0.0] * len(QN_CONTROLLER_NAMES)
@@ -790,18 +881,26 @@ def controller_output_and_derivatives(
     references[1] = _saturate(-air_x_output, -1.0, 1.0) if active[1] else 0.0
     references[2] = _saturate(air_y_output, -1.0, 1.0) if active[2] else 0.0
 
-    outputs = tuple(
+    outputs = [
         _pd_output(index, controllers[index], memories[index], references[index], active[index])
+        if index not in (3, 4) else (air_x_output if index == 3 else air_y_output)
         for index in range(len(QN_CONTROLLER_NAMES))
-    )
+    ]
     controller_dots = []
     fxp_inputs = []
     for index, controller in enumerate(controllers):
+        # A gated channel with zero PD output has exactly nine zero
+        # derivatives, regardless of its retained (ungated) integrator state.
+        # Keep that state in RK4; only avoid evaluating the same zero inputs.
+        if not active[index] and outputs[index] == 0.0:
+            controller_dots.append((0.0,) * 9)
+            fxp_inputs.append(0.0)
+            continue
         derivative, fxp = _rbf_derivative(
             index,
             controller,
             outputs[index],
-            gated_measurements[index],
+            measurements[index] if active[index] else 0.0,
             active[index],
         )
         controller_dots.append(derivative)
@@ -881,7 +980,7 @@ def _rbf_derivative(
         return (observer[1] + 2.0*params.w0*error,
                 0.0 + params.input_gain*control + params.w0*params.w0*error,
                 *(0.0,)*7), 0.0
-    basis = tuple(
+    basis = [
         math.exp(
             -(
                 (observer[0] - center[0]) ** 2
@@ -890,16 +989,14 @@ def _rbf_derivative(
             / (2.0 * 5.0**2)
         )
         for center in _RBF_CENTERS
-    )
-    fxp = sum(weights[index_] * basis[index_] for index_ in range(7))
-    weight_dot = tuple(
+    ]
+    fxp = sum([weight * activation for weight, activation in zip(weights, basis)])
+    decay_gain = 0.001 * params.adaptation_gain * abs(error)
+    weight_dot = tuple([
         params.adaptation_gain * basis[index_] * error
-        - 0.001
-        * params.adaptation_gain
-        * abs(error)
-        * weights[index_]
+        - decay_gain * weights[index_]
         for index_ in range(7)
-    )
+    ])
     observer_dot = (
         observer[1] + 2.0 * params.w0 * error,
         fxp
@@ -936,21 +1033,24 @@ def _wrap_pi(value: float) -> float:
 
 
 def _saturate(value: float, lower: float, upper: float) -> float:
-    return min(upper, max(lower, value))
+    # Preserve max/min argument order (including equal and NaN values),
+    # while avoiding two Python-to-builtin calls for every actuator limit.
+    bounded = value if value > lower else lower
+    return bounded if bounded < upper else upper
 
 
 def _flatten_closed_loop_state(state: QnClosedLoopState) -> tuple[float, ...]:
+    from itertools import chain
+
     plant = state.plant
     return (
         plant.body_twist
         + plant.quaternion_wxyz
         + plant.position_xyz_m
         + plant.actuator_outputs
-        + tuple(
-            value
-            for controller in state.controllers
-            for value in controller.observer + controller.weights
-        )
+        + tuple(chain.from_iterable(
+            [controller.observer + controller.weights for controller in state.controllers]
+        ))
     )
 
 
@@ -959,20 +1059,14 @@ def _unflatten_closed_loop_state(
     buoyancy_memory: Vector6,
     controller_memories: tuple[float, ...],
 ) -> QnClosedLoopState:
-    controller_values = values[23:]
-    controllers = tuple(
+    controller_values = tuple(map(float, values[23:]))
+    controllers = tuple([
         QnControllerState(
-            observer=(
-                float(controller_values[index * 9]),
-                float(controller_values[index * 9 + 1]),
-            ),
-            weights=tuple(
-                float(value)
-                for value in controller_values[index * 9 + 2 : index * 9 + 9]
-            ),  # type: ignore[arg-type]
+            controller_values[index:index + 2],
+            controller_values[index + 2:index + 9],
         )
-        for index in range(len(QN_CONTROLLER_NAMES))
-    )
+        for index in range(0, len(QN_CONTROLLER_NAMES) * 9, 9)
+    ])
     return QnClosedLoopState(
         plant=QnEquationState(
             body_twist=tuple(values[0:6]),  # type: ignore[arg-type]
@@ -989,9 +1083,7 @@ def _unflatten_closed_loop_state(
 def _add_scaled(
     values: Sequence[float], derivative: Sequence[float], scale: float
 ) -> tuple[float, ...]:
-    return tuple(
-        values[index] + scale * derivative[index] for index in range(len(values))
-    )
+    return tuple([value + scale * slope for value, slope in zip(values, derivative)])
 
 
 def _norm3(vector: Sequence[float]) -> float:

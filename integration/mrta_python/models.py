@@ -87,6 +87,12 @@ class ExecutionCandidate:
     # relative to the queried start. Sequential legacy methods keep steps.
     # Exactly one representation is stored, never both.
     activities: Tuple['ExecutorPlanItem', ...] = ()
+    # Internal query evidence in absolute plan time, never copied into a Goal
+    # or public Plan metadata. Prefix idle is included; post-action idle is
+    # evaluated only after the complete plan's actual successors are known.
+    motion_traces: Dict[str, tuple] = field(default_factory=dict)
+    collision_radii: Dict[str, float] = field(default_factory=dict)
+    generated_products: Tuple[dict, ...] = ()
 
     def __post_init__(self):
         object.__setattr__(self,'steps',tuple(self.steps))

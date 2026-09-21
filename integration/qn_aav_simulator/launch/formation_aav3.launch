@@ -22,6 +22,12 @@
   <arg name="map_size_z" value="3.0"/>
   <arg name="odom_topic" value="visual_slam/odom"/>
   <arg name="formation_config" value="$(find qn_aav_simulator)/config/formation_aav3.yaml"/>
+  <!-- Existing physical safety contract, shared by the Action servers and the
+       optional native hard check. These are fixed values, not tuning margins. -->
+  <arg name="platform_radius_m" value="0.25"/>
+  <arg name="inter_agent_clearance_m" value="0.50"/>
+  <arg name="hard_swarm_clearance_m"
+       value="$(eval 2.0 * float(arg('platform_radius_m')) + float(arg('inter_agent_clearance_m')))"/>
 
   <include file="$(find swarm_bridge)/launch/bridge.launch">
     <arg name="drone_id" value="999"/>
@@ -110,11 +116,16 @@
   <param name="drone_1_ego_planner_node/optimization/max_vel" value="$(arg planner_speed)" type="double"/>
   <param name="drone_2_ego_planner_node/manager/max_vel" value="$(arg planner_speed)" type="double"/>
   <param name="drone_2_ego_planner_node/optimization/max_vel" value="$(arg planner_speed)" type="double"/>
+  <param name="drone_0_ego_planner_node/optimization/hard_swarm_clearance" value="$(arg hard_swarm_clearance_m)" type="double"/>
+  <param name="drone_1_ego_planner_node/optimization/hard_swarm_clearance" value="$(arg hard_swarm_clearance_m)" type="double"/>
+  <param name="drone_2_ego_planner_node/optimization/hard_swarm_clearance" value="$(arg hard_swarm_clearance_m)" type="double"/>
 
   <!-- One Action server per unit.  Each owns only its own members and publishes
        only on their goal topics, so a command addressed to one AAV cannot reach
        the other two. -->
   <node pkg="qn_aav_simulator" type="formation_action_server.py" name="aav_1_action_server" output="screen">
+    <param name="platform_radius_m" value="$(arg platform_radius_m)"/>
+    <param name="inter_agent_clearance" value="$(arg inter_agent_clearance_m)"/>
     <param name="safety_hold_timeout_s" value="$(arg safety_hold_timeout_s)"/>
     <param name="output_dir" value="$(arg output_dir)"/>
     <param name="action_name" value="/aav_1/formation_action"/>
@@ -127,6 +138,8 @@
     <param name="member_goal_topic_format" value="/drone_{}_member_goal"/>
   </node>
   <node pkg="qn_aav_simulator" type="formation_action_server.py" name="aav_2_action_server" output="screen">
+    <param name="platform_radius_m" value="$(arg platform_radius_m)"/>
+    <param name="inter_agent_clearance" value="$(arg inter_agent_clearance_m)"/>
     <param name="safety_hold_timeout_s" value="$(arg safety_hold_timeout_s)"/>
     <param name="output_dir" value="$(arg output_dir)"/>
     <param name="action_name" value="/aav_2/formation_action"/>
@@ -139,6 +152,8 @@
     <param name="member_goal_topic_format" value="/drone_{}_member_goal"/>
   </node>
   <node pkg="qn_aav_simulator" type="formation_action_server.py" name="aav_3_action_server" output="screen">
+    <param name="platform_radius_m" value="$(arg platform_radius_m)"/>
+    <param name="inter_agent_clearance" value="$(arg inter_agent_clearance_m)"/>
     <param name="safety_hold_timeout_s" value="$(arg safety_hold_timeout_s)"/>
     <param name="output_dir" value="$(arg output_dir)"/>
     <param name="action_name" value="/aav_3/formation_action"/>
@@ -151,6 +166,8 @@
     <param name="member_goal_topic_format" value="/drone_{}_member_goal"/>
   </node>
   <node pkg="qn_aav_simulator" type="formation_action_server.py" name="aav_formation_action_server" output="screen">
+    <param name="platform_radius_m" value="$(arg platform_radius_m)"/>
+    <param name="inter_agent_clearance" value="$(arg inter_agent_clearance_m)"/>
     <param name="safety_hold_timeout_s" value="$(arg safety_hold_timeout_s)"/>
     <param name="output_dir" value="$(arg output_dir)"/>
     <param name="action_name" value="/aav_formation/formation_action"/>

@@ -15,6 +15,51 @@ def config():
     return yaml.safe_load((Path(__file__).parents[1]/'config/five_scene.yaml').read_text())['scene']
 
 
+def test_late_support_shifts_only_selected_participants_and_propagates_idle():
+    """A valid delayed rendezvous must not be rejected as unavailable forever."""
+    from mrta_python import Executor,Task,ExecutorPlan,build_executor_plan
+    from mrta_python.models import NativeActionSpec,NativeSegmentSpec
+    from qn_aav_simulator.task_line import load_request
+    request=load_request(Path(__file__).parents[1]/'config/monitoring_request_water.yaml')
+    work=Executor('uuv',('uuv',),frozenset({'WATER'}))
+    support=Executor('usv',('usv',),frozenset({'SURFACE'}))
+    unused=Executor('unused',('unused',),frozenset({'AIR'}),1000.)
+    models={'uuv':PvsBackend('remus100',(-5.,8.,-2.)),
+            'usv':PvsBackend('otter',(-5.,-8.,0.),initialization_mode='STATIC_TRIM')}
+    task=Task('water',frozenset({'WATER'}),1,0.,None,'sample')
+    routes={work:NativeActionSpec((NativeSegmentSpec('WATER_PATH',((-5.,8.,-2.),(0.,8.,-2.))),),
+                'COAST_STOP',observation_ids=('water_sample',),terminal_wait_s=30.),
+            support:NativeActionSpec((NativeSegmentSpec('SURFACE_PATH',((-5.,-8.,0.),(4.,8.,0.))),),
+                'TRIM_PROPULSION')}
+    states={k:dict(position=b.snapshot()['position'],mode=b.snapshot()['actual_mode'],available_from=8. if k=='usv' else 0.)
+            for k,b in models.items()}
+    states['unused']=dict(position=(-30.,0.,.8),mode='AIR',available_from=1000.)
+    provider=ExecutorTravelTimeProvider({'start':(-5.,8.,-2.)},{'uuv':1.,'usv':1.},
+        native_models=models,native_efforts={'uuv':500.,'usv':20.},scene_geometry=StaticSceneGeometry.from_mapping(config()),
+        cooperative_routes={('uuv','water'):(routes,)},observation_request=request,mother_position=tuple(config()['mother_ship_position']))
+    before=pickle.dumps(models)
+    candidate=provider.execution_candidates(work,task,0.,states,time.monotonic()+10.)[0]
+    assert candidate.status=='FEASIBLE'
+    plan=ExecutorPlan(list(candidate.activities),serial=False)
+    assert {i.planned_start for i in plan.items}=={8.}
+    assert 8.<plan.makespan<1000.
+    by_member={i.executor_id:i for i in plan.items}
+    assert by_member['uuv'].native_prediction['pre_execution_idle_s']==8.
+    assert by_member['usv'].native_prediction['pre_execution_idle_s']==0.
+    assert pickle.dumps(models)==before
+    # This local release example contains no trace of the support's earlier
+    # commitment or of the unused AIR member. It cannot certify a full plan.
+    check=provider._check_complete_plan(plan,[(candidate,tuple(plan.items))],states,time.monotonic()+2.)
+    assert check['status']=='UNKNOWN' and check['reason']=='PLAN_COMMITTED_PREFIX_MISSING'
+    # With a complete initial boundary the same real native work/support
+    # method reaches the mandatory whole-plan check and remains acceptable.
+    complete_states={k:dict(states[k],available_from=0.) for k in models}
+    complete=build_executor_plan([work,support],[task],provider,initial_target_ref='start',
+        member_states=complete_states,execution_candidates=provider.execution_candidates,budget_s=10.)
+    assert len(complete.items)==2 and complete.search_complete
+    assert pickle.dumps(models)==before
+
+
 def test_native_query_includes_coast_and_does_not_mutate_live_controller():
     backend=PvsBackend('remus100',(-5.,8.,-2.));before=pickle.dumps(backend)
     result=ExecutorTravelTimeProvider.query_native_fragment(backend,[[(-5.,8.,-2.),(0.,8.,-2.)]],
@@ -102,4 +147,16 @@ def test_qn_candidate_uses_full_state_without_reset_and_budget_exhaustion_is_unk
     assert completed.terminal_states['drone_2']['mode']=='WATER'
     assert completed.terminal_states['drone_2']['native_backend'] is not backend
     assert 'trajectory' not in completed.steps[0].native_prediction
+    assert pickle.dumps(backend)==before
+    # Actual qn samples must reach the complete-plan checker, including the
+    # initial boundary and actual medium; a nominal terminal alone is not enough.
+    from mrta_python import build_executor_plan
+    unit=Executor('native_3',('drone_2',),frozenset({'WATER'}))
+    task=Task('sample',frozenset({'WATER'}),1,0.,None,'sample')
+    plan=build_executor_plan([unit],[task],provider,initial_target_ref='sample',
+        member_states={'drone_2':dict(position=backend.snapshot().position,mode='WATER',available_from=0.)},
+        execution_candidates=provider.execution_candidates,budget_s=10.)
+    assert plan.validation_scope=='NOMINAL_COMPLETE_PLAN_MOTION_AND_CAPACITY'
+    assert completed.motion_traces['drone_2'][0]==(0.,backend.snapshot().position,'WATER')
+    assert completed.motion_traces['drone_2'][-1][2]=='WATER'
     assert pickle.dumps(backend)==before

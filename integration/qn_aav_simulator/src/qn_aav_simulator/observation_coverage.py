@@ -357,8 +357,6 @@ def predict_received_products(request,point_ids,producer,goal_id,traces,mother_p
     a nominal prediction, not a guarantee about a later different wire event.
     """
     import time
-    import json
-    from bisect import bisect_right
     if producer not in traces or not point_ids or not traces or not math.isfinite(deadline):
         raise ValueError('observation source, finite traces and shared deadline required')
     for rows in traces.values():
@@ -374,27 +372,63 @@ def predict_received_products(request,point_ids,producer,goal_id,traces,mother_p
         if time.monotonic()>=deadline:return dict(status='UNKNOWN',reason='PLANNING_BUDGET_EXHAUSTED')
         generated.extend(window.sample(stamp,pos,mode,stamp))
     if window.emitted!=set(point_ids):return dict(status='INFEASIBLE',reason='REQUIRED_OBSERVATION_NOT_COVERED')
-    ledger=FiniteDelivery(0.);events={};queue=list(generated);previous={};receipts={}
-    clocks={k:[r[0] for r in rows] for k,rows in traces.items()}
     horizon=min(rows[-1][0] for rows in traces.values())
+    result=predict_received_events(generated,traces,
+        {member:((0.,horizon),) for member in traces},mother_position,obstacles,deadline)
+    receipts={event['point_id']:result['received_at'][event['product_id']]
+              for event in generated if event['product_id'] in result['received_at']}
+    result.update(received_at=receipts,generated_events=generated)
+    return result
+
+
+def predict_received_events(generated,traces,communication_intervals,mother_position,obstacles,deadline):
+    """Replay all nominal products once on shared channels in plan time.
+
+    Geometry may cover idle/terminal motion for safety, but only accepted
+    activity intervals enable communication. This does not grant a finished
+    participant extra support time, nor clear products at a method boundary.
+    Notification identity/encoding is nominal until actual GoalIDs exist.
+    """
+    import time
+    import json
+    from bisect import bisect_right
+    ledger=FiniteDelivery(0.);events={};queue=sorted(generated,key=lambda e:(e['generated_at'],e['product_id']))
+    if len({e['product_id'] for e in queue})!=len(queue):raise ValueError('duplicate predicted product')
+    previous={};receipts={};notice_received=set();data_received=set()
+    clocks={k:[r[0] for r in rows] for k,rows in traces.items()}
+    # Adjacent accepted activities are continuous support. A gap between two
+    # communication ticks is still a gap; endpoint tests must not hide it.
+    active={}
+    for member,intervals in communication_intervals.items():
+        merged=[]
+        for begin,end in sorted(intervals):
+            if merged and begin<=merged[-1][1]+1e-9:merged[-1]=(merged[-1][0],max(end,merged[-1][1]))
+            else:merged.append((begin,end))
+        active[member]=merged
+    horizon=max((end for intervals in communication_intervals.values() for _,end in intervals),default=0.)
     for tick in range(int(math.floor(horizon*10))+1):
-        if time.monotonic()>=deadline:return dict(status='UNKNOWN',reason='PLANNING_BUDGET_EXHAUSTED')
+        if time.monotonic()>=deadline:return dict(status='UNKNOWN',reason='PLANNING_BUDGET_EXHAUSTED',received_at=receipts)
         now=tick/10.
         while queue and queue[0]['generated_at']<=now:
             event=queue.pop(0);ident=event['product_id'];events[ident]=event
             encoded=json.dumps(event,allow_nan=False).encode('utf-8')
-            ledger.produce('notice:'+ident,DeliveryProduct(producer,'mother',4+len(encoded),event['generated_at'],True))
-            ledger.produce('data:'+ident,DeliveryProduct(producer,'mother',32768,event['generated_at'],True))
+            ledger.produce('notice:'+ident,DeliveryProduct(event['producer'],'mother',4+len(encoded),event['generated_at'],True))
+            ledger.produce('data:'+ident,DeliveryProduct(event['producer'],'mother',32768,event['generated_at'],True))
         states={'mother':(mother_position,'SURFACE')}
         for member,rows in traces.items():
+            if not any(begin<=now<=end for begin,end in active.get(member,())):continue
             index=bisect_right(clocks[member],now)-1
-            if index>=0 and now-rows[index][0]<=.25:states[member]=(rows[index][1],rows[index][2])
-        for ident in ledger.advance_all(now,declared_delivery_channels(ledger.products,previous,states,obstacles)):
+            if index>=0 and now<=rows[-1][0]+1e-9 and now-rows[index][0]<=.25:
+                states[member]=(rows[index][1],rows[index][2])
+        continuous_previous={member:state for member,state in previous.items() if member=='mother' or
+            any(begin<=now-.1+1e-9 and now<=end for begin,end in active.get(member,()))}
+        for ident in ledger.advance_all(now,declared_delivery_channels(ledger.products,continuous_previous,states,obstacles)):
             kind,key=ident.split(':',1)
-            if kind=='data':receipts[events[key]['point_id']]=now
+            (data_received if kind=='data' else notice_received).add(key)
+            if key in data_received and key in notice_received:receipts[key]=now
         previous=states
-        if set(receipts)==set(point_ids):
+        if len(receipts)==len(generated):
             return dict(status='FEASIBLE',reason='NOMINAL_OBSERVATION_AND_FINITE_RECEIPT',
-                        received_at=receipts,generated_events=generated,receipt_finish_s=max(receipts.values()))
+                        received_at=receipts,receipt_finish_s=max(receipts.values(),default=0.))
     return dict(status='INFEASIBLE',reason='RECEIPT_NOT_COMPLETED_WITHIN_CHECKED_COMMITMENTS',
-                received_at=receipts,generated_events=generated)
+                received_at=receipts)

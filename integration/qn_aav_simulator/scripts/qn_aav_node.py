@@ -72,6 +72,7 @@ class QnAavNode:
         self.air_domain_violation = False
         self.max_loop_ros_gap_s = 0.0
         self.last_step_ros_time_s = None
+        self.worst_step_timing = None
         self.max_speed_mps = float(rospy.get_param("~max_speed_mps", 2.0))
         self.max_acc_mps2 = float(rospy.get_param("~max_acc_mps2", 8.0))
         position = (
@@ -205,14 +206,16 @@ class QnAavNode:
     def step(self):
         # Ownership change, snapshot adoption and model integration share one
         # local boundary. No in-flight normal snapshot crosses a handover.
+        entered = time.monotonic()
         if self.platform_action is None:
-            with self.lock:self._step_locked()
+            with self.lock:self._step_locked(entered)
         else:
             # actionlib callbacks already own server.lock before taking the
             # model lock. Terminal feedback/Result in tick uses the same order.
-            with self.platform_action.server.lock,self.lock:self._step_locked()
+            with self.platform_action.server.lock,self.lock:self._step_locked(entered)
 
-    def _step_locked(self):
+    def _step_locked(self, entered):
+        acquired = time.monotonic()
         dt_s = self.outer_dt_s
         now = rospy.Time.now()
         if self.platform_action is not None:
@@ -254,6 +257,7 @@ class QnAavNode:
             desired_yaw_rad=snapshot.yaw_rad,
             frame_id=self.world_frame,
         )
+        prepared = time.monotonic()
         result = self.backend.step(
             PlantStepInput(
                 state=self.state,
@@ -264,6 +268,7 @@ class QnAavNode:
                 max_acc_mps2=self.max_acc_mps2,
             )
         )
+        integrated = time.monotonic()
         self.step_index += 1
         substeps = int(result.diagnostics.get("substeps", 0))
         integration_step_s = float(
@@ -284,7 +289,15 @@ class QnAavNode:
         self._latch_air_domain()
         if self.platform_action is not None:
             self.platform_action.note_adopted(snapshot)
+        committed = time.monotonic()
         self.publish(now, usage, result, model_time_s, integration_step_s)
+        published = time.monotonic()
+        elapsed = published-entered
+        if self.worst_step_timing is None or elapsed>self.worst_step_timing[0]:
+            # Passive durations for the same worst cycle. No timestamps, model
+            # steps, control/reference ownership or acceptance gates change.
+            self.worst_step_timing=(elapsed,now.to_sec(),acquired-entered,
+                prepared-acquired,integrated-prepared,committed-integrated,published-committed)
 
     def _latch_air_domain(self):
         """Latch the observed AIR-domain violation instead of only averaging it.
@@ -437,6 +450,11 @@ class QnAavNode:
         pause=getattr(self,'gc_pause',(0.,0.,-1))
         entries.extend([('max_gc_pause_s',str(pause[0])),('max_gc_pause_started_ros_s',str(pause[1])),
                         ('max_gc_pause_generation',str(pause[2]))])
+        timing=self.worst_step_timing
+        if timing is not None:
+            entries.extend(zip(('worst_step_total_s','worst_step_started_ros_s','worst_step_lock_wait_s',
+                'worst_step_preparation_s','worst_step_backend_s','worst_step_commit_s','worst_step_publish_s'),
+                map(str,timing)))
         if self.platform_action is not None:
             entries.extend(self.platform_action.diagnostics())
             entries.extend([

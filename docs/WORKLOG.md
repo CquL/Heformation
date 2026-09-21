@@ -1,3 +1,67 @@
+## 2026-09-21 UTC — 新Swarm七机/查询回归完成，qn执行证据接入完整校核
+
+- 计划：保留旧入口并验证新增C++字段后的完整二进制链，继续补AAV原生执行证据。
+- 实际：peer-safety/seven-r1原185项全部通过；重编swarm_readonly_query在硬合同参数下约1.02s返回可行名义参考，前后ROS发布/订阅/服务图相同。完整计划校核对qn既有原生片段补入初始边界、由原medium_flag公式推导的逐点实际介质和原0.25m机体代理；有观测ID时复用本地观测窗口生成内部产品证据，不改物理方程、不加外部消息。
+- 结果：单成员真实qn水下原生片段进入完整计划校核通过，源模型不变（既有测试扩展一次，1.96s）；仍不是AIR/跨介质/编队/返回业务候选生成，也没有补造其他AAV待命轨迹。新三机实际1.091589m及七机通过分别保留，旧失败不覆盖。
+- 证据：experiments/20260921-peer-safety/{three-r2,seven-r1,query}；experiments/20260921-qn-plan-evidence/check.log；docs/reviews/swarm-peer-safety-20260921.md与complete-plan-validation-20260921.md。
+- 未完成／下一步：受控编译查询尚未生产接线，完整AIR/模式/支援/返回/复查和实际信息边界仍需继续；全部本轮源码在main工作树，尚未提交/推送，目标active。
+
+## 2026-09-21 UTC — 同合同的原Swarm检查修正后三机通过
+
+- 计划：针对已发布新新轨迹组合冲突修复原生检查，不降低实际净距或改优化权重/速度。
+- 实际：三机硬中心距从原2×0.25+0.50派生1m；候选/提交时刻/新peer组合/未来回调共用同时间检查，保留原重规划、暂停和安全保持边界；七机默认不启用。18项原生多项式断言、参数展开及C++编译通过。旧query二进制因类布局变化额外重编。首次实验入口继承bash导致126、零Goal，修正实验入口后开始实际复验。
+- 结果：three-r2原1.5m/s请求五项SUCCEEDED、观测交付1.0、资源释放；实际转场最小净距1.091589m，使用中参考1.127432m，采用/模型时间/原采样安全通过，日志有新peer后SWARM_CHECK重规划。仍是单次采样场景证据，非任意异步更新安全证明。
+- 证据：docs/reviews/swarm-peer-safety-20260921.md；experiments/20260921-peer-safety/three-r2/{metrics.json,peer-safety-summary.json,execution.bag}。七机seven-r1进行中，实验镜像peer-safety未晋级默认。
+- 未完成／下一步：七机与重编只读查询核对；完整方法/实际信息/返回复查和科研对照继续；目标active。
+
+## 2026-09-21 UTC — 文献约束闭合与AAV同源编译实验
+
+- 计划：以既有GRSTAPS/D-ITAGS/Calvo/Guo/APEX/CoCoPlan/Swarm来源对齐统一目标、约束和真实代码，补细节而不新增框架。
+- 实际：重读直接相关论文问题定义/执行/局限章节并核对代码，更新cooperation-source-design：统一目标及方法/覆盖/时序/模式/运动/交付/返回合同，已实现与未实现逐项分开；实际阅读范围与访问受限记录保留。完整计划校核和水下实际执行已补入当前状态。
+- 结果：Noetic同源typed编译实验首次在原10秒预算内9.6985s完成完整AAV片段，54760内步状态/命令摘要和终态一致；base独立预算失败也保留。构建工具/扩展只在experiments，尚未接入生产，不能称全搜索预算通过。三机并发更新冲突已从原生系数复核，新11+新32净距0.466987m而两个新旧组合均安全；正在修原Swarm硬几何与未来复核，未宣称实跑通过。
+- 证据：docs/requirements/cooperation-source-design-20260920.md；experiments/20260921-qn-compiled/{summary.json,README.md}；experiments/20260921-formation-review/{review.md,accepted-pair-combinations.json}。
+- 未完成／下一步：Swarm补丁编译/实际三机与七机回归；编译查询受控接线、完整AIR/跨介质/编队/返回方法与实际信息边界、复查和科研对照仍未完成。
+
+## 2026-09-21 UTC — 完整名义计划校核已接线并实际执行
+
+- 计划：解决“方法分别可行但整份计划冲突/容量不足”，复用既有候选接受点和FiniteDelivery，不新增对外接口。
+- 实际：候选内部保留绝对时刻轨迹/半径/产品证据，最终选为best前必须联合检查所知成员和一份共享传输账本；缺已承诺前段/idle模型/样本为UNKNOWN。真实后继优先拼接，安全idle不延长通信承诺，密集证据不进入Plan/Goal，只输出validation_scope。
+- 结果：66项相关检查通过，主任务再核对18项针对性边界通过；单方法分别安全但合并碰撞、分别交付但共同容量不足均拒绝。Noetic water-r1以NOMINAL_COMPLETE_PLAN_MOTION_AND_CAPACITY计划实际完成两项SUCCEEDED和母船32KiB接收，资源释放，规划调用墙钟10.024s（含返回/清理），没有调大共享求解预算。范围仍为已知UUV/USV，不是全五平台。
+- 证据：experiments/20260921-complete-plan/{root-checks.log,water-r1/metrics.json,water-r1/handover.bag}；test_complete_plan_validation.py；方法依据文档同步。
+- 未完成／下一步：qn完整介质/边界证据、AIR/跨介质/编队/返回候选，实际通知编码与有限状态通路仍未完成；三机新peer组合越限正在依据源码修正，完整目标active。
+
+## 2026-09-21 UTC — 新七机通过，三机转场再次真实越限
+
+- 计划：同方程优化后原三机请求按原1.5m/s及0.50m净距门槛复验。
+- 实际：three-r1前三个观测与集结SUCCEEDED，编队转场实际净距0.441643m，任务FAIL并UNKNOWN_LOCKED，结果未改判。与reference-time/three-r1的0.735091m通过对照；性能优化已有逐内步状态等价，不能无证据归咎动力学公式变化，也不能宣称先前时间接线修正已解决所有编队失败。
+- 结果：同配置仍有成功和失败，三机编队可靠性未完成；当前独立只读分析实际/参考及发布时序，保留所有失败。新七机185项通过是该轮证据，不替代本轮三机安全。
+- 证据：experiments/20260921-qn-runtime/three-r1/{metrics.json,execution.bag,*transfer*.diagnostics.json}；分析位置experiments/20260921-formation-review。
+- 未完成／下一步：本次局部与全计划实际/名义约束仍要区分；继续全计划校核和AAV查询，同源编译仅为实验不进生产；完整目标active。
+
+## 2026-09-21 UTC — 优化后七机代表回归通过
+
+- 计划：同方程优化后预声明七机1.5m/s复验，采样失败不改判据。
+- 实际：seven-r1原生Action、安全与模型驻留PASS，原185项验证全部通过；gc仍默认策略。新增阶段计时显示此轮最慢控制步约8.26–10.37ms，backend约4.65–8.87ms，发布约1.11–4.63ms，锁等待约2–6微秒（均为各成员自身最慢步的分解，不把不同步极值相加）。
+- 结果：一次代表性七机兼容复验通过；过去GC/采样失败保留，不称任意负载保证。三机原完整请求three-r1已开始，未改速度或0.5m净距要求。
+- 证据：experiments/20260921-qn-runtime/seven-r1/{verification.json,runtime-phases.json,execution.bag}；docs/reviews/qn-motion-query-20260920.md。
+- 未完成／下一步：三机真实结果，完整计划跨方法校核与AAV10秒查询预算仍需推进；完整目标active。
+
+## 2026-09-21 UTC — qn同方程热点优化与明确未过的预算
+
+- 计划：依据cProfile热点消除重复构造/计算，保持原模型；不增加在线框架、编译依赖或放宽10秒预算。
+- 实际：既有backend函数内部减少RK4中间状态包装、float转换、生成器及重复AIR/RBF计算；门控为零的导数按同方程处理，饱和比较顺序不变。完整54.76s代表跨介质片段逐54760内步连续状态、执行器、Memory及命令二进制摘要一致，5476外步轨迹与完整终态相同，源状态未修改。
+- 结果：同Noetic基线19.4593s降至14.7590s（约24.15%）；10秒仍正确UNKNOWN，未称预算问题完成。相关21项既有检查通过，首次宿主ROS2无关插件收集失败保留。源码版本下现在预声明一次七机1.5m/s原回归，随后原三机请求；同时记录最慢循环阶段定位采样抖动。
+- 证据：experiments/20260921-qn-hotpath/{comparison.json,README.md,final-trace.json,final-budget10.json}；摘要8d9b6bd0818de5cf0323887d72b61a7cfbef3d37c2ab579070e93881a3289eb1；实跑experiments/20260921-qn-runtime/seven-r1。
+- 未完成／下一步：原生运行结果；完整计划跨方法运动／共享容量校核在实施，AIR/跨介质候选、复查/返回与方法对照继续，目标active。
+
+## 2026-09-21 UTC — 继续目标：候选参与者释放与时序诊断
+
+- 计划：按完整goal及用户最新要求继续，以统一目标／实际约束／文献机制为依据，不把局部水下阶段当完成。上一轮已提交319ace9；本轮并行核查方法依据、qn查询开销和七机时序根因。
+- 实际：修正既有协作候选在支援成员晚可用时直接拒绝的问题；仅按该候选参与者计算共同release，并原生预测提前可用成员的等待演化，缓存键包括release。没有取全体资源最大时间。新增一个真实PVS查询反例：所需USV第8秒可用、无关资源第1000秒可用，两活动第8秒开始、源模型不变。
+- 结果：该反例通过（3.34s）。这只增加延迟共同释放方法，不称已穷尽所有独立出发/等待组合。七机bag只读分析证明大残差主要是模型10ms步与ROS采样6–9ms差异；新增最低限度最慢循环分阶段计时（锁、准备、backend、提交、发布），没有修改时间戳／模型／门槛。尚待同条件实跑定位阶段耗时。
+- 证据：experiments/20260921-participant-release/check.log、experiments/20260921-timing-review/{review.md,sampling-analysis.json}；executors.py、qn_aav_node.py。方法文档与qn热点优化分别在进行，统一由主任务归档。
+- 未完成／下一步：核对模型优化逐状态等价与预算，再预声明一次七机代表复验及三机原请求回归；完整AIR/跨介质选择、全计划运动/交付、复查／返回和方法对照仍未完成。
+
 ## 2026-09-21 UTC — 按用户要求归档并准备推送main
 
 - 计划：提交当前三类平台协同实施增量及实时入口，准确保留未通过与未完成项。

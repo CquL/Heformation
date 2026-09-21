@@ -48,6 +48,10 @@ optimization:
   # surface clearance = 1.00 m.  The next representable decimal is used so
   # the optimizer is not less strict than the Action safety boundary.
   swarm_clearance: 0.6666666666666667
+  # This remains the upstream soft penalty parameter. formation_aav3.launch
+  # separately derives optimization/hard_swarm_clearance from the same fixed
+  # platform_radius_m and inter_agent_clearance passed to the Action servers.
+  # The native hard contract defaults to 0 (disabled) for other launches.
 
 fsm:
   safety_hold_enabled: true
