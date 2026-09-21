@@ -1,0 +1,6 @@
+# Release only the exact already accepted local fragment. No new path/target.
+string goal_id
+uint32 expected_generation
+---
+bool accepted
+string reason

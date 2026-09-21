@@ -22,6 +22,10 @@ import subprocess
 import sys
 import time
 import copy
+import contextlib
+import select
+import struct
+import tempfile
 from dataclasses import dataclass, field
 from typing import Callable, Dict, FrozenSet, List, Mapping, Sequence, Tuple
 from typing import Optional
@@ -75,6 +79,58 @@ def bounded_travel_query(provider, arguments, deadline):
             try:os.killpg(process.pid,signal.SIGKILL)
             except ProcessLookupError:pass
             process.communicate()
+
+
+def bounded_candidate_query(provider,arguments,deadline):
+    """Stream completed candidates from the existing isolated query process.
+
+    The parent can commit a complete feasible plan before a later alternative
+    stalls. All input/output waits share the original monotonic deadline.
+    This is a trusted local pickle channel, never a ROS or user-file protocol.
+    """
+    owner=getattr(provider,'__self__',None)
+    provider=getattr(owner,'iter_execution_candidates',provider)
+    payload=pickle.dumps((provider,arguments));buffer=bytearray()
+    environment=dict(os.environ,PYTHONPATH=os.pathsep.join(sys.path))
+    with tempfile.TemporaryFile() as errors:
+        process=subprocess.Popen([sys.executable,'-m','mrta_python.query_worker','--stream'],
+            stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=errors,env=environment,start_new_session=True)
+        try:
+            fd=process.stdin.fileno();os.set_blocking(fd,False);offset=0
+            while offset<len(payload):
+                left=deadline-time.monotonic()
+                if left<=0 or not select.select([],[fd],[],left)[1]:raise PlanningBudgetExceeded('candidate query input deadline')
+                offset+=os.write(fd,payload[offset:offset+65536])
+            process.stdin.close()
+            while True:
+                if time.monotonic()>=deadline:raise PlanningBudgetExceeded('candidate query deadline')
+                if len(buffer)>=8:
+                    size=struct.unpack('!Q',buffer[:8])[0]
+                    if len(buffer)>=8+size:
+                        ok,value=pickle.loads(buffer[8:8+size]);del buffer[:8+size]
+                        if ok=='BUDGET':raise PlanningBudgetExceeded(value)
+                        if not ok:raise ValueError('candidate query failed: '+value)
+                        yield value
+                        continue
+                left=deadline-time.monotonic()
+                if left<=0 or not select.select([process.stdout],[],[],left)[0]:
+                    raise PlanningBudgetExceeded('candidate query output deadline')
+                data=os.read(process.stdout.fileno(),65536)
+                if not data:
+                    try:code=process.wait(timeout=max(.001,deadline-time.monotonic()))
+                    except subprocess.TimeoutExpired:raise PlanningBudgetExceeded('candidate worker exit deadline')
+                    if code or buffer:raise ValueError('candidate query ended without a complete response')
+                    return
+                buffer.extend(data)
+        finally:
+            try:os.killpg(process.pid,signal.SIGTERM)
+            except ProcessLookupError:pass
+            try:process.wait(timeout=.2)
+            except subprocess.TimeoutExpired:
+                try:os.killpg(process.pid,signal.SIGKILL)
+                except ProcessLookupError:pass
+                process.wait()
+            process.stdin.close();process.stdout.close()
 
 
 def checked_predecessors(tasks, extra_edges=()):
@@ -156,7 +212,8 @@ def validate_executor_inputs(executors: Sequence[Executor], tasks: Sequence) -> 
         if type(task.required_agent_count) is not int or task.required_agent_count < 1:
             raise ValueError("required_agent_count must be a positive integer")
         nonnegative(task.service_time, "service_time")
-        nonnegative(task.deadline, "deadline")
+        if task.deadline is not None:
+            nonnegative(task.deadline, "deadline")
         _capabilities(task.required_capabilities, "required capabilities")
         if not eligible_executors(executors, task):
             raise ValueError("no eligible executor for {}".format(task.task_id))
@@ -194,11 +251,21 @@ class ExecutorPlanItem:
     status: str = "PLANNED"
     actual_finish: Optional[float] = None
     # Selected method belongs to a candidate PlanItem, not the business Task.
-    native_action: Optional[NativeActionSpec] = None
-    native_prediction: Mapping = field(default_factory=dict)
     execution_steps: Tuple[ExecutionStep, ...] = ()
     candidate_id: str = ''
     predicted_member_states: Mapping = field(default_factory=dict)
+    # Support/transit activities belong to a business task but cannot satisfy
+    # its observation capability by themselves.
+    fulfills_task: bool = True
+
+    @property
+    def native_action(self):
+        """Read-only compatibility view; the selected steps own the method."""
+        return self.execution_steps[0].native_action if len(self.execution_steps)==1 else None
+
+    @property
+    def native_prediction(self):
+        return self.execution_steps[0].native_prediction if len(self.execution_steps)==1 else {}
 
 
 @dataclass
@@ -208,6 +275,7 @@ class ExecutorPlan:
     precedence_edges: Tuple[Tuple[str, str], ...] = ()
     search_complete: Optional[bool] = None
     evaluated_candidates: int = 0
+    activity_edges: Tuple[Tuple[str, str], ...] = ()
 
     def item(self, execution_id: str) -> ExecutorPlanItem:
         for item in self.items:
@@ -236,15 +304,54 @@ class ExecutorPlan:
 
     @property
     def task_start_times(self) -> Dict[str, float]:
-        return {item.task_id: item.planned_start for item in self.items}
+        starts={}
+        for item in self.items:starts[item.task_id]=min(starts.get(item.task_id,item.planned_start),item.planned_start)
+        return starts
 
     @property
     def task_finish_times(self) -> Dict[str, float]:
-        return {item.task_id: item.planned_finish for item in self.items}
+        finishes={}
+        for item in self.items:finishes[item.task_id]=max(finishes.get(item.task_id,0.),item.planned_finish)
+        return finishes
 
     @property
-    def assignments(self) -> Dict[str, str]:
-        return {item.task_id: item.executor_id for item in self.items}
+    def assignments(self) -> Dict[str, object]:
+        units={}
+        for item in self.items:units.setdefault(item.task_id,set()).add(item.executor_id)
+        return {task:next(iter(ids)) if len(ids)==1 else tuple(sorted(ids)) for task,ids in units.items()}
+
+
+def activity_predecessors(plan):
+    """Lift business dependencies and check the joint execution-activity DAG."""
+    by_task={}
+    predecessors={i.execution_id:set() for i in plan.items}
+    if len(predecessors)!=len(plan.items):raise ValueError('duplicate execution_id')
+    for item in plan.items:by_task.setdefault(item.task_id,[]).append(item.execution_id)
+    for before,after in plan.precedence_edges:
+        if before not in by_task or after not in by_task:raise ValueError('unknown business predecessor')
+        for successor in by_task[after]:predecessors[successor].update(by_task[before])
+    for before,after in plan.activity_edges:
+        if before not in predecessors or after not in predecessors:raise ValueError('unknown activity predecessor')
+        predecessors[after].add(before)
+    remaining={k:set(v) for k,v in predecessors.items()}
+    # Support START precedes work, while their motion intervals may overlap.
+    # Check its union with finish dependencies, without converting a start
+    # commitment into a wait for support completion.
+    groups={}
+    for item in plan.items:
+        if item.candidate_id:groups.setdefault((item.task_id,item.candidate_id),[]).append(item)
+    for items in groups.values():
+        supports={i.execution_id for i in items if not i.fulfills_task}
+        for item in items:
+            if item.fulfills_task:
+                remaining[item.execution_id].update(supports)
+                if any(item.planned_start<s.planned_start-1e-6 for s in items if not s.fulfills_task):
+                    raise ValueError('dependent work precedes its support launch')
+    while remaining:
+        ready={k for k,v in remaining.items() if not v}
+        if not ready:raise ValueError('combined task/resource/motion precedence cycle')
+        remaining={k:v-ready for k,v in remaining.items() if k not in ready}
+    return predecessors
 
 
 @dataclass(frozen=True)
@@ -276,18 +383,52 @@ class ExecutorTravelTimeProvider:
     native_models: Mapping = field(default_factory=dict)
     native_efforts: Mapping = field(default_factory=dict)
     scene_geometry: object = None
+    # Finite joint methods: (work executor, business task) -> mappings from
+    # existing Executor objects to their native fragments. No new executor
+    # wrapper or online solver; each mapping is a complete proposed method.
+    cooperative_routes: Mapping = field(default_factory=dict)
+    observation_request: object = None
+    mother_position: tuple = ()
 
     def execution_candidates(self,unit,task,start,states,deadline):
-        """Evaluate declared finite PVS route alternatives with native state.
+        """Evaluate declared finite native route alternatives with plant state.
 
         Unqualified/missing methods remain unknown; they never inherit a
         nominal AIR distance/speed estimate. Models are internal forecast state.
         """
+        if (unit.executor_id,task.task_id) in self.cooperative_routes:
+            return list(self._iter_cooperative_candidates(unit,task,start,states,deadline))
         routes=self.native_routes.get((unit.executor_id,task.task_id),())
         if len(unit.physical_agent_ids)!=1 or not routes:
             return [ExecutionCandidate('unqualified',(),{},status='UNKNOWN',reason='EXECUTION_METHOD_NOT_QUALIFIED')]
         member=unit.physical_agent_ids[0];state=states[member]
         backend=state.get('native_backend',self.native_models.get(member))
+        if getattr(backend,'backend_id',None)=='PYTHON_QN_CLOSED_LOOP':
+            from qn_aav_simulator.platform_execution import Segment,actual_mode
+            actual=backend.snapshot()
+            if tuple(actual.position)!=tuple(state['position']) or actual_mode(actual.medium_flag)!=state['mode']:
+                return [ExecutionCandidate('unknown-state',(),{},status='UNKNOWN',reason='NATIVE_SNAPSHOT_STATE_MISMATCH')]
+            if start>state.get('available_from',0.):
+                return [ExecutionCandidate('idle-unavailable',(),{},status='UNKNOWN',reason='QN_IDLE_SNAPSHOT_NOT_EVALUATED')]
+            alternatives=[]
+            for index,route in enumerate(routes):
+                name=unit.executor_id+'-'+task.task_id+'-'+str(index)
+                if (route.terminal_behavior!='FIXED_REFERENCE' or
+                        any(s.operation not in ('ENTER_WATER','WATER_PATH','EXIT_WATER') or s.duration_s<=0
+                            for s in route.segments)):
+                    alternatives.append(ExecutionCandidate(name,(),{},status='UNKNOWN',reason='QN_METHOD_NOT_QUALIFIED'))
+                    continue
+                segments=tuple(Segment(s.operation,s.points,s.duration_s) for s in route.segments)
+                query=backend.predict_native_fragment(segments,self.scene_geometry,deadline,
+                    max_model_time=route.execution_timeout_s,include_state=True,terminal_wait_s=route.terminal_wait_s)
+                if query['status']!='FEASIBLE':
+                    alternatives.append(ExecutionCandidate(name,(),{},status=query['status'],reason=query['reason']))
+                    continue
+                summary={k:v for k,v in query.items() if k not in ('terminal_backend','trajectory','source_fingerprint','settled_model_time_s','terminal_wait_s')}
+                alternatives.append(ExecutionCandidate(name,
+                    (ExecutionStep(unit.executor_id,query['duration_s'],task.target_ref,route,native_prediction=summary),),
+                    {member:dict(position=query['terminal_position'],mode=query['terminal_mode'],native_backend=query['terminal_backend'])}))
+            return alternatives
         if backend is None or unit.executor_id not in self.native_efforts:
             return [ExecutionCandidate('unknown-state',(),{},status='UNKNOWN',reason='NATIVE_STATE_NOT_AVAILABLE')]
         if getattr(backend,'model',None) not in ('otter','remus100'):
@@ -304,6 +445,10 @@ class ExecutorTravelTimeProvider:
         alternatives=[]
         from dataclasses import replace
         for index,route in enumerate(routes):
+            if route.terminal_behavior!=backend.terminal_behavior:
+                alternatives.append(ExecutionCandidate('unqualified-terminal-'+str(index),(),{},
+                    status='UNKNOWN',reason='NATIVE_TERMINAL_NOT_QUALIFIED'))
+                continue
             expected='SURFACE_PATH' if backend.model=='otter' else 'WATER_PATH'
             if any(s.operation!=expected for s in route.segments):
                 alternatives.append(ExecutionCandidate('unqualified-operation-'+str(index),(),{},
@@ -315,12 +460,12 @@ class ExecutorTravelTimeProvider:
             bound=replace(route,segments=(first,)+route.segments[1:])
             query=self.query_native_fragment(backend,[s.points for s in bound.segments],
                 self.native_efforts[unit.executor_id],self.scene_geometry,deadline,
-                max_model_time=bound.execution_timeout_s,include_state=True)
+                max_model_time=bound.execution_timeout_s,include_state=True,terminal_wait_s=bound.terminal_wait_s)
             name=unit.executor_id+'-'+task.task_id+'-'+str(index)
             if query['status']!='FEASIBLE':
                 alternatives.append(ExecutionCandidate(name,(),{},status=query['status'],reason=query['reason']))
                 continue
-            summary={k:v for k,v in query.items() if k not in ('terminal_backend','trajectory')}
+            summary={k:v for k,v in query.items() if k not in ('terminal_backend','trajectory','source_fingerprint','settled_model_time_s','terminal_wait_s')}
             summary['pre_execution_idle_s']=idle
             terminal=dict(position=query['terminal_position'],mode=query['terminal_mode'],native_backend=query['terminal_backend'])
             alternatives.append(ExecutionCandidate(name,
@@ -328,16 +473,173 @@ class ExecutorTravelTimeProvider:
                 {member:terminal}))
         return alternatives
 
+    def iter_execution_candidates(self,unit,task,start,states,deadline):
+        if (unit.executor_id,task.task_id) in self.cooperative_routes:
+            yield from self._iter_cooperative_candidates(unit,task,start,states,deadline)
+        else:
+            yield from self.execution_candidates(unit,task,start,states,deadline)
+
+    def _iter_cooperative_candidates(self,unit,task,start,states,deadline):
+        """Native work/support alternatives including observation and receipt.
+
+        Only methods backed by full PVS rollouts are currently qualified here.
+        Other models remain UNKNOWN, not a distance/speed approximation. Cache
+        is invocation-local at this exact state/environment/commitment snapshot.
+        """
+        from dataclasses import replace
+        from qn_aav_simulator.observation_coverage import ObstacleBox,predict_received_products
+        choices=self.cooperative_routes[(unit.executor_id,task.task_id)]
+        if self.observation_request is None or self.scene_geometry is None or len(self.mother_position)!=3:
+            yield ExecutionCandidate('joint-context-missing',(),{},status='UNKNOWN',reason='OBSERVATION_OR_SCENE_CONTEXT_MISSING')
+            return
+        obstacles=tuple(ObstacleBox(c,s) for _,kind,c,s in self.scene_geometry.objects if kind=='SOLID')
+        cache={}
+        for number,routes in enumerate(choices):
+            name='joint-'+unit.executor_id+'-'+task.task_id+'-'+str(number)
+            if time.monotonic()>=deadline:break
+            work=next((e for e in routes if e.executor_id==unit.executor_id),None)
+            if work is None or work.physical_agent_ids!=unit.physical_agent_ids:
+                raise ValueError('joint method must contain its queried work executor')
+            if any(len(e.physical_agent_ids)!=1 for e in routes):
+                raise ValueError('native joint fragments currently require individual endpoints')
+            participants=[e.physical_agent_ids[0] for e in routes]
+            if len(set(participants))!=len(participants):raise ValueError('joint fragments repeat a physical member')
+            traces={};evaluated=[];failure=None
+            for executor,route in routes.items():
+                member=executor.physical_agent_ids[0];state=states[member]
+                backend=state.get('native_backend',self.native_models.get(member))
+                if (state.get('locked',False) or state.get('available_from',0.)>start or executor.available_from>start):
+                    failure=('INFEASIBLE','PARTICIPANT_NOT_AVAILABLE');break
+                if getattr(backend,'model',None) not in ('otter','remus100'):
+                    failure=('UNKNOWN','JOINT_NATIVE_MODEL_NOT_QUALIFIED');break
+                actual=backend.snapshot()
+                if route.terminal_behavior!=backend.terminal_behavior:
+                    failure=('UNKNOWN','NATIVE_TERMINAL_NOT_QUALIFIED');break
+                if tuple(actual['position'])!=tuple(state['position']) or actual['actual_mode']!=state['mode']:
+                    failure=('UNKNOWN','NATIVE_SNAPSHOT_STATE_MISMATCH');break
+                expected='SURFACE_PATH' if backend.model=='otter' else 'WATER_PATH'
+                if any(s.operation!=expected for s in route.segments):
+                    failure=('UNKNOWN','JOINT_OPERATION_NOT_QUALIFIED');break
+                cache_key=(executor.executor_id,route)
+                if cache_key not in cache:
+                    idle=max(0.,start-state.get('available_from',0.))
+                    if idle:
+                        waited=self.query_native_idle(backend,idle,self.scene_geometry,deadline)
+                        if waited['status']!='FEASIBLE':failure=(waited['status'],waited['reason']);break
+                        backend=waited['terminal_backend']
+                    position=tuple(backend.snapshot()['position'])
+                    if backend.model=='otter':position=(position[0],position[1],0.)
+                    first=replace(route.segments[0],points=(position,)+route.segments[0].points[1:])
+                    bound=replace(route,segments=(first,)+route.segments[1:])
+                    prefix=cache.get((executor.executor_id,replace(route,terminal_wait_s=0.)))
+                    seed=prefix[1] if prefix is not None and prefix[1]['status']=='FEASIBLE' else None
+                    query=self.query_native_fragment(backend,[s.points for s in bound.segments],
+                        self.native_efforts[executor.executor_id],self.scene_geometry,deadline,
+                        max_model_time=bound.execution_timeout_s,include_state=True,terminal_wait_s=bound.terminal_wait_s,resume=seed)
+                    cache[cache_key]=(bound,query)
+                bound,query=cache[cache_key]
+                if query['status']!='FEASIBLE':failure=(query['status'],query['reason']);break
+                traces[member]=tuple((t,p,query['terminal_mode']) for t,p in query['trajectory'])
+                evaluated.append((executor,bound,query))
+            if failure:
+                yield ExecutionCandidate(name,(),{},status=failure[0],reason=failure[1]);continue
+            # Also check the participant that finishes first while its native
+            # terminal behavior continues. This idle prediction is geometric
+            # evidence, not an extension of its data-transfer commitment.
+            safety_traces=dict(traces);radii={}
+            horizon=max(q['duration_s'] for _,_,q in evaluated)
+            for executor,route,query in evaluated:
+                member=executor.physical_agent_ids[0];radii[member]=query['collision_radius_m']
+                extra=horizon-query['duration_s']
+                if extra>1e-9:
+                    idle=self.query_native_idle(query['terminal_backend'],extra,self.scene_geometry,deadline)
+                    if idle['status']!='FEASIBLE':failure=(idle['status'],idle['reason']);break
+                    safety_traces[member]=traces[member]+tuple((t+query['duration_s'],p,query['terminal_mode'])
+                        for t,p in idle['trajectory'][1:])
+            if not failure:
+                from bisect import bisect_right
+                clocks={m:[r[0] for r in rows] for m,rows in safety_traces.items()}
+                for tick in range(int(horizon*100)+1):
+                    if time.monotonic()>=deadline:failure=('UNKNOWN','PLANNING_BUDGET_EXHAUSTED');break
+                    t=tick/100.;positions={m:rows[max(0,bisect_right(clocks[m],t)-1)][1] for m,rows in safety_traces.items()}
+                    if any(math.dist(positions[a],positions[b])<radii[a]+radii[b]+self.scene_geometry.clearance
+                           for a in positions for b in positions if a<b):
+                        failure=('INFEASIBLE','JOINT_PARTICIPANT_PATH_CONFLICT');break
+            if failure:
+                yield ExecutionCandidate(name,(),{},status=failure[0],reason=failure[1]);continue
+            producer=unit.physical_agent_ids[0]
+            work_route=next(route for e,route,_ in evaluated if e.executor_id==unit.executor_id)
+            receipt=predict_received_products(self.observation_request,work_route.observation_ids,producer,
+                name,traces,self.mother_position,obstacles,deadline)
+            if receipt['status']!='FEASIBLE':
+                yield ExecutionCandidate(name,(),{},status=receipt['status'],reason=receipt['reason']);continue
+            activities=[];terminal_states={}
+            for executor,route,query in evaluated:
+                member=executor.physical_agent_ids[0];duration=query['duration_s']
+                summary={k:v for k,v in query.items() if k not in ('terminal_backend','trajectory','source_fingerprint','settled_model_time_s','terminal_wait_s')}
+                summary['nominal_receipt_finish_s']=receipt['receipt_finish_s']
+                summary['receipt_prediction_basis']='provided model trace and nominal event identity'
+                summary['joint_participant_motion_checked']=True
+                activities.append(ExecutorPlanItem(executor.executor_id,task.task_id,executor.executor_id,(member,),
+                    0.,duration,duration,0.,0.,fulfills_task=executor.executor_id==unit.executor_id,
+                    execution_steps=(ExecutionStep(executor.executor_id,duration,task.target_ref,route,native_prediction=summary),)))
+                terminal_states[member]=dict(position=query['terminal_position'],mode=query['terminal_mode'],native_backend=query['terminal_backend'])
+            yield ExecutionCandidate(name,(),terminal_states,activities=tuple(activities))
+
+    @staticmethod
+    def query_swarm_reference(parameter_namespace,request,deadline):
+        """Call the native optimizer in a disposable, non-publishing process.
+
+        The supplied static map and peer references are explicit query inputs.
+        This predicts a nominal reference, not actual qn tracking or task
+        completion. The same caller deadline includes serialization and wait.
+        """
+        import json,shutil
+        if not math.isfinite(deadline):raise ValueError('finite query deadline required')
+        if shutil.which('rosrun') is None:return dict(status='UNKNOWN',reason='ROS_SWARM_QUERY_UNAVAILABLE')
+        with tempfile.TemporaryDirectory(prefix='swarm-query-') as directory:
+            source=os.path.join(directory,'request.json');destination=os.path.join(directory,'result.json')
+            with open(source,'w') as stream:json.dump(request,stream,allow_nan=False)
+            if time.monotonic()>=deadline:return dict(status='UNKNOWN',reason='QUERY_BUDGET_EXHAUSTED')
+            with tempfile.TemporaryFile() as log:
+                process=subprocess.Popen(['rosrun','ego_planner','swarm_readonly_query',parameter_namespace,source,destination],
+                    stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
+                try:
+                    try:process.wait(timeout=max(.001,deadline-time.monotonic()))
+                    except subprocess.TimeoutExpired:return dict(status='UNKNOWN',reason='QUERY_BUDGET_EXHAUSTED')
+                    if not os.path.exists(destination):
+                        log.seek(max(0,log.tell()-2000))
+                        return dict(status='UNKNOWN',reason='SWARM_QUERY_PROCESS_FAILED',detail=log.read().decode(errors='replace'))
+                    with open(destination) as stream:result=json.load(stream)
+                    if result.get('status')=='FEASIBLE':
+                        if process.returncode!=0:return dict(status='UNKNOWN',reason='SWARM_QUERY_ABNORMAL_EXIT')
+                        result['duration_s']=float(result['duration_s'])
+                        result['max_speed_mps']=float(result['max_speed_mps'])
+                        result['durations']=[float(t) for t in result['durations']]
+                        result['coefficients']=[[[float(v) for v in row] for row in piece] for piece in result['coefficients']]
+                        result['formation']=str(result['formation']).lower()=='true'
+                        result['formation_nodes']=int(result['formation_nodes'])
+                    if time.monotonic()>=deadline:return dict(status='UNKNOWN',reason='QUERY_BUDGET_EXHAUSTED')
+                    return result
+                finally:
+                    try:os.killpg(process.pid,signal.SIGTERM)
+                    except ProcessLookupError:pass
+                    try:process.wait(timeout=.2)
+                    except subprocess.TimeoutExpired:
+                        try:os.killpg(process.pid,signal.SIGKILL)
+                        except ProcessLookupError:pass
+                        process.wait()
+
     @staticmethod
     def query_native_fragment(backend,paths,effort,scene,deadline,dt=.01,
-                              terminal_speed=.03,hold_duration=4.,max_model_time=180.,include_state=False):
+                              terminal_speed=.03,hold_duration=4.,max_model_time=180.,include_state=False,terminal_wait_s=0.,resume=None):
         """Motion query using a supplied native state snapshot, including coast.
 
         No endpoint or controller factory is introduced. Unknown/horizon/budget
         outcomes remain distinct from a witnessed geometric infeasibility.
         """
         return backend.predict_native_fragment(paths,effort,scene,deadline,dt,
-            terminal_speed,hold_duration,max_model_time,include_state)
+            terminal_speed,hold_duration,max_model_time,include_state,terminal_wait_s,resume)
 
     @staticmethod
     def query_native_idle(backend,duration,scene,deadline,dt=.01):
@@ -507,10 +809,10 @@ def build_executor_plan(executors: Sequence[Executor], tasks: Sequence,
                             max((finishes[p] for p in predecessors[task.task_id]),default=0.))
                 finish = start + transit + task.service_time
                 nonnegative(finish, "candidate planned_finish")
-                if hard_deadlines and finish>task.deadline:
+                if hard_deadlines and task.deadline is not None and finish>task.deadline:
                     continue
                 introduced_makespan = max(0.0, finish - makespan)
-                urgent = task.deadline < start + 1.55 * task.service_time
+                urgent = task.deadline is not None and task.deadline < start + 1.55 * task.service_time
                 key = (-int(urgent), introduced_makespan, 0.0, -task.service_time,
                        -1.0, transit, executor.executor_id)
                 scored.append((key, task, executor, transit, start, finish))
@@ -574,17 +876,10 @@ def _build_complete_candidate_plan(executors,tasks,provider,member_states,deadli
     unit_members={e.executor_id:set(e.physical_agent_ids) for e in executors}
     edges=tuple((p,t) for t,values in predecessors.items() for p in sorted(values))
     best=None;count=0;complete=True;unknown=False
-    # Iterative search avoids recursion-depth dependence on task count.
-    frontier=[([],tuple(tasks),states,{},0.)]
-    while frontier:
-        if time.monotonic()>=deadline:complete=False;break
-        items,remaining,snapshot,finishes,serial_release=frontier.pop()
-        if not remaining:
-            candidate_plan=ExecutorPlan(items,serial,edges)
-            if best is None or candidate_plan.makespan<best.makespan:best=candidate_plan
-            continue
-        if best is not None and max(finishes.values(),default=0.)>=best.makespan:continue
-        exhausted=False
+
+    def continuations(node):
+        nonlocal count,unknown
+        items,remaining,snapshot,finishes,serial_release=node
         for task in sorted(remaining,key=lambda t:t.task_id):
             if not predecessors[task.task_id]<=finishes.keys():continue
             for unit in eligible_executors(executors,task):
@@ -593,53 +888,113 @@ def _build_complete_candidate_plan(executors,tasks,provider,member_states,deadli
                     unit.available_from,
                     max((finishes[p] for p in predecessors[task.task_id]),default=0.),
                     serial_release if serial and unit.executor_id in participants else 0.)
-                try:
-                    alternatives=bounded_travel_query(provider,
-                        (unit,task,start,copy.deepcopy(snapshot),deadline),deadline)
-                except PlanningBudgetExceeded:
-                    complete=False;unknown=True;exhausted=True;break
-                for alternative in alternatives:
-                    if time.monotonic()>=deadline:
-                        complete=False;exhausted=True;break
-                    count+=1
-                    if not isinstance(alternative,ExecutionCandidate):raise ValueError('typed execution candidate required')
-                    if alternative.status!='FEASIBLE':
-                        unknown |= alternative.status=='UNKNOWN';continue
-                    if set(alternative.terminal_states)!=set(unit.physical_agent_ids):
-                        raise ValueError('candidate must update exactly its physical members')
-                    if any(unit_members.get(step.executor_id)!=set(unit.physical_agent_ids) for step in alternative.steps):
-                        raise ValueError('candidate step must use the reserved physical members')
-                    finish=start+alternative.duration_s
-                    nonnegative(finish,'candidate finish')
-                    if hard_deadlines and finish>task.deadline:continue
-                    next_states=copy.deepcopy(snapshot)
-                    published={}
-                    for member,terminal in alternative.terminal_states.items():
-                        if (len(terminal.get('position',()))!=3 or not all(math.isfinite(v) for v in terminal['position'])
-                                or terminal.get('mode') not in ('AIR','WATER','SURFACE')):
-                            raise ValueError('invalid candidate terminal state')
-                        next_states[member]=copy.deepcopy(terminal)
-                        next_states[member]['available_from']=finish
-                        published[member]={k:terminal[k] for k in ('position','mode')}
-                    step=alternative.steps[0] if len(alternative.steps)==1 else None
-                    service=step.service_time_s if step else 0.
-                    item=ExecutorPlanItem('exec-{:04d}-{}'.format(len(items),task.task_id),task.task_id,
-                        unit.executor_id,unit.physical_agent_ids,start,finish,alternative.duration_s-service,0.,service,
-                        native_action=step.native_action if step else None,
-                        native_prediction=copy.deepcopy(step.native_prediction) if step else {},
-                        execution_steps=alternative.steps,candidate_id=alternative.candidate_id,
-                        predicted_member_states=published)
-                    next_finishes=dict(finishes);next_finishes[task.task_id]=finish
-                    next_remaining=tuple(t for t in remaining if t.task_id!=task.task_id)
-                    if not next_remaining:
-                        candidate_plan=ExecutorPlan(items+[item],serial,edges)
-                        if best is None or candidate_plan.makespan<best.makespan:best=candidate_plan
-                    else:
-                        frontier.append((items+[item],next_remaining,next_states,next_finishes,
-                            finish if serial and unit.executor_id in participants else serial_release))
-                if exhausted:break
-            if exhausted:break
-        if exhausted:break
+                with contextlib.closing(bounded_candidate_query(provider,
+                        (unit,task,start,copy.deepcopy(snapshot),deadline),deadline)) as alternatives:
+                    for alternative in alternatives:
+                        if time.monotonic()>=deadline:
+                            raise PlanningBudgetExceeded('planning budget exhausted')
+                        count+=1
+                        if not isinstance(alternative,ExecutionCandidate):raise ValueError('typed execution candidate required')
+                        if alternative.status!='FEASIBLE':
+                            unknown |= alternative.status=='UNKNOWN';continue
+                        if alternative.activities:
+                            # Reuse PlanItem rather than introducing a second
+                            # workflow/coalition envelope. Times are method-local.
+                            from dataclasses import replace
+                            if serial:
+                                unknown=True;continue  # serial worker cannot own concurrent activities
+                            if any(not isinstance(a,ExecutorPlanItem) or a.task_id!=task.task_id or
+                                   a.status!='PLANNED' or a.actual_finish is not None
+                                   for a in alternative.activities):
+                                raise ValueError('invalid cooperative activity template')
+                            if not any(a.fulfills_task and a.executor_id==unit.executor_id for a in alternative.activities):
+                                raise ValueError('queried work executor absent from cooperative candidate')
+                            added=[replace(a,execution_id='exec-{:04d}-{}-{}'.format(len(items),task.task_id,a.execution_id),
+                                planned_start=start+a.planned_start,planned_finish=start+a.planned_finish,
+                                candidate_id=alternative.candidate_id) for a in alternative.activities]
+                            added.sort(key=lambda a:(a.planned_start,a.execution_id))
+                            releases={};firsts={}
+                            for activity in added:
+                                for member in activity.coalition:
+                                    releases[member]=max(releases.get(member,0.),activity.planned_finish)
+                                    firsts[member]=min(firsts.get(member,float('inf')),activity.planned_start)
+                            if set(alternative.terminal_states)!=set(releases) or not set(releases)<=members:
+                                raise ValueError('cooperative terminal states must match participating physical members')
+                            if any(snapshot[m].get('locked',False) or firsts[m]<snapshot[m]['available_from'] for m in releases):
+                                continue
+                            finish=max(a.planned_finish for a in added)
+                            if hard_deadlines and task.deadline is not None and finish>task.deadline:continue
+                            prefix=items+added
+                            selected={a.task_id for a in prefix}
+                            try:
+                                validate_executor_plan(ExecutorPlan(prefix,False,
+                                    tuple((p,t) for p,t in edges if p in selected and t in selected)),executors,
+                                    [t for t in tasks if t.task_id in selected])
+                            except ValueError:
+                                continue  # reject a conflicting candidate, not the accepted prefix
+                            next_states=copy.deepcopy(snapshot)
+                            for member,terminal in alternative.terminal_states.items():
+                                if (len(terminal.get('position',()))!=3 or not all(math.isfinite(v) for v in terminal['position'])
+                                        or terminal.get('mode') not in ('AIR','WATER','SURFACE')):
+                                    raise ValueError('invalid cooperative terminal state')
+                                next_states[member]=copy.deepcopy(terminal)
+                                next_states[member]['available_from']=releases[member]
+                                last=max((a for a in added if member in a.coalition),key=lambda a:a.planned_finish)
+                                last.predicted_member_states=dict(last.predicted_member_states)
+                                last.predicted_member_states[member]={k:terminal[k] for k in ('position','mode')}
+                            next_finishes=dict(finishes);next_finishes[task.task_id]=finish
+                            yield (prefix,tuple(t for t in remaining if t.task_id!=task.task_id),next_states,next_finishes,serial_release)
+                            continue
+                        if set(alternative.terminal_states)!=set(unit.physical_agent_ids):
+                            raise ValueError('candidate must update exactly its physical members')
+                        if any(unit_members.get(step.executor_id)!=set(unit.physical_agent_ids) for step in alternative.steps):
+                            raise ValueError('candidate step must use the reserved physical members')
+                        finish=start+alternative.duration_s
+                        nonnegative(finish,'candidate finish')
+                        if hard_deadlines and task.deadline is not None and finish>task.deadline:continue
+                        next_states=copy.deepcopy(snapshot)
+                        published={}
+                        for member,terminal in alternative.terminal_states.items():
+                            if (len(terminal.get('position',()))!=3 or not all(math.isfinite(v) for v in terminal['position'])
+                                    or terminal.get('mode') not in ('AIR','WATER','SURFACE')):
+                                raise ValueError('invalid candidate terminal state')
+                            next_states[member]=copy.deepcopy(terminal)
+                            next_states[member]['available_from']=finish
+                            published[member]={k:terminal[k] for k in ('position','mode')}
+                        step=alternative.steps[0] if len(alternative.steps)==1 else None
+                        service=step.service_time_s if step else 0.
+                        item=ExecutorPlanItem('exec-{:04d}-{}'.format(len(items),task.task_id),task.task_id,
+                            unit.executor_id,unit.physical_agent_ids,start,finish,alternative.duration_s-service,0.,service,
+                            execution_steps=alternative.steps,candidate_id=alternative.candidate_id,
+                            predicted_member_states=published)
+                        next_finishes=dict(finishes);next_finishes[task.task_id]=finish
+                        next_remaining=tuple(t for t in remaining if t.task_id!=task.task_id)
+                        yield (items+[item],next_remaining,next_states,next_finishes,
+                               finish if serial and unit.executor_id in participants else serial_release)
+
+    # Resume alternatives lazily: complete one feasible assignment chain before
+    # spending the invocation budget on sibling methods. Same finite search,
+    # explicit iterator stack (no recursion depth or new online solver).
+    frontier=[iter([([],tuple(tasks),states,{},0.)])]
+    try:
+        while frontier:
+            if time.monotonic()>=deadline:complete=False;break
+            try:
+                node=next(frontier[-1])
+            except StopIteration:
+                frontier.pop();continue
+            except PlanningBudgetExceeded:
+                complete=False;unknown=True;break
+            items,remaining,_,_,_=node
+            if remaining:
+                frontier.append(continuations(node))
+            else:
+                candidate_plan=ExecutorPlan(items,serial,edges)
+                if best is None or candidate_plan.makespan<best.makespan:best=candidate_plan
+    finally:
+        for iterator in reversed(frontier):
+            close=getattr(iterator,'close',None)
+            if close is not None:close()
     if best is None:
         if not complete:raise PlanningBudgetExceeded('no complete feasible candidate within shared budget')
         raise ValueError('no complete candidate found'+(' (some mode/motion queries remain unknown)' if unknown else '')+
@@ -661,8 +1016,8 @@ def validate_executor_plan(plan: ExecutorPlan, executors: Sequence[Executor],
         identifier(item.execution_id, "execution_id")
         identifier(item.task_id, "task_id")
         identifier(item.executor_id, "executor_id")
-        if item.execution_id in execution_ids or item.task_id in task_ids:
-            raise ValueError("plan execution_id and task_id must be unique")
+        if item.execution_id in execution_ids:
+            raise ValueError("plan execution_id must be unique")
         execution_ids.add(item.execution_id)
         task_ids.add(item.task_id)
         try:
@@ -673,20 +1028,33 @@ def validate_executor_plan(plan: ExecutorPlan, executors: Sequence[Executor],
             task = task_by_id[item.task_id]
         except KeyError as error:
             raise ValueError("unknown task_id: {}".format(item.task_id)) from error
-        if executor not in eligible_executors(executors, task):
+        if type(item.fulfills_task) is not bool:raise ValueError('fulfills_task must be boolean')
+        if item.fulfills_task and executor not in eligible_executors(executors, task):
             raise ValueError("executor {} is not eligible for task {}".format(
                 item.executor_id, item.task_id))
         if item.coalition != executor.physical_agent_ids:
             raise ValueError("plan coalition must equal the unit's fixed membership")
+        if item.execution_steps:
+            for step in item.execution_steps:
+                if step.executor_id not in by_id or by_id[step.executor_id].physical_agent_ids!=item.coalition:
+                    raise ValueError('step must retain its activity physical members')
+            duration=sum(s.duration_s for s in item.execution_steps)
+            if not math.isclose(duration,item.travel_time+item.service_time,abs_tol=1e-6):
+                raise ValueError('activity duration differs from selected steps')
         for name in ("planned_start", "planned_finish", "travel_time", "wait_time",
                      "service_time"):
             nonnegative(getattr(item, name), name)
-        if item.wait_time != 0:
-            raise ValueError("positive planned wait is outside the current domain")
+        if not item.fulfills_task and not item.execution_steps:
+            raise ValueError('support activity requires a checked execution method')
+        if item.wait_time>0:
+            prediction=item.native_prediction
+            if (prediction.get('status')!='FEASIBLE' or not prediction.get('geometry_checked') or
+                    prediction.get('pre_execution_idle_s',-1)!=item.wait_time):
+                raise ValueError('planned wait requires qualified native idle prediction')
         expected = item.planned_start + item.travel_time + item.wait_time + item.service_time
         if not math.isclose(item.planned_finish, expected, rel_tol=0.0, abs_tol=1e-6):
             raise ValueError("planned_finish must equal start + travel + wait + service")
-        if item.service_time != task.service_time:
+        if not item.execution_steps and item.service_time != task.service_time:
             raise ValueError("plan service_time differs from task service_time")
         if item.planned_start < queue_finish.get(item.executor_id,
                                                  executor.available_from) - 1e-6:
@@ -710,10 +1078,14 @@ def validate_executor_plan(plan: ExecutorPlan, executors: Sequence[Executor],
                             "units {} and {} share a physical agent but {} and {} "
                             "overlap in time".format(
                                 first, second, a.execution_id, b.execution_id))
-    if task_ids != set(task_by_id):
-        raise ValueError("plan must allocate each supplied task exactly once")
-    before_by_task=checked_predecessors(tasks,plan.precedence_edges)
-    item_by_task={i.task_id:i for i in plan.items}
-    for task_id,values in before_by_task.items():
-        if any(item_by_task[task_id].planned_start<item_by_task[p].planned_finish-1e-6 for p in values):
+    if task_ids != set(task_by_id) or {i.task_id for i in plan.items if i.fulfills_task}!=task_ids:
+        raise ValueError("plan must cover each supplied task with a qualified work activity")
+    checked_predecessors(tasks,plan.precedence_edges)
+    required_edges={(p,t.task_id) for t in tasks for p in t.predecessors}
+    from dataclasses import replace
+    view=replace(plan,precedence_edges=tuple(set(plan.precedence_edges)|required_edges))
+    before_by_activity=activity_predecessors(view)
+    item_by_id={i.execution_id:i for i in plan.items}
+    for ident,values in before_by_activity.items():
+        if any(item_by_id[ident].planned_start<item_by_id[p].planned_finish-1e-6 for p in values):
             raise ValueError('plan violates a task/resource/motion predecessor')

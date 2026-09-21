@@ -24,6 +24,29 @@ models/qn/qn.slx
 
 ## 五平台实时可视化仿真
 
+### 当前协作入口：水下观测、无人船支援、母船接收
+
+```bash
+cd /home/lhj/Swarm-Formation
+VISUALIZE=true bash scripts/docker_probe_five_qualification.sh \
+  "experiments/$(date -u +%Y%m%dT%H%M%SZ)-water-live" cooperative
+```
+
+沿用现有 `swarm-formation-qn:cooperation` 消息镜像，挂载当前 Python 实现。
+场景使用港口障碍配置；启动后自动比较有限候选，终端和中文面板展示所选计划。
+**看到具体计划后，在启动终端输入 `yes` 才派发；其他输入不执行。**
+本轮潜航器执行水下样点观测，无人船按选定路线支援，三台 AAV 待命。
+母船是固定接收端：结果受距离、遮挡和有限链路容量影响，实际接收后才增加任务交付覆盖。
+母船没有自主航行动力学，也未参与位置优化。
+
+中文面板分别显示任务权威状态和独立传输过程（无人船／母船接收 KiB），RViz 母船标签随接收事件更新。
+该入口验证当前**水下协作阶段**，不是完整三类平台任务；空中任务、跨介质选择、复查及规定返回仍未全部接通。
+关闭 RViz 或面板不会结束执行；启动终端 `Ctrl+C` 结束整链并归档。
+运行结束后画面保留，不会自动开始新一批任务。录包只覆盖确认后的执行区间，
+待命和结果展示期间不持续录入静态点云。实跑结果与边界见
+[水下协作可视化记录](docs/reviews/water-cooperation-live-20260921.md)。
+
+
 ### 新增：VRX官方海面环境试接
 
 本机NVIDIA GPU环境下，首次构建后运行官方场景：
@@ -47,7 +70,7 @@ GPU负责Gazebo渲染；**VRX地形/海况尚未接入现有任务安全判定�
 ### 原RViz资格实验入口
 
 在有桌面 `DISPLAY` 的终端运行（需要 Docker、`fonts-noto-cjk` 中文字体，以及
-`swarm-formation-qn:five-finite-wire` 镜像）：
+`swarm-formation-qn:cooperation` 镜像）：
 
 ```bash
 cd /home/lhj/Swarm-Formation
@@ -64,16 +87,20 @@ VISUALIZE=true bash scripts/docker_probe_five_qualification.sh \
 “安全几何（体素）”可显示实际使用的障碍地图。船模与岩石资源复用仓库内已有素材，启动时自动转换。
 
 **当前运行的是固定动作资格实验**：空中转场、单台 AAV 垂直入水/水下短程/出水、USV/UUV 航行与终端验证。
-它尚不包含完整协同监测、有限通信交付和条件复查。最新港口运行虽然各动作返回成功，
-全程时间一致性审计仍未通过；不能将画面正常或单个动作成功当作整场验收成功。
+它尚不包含完整协同监测、有限通信交付和条件复查。节拍修正后的港口无GUI运行
+7项动作及独立全程时间审计通过（最大偏差约0.0257秒，门槛仍为0.05秒）；
+此前带显示的时间失败记录保留，新的带显示全链验证尚待完成。
 详见 [实时入口与实验记录](docs/reviews/five-live-view-20260920.md)。
 
 首次使用、缺少上述镜像时，在仓库根目录构建：
 
 ```bash
 docker build -t swarm-formation-upstream:noetic upstream/Swarm-Formation
-docker build -f docker/Dockerfile.qn -t swarm-formation-qn:five-finite-wire .
+docker build -f docker/Dockerfile.qn -t swarm-formation-qn:cooperation .
 ```
+
+本轮 `PlatformTask` 增加预装载、选定观测点ID字段与幂等启动服务，需要同时重建客户端和服务端消息；
+不要混用旧镜像中的该Action类型。原 `Formation.action` 未改变。
 
 ## 七机兼容与回归入口
 

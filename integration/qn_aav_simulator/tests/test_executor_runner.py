@@ -10,7 +10,7 @@ import pytest
 
 from test_formation_action_server import server_module
 from mrta_python import ExecutorPlan, ExecutorPlanItem
-from mrta_python.models import NativeActionSpec,NativeSegmentSpec,Task
+from mrta_python.models import NativeActionSpec,NativeSegmentSpec,ExecutionStep,Task
 from qn_aav_simulator.executor_routing import load_routing, dispatchable_units
 from qn_aav_simulator.task_line import load_request, load_formation_phase
 from qn_aav_simulator.monitoring_request import expand
@@ -68,9 +68,10 @@ def native_setup(module,tmp_path):
         operations=['WATER_PATH'],odometry_topics={'uuv':'/uuv/odometry'})],
         default_members=(),default_initial_target_ref='start')['uuv_native']
     spec=NativeActionSpec((NativeSegmentSpec('WATER_PATH',((-5.,8.,-2.),(0.,8.,-2.))),),'COAST_STOP',150.)
-    item=ExecutorPlanItem('native-e','native-t','uuv_native',('uuv',),0.,65.,65.,0.,0.,status='RUNNING',native_action=spec)
-    item.native_prediction=dict(status='FEASIBLE',geometry_checked=True,duration_s=65.,
-                                terminal_position=(9.,8.,-2.),terminal_mode='WATER')
+    prediction=dict(status='FEASIBLE',geometry_checked=True,duration_s=65.,
+                    terminal_position=(9.,8.,-2.),terminal_mode='WATER')
+    item=ExecutorPlanItem('native-e','native-t','uuv_native',('uuv',),0.,65.,65.,0.,0.,status='RUNNING',
+        execution_steps=(ExecutionStep('uuv_native',65.,'water',spec,native_prediction=prediction),))
     runner.routing[unit.executor_id]=unit
     runner.plan=ExecutorPlan([item]);runner.tasks_by_id={'native-t':Task('native-t',frozenset({'WATER'}),1,0.,150.,'water')}
     runner.observation_tasks={};runner.active_executor_ids={unit.executor_id}
@@ -93,6 +94,146 @@ def test_native_result_commits_motion_without_creating_coverage(runner_module,tm
     runner.active_executor_ids.add(unit.executor_id)
     runner._commit_executor_result(item,unit,3,result)
     assert runner.active_executor_ids=={unit.executor_id}
+
+
+def test_received_product_requires_this_goal_and_never_releases_members(runner_module,tmp_path,monkeypatch):
+    from dataclasses import replace
+    from qn_aav_simulator.observation_coverage import CoverageResult
+    runner,item,unit,_=native_setup(runner_module,tmp_path)
+    runner.request=load_request(Path(__file__).parents[1]/'config/monitoring_request_joint.yaml')
+    step=item.execution_steps[0]
+    item.execution_steps=(replace(step,native_action=replace(step.native_action,observation_ids=('water_sample',))),)
+    runner.condition=threading.Condition();runner.goal_ids={item.execution_id:{'current'}}
+    runner.coverage=CoverageResult();runner.metrics['received_products']={}
+    monkeypatch.setattr(runner_module.rospy,'logerr_throttle',lambda *a:None,raising=False)
+    event=dict(product_id='product',request_id=runner.request.request_id,point_id='water_sample',
+        producer='uuv',goal_id='old',observed=True,required_bytes=32768,generated_at=100.,received_at=120.,
+        result=dict(model='GEOMETRIC_PROXY',dwell_s=1.))
+    runner._on_received_product(SimpleNamespace(data=json.dumps(event)))
+    assert not runner.metrics['received_products']
+    event['goal_id']='current'
+    runner._on_received_product(SimpleNamespace(data=json.dumps(event)))
+    runner._on_received_product(SimpleNamespace(data=json.dumps(event)))
+    assert len(runner.metrics['received_products'])==1
+    assert runner.coverage.delivered_fraction({'water_sample':1.})==1.
+    assert runner.active_executor_ids=={unit.executor_id} and item.status=='RUNNING'
+
+
+@pytest.mark.parametrize('failure',['rejected','hung_start'])
+def test_cooperative_missing_acceptance_or_hung_start_keeps_all_bookings(runner_module,tmp_path,monkeypatch,failure):
+    from dataclasses import replace
+    from types import ModuleType
+    runner,item,unit,_=native_setup(runner_module,tmp_path)
+    support=load_routing([dict(executor_id='usv_native',physical_agent_ids=['usv'],capabilities=['SURFACE'],
+        action_endpoint='/usv/platform_task',action_type='PlatformTaskAction',operations=['SURFACE_PATH'],
+        odometry_topics={'usv':'/usv/odometry'})],
+        default_members=(),default_initial_target_ref='start')['usv_native']
+    runner.routing[support.executor_id]=support
+    spec=NativeActionSpec((NativeSegmentSpec('SURFACE_PATH',((0.,0.,0.),(1.,0.,0.))),),'TRIM_PROPULSION',.15)
+    other=replace(item,execution_id='support-e',executor_id=support.executor_id,coalition=('usv',),fulfills_task=False,
+        execution_steps=(ExecutionStep(support.executor_id,65.,'surface',spec),))
+    item.execution_steps=(replace(item.execution_steps[0],native_action=replace(item.native_action,execution_timeout_s=.15)),)
+    runner.plan=ExecutorPlan([item,other],serial=False)
+    runner.condition=threading.Condition();runner.goal_ids={item.execution_id:{'work-goal'},other.execution_id:{'support-goal'}}
+    runner.active_executor_ids={unit.executor_id,support.executor_id}
+    runner.server_nodes={unit.executor_id:'/uuv',support.executor_id:'/usv'}
+    runner._executor_goal=lambda *a:SimpleNamespace(prepare_only=False)
+    canceled=[];unblock=threading.Event();started=[]
+    def client(name,state):
+        return SimpleNamespace(send_goal=lambda g,feedback_cb:feedback_cb(SimpleNamespace(operation='PREPARED',reference_generation=1)),
+            get_state=lambda:state,cancel_goal=lambda:canceled.append(name))
+    runner.clients={unit.executor_id:client('work',1),support.executor_id:client('support',5 if failure=='rejected' else 1)}
+    srv=ModuleType('qn_aav_simulator.srv');srv.StartPreparedAction=object
+    monkeypatch.setitem(sys.modules,'qn_aav_simulator.srv',srv)
+    monkeypatch.setattr(runner_module.rospy,'wait_for_service',lambda *a,**k:None,raising=False)
+    def proxy(name,*args):
+        def call(*args):
+            started.append(name);unblock.wait(2);return SimpleNamespace(accepted=True,reason='late')
+        return call
+    monkeypatch.setattr(runner_module.rospy,'ServiceProxy',proxy,raising=False)
+    try:
+        with pytest.raises(RuntimeError):runner._dispatch_cooperative_items([item,other])
+    finally:unblock.set()
+    assert set(canceled)=={'work','support'}
+    assert runner.active_executor_ids=={unit.executor_id,support.executor_id}
+    if failure=='rejected':assert not started
+    else:assert started==['/usv/start_prepared']  # unknown support start cannot launch the work fragment
+
+
+@pytest.mark.parametrize('fail_first',[False,True])
+def test_composite_retains_booking_between_steps_and_failure_blocks_successor(runner_module,tmp_path,fail_first):
+    runner,item,unit,result=native_setup(runner_module,tmp_path)
+    item.execution_steps=(item.execution_steps[0],item.execution_steps[0])
+    item.travel_time=130.;item.planned_finish=130.
+    runner._executor_goal=lambda view,unit:SimpleNamespace(task_id=view.execution_id)
+    runner.native_result=lambda _:('native-goal',SimpleNamespace(status=SimpleNamespace(status=3)))
+    calls=[]
+    def send(view,selected,goal,action):
+        assert runner.active_executor_ids=={item.executor_id}
+        assert runner.plan.item(item.execution_id).status=='RUNNING'
+        assert not runner.metrics['results_received']
+        calls.append(goal.task_id)
+        return (4 if fail_first else 3),SimpleNamespace(**dict(vars(result),task_id=goal.task_id))
+    runner._send_executor_goal=send
+    # The actual receipt timestamp must follow this test's planned start.
+    runner.epoch=-200.
+    if fail_first:
+        with pytest.raises(RuntimeError,match='parent remains occupied'):
+            runner._dispatch_executor_item(item,reserved=True)
+        assert calls==['native-e:step:0']
+        assert runner.active_executor_ids=={item.executor_id}
+        assert not runner.metrics['results_received']
+    else:
+        runner._dispatch_executor_item(item,reserved=True)
+        assert calls==['native-e:step:0','native-e:step:1']
+        assert not runner.active_executor_ids
+        assert runner.plan.item(item.execution_id).status=='COMPLETED'
+        assert runner.metrics['results_received']==[item.task_id]
+
+
+def test_slow_dashboard_publication_does_not_hold_execution_lock(runner_module,tmp_path,monkeypatch):
+    runner=make_runner(runner_module,tmp_path)
+    runner.executor_write_mutex=threading.Lock()
+    runner._save_executor_locked=lambda:({'resource_locks':[]},{})
+    entered=threading.Event();release=threading.Event()
+    def blocked_param(*args):
+        entered.set()
+        assert release.wait(2)
+    monkeypatch.setattr(runner_module.rospy,'set_param',blocked_param,raising=False)
+    thread=threading.Thread(target=runner_module.MissionRunner._save_executor,args=(runner,))
+    thread.start()
+    try:
+        assert entered.wait(2)
+        assert runner.executor_mutex.acquire(timeout=.1)
+        runner.executor_mutex.release()
+    finally:
+        release.set();thread.join(2)
+    assert not thread.is_alive()
+
+
+@pytest.mark.parametrize('delivered',[False,True])
+def test_composite_observation_checks_receipt_for_each_native_goal_before_release(runner_module,tmp_path,delivered):
+    from dataclasses import replace
+    runner,item,unit,result=native_setup(runner_module,tmp_path)
+    step=item.execution_steps[0]
+    step=replace(step,native_action=replace(step.native_action,observation_ids=('water_sample',)))
+    item.execution_steps=(step,step);item.travel_time=130.;item.planned_finish=130.
+    runner.observation_tasks={item.task_id:object()};runner.metrics['received_products']={};runner.epoch=-200.
+    runner._executor_goal=lambda view,unit:SimpleNamespace(task_id=view.execution_id)
+    runner.native_result=lambda ident:(ident+'-goal',SimpleNamespace(status=SimpleNamespace(status=3)))
+    def send(view,*args):
+        native=SimpleNamespace(**dict(vars(result),task_id=view.execution_id,goal_id=view.execution_id+'-goal'))
+        if delivered:
+            runner.metrics['received_products'][view.execution_id]=dict(goal_id=native.goal_id,point_id='water_sample',observed=True)
+        return 3,native
+    runner._send_executor_goal=send
+    if delivered:
+        runner._dispatch_executor_item(item,reserved=True)
+        assert not runner.active_executor_ids and runner.plan.items[0].status=='COMPLETED'
+    else:
+        with pytest.raises(RuntimeError,match='without required received products'):
+            runner._dispatch_executor_item(item,reserved=True)
+        assert runner.active_executor_ids=={unit.executor_id} and item.status=='RUNNING'
 
 
 def test_native_motion_cannot_fabricate_observation_or_release_unknown_mode(runner_module,tmp_path):

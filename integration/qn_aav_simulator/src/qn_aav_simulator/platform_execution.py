@@ -158,3 +158,11 @@ def validate_fragment(segments, mode, terminal_behavior, qualified_operations):
             raise ValueError('fragment paths must join continuously')
         mode=segment.target_mode
     return mode
+
+
+def segment_terminal_ready(segment, elapsed, position, velocity, mode,
+                           position_tolerance, speed_tolerance):
+    """Same physical end condition for the local worker and read-only rollout."""
+    return (elapsed>=segment.duration and mode==segment.target_mode and
+            math.dist(position,segment.points[-1])<=position_tolerance and
+            math.sqrt(sum(v*v for v in velocity))<=speed_tolerance)

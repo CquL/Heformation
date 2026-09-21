@@ -18,6 +18,11 @@ scene:
   # Task geometry is metadata, never sampled as a physical obstacle.
   mother_ship_position: [15.0, -8.0, 0.0]
   transition_sites: [{id: aav_entry, position: [-28.0, 6.0, 0.0]}]
+  # Finite support locations of this benchmark, not mandatory motion goals or
+  # obstacles. The planner evaluates whether each site permits actual receipt.
+  communication_sites:
+    - {id: sample_support_west, position: [4.0, 8.0, 0.0]}
+    - {id: sample_support_east, position: [6.0, 8.0, 0.0]}
   observation_targets:
     - {id: air_overview, position: [-28.0, 4.0, 0.8], domain: AIR}
     - {id: underwater_sample, position: [0.0, 8.0, -2.0], domain: WATER}

@@ -22,6 +22,8 @@ import struct
 import copy
 import threading
 import time
+import json
+import math
 from collections import deque
 
 import rospy
@@ -31,6 +33,119 @@ from std_msgs.msg import Header
 from qn_aav_simulator.experiment_verdict import box_sample_points,StaticSceneGeometry
 
 DEFAULT_TOPIC = "/scene/global_cloud"
+
+
+class SceneTransport:
+    """Declared finite-channel simulation, independent of task decisions/view.
+
+    Raw physical states are used only here to simulate links. Mother-ship
+    consumers receive products on the receipt topic, never this private ledger.
+    Rates/ranges are the frozen experiment assumptions, not hardware claims.
+    """
+    def __init__(self,scene,frame,request_file):
+        from nav_msgs.msg import Odometry
+        from diagnostic_msgs.msg import DiagnosticArray
+        from std_msgs.msg import String
+        from qn_aav_simulator.task_line import load_request
+        from qn_aav_simulator.observation_coverage import FiniteDelivery,ObstacleBox
+        self.String=String;self.request=load_request(request_file);self.frame=frame
+        self.mother=tuple(scene.get('mother_ship_receiver_position',scene['mother_ship_position']))
+        self.obstacles=tuple(ObstacleBox(tuple(o['center']),tuple(o['size'])) for o in scene['objects'] if o['kind']=='SOLID')
+        if any(box.blocks(self.mother,self.mother) for box in self.obstacles):
+            raise ValueError('declared mother receiver lies inside a solid; set its exterior attachment position')
+        self.lock=threading.Lock();self.states={};self.modes={};self.events={}
+        self.last_time=math.floor(rospy.Time.now().to_sec()*10.)/10.;self.previous={}
+        self.delivery=FiniteDelivery(self.last_time)
+        self.receipts=rospy.Publisher('/mother/received_products',String,queue_size=100)
+        self.notifications=rospy.Publisher('/mother/received_notifications',String,queue_size=100)
+        # Passive evaluation view only. The runner never consumes relay truth.
+        self.progress=rospy.Publisher('/scene/delivery_progress',String,queue_size=1,latch=True)
+        self.last_progress=-1.
+        self.subs=[]
+        for member in ('drone_0','drone_1','drone_2','usv','uuv'):
+            prefix='/'+member+('_qn' if member.startswith('drone_') else '')
+            source='/'+member+('_qn_aav' if member.startswith('drone_') else '')
+            self.subs.extend((
+                rospy.Subscriber(prefix+'/odometry',Odometry,lambda m,k=member:self.odom(k,m),queue_size=5),
+                rospy.Subscriber(prefix+'/diagnostics',DiagnosticArray,lambda m,k=member:self.mode(k,m),queue_size=5),
+                rospy.Subscriber(source+'/local_products',String,lambda m,k=member:self.produce(k,m),queue_size=100)))
+        self.timer=rospy.Timer(rospy.Duration(.1),self.tick)
+
+    def odom(self,key,msg):
+        if msg.header.frame_id!=self.frame:return
+        p=msg.pose.pose.position
+        with self.lock:
+            rows=self.states.setdefault(key,deque(maxlen=64))
+            stamp=msg.header.stamp.to_sec()
+            if not rows or stamp>rows[-1][0]:rows.append((stamp,(p.x,p.y,p.z)))
+
+    def mode(self,key,msg):
+        from qn_aav_simulator.platform_execution import actual_mode
+        values={v.key:v.value for s in msg.status for v in s.values}
+        mode=values.get('actual_mode')
+        if mode is None and 'medium_flag' in values:mode=actual_mode(float(values['medium_flag']))
+        if mode not in ('AIR','WATER','SURFACE','TRANSITION'):return
+        with self.lock:
+            rows=self.modes.setdefault(key,deque(maxlen=16))
+            stamp=msg.header.stamp.to_sec()
+            if not rows or stamp>rows[-1][0]:rows.append((stamp,mode))
+
+    def produce(self,member,msg):
+        from qn_aav_simulator.observation_coverage import DeliveryProduct
+        try:
+            event=json.loads(msg.data);ident=event['product_id']
+            points={p.point_id for r in self.request.regions for p in r.interest_points}
+            if (not isinstance(ident,str) or not ident or event['producer']!=member or
+                    event['request_id']!=self.request.request_id or event['point_id'] not in points or
+                    event['observed'] is not True or event['required_bytes']!=32*1024):
+                raise ValueError('product identity or declared size mismatch')
+            generated=event['generated_at'];now=rospy.Time.now().to_sec()
+            if not math.isfinite(generated) or not self.delivery.start_time<=generated<=now:
+                raise ValueError('product generation outside current run')
+            with self.lock:
+                if ident in self.events:
+                    if self.events[ident]!=event:raise ValueError('conflicting duplicate product')
+                    return
+                self.events[ident]=event
+                # Notification and summary use the same capacity. A received
+                # notice is explicitly not the 32 KiB business product.
+                size=4+len(msg.data.encode('utf-8'))  # std_msgs/String length prefix + actual UTF-8 payload
+                self.delivery.produce('notice:'+ident,DeliveryProduct(member,'mother',size,generated,True))
+                self.delivery.produce('data:'+ident,DeliveryProduct(member,'mother',32*1024,generated,True))
+        except (ValueError,KeyError,TypeError) as error:
+            rospy.logerr_throttle(2.,'Rejected local product: %s',str(error))
+
+    def tick(self,_):
+        from qn_aav_simulator.observation_coverage import declared_delivery_channels
+        now=math.floor(rospy.Time.now().to_sec()*10.)/10.;out=[];progress=None
+        with self.lock:
+            if now<=self.last_time:return
+            states={'mother':(self.mother,'SURFACE')}
+            for member,rows in self.states.items():
+                stamp,pos=next((r for r in reversed(rows) if r[0]<=now),(-1.,None))
+                mode_stamp,mode=next((r for r in reversed(self.modes.get(member,())) if r[0]<=now),(-1.,'UNKNOWN'))
+                if 0<=now-stamp<=.25 and 0<=now-mode_stamp<=.25:states[member]=(pos,mode)
+            continuous=now-self.last_time<=.25
+            # No capacity is credited across a missed observation interval.
+            receipts=self.delivery.advance_all(now,declared_delivery_channels(
+                self.delivery.products,self.previous,states,self.obstacles,continuous))
+            for ident in receipts:
+                kind,key=ident.split(':',1);notice=kind=='notice'
+                out.append((notice,dict(self.events[key],received_at=now)))
+            self.last_time=now;self.previous=states
+            if now-self.last_progress>=.5:
+                progress=dict(at_ros_s=now,scope='INDEPENDENT_TRANSPORT_VIEW',products=[
+                    dict(point_id=self.events[key]['point_id'],
+                         required_bytes=p.required_bytes,
+                         relay_bytes=p.received_prefix.get('usv',0.),
+                         mother_bytes=p.received_prefix.get('mother',0.))
+                    for ident,p in self.delivery.products.items() if ident.startswith('data:')
+                    for key in [ident.split(':',1)[1]]])
+                self.last_progress=now
+        if progress is not None:
+            self.progress.publish(self.String(data=json.dumps(progress,allow_nan=False)))
+        for notice,event in out:
+            (self.notifications if notice else self.receipts).publish(self.String(data=json.dumps(event,allow_nan=False)))
 
 
 class SceneView:
@@ -58,6 +173,14 @@ class SceneView:
                 lambda msg, k=key: self.odom(k, msg), queue_size=1))
         self.last_publish = 0.
         self.marker_keys = None
+        self.cooperative=bool(rospy.get_param('/mission/request_file',''))
+        self.received_points=set()
+        if self.cooperative:
+            from std_msgs.msg import String
+            def received(msg):
+                event=json.loads(msg.data)
+                with self.lock:self.received_points.add(event['point_id'])
+            self.subs.append(rospy.Subscriber('/mother/received_products',String,received,queue_size=10))
 
     def odom(self, key, msg):
         if msg.header.frame_id != self.frame:
@@ -95,7 +218,7 @@ class SceneView:
         # Finite display extents only: they do not create a navigation boundary.
         add('water', M.CUBE, (-9.,0.,self.scene['surface_z_m']), (62.,32.,.025), (.1,.55,.8,.14))
         add('seabed', M.CUBE, (-9.,0.,self.scene['seabed_z_m']), (62.,32.,.08), (.28,.3,.25,.65))
-        label('legend', (-9.,14.,4.), '五平台联合运动验证', .85)
+        label('legend', (-9.,14.,4.), '水下观测 → 无人船支援 → 母船接收' if self.cooperative else '五平台联合运动验证', .85)
         label('water_label', (18.,12.,.2), '海面', .65)
         label('bed_label', (18.,12.,-5.5), '海底', .65)
         for item in self.scene.get('objects', []):
@@ -148,7 +271,9 @@ class SceneView:
             mother.pose.orientation.x=1.;mother.pose.orientation.w=0.
         else:
             add('mother', M.CUBE, p, (2.,1.,.5), (.8,.9,.95,.7))
-        label('mother_label', (p[0],p[1],p[2]+1.8), '母船位置', .65)
+        with self.lock:received_count=len(self.received_points)
+        mother_text=('母船 · 已接收 '+str(received_count)+' 份' if received_count else '母船 · 等待结果') if self.cooperative else '母船 · 固定接收站'
+        label('mother_label', (p[0],p[1],p[2]+1.8), mother_text, .65)
         with self.lock:
             poses = dict(self.poses)
             trails = {k:list(v) for k,v in self.trails.items()}
@@ -250,6 +375,8 @@ def main():
         points=[p for _,kind,c,s in geometry.objects if kind=='SOLID'
                 for p in box_sample_points(c,s,resolution)]
     publisher = rospy.Publisher(topic, PointCloud2, queue_size=1, latch=True)
+    request_file=rospy.get_param('/mission/request_file','')
+    transport=SceneTransport(scene,frame_id,request_file) if request_file else None
     view = None
     if geometry and rospy.get_param('~visualize', False):
         try:

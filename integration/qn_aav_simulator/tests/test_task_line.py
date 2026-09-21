@@ -19,6 +19,66 @@ from qn_aav_simulator.task_line import (
 REQUEST_PATH = (Path(__file__).resolve().parents[1] / "config"
                 / "monitoring_request_coastal.yaml")
 
+
+def test_regional_request_keeps_all_domains_and_points_before_method_selection():
+    import time,yaml
+    from dataclasses import replace
+    from types import SimpleNamespace
+    from mrta_python import Executor
+    from mrta_python.executors import ExecutorTravelTimeProvider
+    from qn_aav_simulator.monitoring_request import regional_requirements
+    from qn_aav_simulator.task_line import request_native_methods,build_request_executor_plan
+    cfg=Path(__file__).parents[1]/'config'
+    request=load_request(cfg/'monitoring_request_joint.yaml')
+    water=request.regions[1]
+    request=replace(request,regions=(request.regions[0],replace(water,interest_points=water.interest_points+
+        (InterestPoint('nearby',(-.5,8.,-2.)),))))
+    tasks=regional_requirements(request)
+    assert len(tasks)==2 and {t.required_capabilities for t in tasks}=={frozenset({'AIR'}),frozenset({'WATER'})}
+    assert all(t.deadline is None and not t.required_members for t in tasks)
+    units=[Executor('uuv',('uuv',),frozenset({'WATER'})),Executor('usv',('usv',),frozenset({'SURFACE'}))]
+    states={'uuv':dict(position=(-5.,8.,-2.),mode='WATER',available_from=0.),'usv':dict(position=(-5.,-8.,0.),mode='SURFACE',available_from=0.)}
+    models={'uuv':SimpleNamespace(model='remus100',terminal_behavior='COAST_STOP'),
+            'usv':SimpleNamespace(model='otter',terminal_behavior='TRIM_PROPULSION')}
+    scene=yaml.safe_load((cfg/'five_scene.yaml').read_text())['scene']
+    generated,methods=request_native_methods(request,scene,units,states,models,time.monotonic()+1.)
+    assert len(generated)==2  # unsupported AIR was not silently removed
+    choices=next(iter(methods.values()))
+    routes={m[units[0]].segments[0].points for m in choices}
+    assert len(routes)>1  # candidate anchors/tours, not one greedy fixed view
+    assert all(set(m[units[0]].observation_ids)=={'water_sample','nearby'} for m in choices)
+    provider=ExecutorTravelTimeProvider({'start':(-5.,8.,-2.)},{'uuv':1.,'usv':1.},native_models=models)
+    with pytest.raises(ValueError,match='no eligible executor'):
+        build_request_executor_plan(request,scene,units,provider,states)
+
+
+def test_unimplemented_return_requirement_is_not_silently_ignored(tmp_path):
+    import yaml
+    raw=yaml.safe_load(REQUEST_PATH.read_text());raw['return_required']=True
+    path=tmp_path/'request.yaml';path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(ValueError,match='unsupported request fields'):load_request(path)
+
+
+def test_missing_deadline_reaches_request_expansion_and_both_planners(tmp_path):
+    import yaml
+    from mrta_python import Agent,Executor,build_plan,build_executor_plan
+    raw=yaml.safe_load(REQUEST_PATH.read_text())
+    raw.pop('deadline_s')
+    path=tmp_path/'request.yaml';path.write_text(yaml.safe_dump(raw))
+    request=load_request(path)
+    assert request.deadline_s is None
+    tasks=to_plan_tasks(expand(request))
+    assert tasks and all(t.deadline is None for t in tasks)
+    # No artificial large deadline, including hard-deadline scheduling mode.
+    unit=Executor('a',('d',),frozenset({'AIR'}))
+    plan=build_executor_plan([unit],tasks,lambda *args:1.,initial_target_ref='start',hard_deadlines=True)
+    assert len(plan.items)==len(tasks)
+    from dataclasses import replace
+    fixed=build_plan([Agent('d'+str(i),frozenset({'AIR'})) for i in range(7)],
+                     [replace(t,required_agent_count=7) for t in tasks],
+                     lambda *args:1.,initial_target_ref='start')
+    assert len(fixed.items)==len(tasks)
+
 REQ = ObservationRequirement(footprint_radius_m=2.5, min_dwell_s=1.0,
                              cruise_altitude_m=0.8,
                              max_distance_from_altitude_m=3.0)

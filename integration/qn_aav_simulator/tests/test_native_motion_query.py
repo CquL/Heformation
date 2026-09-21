@@ -1,4 +1,5 @@
 import pickle
+import pytest
 import sys
 import time
 from pathlib import Path
@@ -42,6 +43,15 @@ def test_expired_query_budget_is_unknown_not_infeasible():
     assert result['status']=='UNKNOWN' and result['reason']=='QUERY_BUDGET_EXHAUSTED'
 
 
+def test_stationary_support_uses_native_trim_steps_instead_of_invented_motion():
+    backend=PvsBackend('otter',(-5.,-8.,0.),initialization_mode='STATIC_TRIM')
+    result=ExecutorTravelTimeProvider.query_native_fragment(backend,
+        [[(-5.,-8.,0.),(-5.,-8.,0.)]],20.,StaticSceneGeometry.from_mapping(config()),
+        time.monotonic()+10.,include_state=True)
+    assert result['status']=='FEASIBLE' and result['duration_s']>=4.
+    assert result['terminal_backend'].steps>=400 and backend.steps==0
+
+
 def test_post_result_wait_propagates_residual_coast_and_uses_remaining_budget():
     scene=StaticSceneGeometry.from_mapping(config());deadline=time.monotonic()+10.
     result=ExecutorTravelTimeProvider.query_native_fragment(PvsBackend('remus100',(-5.,8.,-2.)),
@@ -51,5 +61,45 @@ def test_post_result_wait_propagates_residual_coast_and_uses_remaining_budget():
     assert waited['status']=='FEASIBLE'
     assert waited['terminal_position'][0]>result['terminal_position'][0]+.1
     assert pickle.dumps(state)==before
+    extended=ExecutorTravelTimeProvider.query_native_fragment(PvsBackend('remus100',(-5.,8.,-2.)),
+        [[(-5.,8.,-2.),(0.,8.,-2.)]],500.,scene,time.monotonic()+10.,terminal_wait_s=20.)
+    assert extended['status']=='FEASIBLE'
+    assert extended['duration_s']>=result['duration_s']+20.-.011
+    assert extended['terminal_position'][0]>result['terminal_position'][0]+.1
+    continued=ExecutorTravelTimeProvider.query_native_fragment(PvsBackend('remus100',(-5.,8.,-2.)),
+        [[(-5.,8.,-2.),(0.,8.,-2.)]],500.,scene,time.monotonic()+10.,terminal_wait_s=20.,resume=result)
+    assert continued['trajectory']==extended['trajectory']
+    assert continued['duration_s']==extended['duration_s']
+    with pytest.raises(ValueError,match='exact motion snapshot'):
+        ExecutorTravelTimeProvider.query_native_fragment(PvsBackend('remus100',(-5.,8.,-2.)),
+            [[(-5.,8.,-2.),(0.,8.,-2.)]],600.,scene,time.monotonic()+10.,terminal_wait_s=20.,resume=result)
     exhausted=ExecutorTravelTimeProvider.query_native_idle(state,20.,scene,time.monotonic()-1.)
     assert exhausted['status']=='UNKNOWN' and exhausted['duration_s']==0
+
+
+def test_qn_candidate_uses_full_state_without_reset_and_budget_exhaustion_is_unknown():
+    from qn_aav_simulator.qn_python_backend import QnPythonClosedLoopBackend
+    from qn_aav_simulator.contracts import AgentState
+    from qn_aav_simulator.platform_execution import Segment
+    from mrta_python import Executor,Task
+    from mrta_python.models import NativeActionSpec,NativeSegmentSpec
+    backend=QnPythonClosedLoopBackend(dict(reference_mode='ROUTE_POSITION',initialization_mode='STATIC_TRIM',
+        water_guidance_mode='LOS_VELOCITY_REFERENCE',water_horizontal_controller_mode='LOS_SURGE_YAW'))
+    backend.reset(AgentState('drone_2','AAV',0.,(-30.,6.,-.6),(0.,0.,0.)))
+    before=pickle.dumps(backend)
+    scene=StaticSceneGeometry.from_mapping(config())
+    segments=(Segment('WATER_PATH',((-30.,6.,-.6),(-30.,6.,-.6)),.1),)
+    expired=backend.predict_native_fragment(segments,scene,time.monotonic()-1.)
+    assert expired['status']=='UNKNOWN' and expired['duration_s']==0.
+    route=NativeActionSpec((NativeSegmentSpec('WATER_PATH',segments[0].points,.1),),'FIXED_REFERENCE')
+    provider=ExecutorTravelTimeProvider({'sample':segments[0].points[-1]},{'native_3':1.},
+        native_routes={('native_3','sample'):(route,)},native_models={'drone_2':backend},scene_geometry=scene)
+    candidates=provider.execution_candidates(Executor('native_3',('drone_2',),frozenset({'WATER'})),
+        Task('sample',frozenset({'WATER'}),1,0.,None,'sample'),0.,
+        {'drone_2':dict(position=backend.snapshot().position,mode='WATER',available_from=0.)},time.monotonic()+10.)
+    completed=candidates[0]
+    assert completed.status=='FEASIBLE' and completed.duration_s>=4.1
+    assert completed.terminal_states['drone_2']['mode']=='WATER'
+    assert completed.terminal_states['drone_2']['native_backend'] is not backend
+    assert 'trajectory' not in completed.steps[0].native_prediction
+    assert pickle.dumps(backend)==before

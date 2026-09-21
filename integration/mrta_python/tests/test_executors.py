@@ -44,6 +44,30 @@ def test_only_the_eligible_executor_is_selected():
     assert plan.assignments == {"survey": "A"}
 
 
+def test_one_business_task_has_overlapping_work_and_support_but_joint_edges_stay_acyclic():
+    from dataclasses import replace
+    from mrta_python import ExecutorPlan,ExecutorPlanItem
+    from mrta_python.models import ExecutionStep
+    from mrta_python.executors import activity_predecessors
+    uuv=air_executor('uuv',('uuv',),capabilities=('WATER',))
+    usv=air_executor('usv',('usv',),capabilities=('SURFACE',))
+    business=task('sample',capabilities=('WATER',),agents=1,service=0.)
+    work=ExecutorPlanItem('observe','sample','uuv',('uuv',),0.,10.,10.,0.,0.,
+        execution_steps=(ExecutionStep('uuv',10.,'sample'),))
+    support=ExecutorPlanItem('support','sample','usv',('usv',),4.,8.,4.,0.,0.,
+        execution_steps=(ExecutionStep('usv',4.,'meeting'),),fulfills_task=False)
+    plan=ExecutorPlan([work,support],serial=False)
+    validate_executor_plan(plan,[uuv,usv],[business])
+    assert plan.task_start_times=={'sample':0.} and plan.task_finish_times=={'sample':10.}
+    assert plan.assignments=={'sample':('usv','uuv')}
+    with pytest.raises(ValueError,match='cycle'):
+        activity_predecessors(replace(plan,activity_edges=(('observe','support'),('support','observe'))))
+    duplicate=replace(support,execution_id='conflict',executor_id='uuv',coalition=('uuv',),
+        execution_steps=(ExecutionStep('uuv',4.,'meeting'),))
+    with pytest.raises(ValueError,match='overlap'):
+        validate_executor_plan(ExecutorPlan([work,duplicate],serial=False),[uuv,usv],[business])
+
+
 def test_ineligible_executor_cannot_be_forced_into_the_plan():
     plan, a, b = scenario_one_only_a_is_eligible()
     plan.items[0].executor_id = "B"

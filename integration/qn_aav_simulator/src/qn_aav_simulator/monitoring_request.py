@@ -60,7 +60,7 @@ class MonitoringRequest:
     requirement: ObservationRequirement
     required_capabilities: frozenset
     service_time_s: float
-    deadline_s: float
+    deadline_s: Optional[float] = None
     #: result must be received, not merely captured
     delivery_required: bool = True
     #: the request explicitly demands underwater work or a USV relay
@@ -77,7 +77,7 @@ class ObservationTask:
     covers: Tuple[str, ...]
     region_id: str
     service_time_s: float
-    deadline_s: float
+    deadline_s: Optional[float]
     required_capabilities: frozenset
     #: observation tasks never want a larger unit unless they say so
     allow_larger_unit: bool = False
@@ -201,7 +201,7 @@ def expand(request: MonitoringRequest,
                 region_id=region.region_id,
                 service_time_s=request.service_time_s,
                 deadline_s=request.deadline_s,
-                required_capabilities=frozenset(request.required_capabilities),
+                required_capabilities=frozenset(request.required_capabilities or ('AIR',)),
             ))
             for point_id in covered:
                 remaining.pop(point_id, None)
@@ -212,13 +212,13 @@ def expand(request: MonitoringRequest,
 
 def validate_request(request: MonitoringRequest) -> None:
     """Reject unusable geometry/timing before any dispatch or division."""
-    if not request.request_id or not request.regions or not request.required_capabilities:
-        raise ValueError("request id, regions and capabilities must be nonempty")
+    if not request.request_id or not request.regions:
+        raise ValueError("request id and regions must be nonempty")
     if (not math.isfinite(request.service_time_s)
             or request.service_time_s < request.requirement.min_dwell_s):
         raise ValueError("service_time_s must be finite and at least min_dwell_s")
-    if not math.isfinite(request.deadline_s) or request.deadline_s <= 0:
-        raise ValueError("deadline_s must be finite and positive")
+    if request.deadline_s is not None and (not math.isfinite(request.deadline_s) or request.deadline_s <= 0):
+        raise ValueError("deadline_s must be absent or finite and positive")
     region_ids, point_ids = set(), set()
     for region in request.regions:
         if not region.region_id or region.region_id in region_ids or not region.interest_points:
@@ -233,3 +233,22 @@ def validate_request(request: MonitoringRequest) -> None:
             point_ids.add(point.point_id)
             if not math.isfinite(point.weight) or point.weight <= 0:
                 raise ValueError("point weights must be finite and positive")
+
+
+def regional_requirements(request):
+    """Business requirements without selecting a viewpoint or physical robot.
+
+    The legacy expand() entry retains its old AIR demonstration. This entry
+    keeps every region and every point mandatory for complete-method planning.
+    Actual method duration replaces the old scalar service estimate.
+    """
+    from mrta_python.models import Task
+    validate_request(request)
+    extra=set(request.required_capabilities)-{'AIR','WATER','SURFACE'}
+    tasks=[]
+    for region in request.regions:
+        if region.kind not in KINDS:raise ValueError('unknown region kind: '+region.kind)
+        domain='WATER' if region.kind==UNDERWATER else 'AIR'
+        tasks.append(Task(request.request_id+'::'+region.region_id,frozenset(extra|{domain}),1,
+            0.,request.deadline_s,region.region_id,allow_larger_unit=domain=='AIR'))
+    return tuple(tasks)

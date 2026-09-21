@@ -17,6 +17,7 @@ and ``~diagnostics``.  No qn controller, actuator or 6DOF equation is changed.
 
 import math
 import threading
+import time
 
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from geometry_msgs.msg import PoseStamped, TwistStamped
@@ -433,6 +434,9 @@ class QnAavNode:
             ("air_floor_m", repr(self.air_floor_m)),
             ("air_domain_violation", "true" if self.air_domain_violation else "false"),
         ]
+        pause=getattr(self,'gc_pause',(0.,0.,-1))
+        entries.extend([('max_gc_pause_s',str(pause[0])),('max_gc_pause_started_ros_s',str(pause[1])),
+                        ('max_gc_pause_generation',str(pause[2]))])
         if self.platform_action is not None:
             entries.extend(self.platform_action.diagnostics())
             entries.extend([
@@ -453,18 +457,39 @@ class QnAavNode:
         return array
 
     def run(self):
-        rate = rospy.Rate(round(self.rate_hz))
+        if rospy.get_param('/use_sim_time',False):
+            raise ValueError('qn wall-time execution requires use_sim_time=false; no external clock adapter is configured')
+        # Passive timing evidence; collector policy and model steps are unchanged.
+        import gc
+        self.gc_pause=(0.,0.,-1)
+        gc_start=[None]
+        def gc_event(phase,info):
+            if phase=='start':gc_start[0]=(time.monotonic(),time.time())
+            elif gc_start[0] is not None:
+                elapsed=time.monotonic()-gc_start[0][0]
+                if elapsed>self.gc_pause[0]:self.gc_pause=(elapsed,gc_start[0][1],info['generation'])
+        gc.callbacks.append(gc_event)
+        rospy.on_shutdown(lambda:gc.callbacks.remove(gc_event) if gc_event in gc.callbacks else None)
+        # Absolute wall-time deadlines do not discard elapsed slots after a
+        # slow cycle (rospy.Rate resets its phase after >2 periods). Every
+        # iteration still integrates exactly one real fixed model step. No
+        # completed interval is replayed; adoption uses inputs available now.
+        # Gaps/lag remain in diagnostics and the existing validity gate.
+        next_tick = time.monotonic()
         self.last_step_ros_time_s = rospy.Time.now().to_sec()
         while not rospy.is_shutdown():
             now_s = rospy.Time.now().to_sec()
             # Diagnostic only: how far ROS wall time ran between two fixed
             # model steps.  A real stall shows up here and in the model/ROS
-            # alignment gate; it is never compensated by extra model time.
+            # alignment gate. No time is credited without backend.step().
             self.max_loop_ros_gap_s = max(
                 self.max_loop_ros_gap_s, now_s - self.last_step_ros_time_s)
             self.last_step_ros_time_s = now_s
             self.step()
-            rate.sleep()
+            next_tick += self.outer_dt_s
+            delay = next_tick-time.monotonic()
+            if delay>0:
+                time.sleep(delay)
 
 
 def main():

@@ -18,7 +18,7 @@ find_package(catkin REQUIRED COMPONENTS
 catkin_python_setup()
 
 add_message_files(DIRECTORY msg FILES PlatformSegment.msg)
-add_service_files(DIRECTORY srv FILES TakeReference.srv)
+add_service_files(DIRECTORY srv FILES TakeReference.srv StartPreparedAction.srv)
 add_action_files(DIRECTORY action FILES Formation.action PlatformTask.action)
 generate_messages(DEPENDENCIES actionlib_msgs geometry_msgs nav_msgs)
 catkin_package(CATKIN_DEPENDS actionlib_msgs diagnostic_msgs geometry_msgs message_runtime nav_msgs quadrotor_msgs rospy sensor_msgs std_msgs std_srvs)
@@ -35,6 +35,8 @@ catkin_install_python(
   scripts/mission_console.py scripts/probe_pvs_actions.py
   scripts/probe_swarm_roundtrip.py
   scripts/probe_five_qualification.py
+  scripts/probe_prepared_fragments.py
+  scripts/run_water_cooperation.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

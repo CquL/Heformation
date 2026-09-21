@@ -3,6 +3,15 @@ qn_aav_simulator/PlatformSegment[] segments
 # Only explicitly qualified terminal behavior is accepted.
 string terminal_behavior
 duration execution_timeout
+# Default false preserves standalone qualification goals. True accepts/reserves
+# the fragment but holds its qualified initial behavior until explicit release.
+bool prepare_only
+# Point IDs in the request loaded once by the local endpoint. Empty means
+# motion only; a successful motion Result is never an observation product.
+string[] observation_ids
+# Additional bounded time in the qualified terminal behavior. Integration,
+# safety checks and physical reservation continue; this is not position reset.
+duration terminal_wait
 ---
 string task_id
 string goal_id

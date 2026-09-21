@@ -139,6 +139,95 @@ def to_plan_tasks(tasks: Sequence[ObservationTask]):
                  for task in tasks)
 
 
+def request_native_methods(request,scene,executors,member_states,native_models,deadline,
+                           terminal_wait_choices=(0.,30.,40.)):
+    """Generate finite regional work/support methods, not a preselected tour.
+
+    Each region remains a mandatory business Task. Single-anchor passes and
+    forward/reverse declared-point tours compete; the real model/coverage
+    query, not a greedy footprint pass, decides which satisfies every point.
+    Unsupported domains/models remain without a method and therefore UNKNOWN
+    in the existing planner. No required region is removed.
+    """
+    import time
+    from mrta_python.models import NativeActionSpec,NativeSegmentSpec
+    from mrta_python.executors import eligible_executors,PlanningBudgetExceeded
+    from .monitoring_request import regional_requirements,UNDERWATER
+    tasks=regional_requirements(request)
+    if not math.isfinite(deadline) or time.monotonic()>=deadline:
+        raise PlanningBudgetExceeded('request method generation has no remaining budget')
+    if any(not math.isfinite(v) or not 0<=v<180. for v in terminal_wait_choices):
+        raise ValueError('finite terminal wait candidates must fit the native observation horizon')
+    sites=[]
+    for site in scene.get('communication_sites',()):
+        position=tuple(site['position'])
+        if len(position)!=3 or not all(math.isfinite(v) for v in position) or position[2]!=scene['surface_z_m']:
+            raise ValueError('communication site must be a finite surface position')
+        if position not in sites:sites.append(position)
+    regions={r.region_id:r for r in request.regions};methods={}
+    for task in tasks:
+        region=regions[task.target_ref]
+        if region.kind!=UNDERWATER or not request.delivery_required:continue
+        for work in eligible_executors(executors,task):
+            if len(work.physical_agent_ids)!=1:continue
+            member=work.physical_agent_ids[0]
+            backend=member_states[member].get('native_backend',native_models.get(member))
+            if getattr(backend,'model',None)!='remus100':continue
+            start=tuple(member_states[member]['position'])
+            paths=[]
+            point_positions=tuple(p.position for p in region.interest_points)
+            routes=[(p,) for p in point_positions]
+            if len(point_positions)>1:routes.extend((point_positions,tuple(reversed(point_positions))))
+            for route in routes:
+                points=[start]
+                for p in route:
+                    if p!=points[-1]:points.append(p)
+                if len(points)==1:points.append(points[0])  # qualified native coast/idle at an existing sample
+                path=tuple(points)
+                if path not in paths:paths.append(path)
+            choices=[]
+            for support in executors:
+                if len(support.physical_agent_ids)!=1 or member in support.physical_agent_ids:continue
+                other=support.physical_agent_ids[0]
+                boat=member_states[other].get('native_backend',native_models.get(other))
+                if getattr(boat,'model',None)!='otter' or 'SURFACE' not in support.capabilities:continue
+                p=member_states[other]['position'];boat_start=(p[0],p[1],scene['surface_z_m'])
+                for wait in terminal_wait_choices:
+                    for path in paths:
+                        work_spec=NativeActionSpec((NativeSegmentSpec('WATER_PATH',path),),backend.terminal_behavior,
+                            observation_ids=tuple(p.point_id for p in region.interest_points),terminal_wait_s=wait)
+                        for site in sites:
+                            if time.monotonic()>=deadline:raise PlanningBudgetExceeded('request method generation exceeded shared budget')
+                            support_spec=NativeActionSpec((NativeSegmentSpec('SURFACE_PATH',(boat_start,site)),),boat.terminal_behavior)
+                            choices.append({work:work_spec,support:support_spec})
+            if choices:methods[(work.executor_id,task.task_id)]=tuple(choices)
+    return tasks,methods
+
+
+def build_request_executor_plan(request,scene,executors,provider,member_states,*,budget_s=10.):
+    """Existing request/planner boundary with one budget including generation.
+
+    The caller supplies the model snapshot. Unsupported regions stay mandatory;
+    this function cannot return a plan for a silently truncated request.
+    """
+    import time
+    from dataclasses import replace
+    from mrta_python import build_executor_plan
+    from mrta_python.executors import PlanningBudgetExceeded
+    from .experiment_verdict import StaticSceneGeometry
+    if not math.isfinite(budget_s) or budget_s<=0:raise ValueError('finite positive planning budget required')
+    deadline=time.monotonic()+budget_s
+    tasks,methods=request_native_methods(request,scene,executors,member_states,provider.native_models,deadline)
+    provider=replace(provider,cooperative_routes=methods,observation_request=request,
+        scene_geometry=StaticSceneGeometry.from_mapping(scene),
+        mother_position=tuple(scene.get('mother_ship_receiver_position',scene['mother_ship_position'])))
+    remaining=deadline-time.monotonic()
+    if remaining<=0:raise PlanningBudgetExceeded('request method generation exhausted planning budget')
+    plan=build_executor_plan(executors,tasks,provider,initial_target_ref='start',budget_s=remaining,
+        member_states=member_states,execution_candidates=provider.execution_candidates,hard_deadlines=True)
+    return plan,tasks
+
+
 def retest_tasks(request: MonitoringRequest,
                  tasks: Sequence[ObservationTask],
                  coverage: CoverageResult,
@@ -220,16 +309,20 @@ def load_formation_phase(path: Path) -> Optional[FormationPhase]:
 def load_request(path: Path) -> MonitoringRequest:
     """Read an operator request from YAML and validate it.
 
-    Missing fields are an error rather than a default: a request that silently
-    acquires a service time or a deadline is a request the operator did not make.
+    Required geometry/service fields must be explicit. An absent or null
+    deadline means no business deadline; never substitute a large number.
     """
     import yaml
 
     raw = yaml.safe_load(Path(path).read_text())
     if not isinstance(raw, dict):
         raise ValueError("a monitoring request must be a mapping")
-    for field in ("request_id", "requirement", "regions", "required_capabilities",
-                  "service_time_s", "deadline_s"):
+    allowed={'request_id','requirement','regions','required_capabilities','service_time_s','deadline_s',
+             'delivery_required','requires_underwater','requires_relay_delivery','formation_phase'}
+    if set(raw)-allowed:
+        raise ValueError('unsupported request fields: '+str(sorted(set(raw)-allowed)))
+    for field in ("request_id", "requirement", "regions",
+                  "service_time_s"):
         if field not in raw:
             raise ValueError("monitoring request is missing '{}'".format(field))
     requirement = ObservationRequirement(**raw["requirement"])
@@ -244,9 +337,9 @@ def load_request(path: Path) -> MonitoringRequest:
     request = MonitoringRequest(
         request_id=str(raw["request_id"]), regions=tuple(regions),
         requirement=requirement,
-        required_capabilities=frozenset(raw["required_capabilities"]),
+        required_capabilities=frozenset(raw.get("required_capabilities", ())),
         service_time_s=float(raw["service_time_s"]),
-        deadline_s=float(raw["deadline_s"]),
+        deadline_s=None if raw.get("deadline_s") is None else float(raw["deadline_s"]),
         delivery_required=bool(raw.get("delivery_required", True)),
         requires_underwater=bool(raw.get("requires_underwater", False)),
         requires_relay_delivery=bool(raw.get("requires_relay_delivery", False)))

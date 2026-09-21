@@ -174,7 +174,8 @@ def audit(path,include_marine=False,scene_file=None):
         heights=[float(v['position_z'])-.25 for _,v in diagnostics[i]
                  if i!=0 or v.get('reference_source')=='AIR_SWARM']
         air_min_envelope[str(i)]=min(heights) if heights else None
-        if not heights or min(heights)<0.:failures.append('AIR body envelope below declared surface: '+str(i))
+        if not heights:failures.append('missing AIR-scope reference/state interval: '+str(i))
+        elif min(heights)<0.:failures.append('AIR body envelope below declared surface: '+str(i))
     if include_marine:
         for i,mode in [('usv','SURFACE'),('uuv','WATER')]:
             if not diagnostics[i] or any(v.get('actual_mode')!=mode for _,v in diagnostics[i]):

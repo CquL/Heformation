@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, FrozenSet, List, Tuple
+from typing import Dict, FrozenSet, List, Tuple, TYPE_CHECKING
 import math
+
+if TYPE_CHECKING:
+    from .executors import ExecutorPlanItem
 
 
 @dataclass(frozen=True)
@@ -28,15 +31,22 @@ class NativeActionSpec:
     segments: Tuple[NativeSegmentSpec, ...]
     terminal_behavior: str
     execution_timeout_s: float = 180.0
+    observation_ids: Tuple[str, ...] = ()
+    terminal_wait_s: float = 0.0
 
     def __post_init__(self):
         object.__setattr__(self,'segments',tuple(self.segments))
+        object.__setattr__(self,'observation_ids',tuple(self.observation_ids))
+        if any(not isinstance(v,str) or not v for v in self.observation_ids) or len(set(self.observation_ids))!=len(self.observation_ids):
+            raise ValueError('observation IDs must be unique nonempty strings')
         if not all(isinstance(s,NativeSegmentSpec) for s in self.segments):
             raise ValueError('native fragments require typed segment specifications')
         if not 1<=len(self.segments)<=16 or self.terminal_behavior not in ('FIXED_REFERENCE','COAST_STOP','TRIM_PROPULSION'):
             raise ValueError('invalid native fragment/terminal contract')
         if not math.isfinite(self.execution_timeout_s) or self.execution_timeout_s<=0:
             raise ValueError('native observation timeout must be finite and positive')
+        if not math.isfinite(self.terminal_wait_s) or not 0<=self.terminal_wait_s<self.execution_timeout_s:
+            raise ValueError('terminal wait must fit the finite observation timeout')
         if any(a.points[-1]!=b.points[0] for a,b in zip(self.segments,self.segments[1:])):
             raise ValueError('native fragment paths must connect')
 
@@ -73,16 +83,23 @@ class ExecutionCandidate:
     terminal_states: Dict[str, dict]
     status: str = 'FEASIBLE'
     reason: str = ''
+    # Cooperative methods reuse the existing plan activities, with times
+    # relative to the queried start. Sequential legacy methods keep steps.
+    # Exactly one representation is stored, never both.
+    activities: Tuple['ExecutorPlanItem', ...] = ()
 
     def __post_init__(self):
         object.__setattr__(self,'steps',tuple(self.steps))
+        object.__setattr__(self,'activities',tuple(self.activities))
         if not self.candidate_id or self.status not in ('FEASIBLE','INFEASIBLE','UNKNOWN'):
             raise ValueError('invalid candidate status')
-        if self.status=='FEASIBLE' and (not self.steps or not all(isinstance(s,ExecutionStep) for s in self.steps)):
+        if self.status=='FEASIBLE' and (bool(self.steps)==bool(self.activities) or
+                not all(isinstance(s,ExecutionStep) for s in self.steps)):
             raise ValueError('feasible candidate needs a complete execution chain')
 
     @property
     def duration_s(self):
+        if self.activities:return max(a.planned_finish for a in self.activities)
         return sum(step.duration_s for step in self.steps)
 
 
@@ -99,7 +116,7 @@ class Task:
     required_capabilities: FrozenSet[str]
     required_agent_count: int
     service_time: float
-    deadline: float
+    deadline: float | None
     target_ref: str
     # A single-platform task must not be handed to a larger unit just because
     # that unit is also capable and eligible: the bigger unit would drag members

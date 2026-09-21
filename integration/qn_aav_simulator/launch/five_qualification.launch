@@ -4,9 +4,15 @@
   <arg name="output_dir" default="/experiments/current"/>
   <arg name="scene_file" default="$(find qn_aav_simulator)/config/five_scene.yaml"/>
   <arg name="visualize" default="false"/>
+  <arg name="record" default="true"/>
+  <arg name="request_file" default=""/>
+  <group if="$(eval arg('request_file') != '')">
+    <param name="/mission/request_file" value="$(arg request_file)"/>
+  </group>
   <param name="scene_publisher/visualize" value="$(arg visualize)"/>
   <include file="$(find qn_aav_simulator)/launch/swarm_roundtrip.launch">
     <arg name="output_dir" value="$(arg output_dir)"/>
+    <arg name="record" value="$(arg record)"/>
     <arg name="transition_fault_behavior" value="COMPLETE_ACCEPTED_VERTICAL_SEGMENT"/>
   </include>
   <group if="$(eval arg('scene_file') != '')">

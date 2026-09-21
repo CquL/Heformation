@@ -1,0 +1,154 @@
+--- a/src/planner/plan_env/include/plan_env/grid_map.h
++++ b/src/planner/plan_env/include/plan_env/grid_map.h
+@@ -195,7 +195,8 @@
+   inline bool isKnownFree(const Eigen::Vector3i &id);
+   inline bool isKnownOccupied(const Eigen::Vector3i &id);
+ 
+-  void initMap(ros::NodeHandle &nh);
++  void initMap(ros::NodeHandle &nh, bool readonly = false);
++  void loadStaticSnapshot(const std::vector<Eigen::Vector3d> &points);
+ 
+   void publishMap();
+   void publishMapInflate(bool all_info = false);
+--- a/src/planner/plan_env/src/grid_map.cpp
++++ b/src/planner/plan_env/src/grid_map.cpp
+@@ -3,7 +3,7 @@
+ // #define current_img_ md_.depth_image_[image_cnt_ & 1]
+ // #define last_img_ md_.depth_image_[!(image_cnt_ & 1)]
+ 
+-void GridMap::initMap(ros::NodeHandle &nh)
++void GridMap::initMap(ros::NodeHandle &nh, bool readonly)
+ {
+   node_ = nh;
+ 
+@@ -117,6 +117,7 @@
+ 
+   /* init callback */
+   
++  if (!readonly) {
+   depth_sub_.reset(new message_filters::Subscriber<sensor_msgs::Image>(node_, "grid_map/depth", 50));
+   extrinsic_sub_ = node_.subscribe<nav_msgs::Odometry>(
+       "/vins_estimator/extrinsic", 10, &GridMap::extrinsicCallback, this); //sub
+@@ -153,6 +154,8 @@
+   map_inf_pub_  = node_.advertise<sensor_msgs::PointCloud2>("grid_map/occupancy_inflate", 10);
+   esdf_pub_     = node_.advertise<sensor_msgs::PointCloud2>("grid_map/esdf", 10);
+ 
++  }
++
+   md_.occ_need_update_ = false;
+   md_.local_updated_ = false;
+   md_.has_first_depth_ = false;
+@@ -173,6 +176,26 @@
+   // rand_noise2_ = normal_distribution<double>(0, 0.2);
+   // random_device rd;
+   // eng_ = default_random_engine(rd());
++}
++
++// Private complete static map for read-only optimizer queries. Inflation and
++// vertical ceiling follow the CPU cloud path; no ROS I/O is registered here.
++void GridMap::loadStaticSnapshot(const std::vector<Eigen::Vector3d> &points)
++{
++  resetBuffer();
++  const int inflation = ceil(mp_.obstacles_inflation_ / mp_.resolution_);
++  for (const auto &point : points)
++    for (int x=-inflation; x<=inflation; ++x)
++      for (int y=-inflation; y<=inflation; ++y)
++        for (int z=-1; z<=1; ++z)
++          setOccupied(point + mp_.resolution_ * Eigen::Vector3d(x,y,z));
++  if (mp_.virtual_ceil_height_ > -0.5) {
++    const int z=floor((mp_.virtual_ceil_height_-mp_.map_origin_(2))*mp_.resolution_inv_);
++    for (int x=0; x<mp_.map_voxel_num_(0); ++x)
++      for (int y=0; y<mp_.map_voxel_num_(1); ++y)
++        if (isInMap(Eigen::Vector3i(x,y,z))) md_.occupancy_buffer_inflate_[toAddress(Eigen::Vector3i(x,y,z))]=1;
++  }
++  updateESDF3d();
+ }
+ 
+ void GridMap::resetBuffer()
+--- a/src/planner/traj_opt/include/optimizer/poly_traj_optimizer.h
++++ b/src/planner/traj_opt/include/optimizer/poly_traj_optimizer.h
+@@ -112,7 +112,7 @@
+                             const Eigen::MatrixXd &initInnerPts, const Eigen::VectorXd &initT,
+                             Eigen::MatrixXd &optimal_points, const bool use_formation);
+                                             
+-    void astarWithMinTraj( const Eigen::MatrixXd &iniState, 
++    bool astarWithMinTraj( const Eigen::MatrixXd &iniState, 
+                            const Eigen::MatrixXd &finState,
+                            std::vector<Eigen::Vector3d> &simple_path,
+                            Eigen::MatrixXd &ctl_points,
+--- a/src/planner/traj_opt/src/poly_traj_optimizer.cpp
++++ b/src/planner/traj_opt/src/poly_traj_optimizer.cpp
+@@ -620,7 +620,7 @@
+     return;
+   }
+ 
+-  void PolyTrajOptimizer::astarWithMinTraj(const Eigen::MatrixXd &iniState,
++  bool PolyTrajOptimizer::astarWithMinTraj(const Eigen::MatrixXd &iniState,
+                                            const Eigen::MatrixXd &finState,
+                                            vector<Eigen::Vector3d> &simple_path,
+                                            Eigen::MatrixXd &ctl_points,
+@@ -633,6 +633,7 @@
+     simple_path = a_star_->astarSearchAndGetSimplePath(grid_map_->getResolution(), start_pos, end_pos);
+ 
+     /* generate minimum snap trajectory based on the simple_path waypoints*/
++    if (simple_path.size()<2) return false;
+     int piece_num = simple_path.size() - 1;
+     Eigen::MatrixXd innerPts;
+ 
+@@ -648,6 +649,7 @@
+       piece_num = 2;
+       innerPts.resize(3, 1);
+       innerPts.col(0) = (simple_path[0] + simple_path[1]) / 2;
++      simple_path.insert(simple_path.begin()+1, innerPts.col(0));
+     }
+ 
+     frontendMJ.reset(iniState, finState, piece_num);
+@@ -672,6 +674,7 @@
+     traj = frontendMJ.getTraj();
+ 
+     ctl_points = frontendMJ.getInitConstrainPoints(cps_num_prePiece_);
++    return ctl_points.allFinite();
+   }
+ 
+   bool PolyTrajOptimizer::getFormationPos(vector<Eigen::Vector3d> &swarm_graph_pos, Eigen::Vector3d pos)
+--- a/src/planner/plan_manage/src/planner_manager.cpp
++++ b/src/planner/plan_manage/src/planner_manager.cpp
+@@ -69,7 +69,8 @@
+       Eigen::MatrixXd ctl_points;
+ 
+       // traj = ploy_traj_opt_->astarWithMinTraj(headState, tailState, simple_path, ctl_points);
+-      ploy_traj_opt_->astarWithMinTraj(headState, tailState, simple_path, ctl_points, initMJO);
++      if (!ploy_traj_opt_->astarWithMinTraj(headState, tailState, simple_path, ctl_points, initMJO))
++        return false;
+       traj = initMJO.getTraj();
+ 
+       // show the init simple_path
+--- a/src/planner/path_searching/src/dyn_a_star.cpp
++++ b/src/planner/path_searching/src/dyn_a_star.cpp
+@@ -264,14 +264,15 @@
+ 
+ vector<Vector3d> AStar::astarSearchAndGetSimplePath(const double step_size, Vector3d start_pt, Vector3d end_pt){
+     // call astar search and get the path
+-    AstarSearch(step_size, start_pt, end_pt, true);
++    if (!AstarSearch(step_size, start_pt, end_pt, true)) return {};
+     vector<Vector3d> path = getPath();
+     bool is_show_debug = false;
+ 
+     // I don't know why, but only try A* again
++    if (path.empty()) return {};
+     if ((path[0]-start_pt).norm() > 0.5){
+         ROS_WARN("I don't know why, but only try A* again");
+-        AstarSearch(step_size, start_pt, end_pt, false);
++        if (!AstarSearch(step_size, start_pt, end_pt, false)) return {};
+         path = getPath();
+     }
+     
+--- a/src/planner/plan_manage/CMakeLists.txt
++++ b/src/planner/plan_manage/CMakeLists.txt
+@@ -54,3 +54,6 @@
+ # add_dependencies(traj_server ${${PROJECT_NAME}_EXPORTED_TARGETS})
+ 
+ 
++
++add_executable(swarm_readonly_query src/swarm_readonly_query.cpp)
++target_link_libraries(swarm_readonly_query ${catkin_LIBRARIES})

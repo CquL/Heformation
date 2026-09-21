@@ -120,7 +120,7 @@ def process_executor_completion(plan, event, final_events):
     including a disjoint unit, is released after this completion. Allocation is
     unchanged; the caller may refresh travel estimates from actual member state.
     """
-    from .executors import ExecutorPlan
+    from .executors import ExecutorPlan,activity_predecessors
     if not isinstance(plan, ExecutorPlan):
         raise ValueError("Executor completion requires an ExecutorPlan")
     item = _event_item(plan, event)
@@ -137,8 +137,7 @@ def process_executor_completion(plan, event, final_events):
     index = plan.items.index(item)
     if plan.serial and any(i.status != "PLANNED" for i in plan.items[index + 1:]):
         raise ValueError("serial successor has already started or terminated")
-    updated = ExecutorPlan([replace(i) for i in plan.items],serial=plan.serial,
-                           precedence_edges=plan.precedence_edges)
+    updated = replace(plan,items=[replace(i) for i in plan.items])
     updated.items[index].status = "COMPLETED"
     updated.items[index].actual_finish = event.actual_finish
     if not plan.serial:
@@ -150,24 +149,22 @@ def process_executor_completion(plan, event, final_events):
         for committed in updated.items:
             if committed.status!='PLANNED':
                 finish=committed.actual_finish if committed.actual_finish is not None else committed.planned_finish
-                finishes[committed.task_id]=finish
+                finishes[committed.execution_id]=finish
                 for member in committed.coalition:
                     available[member]=max(available.get(member,0.),finish)
-        predecessors={i.task_id:set() for i in updated.items}
-        for before,after in updated.precedence_edges:
-            predecessors[after].add(before)
+        predecessors=activity_predecessors(updated)
         for successor in updated.items:
             if successor.status!='PLANNED':
                 continue
-            if not predecessors[successor.task_id]<=finishes.keys():
+            if not predecessors[successor.execution_id]<=finishes.keys():
                 raise ValueError('repair input is not in valid predecessor order')
             start=max(successor.planned_start,event.actual_finish,
                       max((available.get(m,0.) for m in successor.coalition),default=0.),
-                      max((finishes[p] for p in predecessors[successor.task_id]),default=0.))
+                      max((finishes[p] for p in predecessors[successor.execution_id]),default=0.))
             finish=start+successor.travel_time+successor.wait_time+successor.service_time
             changed |= start!=successor.planned_start or finish!=successor.planned_finish
             successor.planned_start,successor.planned_finish=start,finish
-            finishes[successor.task_id]=finish
+            finishes[successor.execution_id]=finish
             for member in successor.coalition:available[member]=finish
         final_events[event.execution_id]=event
         return updated,changed

@@ -13,6 +13,25 @@ POINT = {"p": (-28.0, 4.0, 0.0)}
 WEIGHTS = {"p": 1.0}
 
 
+def test_native_observation_requires_fresh_active_domain_samples_and_emits_once():
+    from pathlib import Path
+    from qn_aav_simulator.task_line import load_request
+    from qn_aav_simulator.observation_coverage import LocalObservationWindow
+    request=load_request(Path(__file__).parents[1]/'config/monitoring_request_joint.yaml')
+    window=LocalObservationWindow(request,['water_sample'],'uuv','accepted-goal')
+    point=(0.,8.,-2.)
+    assert not window.sample(0.,point,'WATER',100.,valid=False)
+    assert not window.sample(.1,point,'WATER',100.1)
+    assert not window.sample(.5,point,'WATER',100.5)  # missing samples reset dwell
+    assert not window.sample(.6,point,'AIR',100.6)  # wrong physical medium resets
+    events=[]
+    for i in range(7,19):events.extend(window.sample(i/10.,point,'WATER',100.+i/10.))
+    assert len(events)==1 and events[0]['required_bytes']==32768
+    assert events[0]['producer']=='uuv' and events[0]['observed'] is True
+    assert events[0]['result']['dwell_s']==pytest.approx(1.)
+    assert 'received_at' not in events[0]
+
+
 def dwell_samples(member="m0", start=0.0, end=1.2, step=0.2, xy=(-28.0, 4.0),
                   speed=0.0, z=0.8):
     rows = []

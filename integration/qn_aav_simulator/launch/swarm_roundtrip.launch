@@ -2,6 +2,7 @@
   <!-- Single member handover qualification in the existing three-AAV world.
        The other members remain physically present; no qn instance restarts. -->
   <arg name="output_dir" default="/experiments/current"/>
+  <arg name="record" default="true"/>
   <arg name="transition_fault_behavior" default="FIXED_REFERENCE"/>
   <include file="$(find qn_aav_simulator)/launch/formation_aav3.launch">
     <arg name="planner_speed" value="0.35"/>
@@ -16,6 +17,6 @@
   <param name="drone_0_qn_aav/world_frame" value="world"/>
   <param name="drone_0_qn_aav/water_guidance_mode" value="LOS_VELOCITY_REFERENCE"/>
   <param name="drone_0_qn_aav/water_horizontal_controller_mode" value="LOS_SURGE_YAW"/>
-  <node pkg="rosbag" type="record" name="handover_recorder"
-    args="-O $(arg output_dir)/handover.bag --buffsize=256 --regex /aav_(1|2|3|formation)/formation_action/.*|/drone_0_qn_aav/platform_task/.*|/drone_[0-2]_qn/(odometry|used_reference_pose|used_reference_twist|diagnostics|medium_flag)|/drone_0_planning/(trajectory|pos_cmd|safety_status)|/drone_0_(member|formation)_goal|/(usv|uuv)/(odometry|diagnostics|platform_task/.*)|/scene/global_cloud"/>
+  <node if="$(arg record)" pkg="rosbag" type="record" name="handover_recorder"
+    args="-O $(arg output_dir)/handover.bag --buffsize=256 --regex /aav_(1|2|3|formation)/formation_action/.*|/drone_0_qn_aav/(platform_task/.*|local_products)|/drone_[0-2]_qn/(odometry|used_reference_pose|used_reference_twist|diagnostics|medium_flag)|/drone_0_planning/(trajectory|pos_cmd|safety_status)|/drone_0_(member|formation)_goal|/(usv|uuv)/(odometry|diagnostics|local_products|platform_task/.*)|/mother/received_.*|/scene/(global_cloud|delivery_progress)"/>
 </launch>

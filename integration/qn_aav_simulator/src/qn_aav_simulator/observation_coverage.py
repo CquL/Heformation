@@ -54,6 +54,8 @@ class FiniteDelivery:
         self.products={}
         self.channel_time={}
         self.start_time=start_time
+        self._epoch_time=None
+        self._epoch_prefixes={}
 
     def produce(self,product_id,product):
         if product_id in self.products:
@@ -61,36 +63,75 @@ class FiniteDelivery:
         self.products[product_id]=product
 
     def advance(self,channel,now_s,bytes_per_second,flows):
-        flows=tuple(flows)
-        if not math.isfinite(now_s) or not math.isfinite(bytes_per_second) or bytes_per_second<0:
-            raise ValueError('invalid channel time/rate')
-        before=self.channel_time.get(channel,self.start_time)
-        if now_s<before:
-            raise ValueError('channel time moved backwards')
-        if now_s==before:
-            return ()
-        # Validate the whole update before mutating any counters or time.
-        for key,source,destination,available in flows:
-            if key not in self.products or not source or not destination or source==destination or type(available) is not bool:
-                raise ValueError('invalid delivery flow')
-        prefixes={k:dict(p.received_prefix) for k,p in self.products.items()}
-        budget=bytes_per_second*(now_s-before)
+        """Legacy single-channel boundary; same-time calls share a snapshot."""
+        return self.advance_all(now_s,{channel:(bytes_per_second,flows)})
+
+    def advance_all(self,now_s,channels):
+        """One shared step-start snapshot across all acoustic/RF channels.
+
+        ``channels`` maps channel identity to (effective rate, ordered flows).
+        A caller supplies all active channels once per communication tick.
+        Rates apply to the elapsed interval; link changes split that interval.
+        Duplicate same-time updates consume no additional capacity.
+        """
+        if not math.isfinite(now_s) or now_s<self.start_time:
+            raise ValueError('invalid communication time')
+        if self._epoch_time is not None and now_s<self._epoch_time:
+            raise ValueError('communication time moved backwards')
+        updates={name:(rate,tuple(flows)) for name,(rate,flows) in channels.items()}
+        # Validate every channel before modifying any ledger or epoch.
+        for name,(rate,flows) in updates.items():
+            if not name or not math.isfinite(rate) or rate<0:
+                raise ValueError('invalid channel time/rate')
+            for key,source,destination,available in flows:
+                if key not in self.products or not source or not destination or source==destination or type(available) is not bool:
+                    raise ValueError('invalid delivery flow')
+        if self._epoch_time!=now_s:
+            self._epoch_prefixes={k:dict(p.received_prefix) for k,p in self.products.items()}
+            self._epoch_time=now_s
         receipts=[]
-        for key,source,destination,available in flows:
-            product=self.products[key]
-            if not available or product.generated_at>before:
-                continue
-            old=product.received_prefix.get(destination,0.)
-            amount=min(budget,max(0.,prefixes[key].get(source,0.)-old))
-            if amount<=0:
-                continue
-            product.received_prefix[destination]=old+amount
-            budget-=amount
-            if destination==product.receiver and old+amount>=product.required_bytes and product.received_at is None:
-                product.received_at=now_s
-                receipts.append(key)
-        self.channel_time[channel]=now_s
+        for channel,(rate,flows) in updates.items():
+            before=self.channel_time.get(channel,self.start_time)
+            budget=rate*(now_s-before)
+            for key,source,destination,available in flows:
+                product=self.products[key]
+                if not available or product.generated_at>before:continue
+                old=product.received_prefix.get(destination,0.)
+                amount=min(budget,max(0.,self._epoch_prefixes.get(key,{}).get(source,0.)-old))
+                if amount<=0:continue
+                product.received_prefix[destination]=old+amount
+                budget-=amount
+                if destination==product.receiver and old+amount>=product.required_bytes and product.received_at is None:
+                    product.received_at=now_s
+                    receipts.append(key)
+            self.channel_time[channel]=now_s
         return tuple(receipts)
+
+
+def declared_delivery_channels(products,previous,states,obstacles=(),continuous=True):
+    """The frozen sampled link model, shared by prediction and live transport.
+
+    State values are (position, actual medium). The mother ship knows neither
+    this input nor intermediate relay prefixes; these belong to the simulator.
+    """
+    def link(samples,source,destination,water):
+        if source not in samples or destination not in samples:return False
+        a,ma=samples[source];b,mb=samples[destination]
+        if water:
+            if ma!='WATER' or mb!='SURFACE':return False
+        elif ma not in ('AIR','SURFACE') or mb not in ('AIR','SURFACE'):return False
+        return math.dist(a,b)<=(8. if water else 30.) and not any(o.blocks(a,b) for o in obstacles)
+    acoustic=[];radio=[]
+    for ident,product in products.items():
+        if product.received_at is not None:continue
+        source=product.producer
+        if source!='usv':
+            acoustic.append((ident,source,'usv',continuous and
+                link(previous,source,'usv',True) and link(states,source,'usv',True)))
+        for sender in dict.fromkeys((source,'usv')):
+            radio.append((ident,sender,'mother',continuous and
+                link(previous,sender,'mother',False) and link(states,sender,'mother',False)))
+    return {'acoustic':(2*1024,acoustic),'radio':(32*1024,radio)}
 
 
 @dataclass(frozen=True)
@@ -263,3 +304,97 @@ def record_delivery(result: CoverageResult, point_ids: Iterable[str]) -> None:
     immediately, but it is still a distinct event and is recorded as one.
     """
     result.delivered_point_ids = frozenset(result.delivered_point_ids) | set(point_ids)
+
+
+class LocalObservationWindow:
+    """Streaming local geometric sensor surrogate for one accepted action.
+
+    Only the executing node calls this with completed model samples. It emits
+    products, never receipt or task-success events. Conditions come from the
+    loaded request, not from an arbitrary payload-quality score.
+    """
+    def __init__(self,request,point_ids,producer,goal_id,obstacles=(),sample_timeout_s=.25):
+        if request is None:raise ValueError('observation requires a loaded request')
+        if not producer or not goal_id:raise ValueError('observation needs execution identity')
+        if not math.isfinite(sample_timeout_s) or sample_timeout_s<=0:raise ValueError('invalid sample timeout')
+        points={p.point_id:(p.position,'WATER' if region.kind=='UNDERWATER' else 'AIR')
+                for region in request.regions for p in region.interest_points}
+        if len(set(point_ids))!=len(point_ids) or any(k not in points for k in point_ids):
+            raise ValueError('unknown or repeated observation ID')
+        self.request=request;self.points={k:points[k] for k in point_ids}
+        self.producer=producer;self.goal_id=goal_id;self.obstacles=obstacles;self.timeout=sample_timeout_s
+        self.previous=None;self.started={};self.emitted=set()
+
+    def sample(self,model_time,position,mode,stamp,valid=True):
+        if not math.isfinite(model_time) or not math.isfinite(stamp):
+            raise ValueError('nonfinite observation time')
+        if self.previous is not None and model_time<=self.previous:
+            raise ValueError('observation model time must advance')
+        if self.previous is not None and model_time-self.previous>self.timeout:self.started.clear()
+        self.previous=model_time
+        events=[]
+        finite=len(position)==3 and all(math.isfinite(v) for v in position)
+        for key,(point,required_mode) in self.points.items():
+            if key in self.emitted:continue
+            if not valid or not finite or mode!=required_mode or not _visible(position,point,self.request.requirement,self.obstacles):
+                self.started.pop(key,None);continue
+            begin=self.started.setdefault(key,model_time)
+            dwell=model_time-begin
+            if dwell+1e-9<self.request.requirement.min_dwell_s:continue
+            self.emitted.add(key)
+            events.append(dict(product_id=self.goal_id+':'+key,request_id=self.request.request_id,
+                goal_id=self.goal_id,point_id=key,producer=self.producer,generated_at=stamp,observed=True,
+                result=dict(model='GEOMETRIC_PROXY',dwell_s=dwell),required_bytes=32*1024))
+        return tuple(events)
+
+
+def predict_received_products(request,point_ids,producer,goal_id,traces,mother_position,obstacles,deadline):
+    """Evaluate observations and finite receipt on supplied complete rollouts.
+
+    Traces contain (relative model time, position, actual medium). Never freeze
+    a platform beyond its supplied, checked terminal/wait path. The event's
+    supplied identity is part of its exact encoded notification size; this is
+    a nominal prediction, not a guarantee about a later different wire event.
+    """
+    import time
+    import json
+    from bisect import bisect_right
+    if producer not in traces or not point_ids or not traces or not math.isfinite(deadline):
+        raise ValueError('observation source, finite traces and shared deadline required')
+    for rows in traces.values():
+        if not rows or any(not math.isfinite(r[0]) or r[0]<0 or len(r[1])!=3 or
+                          not all(math.isfinite(v) for v in r[1]) or r[2] not in ('AIR','SURFACE','WATER','TRANSITION') for r in rows):
+            raise ValueError('invalid predicted physical trace')
+        if any(a[0]>=b[0] for a,b in zip(rows,rows[1:])):raise ValueError('unordered predicted trace')
+        if any(b[0]-a[0]>.25 for a,b in zip(rows,rows[1:])):
+            return dict(status='UNKNOWN',reason='PREDICTED_STATE_SAMPLES_MISSING')
+    window=LocalObservationWindow(request,point_ids,producer,goal_id,obstacles)
+    generated=[]
+    for stamp,pos,mode in traces[producer]:
+        if time.monotonic()>=deadline:return dict(status='UNKNOWN',reason='PLANNING_BUDGET_EXHAUSTED')
+        generated.extend(window.sample(stamp,pos,mode,stamp))
+    if window.emitted!=set(point_ids):return dict(status='INFEASIBLE',reason='REQUIRED_OBSERVATION_NOT_COVERED')
+    ledger=FiniteDelivery(0.);events={};queue=list(generated);previous={};receipts={}
+    clocks={k:[r[0] for r in rows] for k,rows in traces.items()}
+    horizon=min(rows[-1][0] for rows in traces.values())
+    for tick in range(int(math.floor(horizon*10))+1):
+        if time.monotonic()>=deadline:return dict(status='UNKNOWN',reason='PLANNING_BUDGET_EXHAUSTED')
+        now=tick/10.
+        while queue and queue[0]['generated_at']<=now:
+            event=queue.pop(0);ident=event['product_id'];events[ident]=event
+            encoded=json.dumps(event,allow_nan=False).encode('utf-8')
+            ledger.produce('notice:'+ident,DeliveryProduct(producer,'mother',4+len(encoded),event['generated_at'],True))
+            ledger.produce('data:'+ident,DeliveryProduct(producer,'mother',32768,event['generated_at'],True))
+        states={'mother':(mother_position,'SURFACE')}
+        for member,rows in traces.items():
+            index=bisect_right(clocks[member],now)-1
+            if index>=0 and now-rows[index][0]<=.25:states[member]=(rows[index][1],rows[index][2])
+        for ident in ledger.advance_all(now,declared_delivery_channels(ledger.products,previous,states,obstacles)):
+            kind,key=ident.split(':',1)
+            if kind=='data':receipts[events[key]['point_id']]=now
+        previous=states
+        if set(receipts)==set(point_ids):
+            return dict(status='FEASIBLE',reason='NOMINAL_OBSERVATION_AND_FINITE_RECEIPT',
+                        received_at=receipts,generated_events=generated,receipt_finish_s=max(receipts.values()))
+    return dict(status='INFEASIBLE',reason='RECEIPT_NOT_COMPLETED_WITHIN_CHECKED_COMMITMENTS',
+                received_at=receipts,generated_events=generated)

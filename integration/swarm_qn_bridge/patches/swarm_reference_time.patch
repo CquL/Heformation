@@ -1,0 +1,56 @@
+--- a/src/planner/traj_opt/include/optimizer/poly_traj_optimizer.h
++++ b/src/planner/traj_opt/include/optimizer/poly_traj_optimizer.h
+@@ -110,7 +110,8 @@
+     /* main planning API */
+     bool OptimizeTrajectory_lbfgs(const Eigen::MatrixXd &iniState, const Eigen::MatrixXd &finState,
+                             const Eigen::MatrixXd &initInnerPts, const Eigen::VectorXd &initT,
+-                            Eigen::MatrixXd &optimal_points, const bool use_formation);
++                            Eigen::MatrixXd &optimal_points, const bool use_formation,
++                            const double reference_start_time = -1.0);
+                                             
+     void astarWithMinTraj( const Eigen::MatrixXd &iniState, 
+                            const Eigen::MatrixXd &finState,
+--- a/src/planner/traj_opt/src/poly_traj_optimizer.cpp
++++ b/src/planner/traj_opt/src/poly_traj_optimizer.cpp
+@@ -7,7 +7,7 @@
+   bool PolyTrajOptimizer::OptimizeTrajectory_lbfgs(
+       const Eigen::MatrixXd &iniState, const Eigen::MatrixXd &finState,
+       const Eigen::MatrixXd &initInnerPts, const Eigen::VectorXd &initT,
+-      Eigen::MatrixXd &optimal_points, const bool use_formation)
++      Eigen::MatrixXd &optimal_points, const bool use_formation, const double reference_start_time)
+   {
+     if (initInnerPts.cols() != (initT.size() - 1))
+     {
+@@ -15,7 +15,9 @@
+       return false;
+     }
+ 
+-    t_now_ = ros::Time::now().toSec();
++    // Peer prediction must use the time origin of the trajectory being built.
++    // Formation replans already start at a future committed switch time.
++    t_now_ = reference_start_time >= 0.0 ? reference_start_time : ros::Time::now().toSec();
+     piece_num_ = initT.size();
+ 
+     jerkOpt_.reset(iniState, finState, piece_num_);
+--- a/src/planner/plan_manage/src/planner_manager.cpp
++++ b/src/planner/plan_manage/src/planner_manager.cpp
+@@ -234,7 +234,8 @@
+     tailState << initTraj.getJuncPos(PN), initTraj.getJuncVel(PN), initTraj.getJuncAcc(PN);
+     flag_success = ploy_traj_opt_->OptimizeTrajectory_lbfgs(headState, tailState,
+                                                             innerPts, initTraj.getDurations(),
+-                                                            cstr_pts, use_formation);
++                                                            cstr_pts, use_formation,
++                                                            have_local_traj && use_formation ? trajectory_start_time : -1.0);
+  
+     t_opt = ros::Time::now() - t_start;
+ 
+--- a/src/planner/plan_manage/src/ego_replan_fsm.cpp
++++ b/src/planner/plan_manage/src/ego_replan_fsm.cpp
+@@ -786,6 +786,6 @@
+ 
+     Eigen::Vector3d desired_start_pt, desired_start_vel, desired_start_acc;
+-    double desired_start_time;
++    double desired_start_time = ros::Time::now().toSec();
+     if (have_local_traj_ && use_formation)
+     {
+       desired_start_time = ros::Time::now().toSec() + replan_trajectory_time_;

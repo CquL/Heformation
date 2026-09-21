@@ -49,6 +49,12 @@ RUN patch -p1 -d /workspace/src \
       < /tmp/swarm_qn_patches/root_finder_degenerate_bound.patch
 RUN patch -p1 -d /workspace/src \
       < /tmp/swarm_qn_patches/traj_opt_finite_commit.patch
+RUN patch -p1 -d /workspace/src \
+      < /tmp/swarm_qn_patches/swarm_readonly_query.patch
+RUN patch -p1 -d /workspace/src \
+      < /tmp/swarm_qn_patches/swarm_reference_time.patch
+COPY integration/swarm_qn_bridge/src/swarm_readonly_query.cpp \
+  /workspace/src/src/planner/plan_manage/src/swarm_readonly_query.cpp
 
 # matplotlib is in the base image but its Tk bindings are not, so the live
 # dashboard could only publish images.  This layer adds them; nothing else in

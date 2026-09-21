@@ -72,7 +72,7 @@ def build_plan(agents: Sequence[Agent], tasks: Sequence[Task],
             finish = current_makespan + transit + task.service_time
             nonnegative(finish, "candidate planned_finish")
             introduced_makespan = max(0.0, finish - current_makespan)
-            urgent = task.deadline < current_makespan + 1.55 * task.service_time
+            urgent = task.deadline is not None and task.deadline < current_makespan + 1.55 * task.service_time
             # nf=1, W=0, N/nc=7/7. No actual-lateness or EDD tie breaker.
             key = (-int(urgent), introduced_makespan, 0.0, -task.service_time, -1.0, transit)
             scored.append((key, task, transit, finish))

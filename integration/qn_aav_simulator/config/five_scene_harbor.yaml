@@ -25,7 +25,14 @@ scene:
     # Encloses all original visual vertices after (x,y,z)->(x,-y,-z).
     - {id: mother_ship_hull, kind: SOLID, center: [14.403096, -8.0, 0.285414], size: [7.891588, 2.186304, 1.731388], appearance: mother_ship}
   mother_ship_position: [15.0, -8.0, 0.0]
+  # Declared radio attachment above the rendered solid hull (top ~1.15m).
+  # The hull centre is not a valid LOS receiver; this is geometry, not an
+  # experimentally calibrated antenna specification.
+  mother_ship_receiver_position: [15.0, -8.0, 2.0]
   transition_sites: [{id: aav_entry, position: [-28.0, 6.0, 0.0]}]
+  communication_sites:
+    - {id: sample_support_west, position: [4.0, 8.0, 0.0]}
+    - {id: sample_support_east, position: [6.0, 8.0, 0.0]}
   observation_targets:
     - {id: air_overview, position: [-28.0, 4.0, 0.8], domain: AIR}
     - {id: underwater_sample, position: [0.0, 8.0, -2.0], domain: WATER}

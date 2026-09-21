@@ -49,7 +49,8 @@ def validate_inputs(agents: Sequence[Agent], tasks: Sequence[Task]) -> None:
         if type(task.required_agent_count) is not int or task.required_agent_count != 7:
             raise ValueError("every task must require the complete seven-agent coalition")
         nonnegative(task.service_time, "service_time")
-        nonnegative(task.deadline, "deadline")
+        if task.deadline is not None:
+            nonnegative(task.deadline, "deadline")
         _capabilities(task.required_capabilities, "required capabilities")
         if any(not task.required_capabilities.issubset(agent.capabilities) for agent in agents):
             raise ValueError("no eligible fixed coalition for {}".format(task.task_id))

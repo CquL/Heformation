@@ -5,12 +5,13 @@ creates/resets a second plant. Production qualification is explicit configuratio
 """
 import math
 import time
+import json
 import actionlib
 import rospy
 from diagnostic_msgs.msg import DiagnosticArray
 from qn_aav_simulator.msg import PlatformTaskAction, PlatformTaskFeedback, PlatformTaskResult, FormationActionResult
 from qn_aav_simulator.srv import TakeReference, TakeReferenceResponse
-from qn_aav_simulator.platform_execution import ReferenceOwnership, Segment, actual_mode, validate_fragment, PlannerAcknowledgement
+from qn_aav_simulator.platform_execution import ReferenceOwnership, Segment, actual_mode, validate_fragment, PlannerAcknowledgement, segment_terminal_ready
 from qn_aav_simulator.qn_dynamics import medium_flag
 from qn_aav_simulator.time_alignment import DEFAULT_MAX_ABS_DRIFT_S
 from qn_aav_simulator.experiment_verdict import StaticSceneGeometry
@@ -28,6 +29,13 @@ class LocalPlatformAction:
         if self.scene and self.scene.frame!=node.world_frame:raise ValueError('scene frame mismatch')
         self.scene_radius=float(rospy.get_param('~platform_radius_m',.25))
         self.scene_failure=''
+        from qn_aav_simulator.task_line import load_request
+        from qn_aav_simulator.observation_coverage import ObstacleBox
+        from std_msgs.msg import String
+        request_file=rospy.get_param('/mission/request_file','')
+        self.observation_request=load_request(request_file) if request_file else None
+        self.observation_obstacles=tuple(ObstacleBox(c,s) for _,kind,c,s in self.scene.objects if kind=='SOLID') if self.scene else ()
+        self.products=rospy.Publisher('~local_products',String,queue_size=100)
         self.hold_point=node.state.position
         self.last_air_id=-1
         self.air_floor=-1
@@ -58,6 +66,8 @@ class LocalPlatformAction:
             raise ValueError('platform observation limits must be finite and positive')
         self.server=actionlib.ActionServer('~platform_task',PlatformTaskAction,self.goal,self.cancel,auto_start=False)
         self.service=rospy.Service('~take_reference',TakeReference,self.claim)
+        from qn_aav_simulator.srv import StartPreparedAction
+        self.start_service=rospy.Service('~start_prepared',StartPreparedAction,self.start_prepared)
         self.subscribers=[]
         if self.handover_enabled:
             self.subscribers.append(rospy.Subscriber('/'+node.agent_id+'_planning/safety_status',
@@ -123,6 +133,14 @@ class LocalPlatformAction:
         if self.node.domain_history.violation:
             if self.work:self._begin_disposition('DOMAIN_VIOLATION')
             else:self.owner.locked=True
+        if self.work and self.work.get('observations') is not None:
+            from std_msgs.msg import String
+            work=self.work;now=rospy.Time.now().to_sec();t=self.node.clock.model_time_s
+            valid=(not work['cause'] and not work['waiting_start'] and not self.owner.locked and
+                   self.applied_source=='PLATFORM' and self.applied_generation==self.owner.generation and
+                   abs((t-work['clock_start'])-(now-work['ros_start']))<=DEFAULT_MAX_ABS_DRIFT_S)
+            for event in work['observations'].sample(t,self.node.state.position,self.mode(),now,valid):
+                self.products.publish(String(data=json.dumps(event,allow_nan=False)))
 
     def mode(self):
         return actual_mode(self.node.state.medium_flag)
@@ -206,6 +224,14 @@ class LocalPlatformAction:
                 timeout=goal.execution_timeout.to_sec()
                 if not math.isfinite(timeout) or timeout<=0:
                     raise ValueError('positive finite execution timeout required')
+                wait=getattr(goal,'terminal_wait',None)
+                terminal_wait_s=wait.to_sec() if wait is not None else 0.
+                if not math.isfinite(terminal_wait_s) or not 0<=terminal_wait_s<min(timeout,self.wall_limit):
+                    raise ValueError('terminal wait must fit the observation deadline')
+                from qn_aav_simulator.observation_coverage import LocalObservationWindow
+                ids=getattr(goal,'observation_ids',())
+                observations=(LocalObservationWindow(self.observation_request,ids,self.node.agent_id,ident,
+                    self.observation_obstacles) if ids else None)
                 ok,reason=self.owner.claim(ident,'PLATFORM',self.owner.generation)
                 if not ok:
                     raise ValueError(reason)
@@ -218,8 +244,10 @@ class LocalPlatformAction:
             self.work=dict(handle=handle,id=ident,task=goal.task_id,segments=segments,index=0,
                 start=self.node.clock.model_time_s,settled=None,
                 clock_start=self.node.clock.model_time_s,ros_start=rospy.Time.now().to_sec(),
-                waiting_start=self.handover_enabled,fault_allowed=None,
-                deadline=time.monotonic()+min(timeout,self.wall_limit),cause='',last_feedback=-1.)
+                waiting_start=self.handover_enabled or bool(getattr(goal,'prepare_only',False)),
+                waiting_commit=bool(getattr(goal,'prepare_only',False)),fault_allowed=None,
+                deadline=time.monotonic()+min(timeout,self.wall_limit),cause='',last_feedback=-1.,observations=observations,
+                terminal_wait_s=terminal_wait_s)
             handle.set_accepted('finite local fragment accepted')
 
     def cancel(self,handle):
@@ -227,6 +255,24 @@ class LocalPlatformAction:
             if self.work is None or handle.get_goal_id().id!=self.work['id']:
                 return
             self._begin_disposition('CANCEL_REQUEST')
+
+    def start_prepared(self,request):
+        from qn_aav_simulator.srv import StartPreparedActionResponse
+        with self.server.lock,self.node.lock:
+            work=self.work
+            reason=''
+            if work is None or work['id']!=request.goal_id:reason='GOAL_NOT_ACTIVE'
+            elif request.expected_generation!=self.owner.generation:reason='GENERATION_MISMATCH'
+            elif self.owner.locked or work['cause']:reason='MEMBER_LOCKED'
+            elif time.monotonic()>=work['deadline']:reason='PREPARATION_EXPIRED'
+            elif not self.planner_ready(True):reason='PLANNER_CONTEXT_NOT_CONFIRMED'
+            if reason:return StartPreparedActionResponse(False,reason)
+            if not work.get('waiting_commit',False):
+                return StartPreparedActionResponse(True,'ALREADY_STARTED')
+            work['waiting_commit']=False
+            # The next real model tick establishes the motion start; no reset
+            # of dynamics, observation deadline or ownership generation.
+            return StartPreparedActionResponse(True,'START_ACCEPTED')
 
     def _begin_disposition(self,reason):
         if not self.work:return
@@ -253,6 +299,7 @@ class LocalPlatformAction:
             self.fault_hold_operation=self.work['segments'][self.work['index']].operation
             self.work['settled']=None
             self.work['waiting_start']=False
+            self.work['waiting_commit']=False
             self.hold_point=self.node.state.position
             self.owner.latch_fault()
             self.work['cause']=reason
@@ -262,6 +309,9 @@ class LocalPlatformAction:
     def _finish(self,terminal_verified,reason):
         work=self.work
         normal=not work['cause'] and terminal_verified
+        observations=work.get('observations')
+        if normal and observations is not None and observations.emitted!=set(observations.points):
+            normal=False;reason='OBSERVATION_NOT_SATISFIED'
         if terminal_verified:self.terminal_mode=self.mode()
         self.owner.finish(work['id'],normal)
         result=PlatformTaskResult(task_id=work['task'],goal_id=work['id'],
@@ -286,7 +336,7 @@ class LocalPlatformAction:
         target=(self.fault_transition[0].reference(t-self.fault_transition[1])
                 if self.fault_transition is not None else self.hold_point)
         if work is not None:
-            if work['waiting_start'] and self.planner_ready(True):
+            if work['waiting_start'] and not work.get('waiting_commit',False) and self.planner_ready(True):
                 work['waiting_start']=False
                 work['start']=t
             if not work['waiting_start'] and not work['cause'] and not self.planner_ready(True):
@@ -309,12 +359,17 @@ class LocalPlatformAction:
                 adopted and time_valid and
                 math.dist(self.node.state.position,target)<=self.position_tolerance and
                 math.sqrt(sum(v*v for v in self.node.state.velocity))<=self.speed_tolerance)
+            if not work['cause'] and not work['waiting_start']:
+                settled=(adopted and time_valid and segment_terminal_ready(segment,elapsed,
+                    self.node.state.position,self.node.state.velocity,self.mode(),
+                    self.position_tolerance,self.speed_tolerance))
             if settled:
                 if work['settled'] is None:
                     work['settled']=t
             else:
                 work['settled']=None
-            if work['settled'] is not None and t-work['settled']>=self.hold_duration:
+            extra_wait=work.get('terminal_wait_s',0.) if not work['cause'] and work['index']==len(work['segments'])-1 else 0.
+            if work['settled'] is not None and t-work['settled']>=self.hold_duration+extra_wait:
                 self.hold_point=target
                 if work['cause'] or work['index']==len(work['segments'])-1:
                     self._finish(True,work['cause'] or 'COMPLETED_LOCAL_FRAGMENT')
@@ -328,7 +383,8 @@ class LocalPlatformAction:
             if self.work is not None and t-work['last_feedback']>=.1:
                 work['last_feedback']=t
                 work['handle'].publish_feedback(PlatformTaskFeedback(
-                    segment_index=work['index'],operation=('WAIT_PLANNER_ACK' if work['waiting_start'] else
+                    segment_index=work['index'],operation=('PREPARED' if work.get('waiting_commit',False) and self.planner_ready(True) else
+                        'WAIT_PLANNER_ACK' if work['waiting_start'] else
                         'FAULT_FINISH_'+segment.operation if finishing else work['segments'][work['index']].operation),
                     reference_source=self.owner.source,actual_mode=self.mode(),
                     reference_generation=self.owner.generation,model_time_s=t))
@@ -342,7 +398,9 @@ class LocalPlatformAction:
         return [('reference_source',self.applied_source),('reference_generation',str(self.owner.generation)),
                 ('transition_fault_behavior',self.transition_fault_behavior),
                 ('scene_failure',self.scene_failure),
-                ('execution_phase',('FAULT_FINISH_'+self.fault_hold_operation if self.fault_transition is not None and
+                ('execution_phase',('PREPARED' if self.work and self.work.get('waiting_commit',False) and self.planner_ready(True) else
+                    'WAIT_PLANNER_ACK' if self.work and self.work.get('waiting_start',False) else
+                    'FAULT_FINISH_'+self.fault_hold_operation if self.fault_transition is not None and
                     self.node.clock.model_time_s<self.fault_transition[1]+self.fault_transition[0].duration else
                     'FAULT_HOLD_AFTER_'+self.fault_hold_operation if self.fault_hold_modes is not None else
                     self.work['segments'][self.work['index']].operation if self.work is not None else

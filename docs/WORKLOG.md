@@ -1,3 +1,243 @@
+## 2026-09-21 UTC — 按用户要求归档并准备推送main
+
+- 计划：提交当前三类平台协同实施增量及实时入口，准确保留未通过与未完成项。
+- 实际：远端main仍为80a0908，与本地HEAD一致；本轮只操作main。纳入源码、声明请求／场景、Action增量、原Swarm查询与时间修正、中文可视化、README、阶段报告和日志。rosbag、镜像和原始实验文件仍留本地，不加入Git。
+- 结果：提交前339项既有模块检查通过（23.76s），语法与diff检查通过。三机时间修正原请求通过（净距0.735091m），水下GUI协作32KiB接收与资源释放通过；七机兼容采样检查失败保留，GC冻结候选已撤回。cProfile完整查询已结束（剖析耗时59.35s，不冒充普通运行耗时）；主要开销在控制器及状态拆装，在线10秒预算问题仍未解决。
+- 证据：experiments/20260921-qn-query-profile/pre-push-checks.log；docs/reviews/下阶段报告；提交前diff、语法与既有相关检查。
+- 未完成／下一步：push后继续AAV完整查询及AIR/跨介质选择、有限信息边界、复查／返回和整项协作；本次提交不是最终验收版本。
+
+## 2026-09-21 UTC — 启动AAV原生查询性能定位
+
+- 计划：原跨介质完整查询需约16秒，在线共同10秒预算仍不足；先量化原模型函数开销再修改，不引入粗积分或虚假时间。
+- 实际：同一容器Python、原query.py输入，使用cProfile记录完整模型查询；仅离线剖析给120秒观察上限以覆盖剖析开销，生产在线10秒未修改。
+- 结果：进程已启动，尚未取得剖析结果；工具session 71330可继续观察，不应因单次等待结束而重启。
+- 证据：experiments/20260921-qn-query-profile/{query.prof,profile-result.json,profile.log}。
+- 未完成／下一步：读取剖析、定位优化机会并核对原模型数值；保持完整目标active，用户operator-preview窗口不动。
+
+## 2026-09-21 UTC — GC候选未通过，撤回；三机通过与七机失败分开报告
+
+- 计划：按真实回归判断运行时优化，不反复运行直到偶然PASS。
+- 实际：seven-r2原生任务仍PASS；二代GC长暂停消失，成员0最长GC约0.124ms，但七成员兼容位姿／速度p99检查仍FAIL（约0.0328–0.0658m/s）。成员0最差ROS采样8.56ms，真实0.01s模型步残差2.73e-5m/s。说明GC是前次异常的一个已观测因素，尚有更普遍的调度／采样抖动。
+- 结果：撤回gc.collect/freeze/unfreeze候选，当前代码仅保留被动GC诊断，不晋级未通过运行时策略。没有改积分、时间戳或阈值。三机reference-time同配置五动作与实际净距通过保留；七机新回归未通过，不能写整个兼容性已验收。
+- 证据：experiments/20260921-reference-time/seven-r2/{verification.json,timing-diagnosis.json,workspace.patch}；试验补丁在证据内保留。官方gc文档只说明机制，不构成实时性保证。
+- 未完成／下一步：定位Python模型／ROS发布开销，兼顾AAV完整查询10秒预算；AIR/跨介质与完整任务接线继续，目标active。
+
+## 2026-09-21 UTC — 七机时间尾部失败定位到二代GC暂停
+
+- 计划：七机回归失败时定位同一运行证据，不重复到绿、不改时间戳／积分／门槛。
+- 实际：seven-r1原生任务、安全与驻留通过，但兼容位姿／速度一项尾部检查FAIL。最大残差0.71051m/s发生在6.819ms相邻ROS样本，实际均一0.01s积分残差约3.55e-5m/s；相邻同一时段记录到generation-2 GC暂停17.54ms。新样本未缺失，seq差1。
+- 结果：在qn节点首个积分步前collect并freeze进程生命周期的启动对象图，运行中新对象保持默认GC，关闭时unfreeze。保留实际暂停诊断；没有更改控制方程、积分步、时间戳或采样门槛。实际容器Python gc文档及官方https://docs.python.org/3/library/gc.html#gc.freeze核对了语义；此应用是运行时开销处理，不称实时性保证。
+- 证据：experiments/20260921-reference-time/seven-r1/{verification.json,timing-diagnosis.json}；qn_aav_node.py；下一运行seven-r2。
+- 未完成／下一步：同条件实跑核对尾部与GC暂停，保留失败；完整AIR/跨介质/任务交付继续。
+
+## 2026-09-21 UTC — 参考时间修正后三机完整原请求通过
+
+- 计划：与原three-r1真实净距失败作同配置复验，不调整权重或门槛。
+- 实际：reference-time镜像下1.5m/s原请求五项原生Action均SUCCEEDED，六点几何观测／交付1.0，资源释放。转场实际净距0.735091m>0.50m；原使用中参考最小净距0.865337m。前次失败分别0.404249m、0.468701m，保留全部旧记录。
+- 结果：此次采用、模型时间、采样安全和任务条件均通过；最大跟踪误差仍1.318901m，不将经验预算当严格界，不宣称任意环境／所有运行安全。七机代表回归seven-r1进行中。
+- 证据：experiments/20260921-reference-time/{three-r1,transfer-comparison.json}；docs/reviews/swarm-readonly-query-20260921.md。
+- 未完成／下一步：七机结果；AIR／跨介质方法与完整主请求、全计划约束、复查／返回和科研对照继续。可视化operator-preview保持用户待确认状态。
+
+## 2026-09-21 UTC — 继续完整目标，参考时间修正镜像可运行
+
+- 计划：上一轮水下实时入口和GUI证据属于进展；已重读完整goal-objective，不把水下阶段作为总目标完成。继续复验三机转场时间修正。
+- 实际：重新核对Docker实际状态，reference-time镜像现在可直接启动；容器内已核对desired_start_time初始化及reference_start_time优化入口，编译产物存在。先前build-r2的解包错误保留，不因旧日志重复构建或清理缓存。用户operator-preview窗口仍待确认，不改变其运行。
+- 结果：可以开始与three-r1相同1.5m/s、相同请求和阈值的修正后实跑；尚未取得结果。
+- 证据：experiments/20260921-reference-time/three-r1（本次新目录）；补丁swarm_reference_time.patch；镜像实际启动核对。
+- 未完成／下一步：收齐实际编队净距与Result；之后继续AIR/跨介质方法、完整请求、复查／返回和科研对照。
+
+## 2026-09-21 UTC — 最新协作可视化入口完成，给用户留待确认窗口
+
+- 计划：完成当前水下进展的实时入口交付，保存实跑和未完成边界。
+- 实际：gui-r3确认前无Goal、无录包；具体计划确认后原生记录器就绪，再由现有worker派发；潜航器与无人船均SUCCEEDED，母船收齐32KiB，业务完成、资源释放，记录器正常关闭，画面继续实时显示。位置入口核对复用原PVS的NATIVE_START_TOLERANCE_M，不增加公开容差参数。
+- 结果：PASS_WATER_GEOMETRIC_PROXY；GUI运行录包约1.37GiB，待命不再无限录制。6项有限交付既有检查通过；语法与diff检查通过。结束gui-r3整链时RViz报告退出阶段segmentation fault，原生动作与已关闭bag已完成；不隐瞒该显示退出问题。重新从桌面终端启动operator-preview，留给用户输入yes，未代用户确认本批。
+- 证据：experiments/20260921-cooperative-live/gui-r3/{metrics.json,confirmed-plan-preview.json,handover.bag,dashboard-final.jpg}；docs/reviews/water-cooperation-live-20260921.md；README更新命令。
+- 未完成／下一步：本次仅水下协作实时接入。完整三类平台、AIR方法与跨介质／复查／返回、全平台安全综合验收及三机净距修正仍待继续；未提交或推送。
+
+## 2026-09-21 UTC — 带显示协作成功、时序复核与待命记录修正
+
+- 计划：核对可视化实际接收，不把原生动作成功等同全系统安全。
+- 实际：gui-r1实际母船接收32KiB、两项SUCCEEDED及资源释放，截图和具体计划确认前零派发记录已保存。原跨介质审计按原规则仍FAIL：本次没有AIR参考／跨介质区间；其中全程时间检查通过，最大模型／ROS偏差0.029871s、缺样0、采样全平台代理净距1.5m，不改审计结论。
+- 结果：发现待命录包也大量重复记录静态点云（本次7.8GiB）；协作入口改为具体计划确认后启动原生rosbag、任务结束关闭，LZ4无损压缩。物理运行不因停止记录而退出。gui-r2在初始模型构造后位置新鲜度单次检查失败，未派发；改为同一0.25s门槛下有界等待新样本，不延长状态新鲜度。
+- 证据：experiments/20260921-cooperative-live/gui-r1/{metrics.json,dashboard-final.jpg,scene-audit.json}、gui-r2/failure-traceback.txt。
+- 未完成／下一步：验证记录生命周期和新入口；整个三类平台、跨介质／复查／返回仍未完成。
+
+## 2026-09-21 UTC — 港口水下协作入口无GUI实跑通过
+
+- 计划：确认实际港口几何下请求生成、正式runner、有限传输和资源释放贯通。
+- 实际：headless-r2按具体计划确认后执行USV支援与UUV观测，未给三台AAV派发动作；使用现有cooperation镜像、当前挂载源码和港口实体几何。
+- 结果：PASS_WATER_GEOMETRIC_PROXY，全部水下要求接收完成、业务Result登记、资源释放；不能扩为AIR/跨介质/复查/返回成功。增加任务状态1Hz快照供现有被动面板读取，不让显示控制执行。
+- 证据：experiments/20260921-cooperative-live/headless-r2/{metrics.json,confirmed-plan-preview.json,handover.bag}。
+- 未完成／下一步：gui-r1带显示同链实跑与截图核对；完整三类平台仍未完成。
+
+## 2026-09-21 UTC — 协作入口首次启动失败及修正
+
+- 计划：港口场景接入已实现协作链，验证具体计划确认前零派发。
+- 实际：headless-r1在读取实际位置时因端点就绪发现尚未执行，server_nodes为空导致min空序列异常；无运动Goal，未生成假成功。
+- 结果：入口改为先调用现有端点就绪检查再取位置，并保存完整异常栈；未修改新鲜度门槛或模型状态。
+- 证据：experiments/20260921-cooperative-live/headless-r1/metrics.json；run_water_cooperation.py。
+- 未完成／下一步：headless-r2复验，再带显示运行。
+
+## 2026-09-21 UTC — 水下协作接入实时入口（开始验证）
+
+- 计划：响应用户先看当前可视化的要求，将已实跑的区域请求／UUV—USV／有限母船接收接入现有五平台场景，不把局部链路称完整三类平台任务。
+- 实际：现有Docker入口新增cooperative选项，复用MissionRunner和build_request_executor_plan；具体计划打印并保存后才接受yes。原资格入口保留。中文面板读runner任务状态；独立传输视图单独标注，母船标签随实际接收事件更新。母船仍为固定接收端，未增加船舶控制或新协调器。
+- 结果：Python语法和shell语法检查通过；港口运行与带显示验证尚待执行。
+- 证据：run_water_cooperation.py、monitoring_request_water.yaml、mission_dashboard.py、scene_publisher.py、docker_probe_five_qualification.sh。
+- 未完成／下一步：同一港口场景实际运行核对接收和资源，再开RViz；三机安全修正及完整任务仍未完成。此前reference-time的build-r2编译后Docker解包失败（parent snapshot缺失），不能记为新修正实跑通过。
+
+## 2026-09-21 UTC — 转场参考裕量与邻机预测时间基准定位
+
+- 计划：上一轮有只读查询和实际失败证据，属于进展；对齐three-r1参考/实际样本，寻找代码因果，不先调整权重或安全下限。
+- 实际：同一0/1对实际净距最低0.404249m，使用中参考此前也降到0.468701m（原要求0.50m）。定位原FSM用now+replan_trajectory_time作为编队新轨迹起点/时间，而优化器t_now_仍取now，邻机预测错位0.1s。给原优化调用传入已有trajectory_start_time；原默认调用保持当前时刻，查询也可显式绑定参考时间。未改控制器、图权重或安全阈值。
+- 结果：明确发现时间接线错误，但尚未证明它是本次失败唯一原因；新reference-time镜像构建中，等待同配置完整请求复验。
+- 证据：experiments/20260921-reference-time/{diagnosis.json,build.log}；swarm_reference_time.patch；原three-r1失败保留。
+- 未完成/下一步：完整三机实跑及回归，继续原目标的AIR/跨介质/信息/返回/复查/完整UI接线；目标active。
+
+## 2026-09-21 UTC — 三机转场净距违规，回归未完成
+
+- 计划：收齐三机原请求回归，保留实际失败并定位，不以查询结果或测试数量替代实际验收。
+- 实际：three-r1三个观测动作及集结均成功，编队转场出现0.404m实际净距，低于原0.50m要求；Action失败，任务与成员维持UNKNOWN_LOCKED。未降低要求、清锁或重写结果。只读查询、七机时序对照与三机失败分别记录。
+- 结果：当前新CPP补丁的三机回归未通过；swarm-query仍是实验镜像，不当作已验收默认版本。339项模块检查通过，但不能抵扣真实飞行失败。
+- 证据：experiments/20260921-swarm-query/three-r1/{metrics.json,execution.bag}；docs/reviews/swarm-readonly-query-20260921.md。
+- 未完成/下一步：对齐转场参考与实际状态定位净距违规，继续AIR候选/完整请求接线与其余原目标；目标active。
+
+## 2026-09-21 UTC — 七机时间样本失败定位与同条件对照
+
+- 计划：真实回归不通过时定位证据，不修改时间戳、固定积分步或验收阈值。
+- 实际：新镜像seven-r1原生Action成功，但3个位姿/速度尾部检查失败；对应ROS相邻间隔为5–8ms或14–19ms，模型仍真实积分10ms，用模型步长复核残差约2.4e-5m/s。旧镜像seven-control也有同类4项失败，不能归咎于新只读优化入口或坐标映射。仅添加被动GC最长暂停诊断，不改GC策略/控制/时间基准；seven-r2在原门槛下PASS，最大GC暂停约6.48ms，尚不足以证明此前抖动的唯一原因。
+- 结果：新镜像一次代表性七机回归已通过，两个失败记录保留，不能宣称所有负载下的调度可靠性已解决。三机原完整请求已预览并确认，three-r1正在执行。
+- 证据：experiments/20260921-swarm-query/{seven-r1,seven-control,seven-r2,timing-diagnosis.log}；qn_aav_node.py被动诊断字段。没有通过延长timeout或放宽分位数门槛改判。
+- 未完成/下一步：三机结果、AIR查询的候选/观测接线、AAV查询预算、全请求/返回/复查/信息边界继续；目标active。
+
+## 2026-09-21 UTC — Swarm原优化器只读查询编译与障碍路径核对
+
+- 计划：上一轮请求生成及真实水下执行有进展；本轮处理AIR进入联合规划所缺的只读运动查询，不向实际控制链发送试探Goal。
+- 实际：新增原PolyTrajOptimizer的独立查询可执行程序，读取原规划参数、显式静态地图和邻机参考；GridMap可初始化私有缓冲而不注册ROS发布/订阅/定时器。原始上游目录不改，通过补丁构建。核对并修正原A*无路径索引及两点路径按两段初始化时越界问题，在线/查询共用修正。保留原优化权重、图项和迭代参数。
+- 结果：新镜像swarm-query构建成功；短路径查询约1.09秒、障碍路径约1.12秒，目标在膨胀障碍内明确拒绝；实际三机Goal/trajectory新增消息均0。障碍参考最大高度1.635m（起终点0.8m），声明静态机体几何检查未发现违规。只证明名义参考，不证明实际qn跟踪；七机代表回归进行中。
+- 证据：experiments/20260921-swarm-query/{build.log,run-r1}；swarm_readonly_query.cpp、swarm_readonly_query.patch、query_swarm_reference()。
+- 未完成/下一步：三机/七机回归，AIR候选与实际状态/观测/交付接线；AAV跨介质查询预算、完整主请求/返回/复查/UI及科研对照仍未完成。
+
+## 2026-09-20 UTC — 区域请求生成方法并实跑，保留完整请求拒绝边界
+
+- 计划：上一轮候选选择与真实执行有进展；本轮将实验中的方法生成移入现有task_line，保留每个业务区域和全部样点，解决候选返回与预算的关系。
+- 实际：新增regional_requirements/request_native_methods/build_request_executor_plan，按区域工作域派生资格，保留多锚点/正反路线候选；支援位置读场景元数据，不要求用户指定机器人/出发顺序。平台能力标签变为可选，旧AIR入口默认语义不变；未实现的返回等未知业务字段明确拒绝。既有query_worker逐项返回候选，后续阻塞不丢先前完整解，关闭时清理子进程。同位置PVS输入复用原coast/trim积分；港口船体位置与船外接收点分开，消除接收点在自身实体内部的几何错误。
+- 结果：水下阶段YAML请求在Noetic9.013169秒内生成/比较6方法并由正式runner完成Result、接收和释放。完整AIR/WATER请求在缺少AIR能力时拒绝，不默默缩成水下请求。339项模块检查通过，查询进程已清理。接收点几何检查通过，未增加通信范围/速率；完整目标仍未完成。
+- 证据：experiments/20260920-request-methods/{run-r1,request-checks.log,stream-checks.log,receiver-geometry.json,all-checks.log}；docs/reviews/request-method-generation-20260920.md。
+- 未完成/下一步：正式完整请求入口、实际状态与通信控制消息、Swarm/AAV查询、全计划约束和跨介质/复查/返回/UI/研究对照继续。当前调用者仍提供声明初始模型快照；目标active，main未提交/推送。
+
+## 2026-09-20 UTC — Noetic六方法选择与所选计划实际执行通过
+
+- 计划：以真实候选选择→正式runner执行验证新接线，修正容器预算失败，不降低10秒门槛。
+- 实际：run-r1在Noetic超过10秒且尚未派发，保留失败。新增同一完整快照指纹下的PVS终端续算，复用已计算轨迹前段，继续原控制/动力学；续算与完整重算轨迹相同，推力等上下文改变会拒绝缓存。内部缓存字段不进入Plan步骤/Goal。模型配置的终端行为成为端点和查询共同依据，错误终态方法返回UNKNOWN。
+- 结果：run-r2在9.047742秒内评价6方法，选择USV终点(4,8,0)、UUV等待30秒，名义工期99.16秒；正式runner执行所选两活动，原生Result及匹配水下产品接收成功，最终正常释放。335项模块检查通过。有限方法仍为声明集合，不能称完整三类平台请求或连续全局最优。
+- 证据：experiments/20260920-joint-selection/{run-r1,run-r2,plan-r1.json,prefix-checks.log,all-checks.log}；docs/reviews/joint-native-selection-20260920.md。
+- 未完成/下一步：从请求自动生成观测/模式/支援方法，补AAV/Swarm实际查询和状态/信息边界，完成全计划容量/运动约束、UI跨介质/复查/返回及科研对照。目标active，main未提交/推送，进程已结束。
+
+## 2026-09-20 UTC — 运动/观测/有限交付组合进入既有候选搜索
+
+- 计划：上一轮启动边界与真实运行有进展。本轮把已经分段验证的原生预测和有限接收函数直接接入现有TravelTimeProvider/候选搜索，不继续只运行手写的一种方案。
+- 实际：新增内部cooperative_routes方法声明，复用既有Executor和NativeActionSpec。对每个完整方法，从同一模型快照查询原生运动/尾段/有界等待，核对实际观测可达和承诺区间内有限接收；参与者运动与较早完成成员的原生后续滑行也核对采样净距，不把其姿态冻结。仅保留参数/状态/环境/承诺相同的一次调用内查询缓存，密集路径不放进Plan步骤或Goal。
+- 结果：准备对6个有限UUV/USV方法执行同一个10秒调用（支援终点与等待不同）；现有相关13项检查通过。尚不覆盖AIR/完整请求或跨方法全计划容量，名义通知身份仍明确标注，不据此宣称整个任务完成。
+- 证据：experiments/20260920-joint-selection/{plan.py,plan-r1.json,plan-r1.log,related.log}；integration/mrta_python/executors.py。
+- 未完成/下一步：确认候选选择实际改变方法，再让正式runner执行所选计划并取得Result/接收；继续AAV/Swarm查询、实际状态/信息边界及完整请求/复查/返回。
+
+## 2026-09-20 UTC — 支援实际启动后才释放作业，预测/实跑共享有限链路规则
+
+- 计划：上一轮正式worker及独立审计产生新证据，属于进展。核对启动不确定时不能进入依赖阶段，继续把有限交付规则用于候选评价。
+- 实际：runner先启动支援活动，取得同Goal/代次的启动接纳和后续原生程序推进反馈后才释放作业活动。支援启动RPC卡住反例中只调用USV启动服务，不调用UUV启动服务，观察结束仍保留双方占用。支援START→作业与既有完成前置联合查环，拒绝反向等待和计划中作业先于支援启动。预测与SceneTransport复用同一链路/容量函数；新增有界产品接收预测，不把已经结束的预测运动路径冻结延长。复合步骤完成也核对每个原生Goal对应的产品接收，缺失则保留父活动占用。
+- 结果：formal-r2真实事件顺序为USV启动接纳1789948526.510183、支援推进确认1789948526.610469、随后UUV启动；两项原生Result和有限接收成功，业务登记一次并正常释放。335项模块检查通过；最后增加启动时序检查后进行相关定向验证。交付预测目前为给定轨迹/事件身份的名义模型，尚未接入完整联合候选生成，不称全计划可行性已证明。
+- 证据：experiments/20260920-support-start/{formal-r2,checks.log,related.log,delivery-prediction-checks.log,all-checks.log,final-related.log}；formation_mission_runner.py、executors.py、observation_coverage.py、scene_publisher.py。
+- 未完成/下一步：真正自动生成/比较观测与支援候选，接实际状态快照/有限控制消息，解决AAV预算及Swarm查询，再贯通UI请求/复查/返回和研究对照。完整目标active；没有把固定方法实跑改称完整请求。
+
+## 2026-09-20 UTC — 正式runner双平台协作执行成功，严格往返审计证据不足
+
+- 计划：收齐正式worker结果，独立核对时间/场景，不用成功Action替代整个任务验收。
+- 实际：formal-r1由既有runner原子预订两活动，全部PREPARED后分别启动；USV/UUV均原生SUCCEEDED，匹配水下32KiB母船接收，业务完成仅登记一次，最终资源释放。332项模块检查通过。独立audit读取同一bag，模型/ROS最大偏差0.006013s、缺样0、采样机体代理最小净距1.5m；因本例AAV全程INITIAL_HOLD、没有AIR轨迹及往返参考阶段，严格audit仍FAIL。仅修正审计将空AIR样本误写成低于水面的错误文案，不改判据或历史记录。
+- 结果：正式预装载/启动/接收/Result/释放边界已实跑；固定方法不是自动联合选择，0.5覆盖不是整项请求完成；往返审计不计通过。
+- 证据：experiments/20260920-cooperative-candidates/formal-r1/{formal-runner-result.json,metrics.json,handover.bag,scene-audit.json}、all-checks.log；docs/reviews/cooperative-worker-20260920.md。
+- 未完成/下一步：把观测与通信支援候选真正交给联合搜索，补实际状态/控制信息边界、初始通信条件及完整返回/复查；AAV预算、Swarm查询、UI和研究对照继续。目标active，main未提交/推送，本轮进程已终止。
+
+## 2026-09-20 UTC — 终端等待通过，预装载/启动移入现有runner
+
+- 计划：中断后核对同一session与容器，未重启已完成实验；上一轮有代码/等待实跑，属于进展。继续正式runner多方接纳与启动。
+- 实际：wait-r1已正常完成，摘要到达时UUV原生Action仍ACTIVE，随后两台原生Result成功；资源与时间模型未冻结。现有并行调度器按同一候选业务的活动原子预订，再由同一worker分支先prepare所有参与者、核对GoalID/代次后启动；阻塞服务调用使用守护线程与同一观察截止时刻，不在超时后释放成员。内部运动先后依赖实际成功Result，业务成功结果只在该业务所有活动完成后登记。qn PREPARED改为等待原Swarm暂停ACK已确认。
+- 结果：22项runner检查通过。首次新增检查因测试路由遗漏必需odometry_topics失败2项，修正测试配置，未放宽路由。正式runner双平台实跑formal-r1进行中；方法仍是经原生查询的固定候选，未声称自动联合观测/支援搜索通过。
+- 证据：experiments/20260920-cooperative-candidates/{wait-r1,preparation-checks.log,preparation-checks-r2.log,formal-r1}；formation_mission_runner.py、platform_action.py。当前观察的是既有原生承诺与产品接收，受限远端控制/状态网关仍未完成。
+- 未完成/下一步：收取正式worker的真实Result/接收/占用证据；将完整观测/通信候选与方法选择接入，AAV预算/Swarm查询、UI完整请求/复查/返回及研究对照仍需继续。
+
+## 2026-09-20 UTC — 协作方法的多活动候选与有界终端等待
+
+- 计划：上一轮有真实观测/传输/接收证据，归类为进展。继续让同一方法表达水下作业与USV转场各自区间，避免所有参与者共用一个最长占用时刻。
+- 实际：ExecutionCandidate增加互斥的activities表示，直接复用现有ExecutorPlanItem，未增加工作流结构；既有搜索核对参与者资格、占用和联合先后，分别更新成员终态/可用时间。两任务合成反例中UUV作业0–10、USV支援0–4，后续USV任务4–5，总工期10，未把并行耗时相加或全部成员锁到10。进一步为原生Action/模型查询接入terminal_wait：在原合格终态条件下多驻留有限模型时间，期间积分、几何检查与资源承诺不停止；故障处置不继续业务等待。
+- 结果：31项调度相关、38项查询/runner/处置相关检查通过。有界等待消息镜像正在构建，接下来实跑检查摘要送达前UUV Action仍保持活动。当前仍未完成自动观测/通信候选生成或整个联合请求。
+- 证据：experiments/20260920-cooperative-candidates/{checks.log,related.log,build.log}；models.py、executors.py、PlatformTask.action、pvs_backend.py、platform_action.py、pvs_node.py。
+- 未完成/下一步：终端等待实跑、将原生运动和有限交付组合为真实候选并选择，正式runner多方预接纳/启动及受限状态消息，AAV预算与Swarm查询、完整请求/复查/返回继续保留。
+
+## 2026-09-20 UTC — UUV产品经USV有限链路实际送达，runner接收边界通过
+
+- 计划：完成当前产品/接收增量实际验证，保留与自动分配/完整任务的边界。
+- 实际：run-r1两方预接纳后并发运动，水下产品产生时通知和摘要均不可达；USV按自身已接纳路径支援，通知先到、摘要后到，约81.65秒完成接收，两项原生运动Result成功。run-r2将接收事件接入现有runner，约81.63秒后交付覆盖从0变为0.5（联合请求两点，本轮仅水下点），接收不解锁。补GoalID关联、旧Goal拒绝和重复幂等；固定0.1秒网格最终代码用r2实际状态重放通过。
+- 结果：329项模块检查通过；独立通知与32KiB摘要实际容量分开。场景传输是实验模型，不宣称通信设备性能；重放不冒充第三次动力学实跑。主请求自主分配、受限远端状态/控制Result、复查/返回未完成。
+- 证据：experiments/20260920-local-products/{run-r1,run-r2,grid-replay.log,all-checks.log}；docs/reviews/local-products-finite-transport-20260920.md。新Goal消息版本已构建，源码main未提交/推送。
+- 未完成/下一步：将观测/支援/交付候选接入同一计划，完成正式runner预承诺和母船知识边界，解决AAV查询预算及Swarm只读查询，继续完整请求和对照。目标active，不以组件结果宣布完成。
+
+## 2026-09-20 UTC — 本地观测产品与有限传输进入实际节点
+
+- 计划：上一轮有查询/候选代码和预算证据，属于进展；保留AAV查询预算缺口，本轮推进真实产品产生与母船接收这一独立必要链路。
+- 实际：PlatformTask增加选中观测点ID，端点从同一请求文件加载几何合同；PVS与qn在实际完成积分后生成一次性产品，错误介质、缺样、时间漂移或未启动阶段不累计驻留。原scene_publisher内加入仿真传输边界，复用FiniteDelivery，水下8m/2KiB/s、RF30m/32KiB/s共享容量；通知按实际String编码长度、摘要32KiB分别计量，母船只发布真正收到的事件。没有新增协调节点或模型/诊断Goal封装。
+- 结果：29项已有相关检查通过；新消息镜像cooperation构建成功。USV支援路径原生完整预测FEASIBLE约99.16秒。准备实跑UUV观测时通知尚不可达、USV按已接纳片段前往支援、随后通知和数据先后到达；完整请求调度/返回/复查尚未接通。
+- 证据：experiments/20260920-local-products/{checks.log,build.log,relay-route-query.json,probe.py,transport.launch}；monitoring_request_joint.yaml；observation_coverage.py、scene_publisher.py、pvs_node.py、platform_action.py。
+- 未完成/下一步：收取真实产品/有限接收结果与失败，验证界面/runner只消费接收端事件；继续联合观测选择、参考查询与主任务，不以本次组件实跑替代总验收。
+
+## 2026-09-20 UTC — 完整查询对照与候选搜索先取得可行解
+
+- 计划：核对查询性能瓶颈，并落实“先取得完整可行解、再改进工期”，不放宽在线预算。
+- 实际：原Python在离线60秒观察上限内完成54.85秒模型片段，用时16.08167秒；同源实验编译用时13.36146秒，5485个轨迹点及全部终态模型状态单例完全相同，均保持源状态。编译的10秒查询仍UNKNOWN，不纳入生产依赖。候选搜索改为惰性迭代深度展开，避免慢兄弟查询在任何完整方案出现前耗尽预算。
+- 结果：候选/原生查询/转换处置17项相关检查通过；两任务慢兄弟查询反例保留已获得完整解。AAV完整跨介质在线预算缺口仍未解决，没有称本轮整项任务完成。
+- 证据：experiments/20260920-qn-motion-query/{source-reference.json,compiled-reference.json,comparison.json,compiled-mixed-query.json,final-related.log}；docs/reviews/qn-motion-query-20260920.md。
+- 未完成/下一步：解决完整运动查询预算及实际状态快照接入，继续Swarm只读查询、联合方法与多平台支援/交付。用户目标保持active；本轮无ROS容器在运行，源码main未提交/推送。
+
+## 2026-09-20 UTC — AAV原生状态副本查询与十秒预算实测
+
+- 计划：按目标文件继续第二阶段，补齐AAV完整转换片段的实际模型查询；上一轮有代码及真实Result证据，归类为进展。完整目标不缩减。
+- 实际：在既有QnPythonClosedLoopBackend中增加snapshot与有界只读rollout，复制控制器、执行器及Memory状态，不reset源模型；现有TravelTimeProvider消费原生QN候选。在线worker与查询共用片段物理终态判据。模型时间/几何/终端均逐步校核，缺少资格或剩余预算返回UNKNOWN。
+- 结果：first-query在10.00185秒墙钟达到35.43秒模型时间，完整入水/作业/出水尚未结束，正确UNKNOWN；序列化核对源模型未改变。17项相关边界检查通过。为解决真实预算瓶颈，实验目录编译同源Python代码；首个Cython推断类型构建因生成ctuple类型错误失败，未引入生产依赖、未更改动力学或放宽预算，改为无类型推断编译继续测量。
+- 证据：experiments/20260920-qn-motion-query/{first-query.json,checks.log,compile.log,compile-untyped.log}；qn_python_backend.py、platform_execution.py、platform_action.py、executors.py。
+- 未完成/下一步：核对完整查询成本与同源数值一致性，接实际状态快照/Swarm只读查询，再推进联合观测与正式预承诺交付；本条不表示完整候选或整个任务通过。
+
+## 2026-09-20 UTC — 两段原生复合执行通过，阶段证据与未完成项归档
+
+- 计划：核对复合worker的真实Result，分离显示/日志阻塞，并记录当前阶段边界。
+- 实际：composite-r1探针空权重在发送前失败；恢复既有请求的权重输入后composite-r2两段REMUS各有原生成功Result，父活动最后释放。将任务快照写盘与ROS显示参数发布移到执行锁外；日志写入互斥保持快照顺序。子步骤GoalID关联到父任务当前动作，便于界面取消准确路由。完成传播保留计划搜索元信息，移除未经证明预测工期的部分搜索剪枝。
+- 结果：复合阶段325项检查通过，最后变更42项相关检查通过；阻塞显示发布不持有执行锁的反例通过。原生复合成功仅证明运动执行，未产生观测/交付事件。没有额外大规模参数扫描。
+- 证据：experiments/20260920-cooperation-implementation/composite-r{1,2}、after-composite-tests.log、last-related-tests.log；docs/reviews/cooperation-implementation-20260920.md。README与context/02、15同步，main工作树尚未提交/推送。
+- 未完成/下一步：联合观测候选与AAV完整查询、正式runner协调预承诺、实际产品有限交付、复查/返回、编队方法比较、带显示完整任务及理论/对照。当前批次不是整个计划完成。
+
+## 2026-09-20 UTC — 无截止请求与三方预装载通过，复合派发开始验证
+
+- 计划：完成第一阶段实际回归，继续活动与步骤语义，保持现有runner与原生端点。
+- 实际：prepared-r1三方全部PREPARED后观察2秒未开始，旧GoalID/错代次拒绝，幂等启动后AAV往返、Otter及REMUS均成功；seven-r1原七机代表回归PASS。no-deadline-r1终端确认后五项Action成功，几何观测/接收各1.0，deadline_met与deadline_lateness均null。活动模型允许同一业务多活动、联合先后查环及经过原生预测的合法等待；未实现的等待派发仍明确拒绝。execution_steps为唯一选定方法数据；worker新增同成员复合步骤，子Result逐项核对，全部成功才释放父活动，失败不继续。
+- 结果：活动阶段323项相关模块检查通过；复合派发新增成功/失败阻断两种必要边界检查，runner 18项通过。composite-r1正在真实REMUS端点执行两段完整预测后的运动，尚未报告结果。没有启动联合观测/有限交付主任务。
+- 证据：experiments/20260920-cooperation-implementation/{prepared-r1,seven-r1,no-deadline-r1,final-tests.log,composite-r1}；准备接口镜像swarm-formation-qn:cooperation。无截止请求仍显式使用旧零延迟交付，不冒充有限通信。
+- 未完成/下一步：复合真实结果、联合候选生成与运动查询、runner协调启动、有限通信/产品接收/复查、编队方法比较、带显示全链验收与科研对照。整体实施继续，未完成项不清零。
+
+## 2026-09-20 UTC — 港口时间审计通过，原生片段预装载开始实跑
+
+- 计划：以完整时间/几何证据验证节拍修正，收敛步骤来源，并补本地接纳与启动分离。
+- 实际：pacing-r1在原港口配置下7项所需Action成功，独立全段audit PASS；模型/ROS最大偏差0.025657s、跨平台0.025567s，保留原0.05s门槛，未重置模型时间。此运行无GUI，不代替带显示负载下的完整验收。移除PlanItem存储的native_action/native_prediction副本，旧单步读取由steps只读导出。PlatformTask新增默认false的prepare_only；qn/PVS现有节点提供StartPreparedAction，按GoalID/代次幂等释放，不新建协调节点。prepared-r1实际接纳三方后先观察静止，再验证旧ID/错代次拒绝和重复启动，实际运动尚在进行。
+- 结果：322项模块测试通过（10.20s）；新ROS接口镜像swarm-formation-qn:cooperation构建成功。Formation.action未改；PlatformTask增加字段须在同一新消息版本下运行，不能混用旧镜像client/server。本次仅本地预装载边界，尚不是断联通信或runner协调已完成。
+- 证据：pacing-r1/scene-audit.json、build.log、all-tests.log；prepared-r1；probe_prepared_fragments.py；StartPreparedAction.srv。循环显式拒绝未配置的外部仿真时钟，避免ROS时间停住而模型继续运行。
+- 未完成/下一步：预装载三方正常Result、七机回归，再继续活动/等待建模与完整候选/复合派发；有限交付在线门控与最终任务仍未完成。
+
+## 2026-09-20 UTC — 按确认计划实施：可选期限、跨信道因果与固定步循环节拍
+
+- 计划：用户明确要求实施三类平台协同计划，恢复工程工作；保持完整目标，不以局部增量冒称总体验收。先处理时间可靠性和请求/活动语义，不扩展VRX。
+- 实际：请求可缺省/为null的deadline贯通Task、两种调度入口、紧急度、硬截止检查和runner结果；无期限统计为null，未补大数。FiniteDelivery增加同时间步共享步首快照的全信道更新，旧单信道入口复用同一逻辑。核对镜像Noetic rospy/timer.py，Rate在慢循环>2周期后把last_time改为当前时刻，固定dt模型不补真实积分则累计相位落后；qn/PVS改为绝对单调唤醒期限，每次仍真正调用一次原固定步积分，时间戳/积分计数/原有效性门槛不变，短暂停顿与长期过载仍留证据。
+- 结果：108项相关测试首轮1项失败，原因是新增测试将单机传入七机限定旧planner；修正测试为原七机条件，未改放宽旧接口。实跑待验证，未把源代码机制定位当成全部负载问题已解决。
+- 证据：monitoring_request.py、task_line.py、models/validation/schedule/executors.py、formation_mission_runner.py、FiniteDelivery.advance_all及两条必要反例；镜像rospy.Rate源代码。后续记录在experiments/20260920-cooperation-implementation。
+- 未完成/下一步：实际时间验证、合法等待/同任务多活动、步骤单一来源，再接完整候选/派发、预承诺交付与主任务；整个计划仍未完成。
+
 ## 2026-09-20 UTC — 约束驱动协同与减少封装的文献/代码复核
 
 - 计划：响应用户要求调研顶刊顶会，将何时入水、任务分配、资源安排与Swarm编队真实结合；纠正把优化变量交给用户选择及无依据加层的问题。保持实施目标暂停，仅开展本轮明确授权的研究。

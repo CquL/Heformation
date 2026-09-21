@@ -2,6 +2,7 @@
 # Start the existing three-AAV stack in standby, then load/preview/confirm once.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+FORMATION_IMAGE="${FORMATION_IMAGE:-swarm-formation-qn:noetic}"
 REQUEST="${1:-$ROOT/integration/qn_aav_simulator/config/monitoring_request_coastal.yaml}"
 REQUEST="$(realpath "$REQUEST")"
 ARTIFACT_DIR="${2:-$ROOT/experiments/$(date -u +%Y%m%dT%H%M%SZ)-monitoring-request}"
@@ -19,7 +20,7 @@ if [[ -e "$ARTIFACT_DIR/metrics.json" ]]; then
 fi
 cp "$REQUEST" "$ARTIFACT_DIR/request.yaml"
 printf '%s\n' "$PLANNER_SPEED" > "$ARTIFACT_DIR/planner-speed.txt"
-docker image inspect swarm-formation-qn:noetic --format '{{.Id}}' > "$ARTIFACT_DIR/image-id.txt"
+docker image inspect "$FORMATION_IMAGE" --format '{{.Id}}' > "$ARTIFACT_DIR/image-id.txt"
 git -C "$ROOT" rev-parse HEAD > "$ARTIFACT_DIR/workspace-base-commit.txt"
 git -C "$ROOT" diff -- integration docker scripts > "$ARTIFACT_DIR/workspace.patch"
 STAGE_DIR="$(mktemp -d /dev/shm/formation-request.XXXXXX)"
@@ -52,7 +53,7 @@ docker run "${TTY_ARGS[@]}" "${GUI_ARGS[@]}" --env PLANNER_SPEED="$PLANNER_SPEED
   --volume "$REQUEST:/request.yaml:ro" \
   --volume "$ROOT/integration/qn_aav_simulator:/workspace/src/src/qn_aav_simulator:ro" \
   --volume "$ROOT/integration/mrta_python:/workspace/integration/mrta_python:ro" \
-  swarm-formation-qn:noetic bash -c '
+  "$FORMATION_IMAGE" bash -c '
     set -eo pipefail
     source /opt/ros/noetic/setup.bash
     source /workspace/devel/setup.bash

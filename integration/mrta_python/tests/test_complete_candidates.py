@@ -1,8 +1,9 @@
 import copy
 import time
+import pytest
 from dataclasses import dataclass
 
-from mrta_python import Executor,Task,build_executor_plan
+from mrta_python import Executor,Task,build_executor_plan,ExecutorPlanItem
 from mrta_python.models import ExecutionCandidate,ExecutionStep
 
 
@@ -13,6 +14,12 @@ class CandidateOracle:
     def __call__(self,unit,task,start,states,deadline):
         member=unit.physical_agent_ids[0]
         previous=states[member]
+        if self.case=='stream':
+            def candidates():
+                yield ExecutionCandidate('ready',(ExecutionStep(unit.executor_id,1.,task.target_ref),),
+                    {member:dict(position=(1.,0.,.8),mode='AIR')})
+                time.sleep(2.)  # later method in the SAME query stalls
+            return candidates()
         if self.case in ('conversion','ignore-conversion'):
             if unit.executor_id=='aav':
                 conversion=10. if self.case=='conversion' else 0.
@@ -69,8 +76,18 @@ def test_unused_late_unit_does_not_block_serial_start():
 
 def test_budget_preserves_already_found_complete_candidate():
     units=[Executor('a',('x',),frozenset({'AIR'})),Executor('b',('y',),frozenset({'AIR'}))]
-    result=plan(units,[task('A')],{'x':state(),'y':state()},CandidateOracle('budget'),budget_s=.5)
-    assert result.items[0].executor_id=='a' and result.makespan==1.
+    # Finish the first two-task chain before exploring the blocking sibling
+    # unit. Generating every root alternative first used up the whole budget.
+    result=plan(units,[task('A'),task('B',predecessors=('A',))],
+                {'x':state(),'y':state()},CandidateOracle('budget'),budget_s=.5)
+    assert [i.executor_id for i in result.items]==['a','a'] and result.makespan==2.
+    assert result.search_complete is False
+
+
+def test_streamed_complete_method_survives_later_stall_in_same_query():
+    result=plan([Executor('a',('x',),frozenset({'AIR'}))],[task('A')],{'x':state()},
+                CandidateOracle('stream'),budget_s=.5)
+    assert result.makespan==1. and result.items[0].candidate_id=='ready'
     assert result.search_complete is False
 
 
@@ -95,3 +112,37 @@ def test_unselected_late_method_cannot_override_authoritative_member_state():
     units=[Executor('air',('x',),frozenset({'AIR'})),Executor('native',('x',),frozenset({'WATER'}),1000.)]
     result=plan(units,[task('A')],{'x':state()},CandidateOracle('simple'),serial=True)
     assert result.items[0].planned_start==0.
+
+
+@dataclass
+class CooperativeOracle:
+    def __call__(self,unit,task,start,states,deadline):
+        if task.task_id=='A':
+            activities=(
+                ExecutorPlanItem('work','A','water',('uuv',),0.,10.,10.,0.,0.,
+                    execution_steps=(ExecutionStep('water',10.,'sample'),)),
+                ExecutorPlanItem('support','A','relay',('usv',),0.,4.,4.,0.,0.,fulfills_task=False,
+                    execution_steps=(ExecutionStep('relay',4.,'support'),)))
+            return [ExecutionCandidate('cooperation',(),{'uuv':dict(position=(2.,0.,-2.),mode='WATER'),
+                'usv':dict(position=(1.,0.,0.),mode='SURFACE')},activities=activities)]
+        duration=1. if states['usv']['position'][0]==1. else 100.
+        return [ExecutionCandidate('subsequent', (ExecutionStep('relay',duration,'next'),),
+            {'usv':dict(position=(3.,0.,0.),mode='SURFACE')})]
+
+
+def test_cooperative_method_preserves_parallel_intervals_and_each_member_terminal():
+    # Synthetic scheduling counterexample, not a communications/physics run.
+    units=[Executor('water',('uuv',),frozenset({'WATER'})),Executor('relay',('usv',),frozenset({'SURFACE'}))]
+    tasks=[Task('A',frozenset({'WATER'}),1,0.,None,'sample'),Task('B',frozenset({'SURFACE'}),1,0.,None,'next')]
+    result=plan(units,tasks,{'uuv':state('WATER'),'usv':state('SURFACE')},CooperativeOracle())
+    work,support=[i for i in result.items if i.task_id=='A' and i.fulfills_task], [i for i in result.items if i.task_id=='A' and not i.fulfills_task]
+    assert work[0].planned_start==support[0].planned_start==0.
+    assert next(i for i in result.items if i.task_id=='B').planned_start==4.
+    assert result.makespan==10.  # not sum(10,4,1), nor a common release at 10
+    assert len({i.execution_id for i in result.items})==3
+    from mrta_python.executors import activity_predecessors
+    result.activity_edges=((work[0].execution_id,support[0].execution_id),)
+    with pytest.raises(ValueError,match='cycle'):activity_predecessors(result)
+    result.activity_edges=()
+    support[0].planned_start=1.;support[0].planned_finish=5.
+    with pytest.raises(ValueError,match='support launch'):activity_predecessors(result)

@@ -1,5 +1,29 @@
 # 最新交接：分层监测需求基线与 AAV 本地停止保持
 
+> **本次归档继续点**：查询剖析已完成，session71330终态退出0；`experiments/20260921-qn-query-profile/query.prof`可用pstats读取，主要开销为controller_output_and_derivatives及_unflatten_closed_loop_state。gc冻结候选已撤回，七机回归仍FAIL，不能改成通过。实时operator-preview由用户桌面终端管理，后续先查运行状态，不擅自重启／关闭。
+
+> **参考时间修正最新结果**：`experiments/20260921-reference-time/three-r1`原三机完整请求五动作SUCCEEDED，六点几何交付1.0，转场实际最小净距0.735091m>0.50m；旧0.404m失败保留。七机原生动作成功但兼容采样检查仍失败，GC冻结试验未解决且已撤回，保持原GC策略和时间／积分／阈值。下一步处理模型／发布开销与AIR完整查询，不能声明全回归通过。
+
+> **当前可视化入口已接入水下协作阶段**：`VISUALIZE=true bash scripts/docker_probe_five_qualification.sh <新目录> cooperative`。复用区域候选选择与正式runner，具体计划确认后执行UUV作业／USV支援／母船有限接收。gui-r1及gui-r3带显示已完成两项SUCCEEDED和32KiB接收、资源释放；时间审计通过，但原跨介质审计因本轮没有AIR阶段仍FAIL。母船是固定接收端，不是自主航行平台。三台AAV待命，完整三类平台任务仍未完成。详见`docs/reviews/water-cooperation-live-20260921.md`；旧normal资格入口保留。
+
+> **最新失败定位入口**：`docs/reviews/swarm-readonly-query-20260921.md`与`experiments/20260921-swarm-query/three-r1`。只读Swarm查询和A*边界修正已编译；七机r1及旧镜像对照有ROS样本间隔压缩造成的尾部残差，新七机r2通过。三机转场却有真实净距0.404m违规，不得忽略或清锁；需从该bag参考/实际轨迹定位。当前无运行进程，未晋级swarm-query实验镜像，main未提交/推送，完整目标继续。
+
+> **最新继续点**：`docs/reviews/request-method-generation-20260920.md`。正式task_line已生成区域任务与有限Native方法，水下阶段请求实跑通过；不要再从手写单一方法开始。完整AIR/WATER任务仍保留并会因未实现能力拒绝。query_worker支持增量候选和有限清理，PVS同位置等待使用原积分。后续优先实际状态/信息边界、Swarm/AAV完整查询与正式全请求入口，再完成全局约束、返回/复查/UI及对照。无运行中进程，main未提交/推送，目标active。
+
+> **最新入口：联合原生方法选择**。`docs/reviews/joint-native-selection-20260920.md`记录run-r2：原搜索在Noetic9.05秒内选6方法之一，正式runner执行并完成接收/释放。TravelTimeProvider.cooperative_routes已连接完整原生预测、参与者名义净距和有限接收；PVS允许同完整快照下续算终端等待，错误上下文拒绝复用。下一步将实验方法生成移至正式请求展开并覆盖真正的观测/模式选择；不要再退回只执行固定预设方法，也不要把当前六个名义方法当全请求/全平台最优。AAV预算、Swarm查询、实际状态/消息、全计划约束及完整UI任务仍未完成。
+
+> **最新接线点**：runner现在先确认支援的启动接纳和实际程序推进，再释放作业；`formal-r2`正常实跑与挂起RPC反例通过。`predict_received_products()`可用同一有限链路逻辑评价给定完整预测轨迹，禁止延长已结束占用路径；还需将它和观测/支援候选真正连接，特别保留名义消息身份、全计划并发容量与实际状态快照的边界。复合链也已加入逐Goal接收要求。不要把固定方法运行或名义预测等同完整优化/主任务通过；后续仍按原目标继续。
+
+> **正式worker已实跑**：先读`docs/reviews/cooperative-worker-20260920.md`。同一候选多活动按物理成员分别预测，native终端等待持续实际积分；runner原子预订、全部PREPARED后StartPreparedAction、原生结果和本Goal接收事件均已接入。formal-r1通过这些边界，严格往返audit仍因未执行AIR阶段而FAIL。接下来不要再写手动prepare探针替代任务，优先实际联合候选生成/选择、信息边界与完整请求；AAV查询预算和Swarm只读查询尚未解决。源码main未提交/推送，目标保持active。
+
+> **本轮继续入口**：`docs/reviews/local-products-finite-transport-20260920.md`。原生端点新增选定observation_ids和本地产品，scene_publisher复用FiniteDelivery模拟链路；UUV/USV并发组件实跑和runner接收已通过，主请求并未自动产生这些路径。精确.1秒网格最后改动由r2实际bag重放验证。下一步把观测、支援、交付活动真正纳入候选计划/正式runner，并隔离远端状态/控制消息；AAV完整查询10秒缺口仍保留。没有运行中的容器，main工作树未提交/推送。
+
+> **当前继续点：AAV完整查询预算**。`docs/reviews/qn-motion-query-20260920.md`记录原模型deepcopy查询及10秒UNKNOWN、离线完整54.85秒运动和编译不足的证据。候选枚举已改为先深入取得完整可行链，避免先查完兄弟耗尽预算。后续要解决查询成本、接实际模型快照与Swarm只读查询，再推进联合观测/支援/交付；不要将实验目录编译产物当新默认后端或擅自放宽预算。整个目标active，未完成、未提交/推送。
+
+> **复合阶段结果**：composite-r2真实两段REMUS通过，composite-r1探针输入错误保留。当前代码已改，日志与证据在`docs/reviews/cooperation-implementation-20260920.md`。下一步从联合候选/覆盖与实际产品交付接线继续，勿再重复模型接入或把PREPARED探针当作正式runner预承诺已完成。整项任务未完成，main未提交/推送。
+
+> **2026-09-20 新实施交接**：用户的三类协同实施计划已开始，不再处于暂停。新增deadline=None、step唯一来源、多活动/联合查环、固定步绝对墙钟节拍、有限交付步首快照及原生PREPARED/StartPreparedAction。镜像使用swarm-formation-qn:cooperation（新PlatformTask消息）；prepared-r1、pacing-r1、seven-r1与no-deadline-r1已有实跑成功证据。composite-r1验证同一worker两步原生执行；完整业务请求候选、协调启动、产品事件/有限通信及复查仍待接通。证据目录experiments/20260920-cooperation-implementation，首先读WORKLOG顶部，不从旧三机接线或模型引入重新开始。
+
 > **最新研究交接**：先读`docs/requirements/cooperation-source-design-20260920.md`。用户输入作业目标，平台模式/编队/支援应由优化选择；无业务期限不人工强制。文档逐项给出来源、硬约束、实际协同关系、当前代码断点和减封装位置。仅新增一篇直接相关ICRA2023联盟收益论文，纠正Calvo正式T-RO出处。实施目标仍暂停，未删除编队交付、不引入新框架。
 
 > **本次提交交接**：中文实时入口、港口场景、资源转换及README命令统一提交main；下方“未提交”保留历史口径。下一步仍从时间一致性及G3/G4接线开始，不扩大外观工作。

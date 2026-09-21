@@ -80,6 +80,7 @@ class PvsBackend:
         self.trim_command=0.
         if initialization_mode not in ('NATIVE_ZERO','STATIC_TRIM'):
             raise ValueError('unknown PVS initialization mode')
+        self.terminal_behavior='TRIM_PROPULSION' if initialization_mode=='STATIC_TRIM' else 'COAST_STOP'
         if initialization_mode=='STATIC_TRIM':
             if model!='otter' or current_speed!=0:
                 raise ValueError('static trim is qualified only for zero-current Otter')
@@ -147,7 +148,7 @@ class PvsBackend:
         return self.snapshot()
 
     def predict_native_fragment(self,paths,effort,scene,deadline,dt=.01,
-                                terminal_speed=.03,hold_duration=4.,max_model_time=180.,include_state=False):
+                                terminal_speed=.03,hold_duration=4.,max_model_time=180.,include_state=False,terminal_wait_s=0.,resume=None):
         """Read-only rollout, including native actuator lag and terminal coast.
 
         Copy all controller/actuator state; never reset or step the live model.
@@ -157,22 +158,33 @@ class PvsBackend:
         if not math.isfinite(deadline) or any(not math.isfinite(v) or v<=0 for v in
                 (dt,terminal_speed,hold_duration,max_model_time)):
             raise ValueError('finite query budget and terminal conditions required')
+        if not math.isfinite(terminal_wait_s) or not 0<=terminal_wait_s<max_model_time:
+            raise ValueError('terminal wait must fit the finite model horizon')
         paths=tuple(tuple(tuple(p) for p in path) for path in paths)
         if not paths or any(len(path)<2 for path in paths):raise ValueError('finite path fragment required')
         for path in paths:
             if any(len(p)!=3 or not all(math.isfinite(v) for v in p) for p in path):
                 raise ValueError('finite three-dimensional path required')
-            if any(math.dist(a,b)==0 for a,b in zip(path,path[1:])):raise ValueError('zero-length path leg')
+            stationary=len(paths)==1 and len(path)==2 and path[0]==path[1]
+            if not stationary and any(math.dist(a,b)==0 for a,b in zip(path,path[1:])):raise ValueError('zero-length path leg')
         if any(math.dist(a[-1],b[0])>1e-9 for a,b in zip(paths,paths[1:])):
             raise ValueError('fragment paths are disconnected')
         if math.dist(paths[0][0],self.snapshot()['position'])>NATIVE_START_TOLERANCE_M:
             raise ValueError('prediction path start differs from supplied state')
-        model=copy.deepcopy(self)
-        start=model.time_s
+        import hashlib,pickle
+        fingerprint=hashlib.sha256(pickle.dumps((self,paths,effort,scene,dt,terminal_speed,hold_duration,max_model_time))).hexdigest()
+        if resume is not None and (resume.get('status')!='FEASIBLE' or
+                resume.get('source_fingerprint')!=fingerprint or 'terminal_backend' not in resume or
+                resume.get('terminal_wait_s',0.)>terminal_wait_s):
+            raise ValueError('terminal continuation does not match this exact motion snapshot')
+        model=copy.deepcopy(resume['terminal_backend'] if resume is not None else self)
+        start=self.time_s
         mode='SURFACE' if model.model=='otter' else 'WATER'
         segment,point=0,1
-        coasting=False;coast_start=None;settled=None
-        samples=[(0.,model.snapshot()['position'])]
+        coasting=resume is not None
+        coast_start=resume['coast_start_s'] if resume is not None else None
+        settled=resume['settled_model_time_s'] if resume is not None else None
+        samples=list(resume['trajectory']) if resume is not None else [(0.,model.snapshot()['position'])]
         summary=dict(status='UNKNOWN',reason='MODEL_HORIZON_EXHAUSTED',snapshot_steps=self.steps,
                      snapshot_model_time_s=self.time_s,collision_radius_m=self.collision_radius_m,
                      geometry_checked=scene is not None)
@@ -182,6 +194,10 @@ class PvsBackend:
         while not initial_reason and model.time_s-start<max_model_time:
             if time.monotonic()>=deadline:
                 summary['reason']='QUERY_BUDGET_EXHAUSTED';break
+            if coasting and settled is not None and model.time_s-settled>=hold_duration+terminal_wait_s:
+                summary.update(status='FEASIBLE' if scene is not None else 'UNKNOWN',
+                    reason='NATIVE_TERMINAL_VERIFIED_IN_ROLLOUT' if scene is not None else 'SCENE_GEOMETRY_NOT_PROVIDED')
+                break
             target=None
             if not coasting:
                 segment,point,target,coasting=advance_path_target(paths,segment,point,model.snapshot()['position'])
@@ -196,12 +212,13 @@ class PvsBackend:
             if coasting and speed<=terminal_speed:
                 if settled is None:settled=model.time_s
             else:settled=None
-            if settled is not None and model.time_s-settled>=hold_duration:
+            if settled is not None and model.time_s-settled>=hold_duration+terminal_wait_s:
                 summary.update(status='FEASIBLE' if scene is not None else 'UNKNOWN',
                     reason='NATIVE_TERMINAL_VERIFIED_IN_ROLLOUT' if scene is not None else 'SCENE_GEOMETRY_NOT_PROVIDED')
                 break
         duration=model.time_s-start
         summary.update(duration_s=duration,coast_start_s=coast_start,
+            source_fingerprint=fingerprint,settled_model_time_s=settled,terminal_wait_s=terminal_wait_s,
             motion_s=duration if coast_start is None else coast_start,
             terminal_s=0. if coast_start is None else duration-coast_start,
             terminal_position=model.snapshot()['position'],terminal_mode=model.snapshot()['actual_mode'],

@@ -232,6 +232,93 @@ class QnPythonClosedLoopBackend:
             raise RuntimeError("qn backend must be reset before hold_reference")
         self._reference_position_m = self._state.plant.position_xyz_m
 
+    def snapshot(self, timestamp_s=0.0):
+        """Physical state of this exact plant; controller/actuator state stays here."""
+        if self._state is None:
+            raise RuntimeError('qn backend has not been initialized')
+        plant=self._state.plant
+        return AgentState(self._agent_id,'AAV',timestamp_s,plant.position_xyz_m,
+            self._map_velocity(plant),orientation_quat_wxyz=plant.quaternion_wxyz,
+            body_linear_velocity_mps=plant.body_twist[:3],body_angular_velocity_radps=plant.body_twist[3:],
+            medium_flag=medium_flag(plant.position_xyz_m[2],self.constants.hg_m))
+
+    def predict_native_fragment(self, segments, scene, deadline, *, dt=.01,
+                                position_tolerance=.2, terminal_speed=.03, hold_duration=4.,
+                                radius=.25, max_model_time=180., include_state=False,terminal_wait_s=0.):
+        """Bounded read-only rollout of the existing local finite qn program.
+
+        All RBF, actuator, memory and guidance states are copied. No reset or
+        ROS publication occurs. The snapshot caller must retain the source
+        version; this sampled result is not a robust tracking-error bound.
+        """
+        import copy
+        import time
+        from .contracts import ControlCmd,CommandMode,PlatformAdapterCmd
+        from .platform_execution import actual_mode,validate_fragment,segment_terminal_ready
+        if not math.isfinite(deadline) or any(not math.isfinite(v) or v<=0 for v in
+                (dt,position_tolerance,terminal_speed,hold_duration,radius,max_model_time)):
+            raise ValueError('query needs finite deadline and native positive limits')
+        source=self.snapshot()
+        if not math.isfinite(terminal_wait_s) or not 0<=terminal_wait_s<max_model_time:
+            raise ValueError('terminal wait must fit the finite model horizon')
+        def reply(status,reason,t=0.,state=source):
+            return dict(status=status,reason=reason,duration_s=t,terminal_position=state.position,
+                        terminal_mode=actual_mode(state.medium_flag),geometry_checked=scene is not None)
+        if time.monotonic()>=deadline:return reply('UNKNOWN','PLANNING_BUDGET_EXHAUSTED')
+        if (self.reference_mode!='ROUTE_POSITION' or self.water_horizontal_controller_mode!='LOS_SURGE_YAW' or
+                self.water_guidance_mode!='LOS_VELOCITY_REFERENCE'):
+            return reply('UNKNOWN','QN_METHOD_NOT_QUALIFIED')
+        if scene is None:return reply('UNKNOWN','SCENE_GEOMETRY_REQUIRED')
+        try:
+            validate_fragment(segments,actual_mode(source.medium_flag),'FIXED_REFERENCE',
+                              frozenset(('ENTER_WATER','WATER_PATH','EXIT_WATER')))
+        except ValueError as error:return reply('INFEASIBLE',str(error))
+        if (math.dist(source.position,segments[0].points[0])>position_tolerance or
+                _norm3(source.velocity)>terminal_speed):
+            return reply('INFEASIBLE','FRAGMENT_ENTRY_NOT_SETTLED_AT_START')
+        for segment in segments:
+            if actual_mode(medium_flag(segment.points[-1][2],self.constants.hg_m))!=segment.target_mode:
+                return reply('INFEASIBLE','ENDPOINT_MEDIUM_MISMATCH')
+            if segment.operation!='WATER_PATH' and any(p[:2]!=segment.points[0][:2] for p in segment.points):
+                return reply('UNKNOWN','NON_VERTICAL_TRANSITION_NOT_QUALIFIED')
+            reason=scene.path_violation(segment.points,radius)
+            if reason:return reply('INFEASIBLE',reason)
+        candidate=copy.deepcopy(self)
+        state=source;t=0.;start=0.;settled=None;index=0;trajectory=[]
+        while t<=max_model_time:
+            if time.monotonic()>=deadline:return reply('UNKNOWN','PLANNING_BUDGET_EXHAUSTED',t,state)
+            segment=segments[index]
+            reason=scene.violation(state.position,radius)
+            if reason:return reply('INFEASIBLE',reason,t,state)
+            if segment.operation=='WATER_PATH' and actual_mode(state.medium_flag)!='WATER':
+                return reply('INFEASIBLE','ACTUAL_MEDIUM_OUTSIDE_WATER_PHASE',t,state)
+            target=segment.reference(t-start)
+            if segment_terminal_ready(segment,t-start,state.position,state.velocity,actual_mode(state.medium_flag),
+                                      position_tolerance,terminal_speed):
+                if settled is None:settled=t
+            else:settled=None
+            required_hold=hold_duration+(terminal_wait_s if index==len(segments)-1 else 0.)
+            if settled is not None and t-settled>=required_hold:
+                if index==len(segments)-1:
+                    result=reply('FEASIBLE','COMPLETE_NATIVE_FRAGMENT_AND_TERMINAL',t,state)
+                    if include_state:result.update(terminal_backend=candidate,trajectory=tuple(trajectory))
+                    return result
+                index+=1;start=t;settled=None
+                # Like the real worker, this step still uses the preceding
+                # endpoint. The next completed tick uses the next segment.
+            cmd=ControlCmd('read-only-query',source.agent_id,t,CommandMode.DESIRED_POSITION,
+                           (0.,0.,0.),desired_position=target,desired_yaw_rad=0.)
+            # These existing node defaults only label backend diagnostics;
+            # qn never clamps state using them. Geometry/terminal feasibility
+            # here does not assert a certified dynamic tracking envelope.
+            result=candidate.step(PlantStepInput(state,cmd,PlatformAdapterCmd(source.agent_id),dt,2.,8.))
+            for position in result.diagnostics['model_positions']:
+                reason=scene.violation(position,radius)
+                if reason:return reply('INFEASIBLE',reason,t,state)
+            t+=dt;state=candidate.snapshot(t)
+            if include_state:trajectory.append((t,state.position))
+        return reply('UNKNOWN','MODEL_HORIZON_EXHAUSTED',t,state)
+
     def step(self, step_input: PlantStepInput) -> PlantStepResult:
         if self._state is None or self._agent_id is None:
             raise RuntimeError("qn Python closed-loop backend must be reset before step")
