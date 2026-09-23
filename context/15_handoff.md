@@ -1,5 +1,7 @@
 # 最新交接：分层监测需求基线与 AAV 本地停止保持
 
+> **2026-09-23 长Goal实跑交接**：原港口Otter/PVS同位置静止配平Goal的`terminal_wait=185s`、`execution_timeout=230s`已实际运行约192.28秒并获SUCCEEDED/终态已验证/资源未锁，19,230条状态样本、部署误差0.037713m；证据`experiments/20260923-pvs-long-timeout-r1/{result.json,execution.bag}`及WORKLOG顶部。只证明本机PVS期限不再隐截180秒，不代表UUV长航线/五平台请求完成；原REMUS港内失败及异步几何选择保留。
+
 > **2026-09-23 搜索补充**：`iter_execution_candidates()`已让AIR/跨介质原生候选通过现有有界子进程流逐个返回，不再等待同单元剩余方法列表；34项相关测试通过。`experiments/20260923-joint-stream-10s-r1`真实正式入口在原10秒预算下仍明确无完整计划、零Goal、零锁；不能宣称在线预算达标。预算选项的异步用户问题仍待答，见WORKLOG顶部。
 
 > **2026-09-23 最新补充**：用户确认REMUS只需“观测后重进部署区→完成原生安全尾段”，不是定点悬停。现有港口原样点/部署区继续保留失败；另一组内存试验几何有原PVS/静态障碍/有限交付的双会合只读名义候选，具体数值与失败点见WORKLOG顶部和`experiments/20260923-remus-two-contact-study/result.json`。该实验曾误用0.2m障碍余量做平台间门槛，现用原0.5m门槛重算，最终采样富余1.45295m；不代表ROS Action或五平台验收。`pvs_node.py`外加180秒硬截断已去掉，总请求结项改用匹配GoalID本机Result判断UUV通过式返回；相关15项PVS和32项runner测试通过。长Goal实跑、第二会合下行接纳、复查与10秒规划仍待解决。示范几何及预算策略的异步用户问题未答，未改生产业务配置。

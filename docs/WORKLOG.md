@@ -1,3 +1,11 @@
+## 2026-09-23 UTC — 原港口PVS超过180秒的Action实际终态复验
+
+- 计划：验证上一轮去掉隐藏`min(Goal期限,180秒)`后，真实ROS Action是否能够超过旧上限仍继续积分、给出有限终态Result，而不靠改业务点、放宽安全判据或伪造模型时间。
+- 实际：在原`five_scene_harbor.yaml`仅启动原生Otter/PVS节点，部署仍为(-10,4,0)；派发一个已定义的同位置`SURFACE_PATH`静止配平Goal，`terminal_wait=185s`、`execution_timeout=230s`，使用原端点预检、原控制器、原场景、原Action和rosbag记录Odometry/诊断/Goal/Result。此为隔离时限回归，不含业务观测/中继/五平台协作，未改变生产请求。
+- 结果：Goal实际等待192.2847秒后返回Action状态3/SUCCEEDED，`task_completed=true`、`terminal_verified=true`、`actual_mode=SURFACE`、`resource_locked=false`，原因`TRIM_PROPULSION_VERIFIED_IN_QUALIFICATION`；约19,230条原生状态样本，最后距USV声明部署中心0.037713m。进程退出0，bag封包完成，容器清理。证明**USV本机这条有限长保持Goal**不再受旧180秒隐形截断；REMUS复杂346秒通过式航线、同场碰撞、受限命令和总任务仍未ROS验收。
+- 证据：`experiments/20260923-pvs-long-timeout-r1/{probe.py,run.sh,result.json,probe.log,execution.bag,pvs.log}`（本机忽略实验目录），对应提交`fb0f694`的`pvs_node.py`期限改动及此前15项PVS组件测试。
+- 未完成／下一步：待示范几何答复后运行REMUS自身长Goal和同场独立安全审计；当前原水下业务路线继续保持失败记录，不用Otter静止通过结果冒充UUV返航或最终三类协同。
+
 ## 2026-09-23 UTC — 有界联合搜索的首个方法结果不再被后续候选阻塞
 
 - 计划：核对正式`joint_request`默认10秒求解为什么不能提交完整方案；只修已有“先完整可行解、后预算内改进”搜索路径的可证实断点，不牺牲原生运动、场景安全或有限收件校核。
