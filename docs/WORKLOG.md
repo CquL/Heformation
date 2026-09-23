@@ -1,3 +1,75 @@
+## 2026-09-23 UTC — REMUS原部署方向下有限南侧回区路线均被东栈桥阻断
+
+- 计划：按用户确认的通过式返回合同，在原`(-5,8,-2)`部署区、原REMUS100控制器和同一港口障碍中，检查直接回区失败能否通过少量有物理依据的南侧开阔水域路线解决；不得扩大回收区或删障碍。
+- 实际：`experiments/20260923-remus-return-routes/probe.py`用PVS同一状态副本和场景校核四条有限路线：原直接掉头、观测点后向南、提前在(-2,8)向南、经(4,0)向南；四者均在模型约24秒、约x=12的东栈桥附近达到0.193–0.197m静态余量，低于原0.2m要求，观测后距部署区最小仍约3.28m>0.80562m。控制过程抽样显示从通过样点后的约10秒至22秒，REMUS实际NED航向只从约1.571转到1.778rad，前进到x≈10.43时y仍≈7.72；即当前转弯响应来不及在东栈桥前离开y=6..14碰撞带。隔离试算的其他初始艏向-90°/-45°/+45°在原样点路径下或未进入2.5m观测邻域，或转为撞quay/rock；这只是有限反例，不是全空间不可行证明。
+- 结果：当前`request_native_methods()`只生成“样点→回部署区”的直接REMUS方法，已知不可执行；本轮不把未经真实资格的南侧路线接入生产候选，也不增加驻停控制。AAV跨介质替代方法的r12组件实跑与REMUS方法不可用分开报告。
+- 证据：`experiments/20260923-remus-return-routes/{probe.py,result.json}`、原`pvs_backend.py::predict_native_fragment`与`five_scene_harbor.yaml`。艏向试算的控制台输出记录于本轮实验结果描述。
+- 未完成／下一步：若最终三类平台同运行必须让REMUS完成并返回，需要以任务场景允许的部署状态/样点位置和原控制器为输入重新找一条**完整观测→重进回区→安全尾段**资格路线，再接入有限候选并实际Action验证；不能把当前失败路线标成可派发。
+
+## 2026-09-23 UTC — AAV跨介质五步执行真实完成；诊断末尾全舰同刻取样失败单列
+
+- 计划：在原生终结报告导入修复后，从同一港口五实例、同一声明任务与有限交付，完整复跑AIR中转两段→AIR入水入口→qn入水/水中通过式观测/出水→AIR返部署区；继续对终态和独立安全证据分别判断。
+- 实际：`r12`隔离规划墙钟134.26秒，五个步骤均有独立原生GoalID、SUCCEEDED Result和runner `verified=true`；原生段终结通知与32KiB `water_sample`均已到母船。任务层`plan.items[0].status=COMPLETED`、该水下业务结果已接收、交付1.0、`resource_locks=[]`。最后AIR Action任务/安全/实验有效性PASS/PASS/VALID，实际终点(-30.08054,5.99735,0.79596)，距声明部署中心0.08069m<0.5m。独立bag原审计2143个五平台对齐位置样本、执行区间0缺失、最小五平台代理净距1.49856m，已声明实体/禁区净距与时钟均无其他失败。Goal前实时订阅的场景点云sha256与按配置重建的声明SOLID点云sha256一致。
+- 结果：**AAV跨介质水下样点方法的真实五步执行及返回子链有证据完成**；原诊断脚本最后又调用要求五平台全体在同一瞬间新鲜的`_actual_positions()`，当时待命USV/UUV短时过期，故脚本总状态记录`FAILED`。这是尾部报告取样失败，不能把原记录改成PASS；`posthoc-assessment.json`把五步Action、任务权威状态、返回落点与该脚本失败分别列出。原独立审计的单项失败是本轮有意不在**连续bag**重复录静态云，因此无法从bag核对发布者身份；另存的同次Goal前云哈希与声明场景一致，但不能冒称“原审计全项PASS”。这仅是一项AAV水下方法组件，不是两区域三类平台完整协同请求，也不是正式10秒规划通过。
+- 证据：`experiments/20260923-aav-cross-medium-action-r12/{probe.py,metrics.json,joint-result.json,posthoc-assessment.json,independent-audit.json,scene-cloud.json,scene-resolved.json,cross-medium-execution.bag,exec-*.diagnostics.json}`。修复后受影响91项边界检查通过；修复代码见`platform_action.py`。
+- 未完成／下一步：将该实际可执行方法纳入**完整两区域请求**的同次联合选择/修复；解决正式10秒预算、REMUS部署区安全返回资格和一次已收到缺测报告触发的复查；在完整实时UI中给出最终任务权威结论。不能用此组件证据替代三类平台协同验收。
+
+## 2026-09-23 UTC — 三段AIR与水中产品真实到达，原生Action终结报告NameError阻断返回
+
+- 计划：在原港口/五实例/完整候选下，仅取消实验bag对静态`/scene/global_cloud`的10Hz重复压缩，Goal前保存一次点云身份；仍用同一Action和原样本缺失规则复测完整跨介质链。
+- 实际：`r11`规划墙钟130.01秒；三段Swarm/qn AIR Action（两个南侧中转及样点上方入口）各自独立GoalID、SUCCEEDED Result和有效性PASS，原前两次随机监测缺样未重现。原生qn Action开始`ENTER_WATER→WATER_PATH→EXIT_WATER`，本地生成`water_sample`几何观测产品，母船按有限链路收到32KiB。出水片段终结时qn进程在`platform_action.py::_finish`抛`NameError: String is not defined`：`String`只在构造函数/另一方法局部导入，终结报告方法作用域不可见；qn Odometry随后消失，本地安全锁存，runner按有限Result观察期限退出并保持父成员锁。没有第5段AIR返回Goal。
+- 结果：在`_finish`实际发布终结报告的分支局部导入标准`std_msgs/String`；增加只覆盖该真实失败路径的确定性测试，已通过。r11失败不改判；原生Result与返回必须重新实跑。静态场景一次点云为244248点/2930976字节、hash`60dfb94d…`，解析场景同源留存；本次全程bag约34MB，较r10的1.2GB大幅降低录制负载，五平台状态和Goal/Result持续录制未撤销。
+- 证据：`experiments/20260923-aav-cross-medium-action-r11/{scene-cloud.json,scene-resolved.json,metrics.json,joint-result.json,cross-medium-execution.bag,launch.log,exec-*.diagnostics.json}`；`integration/qn_aav_simulator/src/qn_aav_simulator/platform_action.py`、`tests/test_local_transition_disposition.py`。
+- 未完成／下一步：同条件复跑，确认原生Action终态、母船终结通知、AIR返部署区及物理成员释放；原10秒生产预算、UUV回区、复查和完整五平台请求仍未通过。
+
+## 2026-09-23 UTC — 第三段年龄误判消失；第二段20Hz监测空档与高负载bag同现
+
+- 计划：保持原0.25秒新鲜度和完整样本缺失规则，复验先复制状态后取时间的fleet修正是否能让第三段继续。
+- 实际：`r10`仍由同一五平台真实实例生成五步候选，首段AIR成功；第二段AIR实际运动、净距、4秒保持和状态对齐均通过，但Action实验有效性INVALID，父成员保持锁定，第三段未派发。原`build_ledger`在20Hz监测记录中发现13个网格样本缺失，两个最大空档约0.390/0.450秒；未降低其失败规则。独立同次bag在这两处分别录到60/65条qn里程计，发布stamp最大间隔0.0122/0.0101秒，表明动力学状态发布未断。`rosbag info`揭示静态`/scene/global_cloud`在88秒被重复录886次，本次bag约1.2GB压缩、2.5GB未压缩、每秒压缩写入13.6MB；它与Action监测空档同现，但尚不能仅凭相关性证明唯一因果。
+- 结果：保留`r10` INVALID，不用平均100Hz发布率代替Action监测完整性。下一次诊断仅在Goal前保存一次静态点云身份，持续bag保留五平台Odometry/diagnostics、Action Goal/Result、参考/交付事件，避免重复写入同一静态云；场景发布和Swarm订阅均不改。若监测仍漏采再定位Action本身，不放宽样本阈值。
+- 证据：`experiments/20260923-aav-cross-medium-action-r10/{metrics.json,joint-result.json,exec-*.diagnostics.json,cross-medium-execution.bag}`，bag头显示静态云重复886条，诊断`verdict.sample_ledger`显示13项对齐缺失；验证控制台中两个窗口的qn stamp间隔。
+- 未完成／下一步：对比减轻录制负载后的实际Action监测连续性，再看后续入/出水、收件及返回；10秒生产规划、UUV回区、复查及完整请求仍未通过。
+
+## 2026-09-23 UTC — 两段AIR真实成功；第三段全员“负样本年龄”误判已定位
+
+- 计划：在现有Action健康快照和状态机同步修正后重跑同一五步跨介质候选，保留原状态、时间、净距门槛。
+- 实际：`r9`以原五平台/港口/150秒隔离预算形成同一候选，前两个AIR步骤分别到(-15,3,0.8)和(-10,0,0.8)，两个独立GoalID均SUCCEEDED，实际4秒连续保持、任务PASS、安全PASS、实验VALID；第二段不再被提前拒绝。第三段AIR Goal已接纳且发布轨迹，约2秒后因`missing or stale fleet odometry`中止，父活动UNKNOWN_LOCKED。失败证据的`sample_ages_s`显示三台qn最新样本分别为约-0.0010、-0.0039、-0.0018秒；即调用者提前捕获的`now_s`早于回调已安装的样本，`OdometrySample.is_fresh`按原规则将负年龄判为无效。不是三个发布端同时停摆。
+- 结果：在原`_fleet_safety`复制样本后重新读取ROS当前时间再做全部0.25秒新鲜度及0.06秒对齐检查；不接受真正未来时间戳、不放宽门槛。针对“调用时刻早于最新样本、复制后时刻晚于样本”的确定性测试通过，旧待命成员净距检查仍通过。尚未得到水中/返回真实Result，不能升级任务结果。
+- 证据：`experiments/20260923-aav-cross-medium-action-r9/{metrics.json,joint-result.json,exec-*.diagnostics.json,cross-medium-execution.bag}`，`formation_action_server.py::_fleet_safety`、`tests/test_formation_action_server.py`。
+- 未完成／下一步：同条件复验第三段及后续原生入/出水、接收、返回；正式10秒预算、UUV回区、缺测复查和完整五平台请求依旧未通过。
+
+## 2026-09-23 UTC — 实际保持验证后暴露Action就绪状态竞态，按原状态机修正
+
+- 计划：让修正后的五步候选在相同五实例/港口/状态新鲜度下继续派发；分开判断保持成功与下一Goal是否被真正接纳。
+- 实际：`r8`隔离规划用125.93墙钟秒形成原227.68模型秒候选，第一段AIR Goal实际`hold_duration=4.0`，成功窗口4.0504墙钟秒、4.02模型秒，任务/安全/有效性PASS/PASS/VALID，fleet代理净距最小1.47178m。随后的第二段Goal在首段Result后约0.13秒被Action以`REJECTED_NOT_READY server is BOOTING`拒绝，无第二段轨迹或入水；父活动保持锁定。核对源码发现`~ready`原来只公布前置健康快照，即使本地`ActionResourceStateMachine`未到`READY_IDLE`也可能短时为真；qn参考所有权变化未清除一秒readiness缓存。runner读取这个旧值后抢先发Goal。
+- 结果：直接在原Action服务端中，qn参考来源/活动/GoalID等会影响接纳的诊断变化使readiness缓存失效；`~ready`仅在健康快照通过且状态机为`READY_IDLE`时为真，同步发布已有状态机的`~run_state`。runner继续使用原就绪等待，但额外核对`run_state=READY_IDLE`才派发AIR Goal。没有新增状态机、固定睡眠或放宽0.25秒输入新鲜度。相关62项边界测试及新增针对性readiness两例通过；真实链尚未复验。
+- 证据：`experiments/20260923-aav-cross-medium-action-r8/{probe.py,metrics.json,joint-result.json,exec-*.diagnostics.json,cross-medium-execution.bag}`；`integration/qn_aav_simulator/scripts/{formation_action_server,formation_mission_runner}.py`、原`action_lifecycle.py`、`tests/test_formation_action_server.py`。
+- 未完成／下一步：按同条件重跑，检查第二段是否在服务端自身READY_IDLE后接纳；若失败仍保持锁定并定位，不将第一段成功写成跨介质通过。正式10秒预算、UUV回区、缺测复查和完整五平台请求仍未完成。
+
+## 2026-09-23 UTC — 五平台跨介质实跑推进至第二段，发现名义保持未写入实际 Goal
+
+- 计划：保留原 0.25 秒状态新鲜度、0.05 秒时间基线和安全净距条件，让 ROS 使用全部 CPU 核、只固定只读规划到 12–15 核，复测上次第一段的状态证据失败。
+- 实际：`r7` 在同一港口五实例形成原五步跨介质名义候选，规划墙钟 133.10 秒（隔离 150 秒预算，仍非正式 10 秒）。第一段 AAV1 到 `(-15,3,0.8)` 的原生 Swarm Action 获 SUCCEEDED，任务/安全/实验证据为 PASS/PASS/VALID，fleet 净距代理最小 1.47179 m，原先的待命成员状态过期未重现。第二段 Goal 被派发，但本机参考接管服务以 `AIR_ENTRY_NOT_SETTLED` 拒绝，原 Action 返回非成功、父活动保持锁定，后续入水/返回未派发。诊断显示第一段实际 `hold_duration=0`，而候选 `query_air_reference` 对此段预测了 4 秒保持；名义 4 秒没有写入 `ExecutionStep.service_time_s`，所以实际 Goal 未执行它。
+- 结果：已在现有跨介质候选生成处把前两段中转及入水前 AIR 段的 `ExecutionStep.service_time_s` 写为原查询采用的 4 秒，保留查询给出的总时长，不重复增加工期。该修正只对齐已有 Action 的 `hold_duration`，没有新增控制器、阈值或接口。Python 语法与 diff 检查通过；**修正后的实际五步链尚未复验**。`r7` 保持失败记录，不改写为跨介质成功。
+- 证据：`experiments/20260923-aav-cross-medium-action-r7/{probe.py,probe.log,nominal-plan.json,metrics.json,joint-result.json,action_index.json,exec-*.diagnostics.json,cross-medium-execution.bag}`；`integration/mrta_python/executors.py`、`integration/qn_aav_simulator/scripts/formation_mission_runner.py` 和原 `platform_action.py` 入口条件。
+- 未完成／下一步：同条件复跑，逐段核对实际保持、参考接管、入水/出水、产品接收与 AIR 返回；正式 10 秒规划、UUV 可返回方法、收到缺测后的复查和完整五平台请求仍未通过。
+
+## 2026-09-23 UTC — 核组隔离保住时间基线，AIR服务端仍因待命成员状态证据缺失中止
+
+- 计划：上次同机规划令qn/ROS时间基线超0.05s而零派发；尝试仅以OS核组隔离规划和动力学，保留全部时间/净距/状态新鲜度原阈值，再用同一五平台五步方法复验。
+- 实际：r5让ROS/动力学节点运行在CPU0–11及16–31、规划查询在12–15；规划138.98秒得到同一名义计划，约两分钟时AIR Action仍`ready=true`，不再重现原0.0648s基线故障。首段AIR Goal实际发出，约19秒后Action以`missing or stale fleet odometry`中止，安全NOT_VERIFIED、实验INVALID、父成员锁定；独立bag同段三台qn均约100Hz且发布样本最大间隔约0.011/0.011/0.010秒，说明不能把失效写成qn1/2没有积分或发布。r6只将该Action服务端peer Odometry接收队列从1增至10，原0.25s新鲜度不变；同负载重跑仍在首段以相同原因中止（缺失成员集合不同），因此该队列调整**无实证收益，已撤回**。现只在既有`fleet_safety`失败证据中增加每成员最新接收样本年龄，便于下次区分未连接与接收端滞后；没有改变失败/锁定判据。
+- 结果：CPU隔离解决了上一次派发前基线失效，**未解决**Action服务端的待命成员状态证据流。r5/r6都不是跨介质成功；所有后继未派发。不能因独立bag发布连续就跳过Action自身缺样判据，也不能改大0.25秒门槛。下一步保留规划查询独立核组，让ROS节点恢复可用的全部CPU核复验，或根据实际`sample_ages_s`定位接收端延迟。
+- 证据：`experiments/20260923-aav-cross-medium-action-r{5,6}/{metrics.json,joint-result.json,cross-medium-execution.bag,exec-*.diagnostics.json}`；两次状态均保留UNKNOWN_LOCKED。ROS[`rospy.Subscriber`文档](https://docs.ros.org/en/noetic/api/rospy/html/rospy.topics.Subscriber-class.html)说明queue_size只是接收队列容量，不是新鲜度保证；原程序`formation_action_server._fleet_safety`仍使用时间戳和0.25秒判定。
+- 未完成／下一步：同原五步方法分别查时间基线与Action peer状态年龄，避免用显示截图或产品结果代替全程安全。原10秒生产规划、UUV回区及复查仍未完成。
+
+## 2026-09-23 UTC — 长时规划使qn时间基线失效，真实跨介质Goal零派发
+
+- 计划：五平台名义整计划通过后派发所选五步Action，并录制Goal前状态至终态的独立安全bag；原时间一致性阈值和动力学积分必须保留。
+- 实际：`experiments/20260923-aav-cross-medium-action-r4`从同一已声明港口、三AAV/USV/UUV初态以150秒隔离预算形成双中转AAV跨介质完整计划，`PLANNED`只有`aav_1_native`五步，预备录制Goal/Result与五成员Odometry。runner预订共享物理成员后，首个AIR端点始终不进入READY_IDLE：`/aav_1_action_server/readiness_reason`明确为模型／ROS基线偏差0.0648s>原0.0500s；等待既有120秒就绪期限后退出，**没有任何Goal派发**，成员UNKNOWN_LOCKED。此前已隔离验证三台AIR入口在无重规划负载时依次可就绪，故本次主要差异是同机长时重计算。
+- 结果：目标链仍未实际跨介质；不得把五平台名义校核与0个Goal说成执行成功，也不得通过改消息时间、模型步长或放宽0.05s门槛通过。当前硬件32个逻辑CPU，可在同一镜像中把ROS动力学与只读规划进程固定到互不重叠核组作为执行资源隔离诊断；这只改OS调度，不改控制/仿真数值。
+- 证据：`experiments/20260923-aav-cross-medium-action-r4/{probe.py,probe.log,joint-result.json,metrics.json,launch.log}`及当时ROS参数`readiness_reason`；原门槛`time_alignment.py:DEFAULT_MAX_ABS_DRIFT_S`。旧AIR直达栈桥安全失败、第一版分段交接失败另保留。
+- 未完成／下一步：核组隔离下复跑同一五步请求，仍需实际Action、收件、返回与独立bag审计；若无法维持原时间门槛，保持失败并定位具体计算/ROS调度竞争，而非延长业务或控制时钟。
+
 ## 2026-09-23 UTC — 五平台代理全计划下的南侧双中转跨介质名义方法
 
 - 计划：前一分段AIR方法在全计划中与待命USV(-10,4,0)发生代理净距冲突，不可仅凭AAV局部安全继续派发。根据已声明港口障碍和USV真实占位比较不移动USV的南侧有限AIR路线；仍由原Swarm、qn、PVS及同一有限交付/全成员检查给结论。

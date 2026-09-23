@@ -373,11 +373,17 @@ class FormationActionServer:
         with self.lock:
             samples = dict(self.peer_odom)
             samples.update(self.odom)
+        # Callbacks may install newer samples after the caller captured now_s.
+        # Evaluate age only after copying the samples, otherwise a valid new
+        # message appears future-stamped and falsely fails the fleet check.
+        now_s = rospy.Time.now().to_sec()
         fresh = {a: samples[a] for a in self.safety_agent_ids
                  if a in samples and samples[a].is_fresh(now_s, self.odom_timeout)}
         if len(fresh) != len(self.safety_agent_ids):
             return {"ok": False, "reason": "missing or stale fleet odometry",
-                    "missing": sorted(set(self.safety_agent_ids) - set(fresh))}
+                    "missing": sorted(set(self.safety_agent_ids) - set(fresh)),
+                    "sample_ages_s": {str(a):(None if a not in samples else now_s-samples[a].stamp)
+                                      for a in self.safety_agent_ids}}
         stamps = [v.stamp for v in fresh.values()]
         if max(stamps) - min(stamps) > self.model_time_window:
             return {"ok": False, "reason": "fleet odometry not time aligned"}
@@ -413,6 +419,7 @@ class FormationActionServer:
             self.readiness.note_message(qn_diagnostics_topic(agent_id), received)
             self.max_diagnostics_callback_lag_s = max(
                 self.max_diagnostics_callback_lag_s, received - stamp)
+            old_source = self.qn_source.get(agent_id, {})
             self.qn_source[agent_id] = {
                 "reference_source": values.get("reference_source", "AIR_SWARM"),
                 "requested_reference_source": values.get("requested_reference_source", "AIR_SWARM"),
@@ -436,6 +443,11 @@ class FormationActionServer:
                     "acceleration_directly_consumed"),
                 "inner_backend_update_time_s": received,
             }
+            if any(old_source.get(key) != self.qn_source[agent_id].get(key) for key in (
+                    "reference_source", "reference_active", "reference_goal_id",
+                    "reference_context_ready", "platform_action_active",
+                    "platform_resource_locked", "actual_mode")):
+                self._readiness_cache = None
             self._latch_air_domain(agent_id, values)
             diagnostics = self.active_diagnostics
         if diagnostics is not None:
@@ -829,8 +841,9 @@ class FormationActionServer:
                             "reason": "readiness check: {}".format(error)}
             self.state_machine.ros_time_s = now
             try:
-                self.state_machine.note_readiness(bool(snapshot["ready"]))
-                rospy.set_param("~ready", bool(snapshot["ready"]))
+                state = self.state_machine.note_readiness(bool(snapshot["ready"]))
+                rospy.set_param("~run_state", state)
+                rospy.set_param("~ready", bool(snapshot["ready"] and state == "READY_IDLE"))
                 rospy.set_param("~readiness_reason", str(snapshot["reason"]))
                 rospy.set_param("~sensor_backend",
                                 str(snapshot.get("sensor_backend", "")))

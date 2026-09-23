@@ -357,7 +357,8 @@ class MissionRunner:
                     continue
                 if rospy.get_param(node + "/safety_latched_members", []):
                     raise RuntimeError("physical member safety hold locked: " + endpoint)
-                if rospy.get_param(node + "/ready", False):
+                if (rospy.get_param(node + "/ready", False) and
+                        rospy.get_param(node + "/run_state", "") == "READY_IDLE"):
                     declared = rospy.get_param(node + "/agent_ids")
                     if {"drone_{}".format(a) for a in declared} != unit.members():
                         raise RuntimeError("endpoint member configuration disagrees with routing")

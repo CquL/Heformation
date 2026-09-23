@@ -543,7 +543,7 @@ def test_windowed_odometry_is_accepted_by_the_ledger_and_obstacle_check(
     assert clearance == pytest.approx(0.002)
 
 
-def test_single_action_checks_idle_fleet_member_clearance(server_module):
+def test_single_action_checks_idle_fleet_member_clearance(server_module, monkeypatch):
     server = make_server(server_module, state=READY_IDLE)
     server.agent_ids = [0]
     server.safety_agent_ids = [0, 1, 2]
@@ -551,6 +551,8 @@ def test_single_action_checks_idle_fleet_member_clearance(server_module):
     server.platform_radius_m = .25
     server.inter_agent_clearance = .5
     server.odom_timeout = .25
+    monkeypatch.setattr(server_module.rospy.Time, 'now',
+                        classmethod(lambda cls: cls(1.01)))
     Sample = server_module.OdometrySample
     server.odom = {0: Sample(1.0, (0, 0, .8), (0, 0, 0))}
     server.peer_odom = {1: Sample(1.0, (.6, 0, .8), (0, 0, 0)),
@@ -560,6 +562,23 @@ def test_single_action_checks_idle_fleet_member_clearance(server_module):
     assert server._fleet_safety(1.01)["ok"]
     server.peer_odom.pop(2)
     assert not server._fleet_safety(1.01)["ok"]
+
+
+def test_fleet_freshness_uses_time_after_sample_snapshot(server_module, monkeypatch):
+    server = make_server(server_module, state=READY_IDLE)
+    server.agent_ids = [0]
+    server.safety_agent_ids = [0, 1, 2]
+    server.model_time_window = .06
+    server.platform_radius_m = .25
+    server.inter_agent_clearance = .5
+    server.odom_timeout = .25
+    Sample = server_module.OdometrySample
+    server.odom = {0: Sample(1.012, (0, 0, .8), (0, 0, 0))}
+    server.peer_odom = {1: Sample(1.013, (0, -3, .8), (0, 0, 0)),
+                        2: Sample(1.014, (0, 3, .8), (0, 0, 0))}
+    monkeypatch.setattr(server_module.rospy.Time, 'now',
+                        classmethod(lambda cls: cls(1.015)))
+    assert server._fleet_safety(1.010)['ok']
 
 
 @pytest.mark.parametrize("topics", [
@@ -620,12 +639,13 @@ def test_startup_timeout_does_not_kill_previously_ready_server(server_module, mo
     server._readiness_snapshot = snapshot
     server._cached_baseline_report = lambda: SimpleNamespace(as_dict=lambda: {})
     shutdowns = []
+    published = []
     count = 3 if was_ready else 1
     checks = iter([False] * count + [True])
     ticks = iter([0., 121.])
     monkeypatch.setattr(server_module.time, "monotonic", lambda: next(ticks))
     for name, value in {
-        "is_shutdown": lambda: next(checks), "set_param": lambda *a: None,
+        "is_shutdown": lambda: next(checks), "set_param": lambda *a: published.append(a),
         "loginfo_throttle": lambda *a: None, "logwarn_throttle": lambda *a: None,
         "logerr": lambda *a: None, "signal_shutdown": shutdowns.append,
         "rostime": SimpleNamespace(wallsleep=lambda _: None),
@@ -634,6 +654,9 @@ def test_startup_timeout_does_not_kill_previously_ready_server(server_module, mo
     server._readiness_loop()
     assert bool(shutdowns) is (not was_ready)
     assert observed == ([True, False, True] if was_ready else [False])
+    assert [value for key,value in published if key == '~ready'] == observed
+    assert [value for key,value in published if key == '~run_state'] == (
+        ['READY_IDLE', 'BOOTING', 'READY_IDLE'] if was_ready else ['BOOTING'])
 
 
 def test_hold_status_is_required_and_latch_survives_healthy_status(server_module, monkeypatch):

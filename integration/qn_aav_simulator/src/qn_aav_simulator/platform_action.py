@@ -317,6 +317,7 @@ class LocalPlatformAction:
         # terminal. Faults and unverified terminals still retain the local lock.
         self.owner.finish(work['id'],terminal_verified and not work['cause'])
         if terminal_verified and observations is not None and not work['cause']:
+            from std_msgs.msg import String
             self.products.publish(String(data=json.dumps(observations.terminal_report(rospy.Time.now().to_sec()),allow_nan=False)))
         result=PlatformTaskResult(task_id=work['task'],goal_id=work['id'],
             task_completed=normal,terminal_verified=terminal_verified,

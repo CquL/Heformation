@@ -813,6 +813,7 @@ class ExecutorTravelTimeProvider:
         # A short original qn water segment is the only qualified underwater
         # AAV method here. An entry too far from all requested points cannot
         # cover them, even at the full declared footprint radius.
+        handover_hold_s=4.  # Existing qn platform terminal duration; send the same hold to the AIR Action.
         for site_id,site,stages in self.transition_sites:
             if time.monotonic()>=deadline:raise PlanningBudgetExceeded('cross-medium method budget exhausted')
             if not any(math.hypot(site[0]-p.position[0],site[1]-p.position[1])<=
@@ -824,11 +825,11 @@ class ExecutorTravelTimeProvider:
             air_steps=[];air_trace=idle_trace;air_duration=0.;entry_backend=backend
             failed_stage=None
             for index,stage in enumerate(stages):
-                staged=air_leg(entry_backend,stage,4.)
+                staged=air_leg(entry_backend,stage,handover_hold_s)
                 if staged['status']!='FEASIBLE':
                     failed_stage=staged;break
                 air_steps.append(ExecutionStep(air.executor_id,staged['duration_s'],
-                    'transition-stage:'+site_id+':'+str(index),service_time_s=0.,
+                    'transition-stage:'+site_id+':'+str(index),service_time_s=handover_hold_s,
                     native_prediction={k:v for k,v in staged.items()
                         if k not in ('terminal_backend','trajectory')}))
                 air_trace+=tuple((start+air_duration+t,p,mode) for t,p,mode in
@@ -838,12 +839,12 @@ class ExecutorTravelTimeProvider:
                 yield ExecutionCandidate(name+'-stage',(),{},status=failed_stage['status'],
                                          reason=failed_stage.get('reason','AIR_STAGE_UNKNOWN'))
                 continue
-            transfer=air_leg(entry_backend,entry,4.)
+            transfer=air_leg(entry_backend,entry,handover_hold_s)
             if transfer['status']!='FEASIBLE':
                 yield ExecutionCandidate(name+'-air',(),{},status=transfer['status'],
                                          reason=transfer.get('reason','AIR_TRANSFER_UNKNOWN'));continue
             air_steps.append(ExecutionStep(air.executor_id,transfer['duration_s'],
-                'transition:'+site_id,service_time_s=0.,
+                'transition:'+site_id,service_time_s=handover_hold_s,
                 native_prediction={k:v for k,v in transfer.items()
                     if k not in ('terminal_backend','trajectory')}))
             air_trace+=tuple((start+air_duration+t,p,mode) for t,p,mode in

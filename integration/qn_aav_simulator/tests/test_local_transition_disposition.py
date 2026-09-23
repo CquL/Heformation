@@ -16,9 +16,11 @@ from qn_aav_simulator.platform_execution import ReferenceOwnership, Segment
 @pytest.fixture
 def worker(monkeypatch):
     for name in ['actionlib','rospy','diagnostic_msgs','diagnostic_msgs.msg',
+                 'std_msgs','std_msgs.msg',
                  'qn_aav_simulator.msg','qn_aav_simulator.srv']:
         monkeypatch.setitem(sys.modules,name,ModuleType(name))
     sys.modules['diagnostic_msgs.msg'].DiagnosticArray=object
+    sys.modules['std_msgs.msg'].String=SimpleNamespace
     for name in ['PlatformTaskAction','PlatformTaskFeedback','FormationActionResult']:
         setattr(sys.modules['qn_aav_simulator.msg'],name,object)
     sys.modules['qn_aav_simulator.msg'].PlatformTaskResult=SimpleNamespace
@@ -69,6 +71,19 @@ def test_observation_timeout_does_not_discard_physical_conversion(worker):
     worker.node.clock.model_time_s=20.
     assert worker.tick()['position']==segment.points[-1]
     assert not worker.owner.claim('new','AIR_SWARM',worker.owner.generation)[0]
+
+
+def test_verified_observation_publishes_terminal_report_before_success(worker):
+    published=[];results=[]
+    worker.products=SimpleNamespace(publish=lambda message:published.append(message.data))
+    worker.work['observations']=SimpleNamespace(points=('sample',),emitted={'sample'},
+        terminal_report=lambda stamp:dict(event_type='OBSERVATION_TERMINAL',
+                                          generated_at=stamp))
+    worker.work['handle']=SimpleNamespace(set_succeeded=lambda result:results.append(result))
+    worker._finish(True,'COMPLETED_LOCAL_FRAGMENT')
+    assert len(published)==len(results)==1
+    assert 'OBSERVATION_TERMINAL' in published[0]
+    assert results[0].terminal_verified and not results[0].resource_locked
 
 
 def test_domain_failure_supersedes_cancel_without_using_unreliable_position(worker):
