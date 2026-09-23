@@ -137,7 +137,8 @@ def server_module(monkeypatch):
         "actionlib": dict(ActionServer=object),
         "rosgraph": dict(Master=object),
         "actionlib_msgs.msg": dict(GoalStatus=SimpleNamespace(
-            ACTIVE=1, PREEMPTING=6, SUCCEEDED=3, ABORTED=4, REJECTED=5)),
+            ACTIVE=1, PREEMPTED=2, PREEMPTING=6, SUCCEEDED=3,
+            ABORTED=4, REJECTED=5, RECALLED=8)),
         "diagnostic_msgs.msg": dict(DiagnosticArray=object),
         "geometry_msgs.msg": dict(PoseStamped=PoseStamped, TwistStamped=TwistStamped),
         "nav_msgs.msg": dict(Odometry=object),

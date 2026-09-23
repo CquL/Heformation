@@ -204,6 +204,7 @@ class MissionRunner:
             self.metrics['delivery_model']='FINITE_DECLARED_EXPERIMENT'
             self.metrics['received_products']={}
             self.metrics['received_terminal_reports']={}
+            self.metrics['received_action_results']={}
             self.action_subs.append(rospy.Subscriber('/mother/received_products',String,
                 self._on_received_product,queue_size=100))
             self.action_subs.append(rospy.Subscriber('/mother/received_notifications',String,
@@ -286,6 +287,9 @@ class MissionRunner:
         """Only an actual mother receipt can close a negative observation report."""
         try:
             event=json.loads(message.data)
+            if event.get('event_type')=='ACTION_TERMINAL':
+                if getattr(self,'command_delivery_required',False):self._record_action_terminal(event)
+                return
             if event.get('event_type')!='OBSERVATION_TERMINAL':return
             if (event['request_id']!=self.request.request_id or
                     event['product_id']!=event['goal_id']+':terminal' or
@@ -315,6 +319,33 @@ class MissionRunner:
             self._save_executor()
         except (ValueError,TypeError,KeyError) as error:
             rospy.logerr_throttle(2.,'Rejected terminal receipt: %s',str(error))
+
+    def _record_action_terminal(self,event):
+        if (event['request_id']!=self.request.request_id or
+                event['product_id']!=event['goal_id']+':action_terminal:'+event['producer'] or
+                event['terminal_state'] not in ('SUCCEEDED','CANCELED','ABORTED') or
+                any(type(event[name]) is not bool for name in
+                    ('task_completed','terminal_verified','resource_locked')) or
+                not all(math.isfinite(event[name]) for name in ('generated_at','received_at')) or
+                event['received_at']<event['generated_at']):
+            raise ValueError('invalid received Action terminal notice')
+        with self.condition:goals={key:set(value) for key,value in self.goal_ids.items()}
+        with self.executor_mutex:
+            accepted=any(event['producer'] in item.coalition and
+                event['goal_id'] in goals.get(
+                    item.execution_id if len(item.execution_steps)==1 else
+                    item.execution_id+':step:'+str(index),())
+                for item in (self.plan.items if self.plan is not None else ())
+                if item.status in ('RUNNING','COMPLETED','UNKNOWN_LOCKED')
+                for index,_ in enumerate(item.execution_steps))
+            if not accepted:raise ValueError('Action notice is not from this Plan GoalID')
+            bucket=self.metrics['received_action_results'].setdefault(event['goal_id'],{})
+            previous=bucket.get(event['producer'])
+            if previous is not None:
+                if previous!=event:raise ValueError('conflicting repeated Action terminal notice')
+                return
+            bucket[event['producer']]=event
+        self._save_executor()
 
     def _on_command_delivery(self,message):
         try:
@@ -795,6 +826,23 @@ class MissionRunner:
             # negative terminal report arrives. Never wait holding the mutex.
             self._wait_observation_report(result.goal_id,native.execution_timeout_s)
 
+    def _wait_action_terminal_receipt(self,goal_id,members,state,timeout):
+        deadline=time.monotonic()+timeout
+        expected={GoalStatus.SUCCEEDED:'SUCCEEDED',GoalStatus.PREEMPTED:'CANCELED',
+                  GoalStatus.RECALLED:'CANCELED',GoalStatus.ABORTED:'ABORTED'}.get(state)
+        if expected is None:raise RuntimeError('Action has no known terminal status; keep member reserved')
+        while not rospy.is_shutdown():
+            with self.executor_mutex:
+                delivered=dict(self.metrics['received_action_results'].get(goal_id,{}))
+            if all(member in delivered for member in members):
+                if any(delivered[member]['terminal_state']!=expected for member in members):
+                    raise RuntimeError('finite Action notice disagrees with Goal terminal state; keep member reserved')
+                return
+            if time.monotonic()>=deadline:
+                raise RuntimeError('Action terminal notice not received through finite link; keep member reserved')
+            time.sleep(.05)
+        raise RuntimeError('shutdown before Action terminal notice; keep member reserved')
+
     def _dispatch_executor_item(self, item, reserved=False,retain_booking=False):
         if len(item.execution_steps)>1:
             return self._dispatch_executor_chain(item,reserved,retain_booking)
@@ -861,6 +909,9 @@ class MissionRunner:
                     unit.action_endpoint, client.get_state(), rospy.get_param(node + "/run_state", "unknown")))
         result = client.get_result()
         state = client.get_state()
+        if getattr(self,'command_delivery_required',False) and result is not None and result.goal_id:
+            self._wait_action_terminal_receipt(result.goal_id,unit.physical_agent_ids,state,
+                native.execution_timeout_s if native else float(rospy.get_param(node+'/execution_timeout',180.)))
         return state,result
 
     def _dispatch_cooperative_items(self,items):

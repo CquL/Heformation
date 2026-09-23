@@ -1,5 +1,7 @@
 # 当前状态
 
+> **2026-09-23 最新无GUI正式闭环（新增有限Action结果上行）**：原Action Result已被同请求/GoalID/成员的`ACTION_TERMINAL`母船有限收件门住；PVS、qn本机、AIR均经已有`local_products`通道发送，未新建协调节点。前次`joint-result-uplink-nogui-r1`到返程第4步虽原生SUCCEEDED但Action监测0.54s空档/9缺样而INVALID锁定；独立0.1s审计PASS不替代该20Hz判定。监测循环的例行同步CSV flush移出（违规/终态行仍flush），其后`joint-result-uplink-nogui-r2`正式同请求在360s隔离规划下取得10/10有限下行命令、9段Action、10/10有限终态通知、两份32KiB母船收件、规定返回及锁空；同次五平台独立审计**全项PASS**，3263对齐位置样本0缺、最小代理/实体余量1.46374/1.90120m、最大模型/ROS偏差0.008394s，独立Goal摘要/派发前送达/Result通知对账PASS。该证据**无GUI、声明初态资格＋几何观测代理**；不可外推为新的实时可视化正例、UUV实际参与、默认10秒或真实设备通信。详见WORKLOG顶部。
+
 > **2026-09-23 时间失效后续定位**：新有限下行版本`joint-command-gate-live-r3`仍在首AIR Goal以0.07116s模型/ROS偏差INVALID/锁定；其qn0/1原被误置逻辑CPU0/1，sysfs证实0/1为同物理核心超线程。r4改为qn0/1/2分别CPU0/2/4、其它仿真CPU6–11，但AAV1在任何Goal前因30秒基线漂移0.0585s>原0.05s而就绪拒绝。r4早期失败写状态暴露`weights`未初始化，现已移到就绪门前，49项相关检查通过，历史r4遮蔽异常保留。孤立原qn后端10模型秒约1.90秒墙钟、P99外层步约1.99ms，但不能据此证明ROS时序已稳定；当前**没有**新下行版本的全程时间审计PASS。继续真实原因定位，原时间/安全门槛不变。
 
 > **2026-09-23 受限下行／最新实时运行**：原`FiniteDelivery`已在同一实验链路补母船→USV/AAV与经USV→UUV的有限命令送达，正式`joint_request`发送Goal前等同请求/Plan修订/成员/序列化Goal摘要匹配的传输回执；没有新协调节点。原港口隔离组件`20260923-command-gate-r1`先收267字节USV命令后原生Action成功。正式RViz/中文面板运行`20260923-joint-command-gate-live-r2`在360秒明确诊断预算下，10/10命令送达、9子Action验证、双32KiB收件、三参与者返区、锁空，任务权威`PASS_GEOMETRIC_PROXY_QUALIFICATION`；**同次独立审计整体FAIL**，唯一原因是全程模型/ROS与跨平台时间偏差峰值0.13555/0.13567s>原0.05s。drone_1短时落后发生在另一机动作期间；3240对齐位置样本无缺、代理净距1.46444m、静态云/参考采用合格。上一`r1`又有AIR动作时间偏差0.08290s而INVALID/锁定。两次负例保留，不改门槛；实时窗口有运行/水中帧，修后最终帧未抓到。控制Result上行还未入有限容量，UUV和复查未同运行。

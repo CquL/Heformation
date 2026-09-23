@@ -337,6 +337,14 @@ class LocalPlatformAction:
             work['handle'].set_canceled(result)
         else:
             work['handle'].set_aborted(result)
+        if self.observation_request is not None:
+            from std_msgs.msg import String
+            from qn_aav_simulator.observation_coverage import action_terminal_event
+            terminal='SUCCEEDED' if normal else 'CANCELED' if work['cause']=='CANCEL_REQUEST' and terminal_verified else 'ABORTED'
+            self.products.publish(String(data=json.dumps(action_terminal_event(
+                self.observation_request,work['id'],self.node.agent_id,rospy.Time.now().to_sec(),
+                terminal,result.task_completed,result.terminal_verified,result.resource_locked,
+                result.reason),allow_nan=False)))
 
     def tick(self):
         if self.owner.source=='AIR_SWARM' and self.air_adopted:

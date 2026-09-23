@@ -1551,12 +1551,12 @@ class FormationActionServer:
                     row.update(ros_time=now_s, elapsed=(now - start).to_sec(),
                                stale_agent_ids=";".join(map(str, snapshot.stale_agent_ids)))
                     writer.writerow(row)
-                    stream.flush()
-                    # Persist the terminating observation before ending the loop.
-                    # Otherwise the native Result can omit the very safety
-                    # sample that caused its abort.
+                    # Routine CSV persistence must not block the 20 Hz safety
+                    # loop. Flush the exact terminal/violation row below;
+                    # the context manager writes the buffered normal samples.
                     violation = self._violation_reason(diagnostics, snapshot)
                     if violation:
+                        stream.flush()
                         diagnostics["violation_latched_at_s"] = now_s
                         diagnostics["violation_reason"] = violation
                         if self._safety_trigger(diagnostics["goal_id"]):
@@ -1573,6 +1573,7 @@ class FormationActionServer:
                                 self.local_product_publishers[self.agent_ids[0]].publish(
                                     String(data=json.dumps(event,allow_nan=False)))
                     if snapshot.terminal_state:
+                        stream.flush()
                         break
                     rate.sleep()
         finally:
@@ -2066,6 +2067,17 @@ class FormationActionServer:
                 work.goal_handle.set_canceled(result, text)
             else:
                 work.goal_handle.set_aborted(result, text)
+        if self.observation_request is not None:
+            from qn_aav_simulator.observation_coverage import action_terminal_event
+            terminal=('SUCCEEDED' if reason==FormationResult.NONE else
+                      'CANCELED' if hold.get('reason')=='CANCEL_REQUEST' and hold.get('verified') else 'ABORTED')
+            for agent_id in self.agent_ids:
+                member='drone_{}'.format(agent_id)
+                self.local_product_publishers[agent_id].publish(String(data=json.dumps(
+                    action_terminal_event(self.observation_request,diagnostics['goal_id'],member,
+                        finish.to_sec(),terminal,accepted,
+                        accepted or bool(hold.get('verified')),not diagnostics['resource_released'],
+                        str(reason)),allow_nan=False)))
         if accepted and observation_window is not None:
             self.local_product_publishers[self.agent_ids[0]].publish(String(data=json.dumps(
                 observation_window.terminal_report(finish.to_sec()),allow_nan=False)))

@@ -98,6 +98,7 @@ class SceneTransport:
             event=json.loads(msg.data);ident=event['product_id']
             points={p.point_id for r in self.request.regions for p in r.interest_points}
             terminal=event.get('event_type')=='OBSERVATION_TERMINAL'
+            action_terminal=event.get('event_type')=='ACTION_TERMINAL'
             if terminal:
                 declared=event['point_ids'];observed=event['observed_ids']
                 if (not isinstance(declared,list) or not declared or len(declared)!=len(set(declared)) or
@@ -105,9 +106,16 @@ class SceneTransport:
                         len(observed)!=len(set(observed)) or not set(observed)<=set(declared) or
                         ident!=event['goal_id']+':terminal'):
                     raise ValueError('invalid observation terminal report')
+            if action_terminal and (
+                    ident!=event['goal_id']+':action_terminal:'+member or
+                    event['terminal_state'] not in ('SUCCEEDED','CANCELED','ABORTED') or
+                    any(type(event[name]) is not bool for name in
+                        ('task_completed','terminal_verified','resource_locked')) or
+                    not isinstance(event['reason'],str)):
+                raise ValueError('invalid Action terminal notice')
             if (not isinstance(ident,str) or not ident or event['producer']!=member or
                     event['request_id']!=self.request.request_id or
-                    (not terminal and (event['point_id'] not in points or
+                    (not terminal and not action_terminal and (event['point_id'] not in points or
                      event['observed'] is not True or event['required_bytes']!=32*1024))):
                 raise ValueError('product identity or declared size mismatch')
             generated=event['generated_at'];now=rospy.Time.now().to_sec()
@@ -122,7 +130,7 @@ class SceneTransport:
                 # notice is explicitly not the 32 KiB business product.
                 size=4+len(msg.data.encode('utf-8'))  # std_msgs/String length prefix + actual UTF-8 payload
                 self.delivery.produce('notice:'+ident,DeliveryProduct(member,'mother',size,generated,True))
-                if not terminal:
+                if not terminal and not action_terminal:
                     self.delivery.produce('data:'+ident,DeliveryProduct(member,'mother',32*1024,generated,True))
         except (ValueError,KeyError,TypeError) as error:
             rospy.logerr_throttle(2.,'Rejected local product: %s',str(error))

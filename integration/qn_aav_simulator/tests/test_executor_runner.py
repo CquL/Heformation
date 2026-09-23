@@ -590,6 +590,34 @@ def test_unreceived_finite_command_never_reaches_action_client(runner_module,tmp
     assert not sent and runner.active_executor_ids=={unit.executor_id}
 
 
+def test_action_result_requires_matching_finite_terminal_notice(runner_module,tmp_path):
+    from qn_aav_simulator.observation_coverage import action_terminal_event
+    runner,item,unit,_=native_setup(runner_module,tmp_path)
+    item.status='RUNNING'
+    runner.active_executor_ids={unit.executor_id}
+    runner.condition=threading.Condition()
+    runner.goal_ids={item.execution_id:{'actual-goal'}}
+    runner.metrics['received_action_results']={}
+    member=item.coalition[0]
+    event=action_terminal_event(runner.request,'actual-goal',member,0.,
+        'SUCCEEDED',True,True,False,'0')
+    event['received_at']=.1
+    with pytest.raises(RuntimeError,match='terminal notice not received'):
+        runner._wait_action_terminal_receipt('actual-goal',(member,),3,0.)
+    assert runner.active_executor_ids=={unit.executor_id}
+    stale=dict(event,goal_id='old-goal',product_id='old-goal:action_terminal:'+member)
+    with pytest.raises(ValueError,match='not from this Plan GoalID'):
+        runner._record_action_terminal(stale)
+    runner.plan=None
+    with pytest.raises(ValueError,match='not from this Plan GoalID'):
+        runner._record_action_terminal(event)
+    runner.plan=ExecutorPlan([item])
+    runner._record_action_terminal(event)
+    runner._wait_action_terminal_receipt('actual-goal',(member,),3,1.)
+    with pytest.raises(RuntimeError,match='disagrees'):
+        runner._wait_action_terminal_receipt('actual-goal',(member,),4,1.)
+
+
 def test_joint_readiness_failure_preserves_original_reason(runner_module,tmp_path):
     from qn_aav_simulator.observation_coverage import CoverageResult
     runner=make_runner(runner_module,tmp_path)

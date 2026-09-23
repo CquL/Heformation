@@ -1,3 +1,13 @@
+## 2026-09-23 UTC — Action终态通知走有限链路，原AIR监测写盘阻塞移除；同次无GUI正式请求与独立审计通过
+
+- 计划：当前下行Goal已受固定容量约束，但原生Action Result仍可从ROS直达母船；运动/支援即使断联也可能直接释放成员，违反“实际收到结果才释放依赖”。复用既有本机`local_products`和母船通知通道，传短终态事件而非建立新协调节点/协议层；随后定位前次返航监测0.54s缺口中已核实的同步日志I/O风险。组织原则参考[Guo–Zavlanos间歇会合](https://arxiv.org/html/1706.02092)、[APEX-MR实际执行事件释放](https://arxiv.org/html/2503.15836v2)，具体消息身份/容量/判据以本仓库代码及声明实验链路为准，不继承论文硬件保证。
+- 实际：现有`observation_coverage.py`增加最小`ACTION_TERMINAL`事件（请求/GoalID/成员、终态及资源/终端布尔值、原因）；PVS、qn本机和AIR Action在**各自原生终态提交后**沿原`local_products`发布。`scene_publisher`按实际JSON String字节数与观测摘要/通知共享现有RF/水声容量，母船仍只收到完成传输后的`/mother/received_notifications`。正式`joint_request` worker保留原生Action Result，但在匹配本Plan GoalID、规定成员、终态一致的有限通知到母船前不得提交/释放；缺、旧或冲突通知继续保持占用。旧三机/七机入口不启用该新门。源端完整ROS Action Result字节和TCPROS开销**未**按原线缆逐字节模拟；传的是必要控制摘要，实验模型边界明确。
+- 定位与改动：`joint-result-uplink-nogui-r1`在AIR＋USV/水中产品/七步链至返程第4步取得原生SUCCEEDED和安全PASS，但Action实验INVALID：监测账本9个0.05s样本未对齐、最长监测空档0.5406s，父成员按原规则锁住。独立bag的0.1s五平台模型时间/净距审计虽PASS，却不覆盖Action内部20Hz账本，故不能替代原INVALID。源码每个20Hz监测周期都同步`stream.flush()`写CSV，可能阻塞安全监测。仅取消例行逐周期flush，违规与正常终态行仍同步flush，`with`关闭时保存其余行；不改采样频率、缺口门槛、动力学、参考或时间戳。本次空档与磁盘I/O的单一因果尚未严格证明，源代码改动针对的是已存在的阻塞路径。
+- 组件结果：`20260923-command-gate-r2`原港口USV先收267字节Goal命令，原生Action成功后`ACTION_TERMINAL`经有限链路到母船；`20260923-air-support-result-r1/r2`的受控AIR＋USV组件两端命令/原生Result/有限终态通知/32KiB空中结果均贯通，r2取消逐周期flush后AIR监测缺口0、最大相邻样本约0.0587s。组件固定角色仅测接口，不代表系统自主分配或全请求。
+- 完整无GUI结果：`20260923-joint-result-uplink-nogui-r2`正式MissionRunner以原两区域请求、360秒明确隔离诊断预算自动确认同一具体Plan后，10/10命令送达、9段复合子Action全验证、**10/10有限Action终态通知**、AIR/水中两份32KiB产品及终结通知实际到母船，交付1.0、三活动COMPLETED、AAV1/AAV2/USV回区误差0.09741m/约0/0.03771m、锁空；前次出错的返程第4段`sample_ledger.alignment_failure_count=0`且`VALID`。同次单条静态场景bag＋动态bag独立审计全项PASS：3263个五平台执行期对齐位置样本零缺，最小五平台代理净距1.46374m、最小实体余量1.90120m，模型/ROS与跨平台峰值漂移0.008394/0.008437s，AIR返回参考采用合格。再从bag独立重算控制事件，10个Goal序列化摘要/实际字节数均与**先于派发**的命令送达匹配、10个原生Result均有同GoalID/成员成功终态通知，`control-audit.json` PASS。相关92项边界/接口检查、语法与diff检查通过。
+- 证据：`experiments/20260923-command-gate-r2/{result.json,execution.bag}`、`experiments/20260923-air-support-result-{r1,r2}/{component-result.json,execution.bag,*.diagnostics.json}`、`experiments/20260923-joint-result-uplink-nogui-{r1,r2}/{metrics.json,execution.bag,scene-once.bag,*.diagnostics.json}`；r2另有`{safety-audit.json,control-audit.json,audit_control_events.py}`。生产源码变更集中原Action/传输/runner/20Hz监测位置，未加任务层或模型参数。
+- 未完成／下一步：这次是**无GUI**同请求正例，仍需在实时RViz/中文面板同运行并取得同范围时间/安全/任务/收件证据；UUV在该普通请求待命，旧港内UUV原样点返程失败、另建示范几何选择未答。真实缺测后一次复查、在线内部状态修复、默认10秒完整求解及有限控制摘要与真实设备通信之间的差距仍未完成，不得以本轮正例宣布最终三类平台系统通过。
+
 ## 2026-09-23 UTC — 五平台同运行时间失效的核拓扑反例、原qn热路径与早期失败记录修正
 
 - 计划：独立审计已指出`joint-command-gate-live-r2`全程时间偏差0.13555s>原0.05s。尝试只改变OS进程核放置来区分负载干扰与模型计算，不改原qn/PVS方程、积分步、ROS时间戳、状态新鲜度或审计门槛；同时核对任何早期失败能否如实留在任务权威结果。

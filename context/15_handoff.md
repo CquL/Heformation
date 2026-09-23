@@ -1,5 +1,7 @@
 # 最新交接：分层监测需求基线与 AAV 本地停止保持
 
+> **2026-09-23 最新交接（无GUI结果上行全链）**：先读WORKLOG顶部，查`experiments/20260923-joint-result-uplink-nogui-r2/{metrics.json,safety-audit.json,control-audit.json,execution.bag,scene-once.bag}`。现有MissionRunner在原两区域请求下，用360秒**隔离诊断**预算取得10/10有限下行命令、九段原生Action、10/10有限Action终态母船通知、双32KiB几何产品收件、AAV1/AAV2/USV规定返回与零锁；同次独立五平台安全/时间审计及bag控制因果核对均PASS。返程第4段先前0.54s Action监测空档的r1 INVALID/锁定保留；只将例行CSV flush移出20Hz监测循环后r2该段缺样0、VALID，不据一次正例声称任意负载保证。下一步必须在**同一实时RViz/中文面板**下复验同范围证据，然后继续UUV实际参与、真实缺测复查、在线内部状态修复和10秒预算问题；无GUI正例不能冒充最终五平台协同任务。
+
 > **2026-09-23 时间失效与早期失败交接**：r3新下行版首AIR Goal以0.07116s模型/ROS漂移INVALID/锁定，qn0/1当时固定逻辑0/1但它们是同物理核心超线程；r4把qn0/1/2改放不同物理核心0/2/4，仍在Goal前因AAV1基线0.0585s>0.05s拒绝。`joint_request`早期异常写状态因`weights`未初始化遮蔽原原因，已在代码把任务权重提前到就绪门前，针对性及相关49项检查通过；r4原现场不改写。纯qn模型热路径10模型秒约1.90s墙钟/P99外层步1.99ms，只证明孤立计算有余量，不证明ROS无调度抖动。下一步保留原时间判据找真实原因并复验全程审计；细节和证据路径见WORKLOG顶部。
 
 > **2026-09-23 当前继续点**：受限下行Goal送达已接入现有`scene_publisher`/`FiniteDelivery`和正式runner；`20260923-command-gate-r1`组件实跑先收命令后发原生Action。`joint-command-gate-live-r2`在同一RViz/中文面板运行中10/10命令回执、9 Action验证、2摘要收件、AAV1/AAV2/USV返回、资源释放，**任务层PASS但独立整场审计FAIL**：模型/ROS峰值0.13555s、跨平台0.13567s>原0.05s，定位见`drift-probe.json`，其余场景/位置/净距/参考采用通过。r1因AIR动作0.08290s超时差门槛锁定。先查模型时间落后，不放宽阈值；然后才称同次完整运行有效。当前UUV待命、缺测复查和正式10秒规划仍未完成，用户示范几何及预算策略异步选择仍待答。细节见WORKLOG顶部和源/假设审计。

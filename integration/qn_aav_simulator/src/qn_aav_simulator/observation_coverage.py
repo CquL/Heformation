@@ -13,6 +13,23 @@ from typing import Dict, Iterable, Mapping, Optional, Sequence, Tuple
 Vector3 = Tuple[float, float, float]
 
 
+def action_terminal_event(request,goal_id,producer,generated_at,terminal_state,
+                          task_completed,terminal_verified,resource_locked,reason):
+    """Minimal local Action result notice for the existing finite transport."""
+    if (request is None or not goal_id or not producer or
+            terminal_state not in ('SUCCEEDED','CANCELED','ABORTED') or
+            not math.isfinite(generated_at) or generated_at<0 or
+            any(type(value) is not bool for value in
+                (task_completed,terminal_verified,resource_locked))):
+        raise ValueError('invalid local Action terminal event')
+    return dict(event_type='ACTION_TERMINAL',
+        product_id=goal_id+':action_terminal:'+producer,
+        request_id=request.request_id,goal_id=goal_id,producer=producer,
+        generated_at=generated_at,terminal_state=terminal_state,
+        task_completed=task_completed,terminal_verified=terminal_verified,
+        resource_locked=resource_locked,reason=str(reason))
+
+
 @dataclass
 class DeliveryProduct:
     """A finite in-order byte stream; counters, not a file-transfer service."""
