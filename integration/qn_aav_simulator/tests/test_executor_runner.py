@@ -349,6 +349,42 @@ def test_composite_retains_booking_between_steps_and_failure_blocks_successor(ru
         assert runner.plan.item(future.execution_id).status=='PLANNED'
 
 
+def test_composite_negative_observation_report_continues_verified_return(runner_module,tmp_path):
+    from dataclasses import replace
+    runner,item,unit,result=native_setup(runner_module,tmp_path)
+    runner.request=load_request(Path(__file__).parents[1]/'config/monitoring_request_joint.yaml')
+    first=replace(item.execution_steps[0],native_action=replace(
+        item.execution_steps[0].native_action,observation_ids=('water_sample',)))
+    item.execution_steps=(first,item.execution_steps[0])
+    item.travel_time=130.;item.planned_finish=130.
+    runner.observation_tasks={item.task_id:object()}
+    runner.metrics.update(received_products={},received_terminal_reports={})
+    runner._executor_goal=lambda view,selected:SimpleNamespace(task_id=view.execution_id)
+    runner.epoch=-200.
+    calls=[]
+    def send(view,selected,goal,action):
+        calls.append(view.execution_id)
+        missing=view.execution_id.endswith(':step:0')
+        terminal=SimpleNamespace(**dict(vars(result),task_id=view.execution_id,
+            goal_id=view.execution_id+'-goal',task_completed=not missing,
+            reason='OBSERVATION_NOT_SATISFIED' if missing else result.reason))
+        return (4 if missing else 3),terminal
+    runner._send_executor_goal=send
+    def receipt(state,terminal,native):
+        if state==4:
+            runner.metrics['received_terminal_reports'][terminal.goal_id]={
+                'point_ids':['water_sample'],'observed_ids':[]}
+    runner._wait_native_observation_receipt=receipt
+    runner.native_result=lambda ident:(ident+'-goal',SimpleNamespace(
+        status=SimpleNamespace(status=4 if ident.endswith(':step:0') else 3)))
+    runner._dispatch_executor_item(item,reserved=True)
+    assert calls==['native-e:step:0','native-e:step:1']
+    assert runner.plan.item(item.execution_id).status=='COMPLETED'
+    assert not runner.active_executor_ids
+    assert runner.metrics['executions'][-1]['result']=='OBSERVATION_MISSING'
+    assert runner.metrics['results_received']==[item.task_id]
+
+
 def test_slow_dashboard_publication_does_not_hold_execution_lock(runner_module,tmp_path,monkeypatch):
     runner=make_runner(runner_module,tmp_path)
     runner.executor_write_mutex=threading.Lock()
@@ -374,7 +410,8 @@ def test_composite_observation_checks_receipt_for_each_native_goal_before_releas
     from dataclasses import replace
     runner,item,unit,result=native_setup(runner_module,tmp_path)
     step=item.execution_steps[0]
-    step=replace(step,native_action=replace(step.native_action,observation_ids=('water_sample',)))
+    step=replace(step,native_action=replace(step.native_action,
+        observation_ids=('water_sample',),execution_timeout_s=.05))
     item.execution_steps=(step,step);item.travel_time=130.;item.planned_finish=130.
     runner.observation_tasks={item.task_id:object()};runner.metrics['received_products']={};runner.epoch=-200.
     runner._executor_goal=lambda view,unit:SimpleNamespace(task_id=view.execution_id)
@@ -389,7 +426,7 @@ def test_composite_observation_checks_receipt_for_each_native_goal_before_releas
         runner._dispatch_executor_item(item,reserved=True)
         assert not runner.active_executor_ids and runner.plan.items[0].status=='COMPLETED'
     else:
-        with pytest.raises(RuntimeError,match='without required received products'):
+        with pytest.raises(RuntimeError,match='required products or negative report not received'):
             runner._dispatch_executor_item(item,reserved=True)
         assert runner.active_executor_ids=={unit.executor_id} and item.status=='RUNNING'
 

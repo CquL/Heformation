@@ -24,7 +24,21 @@ models/qn/qn.slx
 
 ## 五平台实时可视化仿真
 
-### 当前协作入口：水下观测、无人船支援、母船接收
+### 两区域联合请求：AIR、USV支援与AAV跨介质（资格诊断）
+
+在有桌面 `DISPLAY` 的终端运行，查看具体计划后输入 `yes` 才派发：
+
+```bash
+cd /home/lhj/Swarm-Formation
+JOINT_PLANNING_BUDGET_S=360 JOINT_PLANNER_CPUSET=12-15 \
+  JOINT_VIEW_CPUSET=24-31 JOINT_VISUALIZE=true \
+  bash scripts/docker_run_joint_request.sh \
+  "experiments/$(date -u +%Y%m%dT%H%M%SZ)-joint-live"
+```
+
+这条命令在同一个现有 MissionRunner 中加载[两区域请求](integration/qn_aav_simulator/config/monitoring_request_joint.yaml)，自动选择AIR成员、USV支援和合格跨介质方法；RViz显示同源港口障碍与实际平台，中文任务面板显示所选活动、实际Action、母船接收和资源占用。关闭显示窗口不作为任务取消。`360`秒是当前原生完整状态查询的**隔离诊断预算**，正式默认仍为`10`秒；`12-15`和`24-31`分别是本机规划与界面进程的CPU核组，其他机器应按实际核组调整或省略，不能当算法参数。未找到完整候选时不派发。当前实跑证据是AAV2、USV和AAV1完成两区域任务，REMUS在此普通请求待命，异常复查和最终三类平台验收尚未通过。项目原生模型内部状态目前未从运行节点重建，此入口明确为声明初态资格仿真；实跑证据边界见[当前状态](context/02_current_status.md)和WORKLOG。
+
+### 水下协作历史入口：潜航器观测、无人船支援
 
 ```bash
 cd /home/lhj/Swarm-Formation

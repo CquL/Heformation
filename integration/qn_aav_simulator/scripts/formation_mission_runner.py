@@ -58,11 +58,11 @@ class MissionRunner:
         self.output = Path(rospy.get_param("~output_dir", "/experiments/current"))
         self.output.mkdir(parents=True, exist_ok=True)
         self.planning_mode = rospy.get_param("~planning_mode", "fixed_coalition")
-        if self.planning_mode == "executor":
+        if self.planning_mode in ("executor", "joint_request"):
             self._init_executor()
             return
         if self.planning_mode != "fixed_coalition":
-            raise ValueError("planning_mode must be fixed_coalition or executor")
+            raise ValueError("planning_mode must be fixed_coalition, executor or joint_request")
         self.mode = rospy.get_param("~mode", "mission")
         if self.mode not in ("single", "mission"):
             raise ValueError("mode must be single or mission")
@@ -187,7 +187,7 @@ class MissionRunner:
         self.plan_revision = 0
         self.speed = float(rospy.get_param("~nominal_speed_mps", 1.5))
         self.seed = int(rospy.get_param("~seed", 0))
-        self.metrics = {"planning_mode": "executor", "status": "STANDBY",
+        self.metrics = {"planning_mode": self.planning_mode, "status": "STANDBY",
                         "executor_serial": self.executor_serial, "current_actions": {},
                         "request_id": self.request.request_id, "executions": [],
                         "plan_history": [], "results_received": [], "failure_reason": "",
@@ -1003,20 +1003,33 @@ class MissionRunner:
                 action.update(endpoint=unit.action_endpoint,step=index,step_count=len(units),
                               step_execution_id=view.execution_id,phase='DISPATCHING')
             state,result=self._send_executor_goal(view,unit,goal,action)
+            if step.native_action is not None:
+                self._wait_native_observation_receipt(state,result,step.native_action)
             if step.native_action is None and getattr(goal,'observation_ids',()) and self._release_result_ok(state,result,view.execution_id):
                 node=self.server_nodes[unit.executor_id]
                 self._wait_observation_receipt(result.goal_id,goal.observation_ids,
                     float(rospy.get_param(node+'/execution_timeout',180.)))
-            ok=(self._native_motion_result_ok(state,result,view.execution_id,step.native_action)
+            missing=(step.native_action is not None and state==GoalStatus.ABORTED and result is not None and
+                result.task_id==view.execution_id and bool(result.goal_id) and
+                result.reason=='OBSERVATION_NOT_SATISFIED' and result.terminal_verified and
+                not result.resource_locked and result.actual_mode==step.native_action.final_mode and
+                bool(step.native_action.observation_ids))
+            if missing:
+                report=self.metrics.get('received_terminal_reports',{}).get(result.goal_id)
+                if (report is None or report['point_ids']!=sorted(step.native_action.observation_ids) or
+                        set(report['observed_ids'])==set(step.native_action.observation_ids)):
+                    raise RuntimeError('matching negative observation report absent; parent remains occupied')
+            ok=(missing or self._native_motion_result_ok(state,result,view.execution_id,step.native_action)
                 if step.native_action else self._release_result_ok(state,result,view.execution_id))
             row=dict(activity_id=item.execution_id,execution_id=view.execution_id,endpoint=unit.action_endpoint,
-                     native_state=state,goal_id=getattr(result,'goal_id',None),verified=False)
+                     native_state=state,goal_id=getattr(result,'goal_id',None),verified=False,
+                     observation_missing=bool(missing))
             with self.executor_mutex:self.metrics.setdefault('step_results',[]).append(row)
             if not ok:
                 self._save_executor()
                 raise RuntimeError('step {} failed or unverified; parent remains occupied'.format(index))
             goal_id,envelope=self.native_result(view.execution_id)
-            if goal_id!=result.goal_id or envelope.status.status!=GoalStatus.SUCCEEDED:
+            if goal_id!=result.goal_id or envelope.status.status!=(GoalStatus.ABORTED if missing else GoalStatus.SUCCEEDED):
                 raise RuntimeError('step native GoalID/Result envelope mismatch')
             if not step.native_action:
                 path=self.output/result.evidence_file
@@ -1035,6 +1048,7 @@ class MissionRunner:
             if has_products and self.request.delivery_required:
                 received_products=self.metrics.get('received_products',{}).values()
                 for step,row in zip(item.execution_steps,rows):
+                    if row['observation_missing']:continue
                     expected=(step.native_action.observation_ids if step.native_action else step.observation_ids)
                     if not expected:continue
                     received_ids={event['point_id'] for event in received_products
@@ -1050,7 +1064,8 @@ class MissionRunner:
                 self.plan_revision+=1
                 self.metrics['plan_history'].append({'revision':self.plan_revision,'plan':asdict(self.plan)})
             self.metrics['executions'].append(dict(task_id=item.task_id,execution_id=item.execution_id,
-                result='SUCCEEDED',scope='COMPOSITE_MOTION',plan_updated=changed,result_received_at=received,
+                result='OBSERVATION_MISSING' if any(row['observation_missing'] for row in rows) else 'SUCCEEDED',
+                scope='COMPOSITE_MOTION',plan_updated=changed,result_received_at=received,
                 step_goal_ids=[r['goal_id'] for r in rows]))
             if all(i.status=='COMPLETED' for i in self.plan.items if i.task_id==item.task_id):
                 self.metrics['results_received'].append(item.task_id)
@@ -1251,6 +1266,171 @@ class MissionRunner:
         # The local Result carries access to the observation evidence. Receipt is
         # explicit and zero-latency in this simulator; no radio link is claimed.
         if not getattr(self,'finite_delivery',False):record_delivery(self.coverage, task.covers)
+
+    def _run_joint_request(self):
+        """Run the fixed five-platform request through the existing task worker.
+
+        Initial model copies are declared qualification states. They are not a
+        reconstruction of later controller/actuator state from Odometry, so
+        this entry cannot claim arbitrary online re-planning qualification.
+        """
+        from mrta_python.executors import Executor, ExecutorTravelTimeProvider
+        from qn_aav_simulator.contracts import AgentState
+        from qn_aav_simulator.experiment_verdict import StaticSceneGeometry
+        from qn_aav_simulator.monitoring_request import ObservationTask
+        from qn_aav_simulator.observation_coverage import ObstacleBox
+        from qn_aav_simulator.pvs_backend import PvsBackend, NATIVE_START_TOLERANCE_M
+        from qn_aav_simulator.qn_python_backend import QnPythonClosedLoopBackend
+        from qn_aav_simulator.task_line import build_request_executor_plan, retest_tasks
+        timer=None
+        try:
+            if self.executor_serial or not self.finite_delivery:
+                raise RuntimeError('joint request requires parallel executor and actual finite receipt inputs')
+            if set(self.fleet)!={'drone_0','drone_1','drone_2','usv','uuv'}:
+                raise RuntimeError('current joint qualification requires exactly the declared five physical members')
+            for unit in self.units:self._wait_executor_ready(unit)
+            scene=rospy.get_param('/scene',{})
+            geometry=StaticSceneGeometry.from_mapping(scene)
+            if geometry is None or not scene.get('return_sites'):
+                raise RuntimeError('joint request needs the declared obstacle scene and return sites')
+            self.points={point.point_id:point.position for region in self.request.regions
+                         for point in region.interest_points}
+            self.weights={point.point_id:point.weight for region in self.request.regions
+                          for point in region.interest_points}
+            positions={};models={}
+            for member in ('drone_0','drone_1','drone_2'):
+                node='/'+member+'_qn_aav'
+                position=tuple(float(rospy.get_param(node+'/init_'+axis)) for axis in 'xyz')
+                backend=QnPythonClosedLoopBackend(dict(
+                    initialization_mode='STATIC_TRIM',model_step_s=.001,
+                    reference_mode='ROUTE_POSITION',
+                    water_guidance_mode=rospy.get_param(node+'/water_guidance_mode','QN_ORIGINAL_POSITION'),
+                    water_horizontal_controller_mode=rospy.get_param(
+                        node+'/water_horizontal_controller_mode','QN_ORIGINAL_RBF_PD')))
+                backend.reset(AgentState(member,'AAV',0.,position,(0.,0.,0.)))
+                positions[member]=backend.snapshot().position;models[member]=backend
+            efforts={}
+            for member,model_name in (('usv','otter'),('uuv','remus100')):
+                node='/'+member
+                if rospy.get_param(node+'/model')!=model_name:
+                    raise RuntimeError('native marine model differs from declared executor: '+member)
+                position=tuple(float(v) for v in rospy.get_param(node+'/initial_position'))
+                backend=PvsBackend(model_name,position,
+                    initialization_mode=rospy.get_param(node+'/initialization_mode','NATIVE_ZERO'))
+                positions[member]=backend.snapshot()['position'];models[member]=backend
+                efforts[member]=float(rospy.get_param(node+'/propulsion_effort'))
+
+            def checked_start():
+                deadline=time.monotonic()+10.
+                while True:
+                    try:actual=self._actual_positions();break
+                    except RuntimeError:
+                        if time.monotonic()>=deadline:raise
+                        time.sleep(.05)
+                deviations={member:math.dist(actual[member],position)
+                            for member,position in positions.items()}
+                if any(distance>NATIVE_START_TOLERANCE_M for distance in deviations.values()):
+                    raise RuntimeError('declared initial model position differs from actual: '+str(deviations))
+                return deviations
+
+            self.metrics['initial_position_deviation_m']=checked_start()
+            states={member:dict(position=position,mode=('AIR' if member.startswith('drone_')
+                         else models[member].snapshot()['actual_mode']),available_from=0.)
+                    for member,position in positions.items()}
+            units=[Executor(unit.executor_id,unit.physical_agent_ids,frozenset(unit.capabilities))
+                   for unit in self.units]
+            provider=ExecutorTravelTimeProvider({'start':positions['drone_0']},
+                {unit.executor_id:1. for unit in units},native_models=models,native_efforts=efforts)
+            self.metrics['status']='PLANNING_DIAGNOSTIC'
+            self.metrics['planning_budget_s']=float(rospy.get_param('~planning_budget_s',10.))
+            self.metrics['qualification_scope']='DECLARED_INITIAL_MODEL_AND_ACTUAL_POSITION_CHECK'
+            self._save_executor()
+            began=time.monotonic()
+            try:
+                self.plan,tasks=build_request_executor_plan(self.request,scene,units,provider,states,
+                    budget_s=self.metrics['planning_budget_s'])
+            finally:
+                self.metrics['planning_wall_s']=time.monotonic()-began
+            self.tasks_by_id={task.task_id:task for task in tasks}
+            regions={region.region_id:region for region in self.request.regions}
+            def target(task):
+                point=regions[task.target_ref].interest_points[0].position
+                return ((point[0],point[1],self.request.requirement.cruise_altitude_m)
+                        if regions[task.target_ref].kind in ('SURFACE','SHORELINE') else point)
+            self.observation_tasks={task.task_id:ObservationTask(task.task_id,target(task),
+                tuple(point.point_id for point in regions[task.target_ref].interest_points),
+                task.target_ref,self.request.service_time_s,self.request.deadline_s,
+                task.required_capabilities) for task in tasks}
+            self.centers={task.target_ref:target(task) for task in tasks}
+            self.centers.update({'transition:'+site['id']:(site['position'][0],site['position'][1],
+                self.request.requirement.cruise_altitude_m) for site in scene['transition_sites']})
+            self.centers.update({'transition-stage:'+site['id']+':'+str(index):tuple(point)
+                for site in scene['transition_sites'] for index,point in enumerate(site.get('air_stages',()))})
+            self.centers.update({'return:'+member:tuple(site['position'])
+                for member,site in scene['return_sites'].items()})
+            self.obstacles=[ObstacleBox(center,size) for _,kind,center,size in geometry.objects
+                            if kind=='SOLID']
+            self.metrics['selected_plan']=asdict(self.plan)
+            save_json(self.output/'nominal-plan.json',asdict(self.plan))
+            self.metrics['status']='AWAITING_CONFIRMATION';self._save_executor()
+            endpoints={unit.executor_id:unit.action_endpoint for unit in self.units}
+            preview=[dict(task_id=item.task_id,executor=item.executor_id,
+                members=item.coalition,endpoint=endpoints[item.executor_id],
+                start_s=item.planned_start,finish_s=item.planned_finish,
+                method=[step.target_ref for step in item.execution_steps]) for item in self.plan.items]
+            print(json.dumps(dict(request_id=self.request.request_id,activities=preview,
+                limits=['geometric observation proxy; payload quality unverified',
+                        'finite experimental delivery; actual receipt required',
+                        'return required; native endpoint decides actual terminal',
+                        'complete model/trajectory in nominal-plan.json']),
+                indent=2,default=json_default),flush=True)
+            try:answer=input('Confirm this exact joint plan? Type yes to dispatch: ')
+            except (EOFError,KeyboardInterrupt):answer=''
+            if answer.strip().lower()!='yes':
+                self.metrics['status']='NOT_CONFIRMED';self._save_executor();return
+            self.metrics['confirmation']={'answer':'yes','at_ros_s':rospy.Time.now().to_sec()}
+            self.metrics['initial_position_deviation_m']=checked_start()
+            self.epoch=rospy.Time.now().to_sec()
+            self.metrics['status']='RUNNING_DIAGNOSTIC';self._save_executor()
+            timer=rospy.Timer(rospy.Duration(1.),lambda _:self._save_executor())
+            self._execute_parallel_pending()
+            delivered=self.coverage.delivered_fraction(self.weights)
+            missing=retest_tasks(self.request,(),self.coverage,self.weights,
+                delivery_recorded=set(self.metrics['results_received'])=={task.task_id for task in tasks},
+                already_retested=False)
+            if missing:
+                self.metrics['pending_retest']=[task.task_id for task in missing]
+                raise RuntimeError('received missing-observation report requires qualified joint retest plan')
+            participants={member for item in self.plan.items for member in item.coalition}
+            end=time.monotonic()+10.
+            while True:
+                now=rospy.Time.now().to_sec()
+                with self.condition:samples={member:self.actual.get(member) for member in participants}
+                if all(sample is not None and sample.is_fresh(now,.25) for sample in samples.values()):break
+                if time.monotonic()>=end:raise RuntimeError('participating final state unavailable')
+                time.sleep(.05)
+            returns={member:math.dist(sample.position,scene['return_sites'][member]['position'])
+                     for member,sample in samples.items()}
+            self.metrics['return_distance_m']=returns
+            complete=(all(item.status=='COMPLETED' for item in self.plan.items) and
+                not self.active_executor_ids and delivered==1. and
+                set(self.metrics['results_received'])=={task.task_id for task in tasks} and
+                all(distance<=scene['return_sites'][member]['radius_m']
+                    for member,distance in returns.items()))
+            self.metrics['status']='PASS_GEOMETRIC_PROXY_QUALIFICATION' if complete else 'FAILED'
+            if not complete:self.metrics['failure_reason']='actual work, receipt or return incomplete'
+            self._save_executor()
+        except BaseException as error:
+            self.metrics['failure_reason']=str(error)
+            self.metrics['status']='UNKNOWN_LOCKED' if self.active_executor_ids else 'FAIL'
+            print('Joint request failed: '+str(error),flush=True)
+            if self.plan:
+                for item in self.plan.items:
+                    if item.status=='RUNNING':item.status='UNKNOWN_LOCKED'
+            self._save_executor()
+            if isinstance(error,(KeyboardInterrupt,SystemExit)):raise
+        finally:
+            if timer is not None:timer.shutdown()
 
     def _run_executor(self):
         from qn_aav_simulator.monitoring_request import expand
@@ -1593,6 +1773,8 @@ class MissionRunner:
             for agent_id in range(7))
 
     def run(self):
+        if self.planning_mode == "joint_request":
+            return self._run_joint_request()
         if self.planning_mode == "executor":
             return self._run_executor()
         self.save()
@@ -1834,7 +2016,8 @@ def main():
     rospy.init_node("formation_mission_runner")
     runner = MissionRunner()
     runner.run()
-    if runner.metrics["status"] not in ("PASS", "PASS_GEOMETRIC_PROXY", "NOT_CONFIRMED"):
+    if runner.metrics["status"] not in ("PASS", "PASS_GEOMETRIC_PROXY",
+                                        "PASS_GEOMETRIC_PROXY_QUALIFICATION", "NOT_CONFIRMED"):
         raise SystemExit(1)
 
 

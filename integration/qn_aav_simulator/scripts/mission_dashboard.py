@@ -572,11 +572,14 @@ class MissionDashboard:
                'RUNNING':'协作执行中','RUNNING_DIAGNOSTIC':'同请求诊断执行中',
                'PASS_JOINT_NO_RETURN_DIAGNOSTIC':'空中／水下交付完成（无返回诊断）',
                'PASS_AAV_CROSS_MEDIUM_DIAGNOSTIC':'跨介质观测与返回完成（诊断）',
+               'PASS_GEOMETRIC_PROXY_QUALIFICATION':'两区域观测、收件与返回完成（几何代理）',
                'PASS_WATER_GEOMETRIC_PROXY':'水下阶段完成（几何观测代理）',
                'PASS_AIR_SUPPORT_COMPONENT':'空中与无人船组件完成（几何代理）',
-               'FAILED':'失败，请查看原因与资源锁定','NOT_CONFIRMED':'未确认，未派发'}
-        title=('近岸联合观测' if not rows else '两栖无人机跨介质观测' if cross and not any(
-               r['executor_id']=='uuv' for r in rows) else '空中＋水下联合观测' if air and water else
+               'FAILED':'失败，请查看原因与资源锁定',
+               'FAIL':'请求未完成，请查看原因',
+               'UNKNOWN_LOCKED':'结果未知，成员保持锁定',
+               'NOT_CONFIRMED':'未确认，未派发'}
+        title=('近岸联合观测' if not rows else '近岸空中＋水下联合观测' if air and water else
                '空中观测＋无人船射频支援' if air else '水下观测＋无人船支援')
         line(1.,title,18)
         status=state.get('status','STANDBY')
@@ -628,9 +631,13 @@ class MissionDashboard:
             line(.16,'失败：'+textwrap.fill(reason,62),10,'#b71c1c')
         else:
             line(.16,'实际收件与 Action 结果分别判断。',10)
-        line(.09,'当前是{}；全请求复查／返回未通过。'.format('AAV跨介质方法诊断' if cross else
-            'AIR＋USV组件' if air and not water else
-            '水下阶段' if water and not air else '联合计划诊断'),10)
+        if status=='PASS_GEOMETRIC_PROXY_QUALIFICATION':
+            conclusion='两区域观测、实际收件与参与成员返回已完成；本次未触发异常复查。'
+        elif status in ('FAILED','FAIL','UNKNOWN_LOCKED'):
+            conclusion='本请求未完成；请查看失败原因与成员占用。'
+        else:
+            conclusion='当前为声明初态资格仿真；实际Action与收件决定任务结果。'
+        line(.09,conclusion,10)
         line(.045,'关闭窗口不停止物理执行；几何代理不等于真实载荷质量。',10)
         self.figure.tight_layout()
         return self.render()

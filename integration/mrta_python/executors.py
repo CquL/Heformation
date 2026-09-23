@@ -1170,6 +1170,25 @@ class ExecutorTravelTimeProvider:
                         math.dist(rows[-1][1],terminal['position'])>1e-6 or rows[-1][2]!=terminal['mode']):
                     return unknown('PLAN_MOTION_ACTIVITY_BOUNDARY_MISMATCH')
                 pieces[member].append((rows,terminal.get('native_backend')))
+        if products:
+            if len(self.mother_position)!=3:return unknown('PLAN_RECEIVER_NOT_PROVIDED')
+            # Receipt over accepted activity intervals cannot be rescued by
+            # idle plants: they have no communication commitment. Check this
+            # necessary condition before expensive whole-fleet idle rollouts;
+            # keep the final replay below after physical safety checks.
+            active_traces={}
+            for member,parts in pieces.items():
+                if not parts:continue
+                rows=[]
+                for part,_ in sorted(parts,key=lambda pair:pair[0][0][0]):
+                    rows.extend(part[1:] if rows else part)
+                active_traces[member]=tuple(rows)
+            obstacles=tuple(ObstacleBox(c,s) for _,kind,c,s in self.scene_geometry.objects if kind=='SOLID')
+            receipt=predict_received_events(products,active_traces,intervals,
+                self.mother_position,obstacles,deadline)
+            if receipt['status']!='FEASIBLE':return receipt
+            if any(stamp>receipt_limits[key]+1e-6 for key,stamp in receipt['received_at'].items()):
+                return dict(status='INFEASIBLE',reason='PLAN_RECEIPT_AFTER_PRODUCER_TERMINAL')
         traces={};boundaries={0.,horizon}|{stamp for windows in intervals.values() for window in windows for stamp in window}
         # Independent standby plants must all be propagated, but serially
         # repeating their qn ODE rollouts needlessly consumes the one shared

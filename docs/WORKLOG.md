@@ -1,3 +1,28 @@
+## 2026-09-23 UTC — 收件必要条件先于待命ODE检查；水下负报告可完成已接受返程
+
+- 计划：减少完整候选搜索中已知收不到AIR结果的无效叶节点成本，同时补齐“本机运动终态合格、几何观测缺失报告已经到母船”时的复合动作语义；两者都不能放松数据因果或安全门。
+- 实际：原`_check_complete_plan`先把五平台全部待命植物推进到方案终点，再检查固定有限信道收件；同次搜索trace在独立AIR候选后花大量时间查询水下和待命，最后才拒收件。现在先用**已选活动的原运动轨迹及通信预订区间**调用原`predict_received_events()`：不能接收即按原`INFEASIBLE/UNKNOWN`返回，能接收仍完整推进全部成员、检查场景/净距，并保留最终传输重放。22+项相关计划检查通过。`experiments/20260923-joint-early-receipt-r1`在300.04秒诊断预算内找到同一完整名义方案，但操作员输入`no`后状态NOT_CONFIRMED、0 Action证据、0锁；它说明早筛没有制造虚假派发，也**未**把正式10秒性能达标。复合worker原本对水下`OBSERVATION_NOT_SATISFIED`即锁住父活动、跳过已接受返航；现在只有当原生ABORTED仍`terminal_verified=true`/本机未锁、GoalID匹配的缺测终结报告已到母船时，记录负观测并继续已接受的返程，结束后标任务`OBSERVATION_MISSING`供复查决策；终态未知、安全失败或缺报告仍锁定。定向两步骤负观测→返程逻辑测试通过，**负例的原生Action完整实跑/实际复查尚未完成**。
+- 结果：收件和安全检查的先后顺序有直接因果依据，未增新框架或阈值；复合活动的物理终态与业务观测失败不再混写。但正式runner在收到水下缺测后仍明确报告“需要合格的联合复查计划”，没有运行新一轮方法重搜；不得把本轮确定性测试当复查闭环通过。
+- 证据：`experiments/20260923-joint-early-receipt-r1/{metrics.json,runner.log,nominal-plan.json}`、`executors.py::_check_complete_plan`、`formation_mission_runner.py::_dispatch_executor_chain`、`tests/test_executor_runner.py`和`test_task_line.py`。数据不凭空到达借鉴[Guo–Zavlanos](https://arxiv.org/abs/1706.02092)，实际事件释放借鉴[APEX-MR](https://arxiv.org/abs/2503.15836)，具体合同由本项目消息/Action代码与负例决定。
+- 未完成／下一步：受控本地缺测Action实跑并在收到报告后从真实本机内部状态构造/接纳至多一次复查；正式10秒预算、UUV回区参与和最终三类平台可视化验收仍未通过。
+
+## 2026-09-23 UTC — 正式runner入口与中文RViz同运行完成两区域资格任务；GUI证据缺口保留
+
+- 计划：从原`formation_mission_runner.py`而非忽略目录探针运行五平台声明初态资格请求，打印具体计划并等`yes`，用原Action/有限母船收件/资源状态闭环，再让现有RViz和中文任务面板与同一会话实时显示。
+- 实际：直接在同一Runner增加显式`joint_request`入口（旧七机/三机运动入口继续独立），模型配置从各运行节点参数读取并按原`backend.snapshot()`状态/新鲜Odometry核起点，预算复用原`~planning_budget_s`默认10秒；六执行单元只在一个YAML配置中声明，Docker脚本只是启动/确认/GUI调用，不另建调度器。r1/r2在旧部署坐标混用问题下于300/360秒诊断预算耗尽、零Goal，状态与原因保留。修正后无GUI的`experiments/20260923-joint-runner-entry-r4`在330秒隔离规划下由**正式入口**完成三活动、9子Action、两份32KiB母船收件和AAV1/AAV2/USV规定回区，交付1.0、锁空、Plan按实际AIR结果升至revision1且名义scope降为需入口再资格检查；成功状态专名`PASS_GEOMETRIC_PROXY_QUALIFICATION`，不宣称任意当前内部状态重建。
+- GUI复验：`joint-runner-live-r1`面板可开但RViz因容器普通用户无可写HOME试图建立`/.rviz`退出，任务零Goal；加可写容器HOME和GUI启动早退检查。r2因嵌套Shell提示文本单引号导致语法错误，任务零Goal，原失败留存。r3真正打开两窗口并派发，AIR/USV和水中收件均成功，但返程首AIR任务/安全PASS、20Hz监测0.45秒缺口导致实验INVALID/锁定；未放宽缺样规则。只将RViz/中文面板限制在本机独立`24–31`逻辑核组的r4，仍保持规划`12–15`核、同一qn/Action安全门，三活动和9子Action实际全成功，母船收件1.0、AAV1回区0.09512m、AAV2约0、USV0.03771m、锁空；保存`dashboard-planning/running/water/final.png`及RViz真窗口运行图。r4任务权威完成后最终截图暴露面板未识别该新成功状态，误写“等待任务程序／全请求复查返回未通过”；现已只修现有中文状态映射与结语，**修正后的完成帧尚未在新一轮ROS实跑**。
+- 结果：用户现在有可运行的README/Docker/ROS正式联合请求入口，真实UI与控制链同会话；这仍是从声明初态建模、330–360秒隔离规划的几何代理资格仿真，普通请求UUV待命，不等于最终三类平台协作、10秒求解、真实载荷或一次缺测复查通过。当前GUI核组是从r3真实监测空档得出的本机OS负载隔离，不是论文算法参数或设备指标。
+- 证据：`experiments/20260923-joint-runner-entry-r{1,2,4}/metrics.json`、`experiments/20260923-joint-runner-live-r{1,2,3,4}/{metrics.json,runner.log,launch.log,rviz.log,dashboard.log,dashboard-*.png,rviz-*.png,exec-*.diagnostics.json}`；`scripts/docker_run_joint_request.sh`、`joint_request_executors.yaml`、README命令。对受影响runner/任务边界测试、bash语法与源码diff检查均按当次结果记录。
+- 未完成／下一步：在本地真实状态只读查询与预算性能仍不足时不冒充完整在线修复；REMUS部署/样点几何待用户决定，UUV真实参与及安全通过式回区、一轮实际缺测复查仍未完成。UI映射更新需要下次同运行再验。
+
+## 2026-09-23 UTC — 正式联合入口首次暴露PVS配平后状态与部署坐标混用
+
+- 计划：将已验证的两区域联合请求直接接到现有MissionRunner`joint_request`显式模式和可复制Docker/RViz启动脚本，不依赖忽略目录探针；起始模型配置从运行ROS节点读取，业务默认预算仍10秒，300/360秒仅隔离诊断。
+- 实际：新增同runner联合入口、六执行单元配置YAML与README命令；脚本先比较每个声明初始模型与新鲜实际Odometry、打印具体Plan待`yes`确认，沿原Action/GoalID/收件/资源状态运行，UI读原任务权威。`experiments/20260923-joint-runner-entry-r1/r2`在300/360秒分别以`PlanningBudgetExceeded`于零Goal/锁空退出；r2记录准确规划墙钟360.0169秒并清楚打印原因。`experiments/20260923-joint-actual-config-pair-check`使用AAV1与AAV2/AAV3各自**真实水中控制配置**，直接AIR＋USV、AAV1延迟跨介质的整计划仍在约237秒校核FEASIBLE；因此不能将正式入口超时归为方法本身不合格。隔离搜索trace记录原入口对AAV2独立AIR、USV支援AIR等分支后，整计划均给`UNKNOWN PLAN_IDLE_STATE_MISMATCH`并重复查询，UUV原路线在东栈桥净距失败。根因是新入口用USV YAML初始坐标z=0写入任务状态，而原Otter`STATIC_TRIM`已将质心移动到原生配平z≈-0.038；当前完整计划检查合理地拒绝“待命状态位置不等于模型快照”。原成功探针从一开始就使用`backend.snapshot()['position']`，没有该矛盾。
+- 结果：保持声明坐标用于原生模型**初始化**，随后用各平台初始化后的完整`backend.snapshot()`位置/实际介质作为候选状态与实际Odometry核对输入；不放宽`PLAN_IDLE_STATE_MISMATCH`、回收区或时间门槛。保留300/360秒失败，修正后正式入口尚需重跑。可选`JOINT_PLANNER_CPUSET=12-15`仅是本机先前测得的OS规划/动力学隔离，未改变算法或数字模型；即使如此，旧错误状态仍不能靠加预算通过。
+- 证据：`experiments/20260923-joint-runner-entry-r{1,2}/{metrics.json,runner.log,launch.log}`、`20260923-joint-search-trace/probe.log`、`20260923-joint-actual-config-pair-check/{probe.py,result.json}`；原`pvs_backend.py::_initialize_otter_trim`及`_check_complete_plan`状态一致性检查。使用真配置直接方法检查与搜索trace均按实际范围报告。
+- 未完成／下一步：以修正后原`joint_request`入口重新取得具体Plan并实跑，随后复验README实时命令；本机内部控制器状态仍未从在线节点读取，正式10秒预算、UUV回区/参与、复查均未完成。
+
 ## 2026-09-23 UTC — 同请求中文RViz与任务权威面板真实同运行；三活动完成、审计边界清楚
 
 - 计划：在已实跑的两区域三活动请求上，让现有RViz港口场景、中文任务面板、原MissionRunner和五平台ROS/动力学处于同一会话；展示规划/确认→AIR＋USV→AAV跨介质入水→双结果接收→南侧返回，UI只读任务权威，不另推断成功。
