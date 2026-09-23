@@ -1,6 +1,7 @@
 """plan.md P3: offline executor resource selection and plan-level competition."""
 
 import math
+from types import SimpleNamespace
 
 import pytest
 
@@ -20,6 +21,28 @@ def task(name, capabilities=("AIR",), agents=2, service=4.0, deadline=1000.0,
 
 def provider(speeds):
     return ExecutorTravelTimeProvider(CENTERS, speeds)
+
+
+@pytest.mark.parametrize('kind,capability,method',[
+    ('SURFACE','AIR','_iter_air_candidates'),
+    ('UNDERWATER','WATER','_iter_cross_medium_candidates'),
+])
+def test_budgeted_method_streams_first_candidate_before_later_queries(
+        monkeypatch,kind,capability,method):
+    request=SimpleNamespace(regions=(SimpleNamespace(region_id='near',kind=kind),))
+    travel=ExecutorTravelTimeProvider(CENTERS,{'one':1.},observation_request=request)
+    member=SimpleNamespace(backend_id='PYTHON_QN_CLOSED_LOOP')
+    state={'d0':{'native_backend':member}}
+    first=object()
+    def candidates(self,unit,business,start,states,deadline):
+        yield first
+        raise AssertionError('later method was queried before the first result reached the scheduler')
+    monkeypatch.setattr(ExecutorTravelTimeProvider,method,candidates)
+    iterator=travel.iter_execution_candidates(
+        air_executor('one',('d0',),capabilities=(capability,)),
+        task('work',capabilities=(capability,),agents=1,target='near'),0.,state,1.)
+    assert next(iterator) is first
+    iterator.close()
 
 
 def air_executor(executor_id, members, capabilities=("AIR",), available=0.0, speed=1.0):

@@ -534,6 +534,17 @@ class ExecutorTravelTimeProvider:
     def iter_execution_candidates(self,unit,task,start,states,deadline):
         if (unit.executor_id,task.task_id) in self.cooperative_routes:
             yield from self._iter_cooperative_candidates(unit,task,start,states,deadline)
+        elif (self.observation_request is not None and 'AIR' in unit.capabilities and
+              any(r.region_id==task.target_ref and r.kind in ('SURFACE','SHORELINE')
+                  for r in self.observation_request.regions)):
+            yield from self._iter_air_candidates(unit,task,start,states,deadline)
+        elif (self.observation_request is not None and 'WATER' in unit.capabilities and
+              len(unit.physical_agent_ids)==1 and
+              any(r.region_id==task.target_ref and r.kind=='UNDERWATER'
+                  for r in self.observation_request.regions) and
+              getattr(states[unit.physical_agent_ids[0]].get('native_backend',
+                  self.native_models.get(unit.physical_agent_ids[0])),'backend_id',None)=='PYTHON_QN_CLOSED_LOOP'):
+            yield from self._iter_cross_medium_candidates(unit,task,start,states,deadline)
         else:
             yield from self.execution_candidates(unit,task,start,states,deadline)
 

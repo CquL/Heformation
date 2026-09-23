@@ -1,3 +1,11 @@
+## 2026-09-23 UTC — 有界联合搜索的首个方法结果不再被后续候选阻塞
+
+- 计划：核对正式`joint_request`默认10秒求解为什么不能提交完整方案；只修已有“先完整可行解、后预算内改进”搜索路径的可证实断点，不牺牲原生运动、场景安全或有限收件校核。
+- 实际：原`bounded_candidate_query()`已有隔离子进程逐项返回协议，但`ExecutorTravelTimeProvider.iter_execution_candidates()`对AIR与跨介质方法调用会先`list(_iter_...)`的`execution_candidates()`，导致第一个完整方法必须等同单元其它方法全部查询结束才可传给调度器。现仅让该迭代入口直接`yield from`既有两个原生方法生成器；普通直接`execution_candidates()`列表调用、候选内容和全部校核保持原样。定向测试让第一个候选后立即触发后续故障，证明第一个已可先到达；调度与完整候选相关34项通过。
+- 结果：正式Noetic/Docker runner在**10秒原预算**、原港口请求和未打开GUI条件下仍于10.0076秒返回`no complete feasible candidate within shared budget`，0 Goal、0资源锁；没有把传输首候选修正写成“10秒规划完成”。运行退出码1是该预算失败的预期显式结果，静态场景bag和动态bag在同次运行生成。
+- 证据：`integration/mrta_python/executors.py::iter_execution_candidates`、`tests/test_executors.py::test_budgeted_method_streams_first_candidate_before_later_queries`；`experiments/20260923-joint-stream-10s-r1/{metrics.json,runner.log,scene-once.bag,execution.bag,workspace.patch}`。设计原则仅是原本已实现的“先取得完整可行方案再改进”搜索合同，未引入新算法、阈值或框架。
+- 未完成／下一步：完整原生联合搜索仍不符合10秒默认预算；此前已就“初次规划是否允许离线长预算、在线修复仍10秒”向用户异步询问，未答前不静默改正式期限。继续按本次真实trace找有依据的查询成本与可安全复用部分；UUV示范几何、受限下行会合和一次真实复查仍未完成。
+
 ## 2026-09-23 UTC — 总请求结项按REMUS通过式返回合同读取实际Result
 
 - 计划：消除已核实的语义冲突：PVS本机Action已在观测后核“离开→重进部署区→原生安全尾段”，但`joint_request`最终还用末端位置在回区球内要求UUV，必将用户认可的合法通过式返回误判失败。
