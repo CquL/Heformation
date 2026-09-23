@@ -227,8 +227,6 @@ def build_request_executor_plan(request,scene,executors,provider,member_states,*
             return_sites=scene.get('return_sites')
         if not return_sites:
             raise ValueError('return destinations must be declared in the scenario or invocation')
-        if not set(return_sites)<=set(member_states):
-            raise ValueError('return destinations refer to unknown physical members')
         for site in return_sites.values():
             if (not isinstance(site,Mapping) or set(site)!={'position','radius_m'} or
                     len(site['position'])!=3 or not all(math.isfinite(v) for v in site['position']) or
@@ -237,6 +235,16 @@ def build_request_executor_plan(request,scene,executors,provider,member_states,*
     deadline=time.monotonic()+budget_s
     tasks,methods=request_native_methods(request,scene,executors,member_states,provider.native_models,deadline,
                                          return_sites=return_sites)
+    transition_sites=[];seen_sites=set()
+    for site in scene.get('transition_sites',()):
+        ident=str(site['id']);position=tuple(site['position'])
+        air_stages=tuple(tuple(point) for point in site.get('air_stages',()))
+        if (not ident or ident in seen_sites or len(position)!=3 or
+                not all(math.isfinite(v) for v in position) or position[2]!=scene['surface_z_m'] or
+                any(len(point)!=3 or not all(math.isfinite(v) for v in point) or
+                    point[2]!=request.requirement.cruise_altitude_m for point in air_stages)):
+            raise ValueError('transition site needs unique ID, surface position and AIR stages')
+        seen_sites.add(ident);transition_sites.append((ident,position,air_stages))
     provider=replace(provider,cooperative_routes=methods,observation_request=request,
         scene_geometry=StaticSceneGeometry.from_mapping(scene),
         scene_resolution_m=float(scene['resolution']),
@@ -244,7 +252,10 @@ def build_request_executor_plan(request,scene,executors,provider,member_states,*
             'SURFACE' in unit.capabilities and getattr(member_states[unit.physical_agent_ids[0]].get(
                 'native_backend',provider.native_models.get(unit.physical_agent_ids[0])),'model',None)=='otter'),
         mother_position=tuple(scene.get('mother_ship_receiver_position',scene['mother_ship_position'])),
-        return_sites=dict(return_sites) if request.return_required else {})
+        return_sites=dict(return_sites) if request.return_required else {},
+        air_units=tuple(unit for unit in executors if len(unit.physical_agent_ids)==1 and
+                        'AIR' in unit.capabilities),
+        transition_sites=tuple(transition_sites))
     remaining=deadline-time.monotonic()
     if remaining<=0:raise PlanningBudgetExceeded('request method generation exhausted planning budget')
     plan=build_executor_plan(executors,tasks,provider,initial_target_ref='start',budget_s=remaining,

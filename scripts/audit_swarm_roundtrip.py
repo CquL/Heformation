@@ -42,6 +42,7 @@ def audit(path,include_marine=False,scene_file=None):
     diagnostics={i:[] for i in members}
     timeline=[]
     action_starts=[]
+    result_goal_starts=[]
     action_finishes=[]
     invalid_native_trajectories=[]
     with rosbag.Bag(str(path)) as bag:
@@ -79,6 +80,12 @@ def audit(path,include_marine=False,scene_file=None):
                 action_starts.append(received.to_sec())
             elif topic.endswith('/result') and hasattr(msg,'status'):
                 action_finishes.append(received.to_sec())
+                # A Result confirms the GoalID of the accepted native Action.
+                # Its original stamp remains available even if a bag started
+                # before the Action publisher connected but missed /goal.
+                goal_stamp=msg.status.goal_id.stamp.to_sec()
+                if math.isfinite(goal_stamp) and 0<goal_stamp<=received.to_sec():
+                    result_goal_starts.append(goal_stamp)
             elif scene is not None and topic=='/scene/global_cloud':
                 caller=connection.get('callerid','')
                 if isinstance(caller,bytes):caller=caller.decode('utf-8',errors='replace')
@@ -88,7 +95,8 @@ def audit(path,include_marine=False,scene_file=None):
     if scene is not None and (observed_cloud_hashes!={(scene.frame,expected_cloud_hash)} or map_publishers!={'/scene_publisher'}):
         failures.append('actual scene cloud differs from declared SOLID geometry or publisher')
     if invalid_native_trajectories:failures.append('native planner published invalid polynomial')
-    interval_start=min(action_starts) if action_starts else None
+    interval_source='goal topic' if action_starts else 'result GoalID stamp' if result_goal_starts else None
+    interval_start=min(action_starts) if action_starts else min(result_goal_starts) if result_goal_starts else None
     interval_end=max(action_finishes) if action_finishes else None
     if interval_start is None or interval_end is None:failures.append('missing Action interval')
     monitor=TimeAlignmentMonitor(tuple(str(i) for i in members))
@@ -107,6 +115,7 @@ def audit(path,include_marine=False,scene_file=None):
     fleet_clearance=None
     scene_minima={}
     missing=0
+    missing_inside=[]
     missing_outside=[]
     measured=0
     prepared={}
@@ -122,7 +131,11 @@ def audit(path,include_marine=False,scene_file=None):
                 2*DEFAULT_ALIGNMENT_WINDOW_S) for axis in axes))
         inside=interval_start is not None and interval_end is not None and interval_start<=point.ros_time_s<=interval_end
         if any(v is None for p in positions for v in p):
-            if inside:missing+=1
+            if inside:
+                missing+=1
+                missing_inside.append(dict(ros_time_s=point.ros_time_s,
+                                           members=[str(member) for member,position in zip(members,positions)
+                                                    if any(value is None for value in position)]))
             else:missing_outside.append(point.ros_time_s)
             continue
         if not inside:continue
@@ -195,7 +208,9 @@ def audit(path,include_marine=False,scene_file=None):
                       if include_marine else 'sampled three-AAV handover; no obstacle/unknown-environment guarantee'),
         passed=not failures,failures=failures,alignment=alignment,
         aligned_position_samples=measured,missing_position_samples=missing,
+        missing_position_details=missing_inside,
         execution_interval_ros_s=[interval_start,interval_end],
+        execution_start_source=interval_source,
         missing_position_samples_outside_execution=missing_outside,
         minimum_surface_clearance_m=minimum,platform_radius_m=.25,required_clearance_m=.5,
         clearance_scope='three AAVs only',all_members_minimum_center_distance_m=minimum_center,

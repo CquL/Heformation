@@ -1,3 +1,83 @@
+## 2026-09-23 UTC — 五平台代理全计划下的南侧双中转跨介质名义方法
+
+- 计划：前一分段AIR方法在全计划中与待命USV(-10,4,0)发生代理净距冲突，不可仅凭AAV局部安全继续派发。根据已声明港口障碍和USV真实占位比较不移动USV的南侧有限AIR路线；仍由原Swarm、qn、PVS及同一有限交付/全成员检查给结论。
+- 实际：场景转换候选`sample_entry`顺序声明AIR中转(-15,3,.8)、(-10,0,.8)，不改实体/禁区/净距。原Swarm/qn连续状态只读查询分别得41.34、23.99、35.20秒AIR段，再接54.79秒入水/水中0.7m观测/出水及72.36秒AIR回部署区；水中实际模型样本产生`water_sample`。三段出程对静止Otter原船体代理的名义最小净距3.70/2.09/1.78m，返程1.12m，均大于原0.5m；最靠近实体的AIR出程仍有至少1.855m场景余量。原`build_request_executor_plan()`对**五个物理成员**完整推进待命qn/PVS轨迹、场景与成对净距及`FiniteDelivery`后，在116.15秒隔离预算内得到`NOMINAL_COMPLETE_PLAN_MOTION_AND_CAPACITY`，名义工期227.68模型秒，`search_complete=True`只限这一有限候选集合。
+- 结果：双中转备选已从单AAV局部可行推进为五平台**名义整计划可行**；没有发送这份五步计划的实际Action，不能据此宣布跨介质执行、安全或最终任务通过。求解墙钟116.15秒远超原10秒生产预算，不能静默放大默认预算；UUV在此候选中待命，最终五平台实例的三类平台协作仍需另证。
+- 证据：`experiments/20260923-aav-air-detour/{probe.py,result.json}`、`experiments/20260923-aav-joint-detour-query/result.json`、`experiments/20260923-aav-detour-five-check/{probe.py,result.json}`；当前`five_scene_harbor.yaml`的两个有限AIR阶段和原候选/全计划校核代码。
+- 未完成／下一步：以当前五步计划做原Action同运行，按每步GoalID、参考采用、产品接收、实际回收与独立全程安全审计给出成功或失败；不能用名义计划替代。之后再处理10秒预算、UUV可返方法及收到缺测后的复查。
+
+## 2026-09-23 UTC — 分段跨介质候选与AIR参考接管就绪合同
+
+- 计划：原直达样点AIR Action在西栈桥实际越限后，只使用场景几何与真实Action证据选一个有限中转路线；确认连续AIR Goal释放上一参考后才能开始下一段，不放宽0.2m净距或本地0.03m/s接管条件。
+- 实际：公共场景`sample_entry`登记南侧中转点(-15,3,.8)，它从西栈桥低角部绕行而不改障碍。原Swarm＋qn同状态只读链中中转AIR41.34秒（终端速0.00185m/s）、第二AIR42.61秒、入水/水中0.7m观测/出水54.86秒、AIR回部署区72.36秒均FEASIBLE，前两段名义最小场景余量分别1.855/2.579m。针对受影响边界实际AIR探针：r1在30秒基线就绪前拒绝未运动；r2/r3第一段安全PASS，第二段紧随Result因旧参考所有权尚未释放而被拒绝；r4等待新鲜qn诊断`reference_active=false`后第二段获接纳，但零驻留中转末态速度高于原平台接管0.03m/s，`AIR_ENTRY_NOT_SETTLED`失败锁定。沿用原平台4秒稳定阶段后r5两段AIR各自Action SUCCEEDED、安全PASS、实验VALID，末端分别(-14.9944,2.9989,.8000)和(.0053,8.0018,.7999)，未运行水中/返回。现有联合候选按这个已验证方法加入`transition-stage`一步，旧直达方法不再是该转换点的可派发候选。runner就绪检查只对确实启用参考交接的成员读新鲜物理`reference_active/context_ready`，避免旧参数`ready=true`的竞态。首次扩展到所有AIR成员时误将未启用交接的AAV2/3也要求context_ready，125秒诊断在未派发时失败；随后限定交接成员，隔离Noetic入口AAV1约29.83秒就绪，AAV2/AAV3随后0.01秒通过。
+- 结果：分段AIR路线真实可过西栈桥并到达样点上方，跨端点接管需要原4秒稳定时段和参考所有权实际释放；这些是原服务端/本机合同，不是新增安全阈值。当前完整四步跨介质Action尚未验收：r1首AIR直达实际安全失败；修正后125秒诊断仅验证AIR入口就绪，仍需重跑完整链。原10秒在线预算依旧不通过。
+- 证据：`experiments/20260923-aav-staged-{method,hold4,air-action,air-action-r2,air-action-r3,air-action-r4,air-action-r5}`、`experiments/20260923-aav-joint-staged-query/result.json`、`experiments/20260923-air-readiness-fix/result.json`；修改`five_scene_harbor.yaml`、`task_line.py`、`executors.py`、`formation_mission_runner.py`。原Action合同`platform_action.py`的0.03m/s接管与`probe_swarm_roundtrip.py`的参考释放等待为直接代码依据。
+- 未完成／下一步：按当前四步所选计划实际运行AIR中转→AIR到入口→qn入/出水观测→AIR返回，逐步核对Result/收件/资源/安全；若某步失败，不自动当全链成功。完整业务仍缺UUV回区合格方法、一次复查和10秒预算。
+
+## 2026-09-23 UTC — AAV跨介质名义方法在首段实际AIR安全检查失败
+
+- 计划：从完整候选继续到原MissionRunner/Swarm/qn复合Action，验证“只读可行”是否真的能完成AIR转场→入水观测→出水→返回；任一实际安全违规即阻断后继。
+- 实际：同一港口、声明`sample_entry(0,8,0)`、三AAV＋USV＋UUV实例在110秒隔离规划下取得原全计划`NOMINAL_COMPLETE_PLAN_MOTION_AND_CAPACITY`，工期201.82模型秒；按所选`ExecutionStep`由现有runner保留`aav_1_native`共享物理成员并派出首段`/aav_1/formation_action`，后续两个步骤尚未派发。实际Swarm转场中AAV1参考已采用，但在西侧栈桥低角部的场景净空降至0.196807m，低于原0.2m安全条件；原Action给出任务FAIL、安全FAIL、实验INVALID，父复合活动标UNKNOWN_LOCKED，物理成员未释放。
+- 结果：**本次跨介质任务实跑失败**；旧只读名义链并非实际可靠方法资格。真实失败位置约(-19.412,6.823,1.173)，目标(0,8,.8)，实际运动/重规划与名义参考不同；不能因此放宽障碍、净距或删掉返回步骤。已验证仅首段失败，没有任何入水Action或该次水下产品。
+- 证据：`experiments/20260923-aav-cross-medium-action-r1/{probe.py,probe.log,metrics.json,joint-result.json,action_index.json,exec-*.diagnostics.json}`；原诊断文件内含GoalID、采用证据、实际末样本和场景违规原因。面板已按所选native执行步骤补中文“跨介质观测／入水／出水”，尚未进行该全链实时UI验收。
+- 未完成／下一步：依据栈桥位置及已见实际偏差，用原Swarm Action比较有限的安全分段AIR转场，并重新执行全部参考采用/净距验收；不能给已失败的直达方法继续贴FEASIBLE标签。10秒规划、UUV回区、复查及最终全五平台同请求仍未完成。
+
+## 2026-09-23 UTC — AAV跨介质方法进入同一候选与全计划校核
+
+- 计划：把已有Swarm AIR与qn原生转换片段作为同一水下业务要求的备选方法，不能因UUV返航失败而强制改变任务、删掉待命平台或把三段本机查询当完整交付。
+- 实际：在原`ExecutorTravelTimeProvider`内增加一个有限跨介质候选：只对已配置`PlatformTask`水下端点且有同物理成员AIR端点的AAV，从声明场景`transition_sites`中取接近水下要求的站点；原Swarm只读AIR转场→同一qn完整内部状态的`ENTER_WATER/WATER_PATH/EXIT_WATER`短片段→原Swarm AIR返部署区，逐段原生运动查询。水中`LocalObservationWindow`必须实得全部点的几何产品；三步与完整运动轨迹、产品事件只经现有`ExecutionCandidate`传递。场景增加已用原qn核过的样点正上方`sample_entry`，原`aav_entry`仍保留；场景/执行端字段只增加被该真实消费者读取的AIR匹配单元和有限转换站点。尚无在线资格的其他AAV不在本轮假设为可水下执行。
+- 结果：`experiments/20260923-aav-joint-method-query`的一个候选为FEASIBLE，三步时长74.55/54.91/72.36模型秒，`water_sample`在模型时间87.83产生，最后回AIR部署区。`experiments/20260923-aav-joint-complete-plan`用原完整候选搜索、两台待命AAV qn延续、全部样本几何与`FiniteDelivery`重放得到`NOMINAL_COMPLETE_PLAN_MOTION_AND_CAPACITY`，工期201.82模型秒、`search_complete=True`只对这次有限方法集合成立。计算墙钟103.25秒，是**隔离诊断**，原10秒生产预算未通过。没有发送实际Action或宣称真实载荷/完整五平台协同完成。
+- 证据：`integration/mrta_python/executors.py`、`integration/qn_aav_simulator/src/qn_aav_simulator/task_line.py`、`integration/qn_aav_simulator/config/five_scene_harbor.yaml`；`experiments/20260923-aav-{water-method,joint-method-query,joint-complete-plan}/{probe.py,probe.log,result.json}`。相关31项候选/任务/全计划检查及Python语法通过。
+- 未完成／下一步：让现有runner按所选`ExecutionStep`连续发三个原Action并检查实际参考采用、观测产品收件、返回区及安全；接入完整AIR＋WATER请求的自动方法比较/反馈修复并将求解降回10秒或明确UNKNOWN。当前UUV回区方法仍无资格，不能因AAV名义备选可行而静默把五平台验收缩成单机。
+
+## 2026-09-23 UTC — 当前样点附近AAV跨介质备选方法只读资格成立
+
+- 计划：当现有REMUS在窄港无法完成用户规定返回时，不降低UUV净距或业务区域；检查同一请求是否存在已有qn跨介质执行能力支持的替代观测方法。仅用原Swarm只读运动查询、qn连续内部状态与既有垂直转换片段，不先派试探Goal。
+- 实际：在原港口场景，选择水下样点(0,8,-2)正上方(0,8,.8)作为待验证转换位置。由drone_0声明静态配平初态(-30,6,.8)调用原Swarm参考及qn实际模型，AIR转场经74.55模型秒到(0.0009,8.0000,.7998)；从该**同一终态后台**接已有`ENTER_WATER→0.7m WATER_PATH→EXIT_WATER`原生片段，完整qn推进54.91秒回AIR(0.7006,8.0000,.8001)。`LocalObservationWindow`在实际WATER样本上产生`water_sample`几何代理产品；再从该连续模型状态使用原Swarm查询72.36秒返回(-30.0155,6.0009,.8001)。三段各自通过声明场景静态几何和原生终态；未重置同一AAV状态。
+- 结果：形成一个**名义、只读、单AAV**跨介质观测＋返回可行链，总名义时长约201.82模型秒；这不等于已在Action/母船链实跑，不包含与其他平台同时运动的全计划冲突/有限交付校核，不授予3台AAV任意状态下的水下资格。原UUV若不满足返航，可在后续有限方法搜索中比较该备选；不能预先强制选择或把其模型查询当最终请求通过。
+- 证据：`experiments/20260923-aav-water-method/{probe.py,probe.log,result.json}`；原片段资格形状来自`integration/qn_aav_simulator/scripts/probe_prepared_fragments.py`，AIR参考使用原Swarm-Formation只读接口，qn全过程使用同一`QnPythonClosedLoopBackend`。
+- 未完成／下一步：将此方法接入现有候选/执行步骤与有限产品传输，在实际Action中核对入口状态、参考交接、AIR→WATER→AIR及结果到母船；独立比较UUV/USV方法，不用它掩盖UUV返航失败。原10秒在线全请求、缺测复查、完整返回与实时总验收仍未完成。
+
+## 2026-09-23 UTC — 用户确认REMUS通过式回收后的安全尾段语义
+
+- 计划：按用户明确选择修正UUV返回判据：先在观测后再次进入声明部署区域，随后继续已有PVS模型验证的安全终端尾段；只有尾段完成及合法终态，才算RETURN_COMPLETED并释放。不得把启动时已在部署区、末航段投影越线或单个低速Result冒充返回，也不增加悬停控制。
+- 实际：在原`pvs_node.py`中仅对REMUS返回作业记录“离开部署区→观测已产生→再次进入部署区”，preflight需看到名义离开/重进，真实`finish()`还需已记录实际重进及原终端verified；资源持续占用至Action末端。Otter仍要求终端位置落入部署区。原全计划校核对REMUS改为在最后一份观测产品产生后检查实际名义轨迹进入部署区，同时继续校核尾段全程障碍/净距与终态；AIR/USV仍检查最终位置。没有增加新Action字段或状态服务。隔离原ROS消息边界探针现分别验证：未重进的REMUS Action失败锁定、确有重进且尾段合格时允许虽末态在区外的成功、普通通过式作业不受返回规则影响、预检无重进拒绝。
+- 结果：UUV返回语义与用户选择已对应到计划和本机执行判据，但**当前港口REMUS方法没有合格轨迹**：原直返触东栈桥；无障碍原路径在观察样点后180秒内也未重新进入0.8056m部署区，部分长路径在pier/栈桥失败。故不能宣布UUV返回或最终请求通过。USV原路径实际返部署区0.24761m内且Action SUCCEEDED；两平台区别保留。
+- 证据：用户本轮文字决定；`integration/qn_aav_simulator/scripts/pvs_node.py`、`integration/mrta_python/executors.py`、`experiments/20260923-pvs-return-contract/{probe.py,result.json}`，既有UUV负例`experiments/20260923-marine-return-qualification/result.json`。本轮没有增任意回收阈值，仍用已声明区域半径。
+- 未完成／下一步：找在原PVS/当前障碍内确能“观测后回区＋安全尾段”的路线，或保持该UUV方法不可用并比较合格AAV跨介质方法；该物理资格不能靠松绑Action结果、改大回收区或移除码头获得。
+
+## 2026-09-23 UTC — USV原生返部署区实跑通过，UUV狭窄港返航仍不可用
+
+- 计划：在用户确认的同一部署区政策下分别验证海洋平台，不把AIR返回或PVS规划结果扩大为USV/UUV都已返航。
+- 实际：用现有PVS Otter静态配平初态(-10,4,0)，按声明港口障碍查询西侧支援位(4,8,0)→部署中心的完整原生路线；它预测176.38模型秒、终点距中心0.2476m<原船体代理回收半径1.18916m。东侧支援位(6,8,0)路线在180秒原生时域内为`UNKNOWN/MODEL_HORIZON_EXHAUSTED`，未放宽时域。向原`/usv/platform_task`派发西侧完整路径并由新增本地回收区判据验证实际终点。同时复核UUV原方法：直接返(-5,8,-2)会碰东栈桥；更改航向等价值后，几条朝南的可解释路线或撞西侧pier，或180秒内不满足原生终态。无实体障碍的直接路径虽报告原生片段`FEASIBLE`，越过末航段进度平面时横向已偏约46m，51.76秒原生滑行后实际终点距部署中心42.55m，因此不能用“经过末航点/终端低速”替代回收。
+- 结果：`experiments/20260923-usv-return-action`的真实Otter Action为SUCCEEDED、`terminal_verified=true`、`task_completed=true`、`resource_locked=false`；实际终点(-10.2072,3.8698,-0.0377)，距声明回收中心0.24761m。USV返航子链通过。UUV在当前港内、原REMUS控制/180秒窗口和小回收区条件下尚无合格返航候选；它不是“全五平台返回通过”。
+- 证据：`experiments/20260923-usv-return-action/{probe.py,probe.log,result.json}`；已失败原候选`experiments/20260923-marine-return-qualification/result.json`及本轮原PVS查询。`integration/qn_aav_simulator/src/qn_aav_simulator/task_line.py`删除了“公共场景中的其他三台回收区=未知成员”的错误子集限制，仍验证每项区域格式；相关30项任务/计划/PVS检查通过。
+- 未完成／下一步：UUV最终返回语义问题已向用户单独提问，未答前不把通过式观测自动升级为回收。继续找原动力学可达的方法或选择合格AAV跨介质候选；10秒完整请求、复查和生产入口仍未完成。
+
+## 2026-09-23 UTC — PVS通过式终点与部署区返回的本机完成语义分开
+
+- 计划：保证“最后航点越过”不会冒充“已返回用户确认的部署区域”，同时保留REMUS通过式观测的原正常语义；只复用本地场景与现有Action，必要结果不靠高层事后猜测。
+- 实际：原`PvsBackend.advance_path_target`以最后航段的有向投影判进度结束；在无实体障碍的同原REMUS直达样点再回(-5,8,-2)模型轨迹，`predict_native_fragment`可报`FEASIBLE/NATIVE_TERMINAL_VERIFIED_IN_ROLLOUT`，但实际终点(-12.255,-33.925,-1.959)距部署中心约42.55m。原高层完整计划已单独检查返回区，但本地`PlatformTask`可将越线当作成功。现将场景明确声明的本机`return_site`加载到现有PVS Action服务：只有选定路径最后点正是该中心时，预检核对预测终态位置，真实完成核对实际终态位置；预检不在区内拒绝Goal，执行后不在区内返回ABORTED/资源锁定。其他通过式片段不受这项业务完成条件影响，没有改PVS原生路径推进或Action消息结构。
+- 结果：隔离原Noetic消息边界探针三项通过：未到返回区的候选在预检`REJECTED/NATIVE_RETURN_SITE_NOT_REACHED`且未启动不锁；执行后实际未到则`ABORTED/RETURN_SITE_NOT_REACHED`并锁；非返回通过式片段仍SUCCEEDED。已知窄港原路线仍因东栈桥安全余量不足更早失败，不能据此声称UUV返航已解决。
+- 证据：`integration/qn_aav_simulator/scripts/pvs_node.py`、`experiments/20260923-pvs-return-contract/{probe.py,result.json}`，以及原生投影实现`integration/qn_aav_simulator/src/qn_aav_simulator/pvs_backend.py`。此为本机业务返回资格，不把论文或设备指标移植成新容差。
+- 未完成／下一步：找到当前任务在实际动力学/障碍下能到部署区域的完整UUV/USV路线，或如实标识该方法不可用并比较有资格的替代方法。完整五平台请求仍需10秒在线规划、已收结果触发复查与规定返回在同一次运行中通过。
+
+## 2026-09-23 UTC — REMUS返航的原生航向分支定位，仍未取得合格路线
+
+- 计划：从原PVS/Fossen控制路径解释REMUS从水下样点返部署区为何在东栈桥越限，优先修正薄接入坐标/参考错误，不靠降低净距或扩大回收半径“通过”。
+- 实际：原直接路线`(-5,8,-2)→(0,8,-2)→(-5,8,-2)`在500 rpm前推时于约24.05模型秒达到`jetty_east`静态余量0.193263m，低于场景要求0.2m；350/250/150 rpm同样越限。试图在观测半径内提前设转向点及朝港口南侧的目标，仍在东栈桥或西侧pier越限，原失败保留。核对上游Fossen `remus100.depthHeadingAutopilot()`和`lib/guidance.py:refModel3()`：后者对航向参考用线性`r-x_d`；本项目薄接入每步将`atan2`的[-π,π]角直接赋值，目标在后方时会从约+180°跳至-176°，迫使参考模型走近一整圈。仅在`PvsBackend.step()`的原生参考边界把角度展开到当前`psi_d`最近等价值，未改上游控制律、动力学、推进器或场景。受控单例显示参考不再跨分支跳变；对应PVS边界/原生查询15项检查通过（首次测试误把积分后位置与积分前参考比较已纠正，失败保留在本轮日志）。
+- 结果：这项修正消除了可证的参考不连续，但**没有解决返航可达性**：同一路线复测仍于约24.05秒在东栈桥余量约0.19328m越限；目标朝南的几条试验路线改为西侧pier或仍于东栈桥失败。不能宣称UUV返回或完整请求已通过，也不能因方向合理继续在狭窄港内盲试。
+- 证据：`integration/qn_aav_simulator/src/qn_aav_simulator/pvs_backend.py`、`integration/qn_aav_simulator/tests/test_pvs_boundary.py`；上游`upstream/Fossen/src/python_vehicle_simulator/vehicles/remus100.py`与`lib/{control,guidance}.py`。隔离Noetic/PVS控制台输出已在本轮记录；两站点正式方法均为`SCENE_CLEARANCE: jetty_east=0.193263m`，见`experiments/20260923-marine-return-qualification/result.json`。
+- 未完成／下一步：原水下协作正常入口已在`experiments/20260923-pvs-heading-water-regression`复跑：USV/UUV两Action均SUCCEEDED且终态验证、母船收`water_sample`、交付1.0、锁空，故薄接入修正没有破坏这条已验证路径。返航路线仍不合格；下一步依据动力学与场景寻找合法方法。若当前狭窄港口与原REMUS控制器的运动包络不相容，明确报告该组合不可用并继续比较已具资格的替代方法，不自行放宽净距或返回目标。
+
+## 2026-09-23 UTC — 已确认部署区返回政策与AAV两步原生返航实跑
+
+- 计划：依据用户明确选择的“返回启动／部署区域”，将回收目标写入港口场景，半径由平台现有物理/Action终态合同确定；先验静态安全、再用原生Swarm＋qn和实际Action分别验证，不能把入口容差当回收判据或看见目标点就宣称已返航。
+- 实际：`five_scene_harbor.yaml`显式声明三AAV各自起点、Otter(-10,4,0)、REMUS(-5,8,-2)的返回中心。AAV半径0.5m来自现有AIR Action终态`epsilon_p`；USV/UUV半径来自原PVS模型的船体碰撞代理1.1891593669/0.8056208786m。计算每个中心的最近静态自由空间余量：AAV至少5.55m、USV3.71m、UUV2.99m，均大于相应声明回收半径；这仅证返回区域自身不切障碍，不证沿路可达。现有AIR候选直接续接原Swarm只读规划和qn完整状态查询，生成观测Action及不附加业务驻留的返回Action两步，不增消息/控制算法。隔离单AIR＋按需USV支援候选在40秒诊断预算下得到AAV1 0–23.84模型秒、USV 0–14.02；预测AAV终点距部署中心约0.02m。随后同Noetic实例原Action连续实跑。
+- 结果：`experiments/20260923-air-return-action-r1`为`PASS_AIR_RETURN_DIAGNOSTIC`：AIR观测与返回两个不同GoalID均SUCCEEDED，两段任务/安全/实验有效性证据分别为PASS/PASS/VALID；第二段实际终点(-30.0591,6.0591,0.7941)，距声明中心0.08383m<0.5m。AIR产品实际到母船，支援USV成功、资源锁空。实际段时长与名义不同但此受控实例仍完成。只证明单AIR返回子链；UUV/USV从联合任务返航、完整请求及10秒预算仍未通过。
+- 证据：`integration/qn_aav_simulator/config/five_scene_harbor.yaml`、`integration/mrta_python/executors.py`；`experiments/20260923-air-return-qualification/{probe.log,result.json}`和`experiments/20260923-air-return-action-r1/{probe.log,metrics.json,joint-result.json,action_index.json,exec-*.diagnostics.json}`。场景几何余量以原`StaticSceneGeometry`和PVS模型半径计算。
+- 未完成／下一步：UUV/USV经原生完整路线返回各自部署区域仍需找到合格候选并实跑；联合AIR＋WATER请求的返回、实际修复及10秒在线求解仍未通过。把此次用户政策与区域数值依据同步至场景/状态文档，不能称设备标定或普适回收标准。
+
 ## 2026-09-23 UTC — 同请求并行执行的中文实时面板与RViz同运行
 
 - 计划：把已实跑的AIR＋UUV＋USV两区域任务显示在同一个实时入口，检查中文面板从任务权威读所选活动、结果、收件和占用，RViz同期显示港口实体、五平台与实际轨迹，不以离线回放冒充实时。

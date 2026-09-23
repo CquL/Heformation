@@ -37,8 +37,16 @@ class PvsNode:
         self.backend=PvsBackend(self.model,tuple(rospy.get_param('~initial_position')),
                                 initialization_mode=initialization)
         self.terminal_behavior=self.backend.terminal_behavior
-        self.scene=StaticSceneGeometry.from_mapping(rospy.get_param('/scene',{}))
+        declared_scene=rospy.get_param('/scene',{})
+        self.scene=StaticSceneGeometry.from_mapping(declared_scene)
         if self.scene and self.scene.frame!=self.world_frame:raise ValueError('scene frame mismatch')
+        self.return_site=declared_scene.get('return_sites',{}).get(self.agent_id)
+        if self.return_site is not None:
+            point=self.return_site.get('position',())
+            radius=self.return_site.get('radius_m')
+            if (len(point)!=3 or not all(math.isfinite(v) for v in point) or
+                    not isinstance(radius,(int,float)) or not math.isfinite(radius) or radius<=0):
+                raise ValueError('invalid declared local return site')
         self.scene_failure=''
         from qn_aav_simulator.task_line import load_request
         from qn_aav_simulator.observation_coverage import ObstacleBox
@@ -138,7 +146,7 @@ class PvsNode:
         self.work=dict(handle=handle,id=ident,task=task,paths=paths,segment=0,point=1,
                        coast=False,settled=None,cause='',model_start=self.backend.time_s,waiting_commit=prepare_only,
                        deadline=time.monotonic()+min(timeout,180.),observations=observations,ros_start=rospy.Time.now().to_sec(),
-                       terminal_wait_s=terminal_wait_s)
+                       terminal_wait_s=terminal_wait_s,return_left=False,return_reentered=False)
         if self.last_prediction.get('goal_id')==ident:
             self.last_prediction['accepted_model_time_s']=self.backend.time_s
         handle.set_accepted('finite native path fragment accepted')
@@ -165,11 +173,32 @@ class PvsNode:
                 reason='STATE_CHANGED_DURING_QUERY'
             elif prediction['status']!='FEASIBLE':
                 reason='NATIVE_PREDICTION_'+prediction['status']+': '+prediction['reason']
+            elif self._needs_return_entry(token['paths'],token['observations']):
+                outside=False;reentered=False
+                for _,position in prediction['trajectory']:
+                    if math.dist(position,self.return_site['position'])>self.return_site['radius_m']:
+                        outside=True
+                    elif outside:reentered=True
+                if not reentered:reason='NATIVE_RETURN_SITE_NOT_REENTERED'
+            elif (self._returns_to_declared_site(token['paths']) and
+                  math.dist(prediction['terminal_position'],self.return_site['position'])>
+                  self.return_site['radius_m']):
+                reason='NATIVE_RETURN_SITE_NOT_REACHED'
             if reason:
                 token['handle'].set_rejected(PlatformTaskResult(task_id=token['task'],goal_id=token['id'],
                     actual_mode=state['actual_mode'],reason=reason,resource_locked=self.locked,
                     model_time_s=self.backend.time_s))
             else:self._accept(token['handle'],token['id'],token['task'],token['paths'],token['timeout'],token['prepare_only'],token['observations'],token['terminal_wait_s'])
+
+    def _returns_to_declared_site(self,paths):
+        return (self.return_site is not None and
+                tuple(paths[-1][-1])==tuple(self.return_site['position']))
+
+    def _needs_return_entry(self,paths,observations):
+        request=getattr(self,'observation_request',None)
+        return (self.backend.model=='remus100' and self.return_site is not None and
+                (self._returns_to_declared_site(paths) or
+                 (request is not None and request.return_required and observations is not None)))
 
     def start_prepared(self,request):
         from qn_aav_simulator.srv import StartPreparedActionResponse
@@ -210,6 +239,13 @@ class PvsNode:
         observations=w.get('observations')
         observation_missing=normal and observations is not None and observations.emitted!=set(observations.points)
         if observation_missing:normal=False;reason='OBSERVATION_NOT_SATISFIED'
+        needs_return_entry=self._needs_return_entry(w['paths'],observations)
+        if verified and needs_return_entry and not w.get('return_reentered',False):
+            normal=False;reason='RETURN_SITE_NOT_REENTERED';self.locked=True
+        elif (verified and not needs_return_entry and self._returns_to_declared_site(w['paths']) and
+                math.dist(self.backend.snapshot()['position'],self.return_site['position'])>
+                self.return_site['radius_m']):
+            normal=False;reason='RETURN_SITE_NOT_REACHED';self.locked=True
         self.locked=self.locked or not verified or bool(w['cause'])
         if verified and observations is not None and not w['cause']:
             self.products.publish(String(data=json.dumps(observations.terminal_report(rospy.Time.now().to_sec()),allow_nan=False)))
@@ -259,6 +295,13 @@ class PvsNode:
                            abs((self.backend.time_s-w['model_start'])-(now-w['ros_start']))<=DEFAULT_MAX_ABS_DRIFT_S)
                     for event in observations.sample(self.backend.time_s,state['position'],state['actual_mode'],now,valid):
                         self.products.publish(String(data=json.dumps(event,allow_nan=False)))
+                if (self._needs_return_entry(w['paths'],observations) and
+                        not w['cause'] and not w['waiting_commit']):
+                    if math.dist(state['position'],self.return_site['position'])>self.return_site['radius_m']:
+                        w['return_left']=True
+                    elif (w['return_left'] and
+                          (observations is None or observations.emitted==set(observations.points))):
+                        w['return_reentered']=True
                 speed=math.sqrt(sum(v*v for v in state['world_velocity']))
                 if w['coast'] and speed<=self.speed_limit:
                     if w['settled'] is None:w['settled']=self.backend.time_s

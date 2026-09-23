@@ -52,3 +52,16 @@ def test_uuv_actual_domain_does_not_come_from_its_configured_type():
     # Explicit state fault injection for the domain classifier only.
     b.eta[2]=-.1
     assert b.snapshot()['actual_mode']=='OUTSIDE_NATIVE_DOMAIN'
+
+
+def test_remus_heading_reference_stays_continuous_across_atan2_branch():
+    b=PvsBackend('remus100',(-5.,8.,-2.))
+    target=(-5.,-20.,-2.)
+    for _ in range(499):b.step(.01,target,500.)
+    delta=np.array([target[1],target[0],-target[2]])-b.eta[:3]
+    wrapped=math.atan2(delta[1],delta[0])
+    b.step(.01,target,500.)
+    native_ref=math.radians(b.vehicle.ref_psi)
+    assert wrapped<0  # atan2 crossed +pi to -pi while target stayed south
+    assert native_ref>0 and abs(native_ref-b.vehicle.psi_d)<=math.pi
+    assert math.isclose(math.remainder(native_ref-wrapped,2*math.pi),0.,abs_tol=1e-12)

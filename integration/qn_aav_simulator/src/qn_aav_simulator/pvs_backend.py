@@ -124,6 +124,12 @@ class PvsBackend:
                 raise ValueError('target must be a finite ENU point')
             delta=np.array([target[1],target[0],-target[2]])-self.eta[:3]
             heading=math.degrees(math.atan2(delta[1],delta[0])) if np.linalg.norm(delta[:2])>1e-9 else math.degrees(self.eta[5])
+            # Native refModel3 uses the *linear* difference r - psi_d. atan2
+            # alone jumps by 2*pi at the branch cut and commands the long
+            # turn to an equivalent heading. Preserve the native controller;
+            # give its reference model the nearest continuous NED angle.
+            heading=math.degrees(self.vehicle.psi_d+math.remainder(
+                math.radians(heading)-self.vehicle.psi_d,2*math.pi))
             if self.model=='otter':
                 self.vehicle.ref=heading
             else:

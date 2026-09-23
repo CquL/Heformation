@@ -29,7 +29,32 @@ scene:
   # The hull centre is not a valid LOS receiver; this is geometry, not an
   # experimentally calibrated antenna specification.
   mother_ship_receiver_position: [15.0, -8.0, 2.0]
-  transition_sites: [{id: aav_entry, position: [-28.0, 6.0, 0.0]}]
+  # Operator-confirmed return policy: each participating platform comes back
+  # to its declared deployment footprint. Marine radii are native hull proxies;
+  # AAV uses the existing AIR Action terminal position tolerance (0.5 m),
+  # so a successful return Goal can imply arrival in this business region.
+  # These are not the unrelated Action entry tolerance. Every return ball is
+  # inside the declared static free space. REMUS may pass through its return
+  # ball after observation, then complete a verified safe terminal tail; AAV
+  # and Otter must finish inside theirs. A declared ball alone proves no route.
+  return_sites:
+    drone_0: {position: [-30.0, 6.0, 0.8], radius_m: 0.5}
+    drone_1: {position: [-30.0, 4.0, 0.8], radius_m: 0.5}
+    drone_2: {position: [-30.0, 8.0, 0.8], radius_m: 0.5}
+    usv: {position: [-10.0, 4.0, 0.0], radius_m: 1.1891593669479295}
+    uuv: {position: [-5.0, 8.0, -2.0], radius_m: 0.8056208785775105}
+  transition_sites:
+    - {id: aav_entry, position: [-28.0, 6.0, 0.0]}
+    # The sample-aligned entry was checked with the original Swarm/qn model;
+    # static clearance alone does not qualify a conversion action.
+    # The direct AIR leg crossed the west jetty's required clearance in an
+    # actual Action. The first stage passed two native AIR Goals with the
+    # existing four-second handover stabilization. A second south-side stage
+    # keeps the next AIR leg clear of the idle USV at (-10,4); both stages are
+    # finite scene candidates, not a new avoidance controller.
+    - id: sample_entry
+      position: [0.0, 8.0, 0.0]
+      air_stages: [[-15.0, 3.0, 0.8], [-10.0, 0.0, 0.8]]
   communication_sites:
     - {id: sample_support_west, position: [4.0, 8.0, 0.0]}
     - {id: sample_support_east, position: [6.0, 8.0, 0.0]}

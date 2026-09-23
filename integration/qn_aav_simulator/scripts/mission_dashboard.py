@@ -555,17 +555,28 @@ class MissionDashboard:
         def line(y,content,size=12,colour='#263238'):
             axis.text(0,y,content,fontproperties=self.five_font,fontsize=size,
                       color=colour,va='top',wrap=True)
+        def member_name(executor):
+            parts=executor.split('_')
+            if len(parts)>1 and parts[0]=='aav' and parts[1].isdigit():
+                return '无人机'+parts[1]
+            return {'uuv':'潜航器','usv':'无人船'}.get(executor,executor)
         rows=(state.get('plan') or {}).get('items',[])
         air=any(r['executor_id'].startswith('aav_') for r in rows)
-        water=any(r['executor_id']=='uuv' for r in rows)
+        cross=any(r['executor_id'].startswith('aav_') and
+                  any(segment.get('operation') in ('ENTER_WATER','EXIT_WATER')
+                      for step in r.get('execution_steps',())
+                      for segment in (step.get('native_action') or {}).get('segments',())) for r in rows)
+        water=any(r['executor_id']=='uuv' for r in rows) or cross
         names={'PLANNING':'正在比较候选计划','PLANNING_DIAGNOSTIC':'隔离诊断：正在比较候选',
                'AWAITING_CONFIRMATION':'等待终端确认，尚未派发',
                'RUNNING':'协作执行中','RUNNING_DIAGNOSTIC':'同请求诊断执行中',
                'PASS_JOINT_NO_RETURN_DIAGNOSTIC':'空中／水下交付完成（无返回诊断）',
+               'PASS_AAV_CROSS_MEDIUM_DIAGNOSTIC':'跨介质观测与返回完成（诊断）',
                'PASS_WATER_GEOMETRIC_PROXY':'水下阶段完成（几何观测代理）',
                'PASS_AIR_SUPPORT_COMPONENT':'空中与无人船组件完成（几何代理）',
                'FAILED':'失败，请查看原因与资源锁定','NOT_CONFIRMED':'未确认，未派发'}
-        title=('近岸联合观测' if not rows else '空中＋水下联合观测' if air and water else
+        title=('近岸联合观测' if not rows else '两栖无人机跨介质观测' if cross and not any(
+               r['executor_id']=='uuv' for r in rows) else '空中＋水下联合观测' if air and water else
                '空中观测＋无人船射频支援' if air else '水下观测＋无人船支援')
         line(1.,title,18)
         status=state.get('status','STANDBY')
@@ -575,15 +586,16 @@ class MissionDashboard:
         statuses={'PLANNED':'等待派发','RUNNING':'执行中','COMPLETED':'动作完成',
                   'UNKNOWN_LOCKED':'未知，保持锁定','FAILED':'失败'}
         phases={'PREPARING':'正在预装载','PREPARED':'等待共同启动','AIR_MOVE':'空中转场',
+                'ENTER_WATER':'入水中','EXIT_WATER':'出水中',
+                'MOVING':'空中转场','HOLDING':'稳定确认',
                 'WATER_PATH':'水下航行／观测','SURFACE_PATH':'驶往支援区',
                 'COAST_STOP':'滑行终端','TRIM_PROPULSION':'配平保持',
                 'UNKNOWN_LOCKED':'未知，保持锁定'}
         for index,row in enumerate(rows[:6]):
             executor=row['executor_id']
-            member=('无人机'+str(int(executor.split('_')[-1])) if executor.startswith('aav_') and
-                    executor.split('_')[-1].isdigit() else '潜航器' if executor=='uuv' else
-                    '无人船' if executor=='usv' else executor)
+            member=member_name(executor)
             role=('通信支援' if not row['fulfills_task'] else
+                  '跨介质观测' if cross and executor.endswith('_native') else
                   '空中观测' if executor.startswith('aav_') else '水下观测' if executor=='uuv' else '作业')
             phase=(state.get('current_actions',{}).get(row['execution_id']) or {}).get('phase','')
             label=phases.get(phase,statuses.get(row['status'],row['status']))
@@ -596,9 +608,7 @@ class MissionDashboard:
         if len(rows)>6:line(.45,'另有 {} 项活动；完整记录见任务结果'.format(len(rows)-6),10)
         if not rows:line(.79,'正在规划；确认前不派发',12)
         locks=state.get('resource_locks',[])
-        line(.44,'占用／锁定：'+('、'.join(
-            '无人机'+k.split('_')[-1] if k.startswith('aav_') else
-            {'uuv':'潜航器','usv':'无人船'}.get(k,k) for k in locks) or '无'),12)
+        line(.44,'占用／锁定：'+('、'.join(member_name(k) for k in locks) or '无'),12)
         line(.38,'母船确认接收：{:.0%}   已确认业务结果：{} 项'.format(
             state.get('delivered_fraction',0.),len(state.get('results_received',[]))),13)
         line(.32,'传输过程（独立仿真视图，不作为任务完成判定）',11)
@@ -618,7 +628,8 @@ class MissionDashboard:
             line(.16,'失败：'+textwrap.fill(reason,62),10,'#b71c1c')
         else:
             line(.16,'实际收件与 Action 结果分别判断。',10)
-        line(.09,'当前是{}；全请求复查／返回未通过。'.format('AIR＋USV组件' if air and not water else
+        line(.09,'当前是{}；全请求复查／返回未通过。'.format('AAV跨介质方法诊断' if cross else
+            'AIR＋USV组件' if air and not water else
             '水下阶段' if water and not air else '联合计划诊断'),10)
         line(.045,'关闭窗口不停止物理执行；几何代理不等于真实载荷质量。',10)
         self.figure.tight_layout()

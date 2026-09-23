@@ -397,6 +397,10 @@ class ExecutorTravelTimeProvider:
     return_sites: Mapping = field(default_factory=dict)
     scene_resolution_m: float = 0.0
     air_support_units: Tuple[Executor, ...] = ()
+    # Existing AIR endpoint paired by physical member with a qualified qn
+    # PlatformTask endpoint. Only declared conversion sites are candidates.
+    air_units: Tuple[Executor, ...] = ()
+    transition_sites: tuple = ()
 
     def execution_candidates(self,unit,task,start,states,deadline):
         """Evaluate declared finite native route alternatives with plant state.
@@ -410,6 +414,13 @@ class ExecutorTravelTimeProvider:
                 any(r.region_id==task.target_ref and r.kind in ('SURFACE','SHORELINE')
                     for r in self.observation_request.regions)):
             return list(self._iter_air_candidates(unit,task,start,states,deadline))
+        if (self.observation_request is not None and 'WATER' in unit.capabilities and
+                len(unit.physical_agent_ids)==1 and
+                any(r.region_id==task.target_ref and r.kind=='UNDERWATER'
+                    for r in self.observation_request.regions) and
+                getattr(states[unit.physical_agent_ids[0]].get('native_backend',
+                    self.native_models.get(unit.physical_agent_ids[0])),'backend_id',None)=='PYTHON_QN_CLOSED_LOOP'):
+            return list(self._iter_cross_medium_candidates(unit,task,start,states,deadline))
         routes=self.native_routes.get((unit.executor_id,task.task_id),())
         if len(unit.physical_agent_ids)!=1 or not routes:
             return [ExecutionCandidate('unqualified',(),{},status='UNKNOWN',reason='EXECUTION_METHOD_NOT_QUALIFIED')]
@@ -621,11 +632,53 @@ class ExecutorTravelTimeProvider:
                 service_time_s=service,native_prediction=summary,observation_ids=tuple(sorted(required)))
             air_terminal=dict(position=query['terminal_position'],mode=query['terminal_mode'],
                               native_backend=query['terminal_backend'])
+            air_steps=(air_step,);full_trace=trace;total_duration=query['duration_s']
+            if self.return_sites:
+                site=self.return_sites.get(member)
+                if site is None:
+                    yield ExecutionCandidate(name+'-return',(),{},status='UNKNOWN',reason='AIR_RETURN_SITE_MISSING')
+                    continue
+                home=tuple(site['position'])
+                if math.dist(query['terminal_position'],home)>site['radius_m']:
+                    terminal_backend=query['terminal_backend'];terminal_state=terminal_backend.snapshot()
+                    w,x,y,z=terminal_state.orientation_quat_wxyz
+                    terminal_yaw=math.atan2(2*(w*z+x*y),1-2*(y*y+z*z))
+                    home_reference=self.query_swarm_reference('/drone_{}_ego_planner_node'.format(member[6:]),dict(
+                        drone_id=int(member[6:]),formation=False,start=list(terminal_state.position),
+                        velocity=list(terminal_state.velocity),
+                        acceleration=list(terminal_backend._last_model_acceleration or (0.,0.,0.)),
+                        target=list(home),points=points,peers=peers,
+                        reference_start_time=time.time(),initial_yaw=terminal_yaw,
+                        initial_yaw_rate=terminal_state.body_angular_velocity_radps[2],
+                        time_forward_s=lookahead),deadline)
+                    if home_reference['status']!='FEASIBLE':
+                        yield ExecutionCandidate(name+'-return',(),{},status=home_reference['status'],
+                            reason=home_reference.get('reason','AIR_RETURN_REFERENCE_UNKNOWN'))
+                        continue
+                    home_query=self.query_air_reference(terminal_backend,home_reference,
+                        self.scene_geometry,deadline,position_tolerance=site['radius_m'],
+                        hold_duration=0.,include_state=True)
+                    if home_query['status']!='FEASIBLE':
+                        yield ExecutionCandidate(name+'-return',(),{},status=home_query['status'],
+                            reason=home_query['reason'])
+                        continue
+                    if math.dist(home_query['terminal_position'],home)>site['radius_m']:
+                        yield ExecutionCandidate(name+'-return',(),{},status='INFEASIBLE',
+                            reason='AIR_RETURN_SITE_NOT_REACHED')
+                        continue
+                    home_summary={k:v for k,v in home_query.items() if k not in ('terminal_backend','trajectory')}
+                    air_steps+=(ExecutionStep(unit.executor_id,home_query['duration_s'],'return:'+member,
+                        service_time_s=0.,native_prediction=home_summary),)
+                    full_trace=trace+tuple((start+query['duration_s']+t,p,mode)
+                        for t,p,mode in home_query['trajectory'][1:])
+                    total_duration+=home_query['duration_s']
+                    air_terminal=dict(position=home_query['terminal_position'],mode=home_query['terminal_mode'],
+                                      native_backend=home_query['terminal_backend'])
             # Try the method that reserves only the observer first. The full
             # plan check still requires actual delivery and may choose the
             # USV-supported alternative below; no method is pruned here.
-            yield ExecutionCandidate(name,(air_step,),{member:air_terminal},
-                motion_traces={member:trace},collision_radii={member:.25},generated_products=tuple(products))
+            yield ExecutionCandidate(name,air_steps,{member:air_terminal},
+                motion_traces={member:full_trace},collision_radii={member:.25},generated_products=tuple(products))
             for support in self.air_support_units:
                 if time.monotonic()>=deadline:raise PlanningBudgetExceeded('AIR support query exceeded shared budget')
                 if len(support.physical_agent_ids)!=1 or support.executor_id not in self.native_efforts:continue
@@ -665,16 +718,187 @@ class ExecutorTravelTimeProvider:
                 support_step=ExecutionStep(support.executor_id,support_duration,task.target_ref,
                     support_action,native_prediction=support_summary)
                 air_activity=ExecutorPlanItem('air-work',task.task_id,unit.executor_id,(member,),
-                    0.,query['duration_s'],query['duration_s']-service,0.,service,execution_steps=(air_step,))
+                    0.,total_duration,total_duration-service,0.,service,execution_steps=air_steps)
                 support_activity=ExecutorPlanItem('rf-support',task.task_id,support.executor_id,(other,),
                     0.,support_duration,support_duration,0.,0.,execution_steps=(support_step,),fulfills_task=False)
                 yield ExecutionCandidate(name+'-rf-support',(),{
                     member:air_terminal,other:dict(position=support_query['terminal_position'],
                         mode=support_query['terminal_mode'],native_backend=support_query['terminal_backend'])},
                     activities=(air_activity,support_activity),
-                    motion_traces={member:trace,other:support_trace},
+                    motion_traces={member:full_trace,other:support_trace},
                     collision_radii={member:.25,other:support_query['collision_radius_m']},
                     generated_products=tuple(products))
+
+    def _iter_cross_medium_candidates(self,unit,task,start,states,deadline):
+        """One qualified AAV AIR→WATER observation→AIR method per declared site.
+
+        The same qn backend is advanced through every phase. AIR legs use the
+        existing Swarm read-only optimizer; the native platform fragment keeps
+        its original controller and actuator state. A missing endpoint/site or
+        failed physical query is not replaced by a nominal distance estimate.
+        """
+        from qn_aav_simulator.experiment_verdict import box_sample_points
+        from qn_aav_simulator.observation_coverage import LocalObservationWindow,ObstacleBox
+        from qn_aav_simulator.platform_execution import Segment,actual_mode
+        from qn_aav_simulator.qn_dynamics import medium_flag
+        from .models import NativeActionSpec,NativeSegmentSpec
+        member=unit.physical_agent_ids[0]
+        air=next((e for e in self.air_units if e.physical_agent_ids==(member,)),None)
+        if air is None or not self.transition_sites or self.scene_geometry is None or self.scene_resolution_m<=0:
+            yield ExecutionCandidate('cross-medium-context',(),{},status='UNKNOWN',
+                                     reason='AAV_AIR_ENDPOINT_OR_TRANSITION_SITE_MISSING');return
+        state=states[member];backend=state.get('native_backend',self.native_models.get(member))
+        if (getattr(backend,'backend_id',None)!='PYTHON_QN_CLOSED_LOOP' or
+                actual_mode(backend.snapshot().medium_flag)!='AIR' or
+                state['mode']!='AIR' or tuple(backend.snapshot().position)!=tuple(state['position'])):
+            yield ExecutionCandidate('cross-medium-state',(),{},status='UNKNOWN',
+                                     reason='AAV_CROSS_MEDIUM_ENTRY_STATE_UNKNOWN');return
+        peers=[]
+        for other,value in sorted(states.items()):
+            if other==member or not other.startswith('drone_'):continue
+            if (not other[6:].isdigit() or value['mode']!='AIR' or
+                    value.get('available_from',0.)>start or value.get('locked',False)):
+                yield ExecutionCandidate('cross-medium-peer',(),{},status='UNKNOWN',
+                                         reason='AIR_PEER_REFERENCE_UNKNOWN');return
+            peers.append(dict(id=int(other[6:]),stationary=True,position=list(value['position'])))
+        if len(peers)!=2:
+            yield ExecutionCandidate('cross-medium-peers',(),{},status='UNKNOWN',
+                                     reason='AIR_THREE_MEMBER_REFERENCE_REQUIRED');return
+        try:
+            import rospy
+            lookahead=float(rospy.get_param('/drone_{}_traj_server/traj_server/time_forward'.format(member[6:])))
+        except Exception:
+            yield ExecutionCandidate('cross-medium-yaw',(),{},status='UNKNOWN',
+                                     reason='AIR_TRAJECTORY_YAW_CONTEXT_MISSING');return
+        if not math.isfinite(lookahead) or lookahead<0:
+            yield ExecutionCandidate('cross-medium-yaw',(),{},status='UNKNOWN',
+                                     reason='AIR_TRAJECTORY_YAW_CONTEXT_INVALID');return
+        points=[p for _,kind,c,s in self.scene_geometry.objects if kind=='SOLID'
+                for p in box_sample_points(c,s,self.scene_resolution_m)]
+        obstacles=tuple(ObstacleBox(c,s) for _,kind,c,s in self.scene_geometry.objects if kind=='SOLID')
+        region=next(r for r in self.observation_request.regions if r.region_id==task.target_ref)
+        required={p.point_id for p in region.interest_points}
+        if not required:
+            yield ExecutionCandidate('cross-medium-target',(),{},status='UNKNOWN',
+                                     reason='UNDERWATER_OBSERVATION_TARGET_MISSING');return
+        idle=max(0.,start-state.get('available_from',0.));idle_trace=()
+        if idle:
+            waited=self.query_native_idle(backend,idle,self.scene_geometry,deadline)
+            if waited['status']!='FEASIBLE':
+                yield ExecutionCandidate('cross-medium-idle',(),{},status=waited['status'],
+                                         reason=waited['reason']);return
+            if abs(waited['duration_s']-idle)>1e-6:
+                yield ExecutionCandidate('cross-medium-idle',(),{},status='UNKNOWN',
+                                         reason='AAV_IDLE_TIME_GRID_MISMATCH');return
+            idle_trace=tuple((state['available_from']+t,p,
+                actual_mode(medium_flag(p[2],backend.constants.hg_m)))
+                for t,p in waited['trajectory'][:-1])
+            backend=waited['terminal_backend']
+
+        def air_leg(model,target,hold):
+            actual=model.snapshot();w,x,y,z=actual.orientation_quat_wxyz
+            yaw=math.atan2(2*(w*z+x*y),1-2*(y*y+z*z))
+            reference=self.query_swarm_reference('/drone_{}_ego_planner_node'.format(member[6:]),dict(
+                drone_id=int(member[6:]),formation=False,start=list(actual.position),
+                velocity=list(actual.velocity),
+                acceleration=list(model._last_model_acceleration or (0.,0.,0.)),
+                target=list(target),points=points,peers=peers,
+                reference_start_time=time.time(),initial_yaw=yaw,
+                initial_yaw_rate=actual.body_angular_velocity_radps[2],
+                time_forward_s=lookahead),deadline)
+            if reference['status']!='FEASIBLE':return reference
+            return self.query_air_reference(model,reference,self.scene_geometry,deadline,
+                                            hold_duration=hold,include_state=True)
+
+        # A short original qn water segment is the only qualified underwater
+        # AAV method here. An entry too far from all requested points cannot
+        # cover them, even at the full declared footprint radius.
+        for site_id,site,stages in self.transition_sites:
+            if time.monotonic()>=deadline:raise PlanningBudgetExceeded('cross-medium method budget exhausted')
+            if not any(math.hypot(site[0]-p.position[0],site[1]-p.position[1])<=
+                       self.observation_request.requirement.footprint_radius_m+.7
+                       for p in region.interest_points):
+                continue
+            name=unit.executor_id+'-'+task.task_id+'-'+site_id
+            entry=(site[0],site[1],self.observation_request.requirement.cruise_altitude_m)
+            air_steps=[];air_trace=idle_trace;air_duration=0.;entry_backend=backend
+            failed_stage=None
+            for index,stage in enumerate(stages):
+                staged=air_leg(entry_backend,stage,4.)
+                if staged['status']!='FEASIBLE':
+                    failed_stage=staged;break
+                air_steps.append(ExecutionStep(air.executor_id,staged['duration_s'],
+                    'transition-stage:'+site_id+':'+str(index),service_time_s=0.,
+                    native_prediction={k:v for k,v in staged.items()
+                        if k not in ('terminal_backend','trajectory')}))
+                air_trace+=tuple((start+air_duration+t,p,mode) for t,p,mode in
+                                 staged['trajectory'][1 if index else 0:])
+                air_duration+=staged['duration_s'];entry_backend=staged['terminal_backend']
+            if failed_stage is not None:
+                yield ExecutionCandidate(name+'-stage',(),{},status=failed_stage['status'],
+                                         reason=failed_stage.get('reason','AIR_STAGE_UNKNOWN'))
+                continue
+            transfer=air_leg(entry_backend,entry,4.)
+            if transfer['status']!='FEASIBLE':
+                yield ExecutionCandidate(name+'-air',(),{},status=transfer['status'],
+                                         reason=transfer.get('reason','AIR_TRANSFER_UNKNOWN'));continue
+            air_steps.append(ExecutionStep(air.executor_id,transfer['duration_s'],
+                'transition:'+site_id,service_time_s=0.,
+                native_prediction={k:v for k,v in transfer.items()
+                    if k not in ('terminal_backend','trajectory')}))
+            air_trace+=tuple((start+air_duration+t,p,mode) for t,p,mode in
+                             transfer['trajectory'][1 if air_steps else 0:])
+            air_duration+=transfer['duration_s']
+            actual=transfer['terminal_backend'].snapshot();x,y,_=actual.position
+            segments=(NativeSegmentSpec('ENTER_WATER',(actual.position,(x,y,-.6)),14.),
+                      NativeSegmentSpec('WATER_PATH',((x,y,-.6),(x+.7,y,-.6)),7.),
+                      NativeSegmentSpec('EXIT_WATER',((x+.7,y,-.6),(x+.7,y,entry[2])),14.))
+            route=NativeActionSpec(segments,'FIXED_REFERENCE',observation_ids=tuple(sorted(required)))
+            native=transfer['terminal_backend'].predict_native_fragment(
+                tuple(Segment(s.operation,s.points,s.duration_s) for s in segments),
+                self.scene_geometry,deadline,include_state=True,max_model_time=route.execution_timeout_s)
+            if native['status']!='FEASIBLE':
+                yield ExecutionCandidate(name+'-water',(),{},status=native['status'],reason=native['reason']);continue
+            window=LocalObservationWindow(self.observation_request,required,member,name,obstacles)
+            products=[]
+            for t,position in native['trajectory']:
+                if time.monotonic()>=deadline:raise PlanningBudgetExceeded('cross-medium observation budget exhausted')
+                stamp=start+air_duration+t
+                products.extend(window.sample(air_duration+t,position,
+                    actual_mode(medium_flag(position[2],backend.constants.hg_m)),stamp))
+            if window.emitted!=required:
+                yield ExecutionCandidate(name+'-observation',(),{},status='INFEASIBLE',
+                                         reason='REQUIRED_OBSERVATION_NOT_COVERED');continue
+            steps=list(air_steps)
+            steps.append(ExecutionStep(unit.executor_id,native['duration_s'],task.target_ref,route,
+                native_prediction={k:v for k,v in native.items() if k not in ('terminal_backend','trajectory')}))
+            duration=air_duration+native['duration_s']
+            trace=air_trace+tuple(
+                (start+air_duration+t,p,
+                 actual_mode(medium_flag(p[2],backend.constants.hg_m))) for t,p in native['trajectory'])
+            terminal=native
+            if self.return_sites:
+                home=self.return_sites.get(member)
+                if home is None:
+                    yield ExecutionCandidate(name+'-return',(),{},status='UNKNOWN',
+                                             reason='AAV_RETURN_SITE_MISSING');continue
+                returned=air_leg(native['terminal_backend'],tuple(home['position']),0.)
+                if returned['status']!='FEASIBLE':
+                    yield ExecutionCandidate(name+'-return',(),{},status=returned['status'],
+                                             reason=returned.get('reason','AIR_RETURN_UNKNOWN'));continue
+                if math.dist(returned['terminal_position'],home['position'])>home['radius_m']:
+                    yield ExecutionCandidate(name+'-return',(),{},status='INFEASIBLE',
+                                             reason='AAV_RETURN_SITE_NOT_REACHED');continue
+                steps.append(ExecutionStep(air.executor_id,returned['duration_s'],'return:'+member,
+                    service_time_s=0.,native_prediction={k:v for k,v in returned.items()
+                        if k not in ('terminal_backend','trajectory')}))
+                trace+=tuple((start+duration+t,p,mode) for t,p,mode in returned['trajectory'][1:])
+                duration+=returned['duration_s'];terminal=returned
+            yield ExecutionCandidate(name,tuple(steps),{member:dict(
+                position=terminal['terminal_position'],mode=terminal['terminal_mode'],
+                native_backend=terminal['terminal_backend'])},
+                motion_traces={member:trace},collision_radii={member:.25},
+                generated_products=tuple(products))
     def _iter_cooperative_candidates(self,unit,task,start,states,deadline):
         """Native work/support alternatives including observation and receipt.
 
@@ -979,9 +1203,24 @@ class ExecutorTravelTimeProvider:
             if self.return_sites and pieces[member]:
                 site=self.return_sites.get(member)
                 if site is None:return unknown('PLAN_RETURN_SITE_MISSING')
-                # Return is a business region, not the unrelated Action start
-                # tolerance. Its radius comes from the declared task scenario.
-                if math.dist(rows[-1][1],site['position'])>site['radius_m']:
+                # REMUS may observe while passing through and finish a safe
+                # terminal tail elsewhere. Its return event must occur after
+                # the last observation, and its booking lasts through that
+                # terminal. AIR/Otter still require their final state inside
+                # the declared return region.
+                if getattr(backend,'model',None)=='remus100':
+                    last_observation=max((event['generated_at'] for event in products
+                        if event.get('producer')==member and
+                           event.get('event_type')!='OBSERVATION_TERMINAL'),default=0.)
+                    left=False;reentered=False
+                    for stamp,position,_ in rows:
+                        if math.dist(position,site['position'])>site['radius_m']:
+                            left=True
+                        elif left and stamp+1e-9>=last_observation:
+                            reentered=True
+                    if not reentered:
+                        return dict(status='INFEASIBLE',reason='PLAN_REQUIRED_RETURN_NOT_REENTERED')
+                elif math.dist(rows[-1][1],site['position'])>site['radius_m']:
                     return dict(status='INFEASIBLE',reason='PLAN_REQUIRED_RETURN_NOT_REACHED')
         finally:
             standby_pool.shutdown(wait=True)
@@ -1069,9 +1308,11 @@ class ExecutorTravelTimeProvider:
         from qn_aav_simulator.contracts import ControlCmd,CommandMode,PlatformAdapterCmd,PlantStepInput
         from qn_aav_simulator.platform_execution import actual_mode
         from qn_aav_simulator.qn_dynamics import medium_flag
-        if not math.isfinite(deadline) or any(not math.isfinite(v) or v<=0 for v in
-                (position_tolerance,terminal_speed,hold_duration,max_model_time)):
-            raise ValueError('finite AIR query deadline and positive limits required')
+        if (not math.isfinite(deadline) or
+                any(not math.isfinite(v) or v<=0 for v in
+                    (position_tolerance,terminal_speed,max_model_time)) or
+                not math.isfinite(hold_duration) or hold_duration<0):
+            raise ValueError('finite AIR query deadline, positive limits and nonnegative hold required')
         if getattr(backend,'backend_id',None)!='PYTHON_QN_CLOSED_LOOP' or backend.reference_mode!='ROUTE_POSITION':
             return dict(status='UNKNOWN',reason='AIR_MODEL_NOT_QUALIFIED')
         source=backend.snapshot();state=source;t=0.;radius=.25

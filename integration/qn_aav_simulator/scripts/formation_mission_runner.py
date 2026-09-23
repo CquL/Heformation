@@ -361,6 +361,26 @@ class MissionRunner:
                     declared = rospy.get_param(node + "/agent_ids")
                     if {"drone_{}".format(a) for a in declared} != unit.members():
                         raise RuntimeError("endpoint member configuration disagrees with routing")
+                    now=rospy.Time.now().to_sec()
+                    with self.condition:
+                        physical={member:self.executor_diagnostics.get(member,(None,{}))
+                                  for member in unit.physical_agent_ids}
+                    if any(stamp is None or not 0<=now-stamp<=.25
+                           for stamp,_ in physical.values()):
+                        rospy.sleep(.1)
+                        continue
+                    handover=[values for _,values in physical.values()
+                              if values.get('reference_handover_enabled')=='true']
+                    if any(values.get('reference_active')!='false' or
+                           values.get('platform_action_active')!='false' or
+                           values.get('actual_mode')!='AIR' or
+                           values.get('reference_context_ready')!='true'
+                           for values in handover):
+                        rospy.sleep(.1)
+                        continue
+                    if any(values.get('platform_resource_locked')=='true' or values.get('domain_failure')=='true'
+                           for _,values in physical.values()):
+                        raise RuntimeError('AIR physical member locked or unsafe: '+endpoint)
                     safety_members = rospy.get_param(node + "/safety_agent_ids", declared)
                     air_members={m for u in self.units if u.action_type=='FormationAction' for m in u.physical_agent_ids}
                     if {"drone_{}".format(a) for a in safety_members} != air_members:

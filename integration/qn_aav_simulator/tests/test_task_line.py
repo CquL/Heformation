@@ -93,8 +93,9 @@ def test_return_requirement_is_loaded_and_native_methods_have_checked_return_tai
     changed={key:dict(value,available_from=1.) for key,value in states.items()}
     provider=ExecutorTravelTimeProvider({'start':states['uuv']['position']},{'uuv':1.,'usv':1.},
         native_models=models,native_efforts={'uuv':500.,'usv':20.})
+    missing_scene=dict(scene);missing_scene.pop('return_sites')
     with pytest.raises(ValueError,match='return destinations must be declared'):
-        build_request_executor_plan(request,scene,units,provider,changed)
+        build_request_executor_plan(request,missing_scene,units,provider,changed)
 
 
 def test_missing_deadline_reaches_request_expansion_and_both_planners(tmp_path):
