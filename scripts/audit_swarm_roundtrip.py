@@ -16,7 +16,7 @@ from qn_aav_simulator.time_alignment import (
     DEFAULT_ALIGNMENT_WINDOW_S, ModelTimeSample, TimeAlignmentMonitor, _interpolate)
 
 
-def audit(path,include_marine=False,scene_file=None):
+def audit(path,include_marine=False,scene_file=None,scene_bag=None):
     members=list(range(3))+(['usv','uuv'] if include_marine else [])
     scene=None
     expected_cloud_hash=None
@@ -91,8 +91,20 @@ def audit(path,include_marine=False,scene_file=None):
                 if isinstance(caller,bytes):caller=caller.decode('utf-8',errors='replace')
                 map_publishers.add(caller)
                 observed_cloud_hashes.add((msg.header.frame_id,hashlib.sha256(bytes(msg.data)).hexdigest()))
+    scene_once_count=0
+    if scene_bag is not None:
+        with rosbag.Bag(str(scene_bag)) as bag:
+            for topic,msg,_,connection in bag.read_messages(return_connection_header=True):
+                if topic!='/scene/global_cloud':continue
+                scene_once_count+=1
+                caller=connection.get('callerid','')
+                if isinstance(caller,bytes):caller=caller.decode('utf-8',errors='replace')
+                map_publishers.add(caller)
+                observed_cloud_hashes.add((msg.header.frame_id,hashlib.sha256(bytes(msg.data)).hexdigest()))
     failures=[]
-    if scene is not None and (observed_cloud_hashes!={(scene.frame,expected_cloud_hash)} or map_publishers!={'/scene_publisher'}):
+    if scene is not None and (observed_cloud_hashes!={(scene.frame,expected_cloud_hash)} or
+                              map_publishers!={'/scene_publisher'} or
+                              (scene_bag is not None and scene_once_count!=1)):
         failures.append('actual scene cloud differs from declared SOLID geometry or publisher')
     if invalid_native_trajectories:failures.append('native planner published invalid polynomial')
     interval_source='goal topic' if action_starts else 'result GoalID stamp' if result_goal_starts else None
@@ -217,6 +229,7 @@ def audit(path,include_marine=False,scene_file=None):
         declared_proxy_radii_m={str(k):v for k,v in radii.items()},
         fleet_proxy_minimum_clearance_m=fleet_clearance,scene_minimum_clearances_m=scene_minima,
         declared_solid_cloud_sha256=expected_cloud_hash,observed_scene_clouds=sorted(observed_cloud_hashes),
+        scene_once_messages=scene_once_count if scene_bag is not None else None,
         reference_epochs=epochs,ordinary_publications_while_paused=paused_publications,
         invalid_native_trajectories=invalid_native_trajectories,air_minimum_body_envelope_m=air_min_envelope,
         returned_air_adoption_samples=len(returned),
@@ -230,8 +243,9 @@ if __name__=='__main__':
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--include-marine',action='store_true')
     parser.add_argument('--scene',type=Path)
+    parser.add_argument('--scene-bag',type=Path)
     args=parser.parse_args()
-    result=audit(args.bag,args.include_marine,args.scene)
+    result=audit(args.bag,args.include_marine,args.scene,args.scene_bag)
     args.output.write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps(result,indent=2))
     raise SystemExit(0 if result['passed'] else 1)

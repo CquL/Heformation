@@ -57,8 +57,9 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
       scene_file:=/experiments/scene.yaml visualize:="$JOINT_VISUALIZE" \
       usv_initial_position:="[-10.0, 4.0, 0.0]" > /experiments/current/launch.log 2>&1 &
     launch_pid=$!
-    rviz_pid="";dashboard_pid=""
+    rviz_pid="";dashboard_pid="";recorder_pid=""
     cleanup() {
+      if [[ -n "$recorder_pid" ]]; then kill -INT "$recorder_pid" 2>/dev/null || true; fi
       if [[ -n "$dashboard_pid" ]]; then kill -INT "$dashboard_pid" 2>/dev/null || true; fi
       if [[ -n "$rviz_pid" ]]; then kill -INT "$rviz_pid" 2>/dev/null || true; fi
       kill -INT "$launch_pid" 2>/dev/null || true
@@ -75,6 +76,24 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
     rosparam set /formation_mission_runner/request_file /workspace/src/src/qn_aav_simulator/config/monitoring_request_joint.yaml
     rosparam set /formation_mission_runner/output_dir /experiments/current
     rosparam set /formation_mission_runner/planning_budget_s "$JOINT_PLANNING_BUDGET_S"
+    timeout 15 rosbag record --lz4 -l 1 -O /experiments/current/scene-once.bag \
+      /scene/global_cloud > /experiments/current/scene-recorder.log 2>&1
+    record_cmd=(rosbag record --lz4 --buffsize=256 -O /experiments/current/execution.bag
+      /aav_1/formation_action/goal /aav_1/formation_action/result
+      /aav_2/formation_action/goal /aav_2/formation_action/result
+      /aav_3/formation_action/goal /aav_3/formation_action/result
+      /drone_0_qn_aav/platform_task/goal /drone_0_qn_aav/platform_task/result
+      /usv/platform_task/goal /usv/platform_task/result
+      /uuv/platform_task/goal /uuv/platform_task/result
+      /drone_0_qn/odometry /drone_0_qn/diagnostics
+      /drone_1_qn/odometry /drone_1_qn/diagnostics
+      /drone_2_qn/odometry /drone_2_qn/diagnostics
+      /usv/odometry /usv/diagnostics /uuv/odometry /uuv/diagnostics
+      /drone_0_planning/safety_status /drone_0_planning/trajectory
+      /mother/received_products /mother/received_notifications)
+    if [[ -n "$JOINT_VIEW_CPUSET" ]]; then record_cmd=(taskset -c "$JOINT_VIEW_CPUSET" "${record_cmd[@]}"); fi
+    "${record_cmd[@]}" > /experiments/current/recorder.log 2>&1 &
+    recorder_pid=$!
     if [[ "$JOINT_VISUALIZE" == true ]]; then
       view_prefix=()
       if [[ -n "$JOINT_VIEW_CPUSET" ]]; then view_prefix=(taskset -c "$JOINT_VIEW_CPUSET"); fi
@@ -98,6 +117,9 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
     "${runner_cmd[@]}" 2>&1 | tee /experiments/current/runner.log
     runner_result=${PIPESTATUS[0]}
     set -e
+    kill -INT "$recorder_pid" 2>/dev/null || true
+    wait "$recorder_pid" || true
+    recorder_pid=""
     if [[ "$JOINT_VISUALIZE" == true ]]; then sleep "$JOINT_VIEW_HOLD_S"; fi
     exit "$runner_result"
   '

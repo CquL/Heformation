@@ -1,3 +1,11 @@
+## 2026-09-23 UTC — 正式runner的同次实时GUI、双收件、返回与独立五平台审计全项通过
+
+- 计划：在现有`joint_request`正式入口中让RViz/中文面板与三qn+Otter+REMUS动力学同运行，具体Plan确认后实际执行AIR＋USV支援和AAV七步跨介质返航；独立安全证据从同次真实bag判断，而非面板推断。
+- 实际：先验证ROS Noetic原生`rosbag record -l 1`可从`/scene_publisher`仅订阅并封存一条2.93MB静态点云（压缩后1.4MB，连接头保留发布者），更新现有`audit_swarm_roundtrip.py`可选读取此bag与不含重复静态云的执行bag。`joint-record-preflight`在1秒故意过短预算下正确零Goal/锁空、两bag完整封包。`experiments/20260923-joint-runner-live-audited-r1`随后以360秒明确隔离规划、规划/渲染/录包分别限在本机测得核组，在用户确认同一具体Plan后由**正式MissionRunner入口**运行。AAV2 AIR/返回、USV RF支援、AAV1七步跨介质/逆序南侧返航共9子Action均得到成功Result，`air_sample`及`water_sample`各32KiB实际送达母船，三活动COMPLETED，交付1.0，资源锁空，AAV1/AAV2/USV回区误差0.09403m/约0/0.03771m。AIR实际约19.69秒而名义18.04秒，后继按`activity_edges`真实Result释放，Plan revision1且validation_scope降为`EXECUTION_ENTRY_REQUALIFICATION_REQUIRED`。
+- 结果：同次场景bag＋83MB动态bag由原独立脚本**全项PASS**：场景单条云的发布者、frame、hash与声明SOLID一致；3227个五平台对齐位置样本零缺失、最小五平台代理净距1.46354m、最小声明实体净距1.90067m、模型时间与AIR返回参考采用均满足原检查。中文面板和RViz同期真实显示规划中、已选AIR＋USV、水中段、双收件但仍返程、最终两区域完成；修正后最终面板清楚显示两业务结果/100%/无锁且注明“本次未触发异常复查”。渲染、任务权威与独立真值评价分开。这是**声明初态资格仿真＋几何观测代理**，不是负载图像/声呐质量、完整持续通信、10秒生产规划或三类平台同时实际作业的证明；UUV在该普通请求待命。
+- 证据：`experiments/20260923-joint-runner-live-audited-r1/{metrics.json,nominal-plan.json,runner.log,scene-once.bag,execution.bag,safety-audit.json,audit.log,dashboard-planning/running/water/final.png,rviz-running/water/final.png,exec-*.diagnostics.json}`；原脚本`docker_run_joint_request.sh`、场景、接收实现和独立审计。`scripts/audit_swarm_roundtrip.py --scene-bag`是读取两份同次bag的证据入口，不在控制链中。
+- 未完成／下一步：本地REMUS当前港口样点/部署区返程无合格路线，待用户对另建明确示范请求/几何的异步答复；实际缺测触发后仍缺二次完整联合计划与Action，正式10秒预算和在线内部状态查询/修复也未完成。不能用本次UUV待命的普通请求宣称最终三类平台任务验收。
+
 ## 2026-09-23 UTC — 收件必要条件先于待命ODE检查；水下负报告可完成已接受返程
 
 - 计划：减少完整候选搜索中已知收不到AIR结果的无效叶节点成本，同时补齐“本机运动终态合格、几何观测缺失报告已经到母船”时的复合动作语义；两者都不能放松数据因果或安全门。
