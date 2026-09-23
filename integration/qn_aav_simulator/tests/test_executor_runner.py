@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import sys
 import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -117,6 +118,31 @@ def test_remus_through_return_uses_matching_terminal_result(runner_module,tmp_pa
     runner.plan.items.append(replace(item,execution_id='later-uuv-goal',planned_start=65.,
                                      planned_finish=100.,actual_finish=100.))
     assert runner._member_return_complete('uuv',18.,site)[0] is False
+
+
+def test_native_goal_waits_for_matching_finite_command_receipt(runner_module,tmp_path,monkeypatch):
+    runner,item,unit,_=native_setup(runner_module,tmp_path)
+    runner.command_delivery_required=True
+    runner.plan_revision=0
+    runner.metrics['command_requests']={}
+    runner.metrics['command_deliveries']={}
+    sent=[]
+    runner.command_requests=SimpleNamespace(publish=sent.append)
+    class Goal:
+        def serialize(self,buffer):buffer.write(b'finite native goal')
+    identities=runner._announce_command(item,unit,Goal())
+    assert len(identities)==1 and len(sent)==1
+    expected=runner.metrics['command_requests'][identities[0]]
+    assert expected['required_bytes']==len(b'finite native goal')
+    with pytest.raises(RuntimeError,match='command delivery unverified'):
+        runner._await_command_delivery(identities,time.monotonic()-1.)
+    monkeypatch.setattr(runner_module.rospy,'logerr_throttle',lambda *a,**k:None,raising=False)
+    bad=dict(expected,goal_digest='0'*64,received_at=expected['generated_at']+.1)
+    runner._on_command_delivery(SimpleNamespace(data=json.dumps(bad)))
+    assert not runner.metrics['command_deliveries']
+    runner._on_command_delivery(SimpleNamespace(data=json.dumps(
+        dict(expected,received_at=expected['generated_at']+.1))))
+    runner._await_command_delivery(identities,time.monotonic()+1.)
 
 
 def test_native_support_result_keeps_booking_until_group_finishes(runner_module,tmp_path):
@@ -548,6 +574,20 @@ def test_timeout_keeps_members_reserved(runner_module, tmp_path, monkeypatch):
     assert len(sent) == 1
     assert runner.active_executor_ids == {unit.executor_id}
     assert item.status == "RUNNING"  # outer handler records UNKNOWN_LOCKED
+
+
+def test_unreceived_finite_command_never_reaches_action_client(runner_module,tmp_path):
+    runner,item,unit=dispatch_setup(runner_module,tmp_path)
+    runner.command_delivery_required=True
+    runner._announce_command=lambda *args:('unreceived',)
+    def unavailable(*args):
+        raise RuntimeError('finite command delivery unverified; retain member reservation')
+    runner._await_command_delivery=unavailable
+    sent=[]
+    runner.clients={unit.executor_id:SimpleNamespace(send_goal=lambda *a,**k:sent.append(a))}
+    with pytest.raises(RuntimeError,match='finite command delivery unverified'):
+        runner._dispatch_executor_item(item)
+    assert not sent and runner.active_executor_ids=={unit.executor_id}
 
 
 def test_selected_client_and_successful_result_release_next_item(runner_module, tmp_path):

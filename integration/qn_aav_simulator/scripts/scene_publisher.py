@@ -58,6 +58,7 @@ class SceneTransport:
         self.delivery=FiniteDelivery(self.last_time)
         self.receipts=rospy.Publisher('/mother/received_products',String,queue_size=100)
         self.notifications=rospy.Publisher('/mother/received_notifications',String,queue_size=100)
+        self.command_deliveries=rospy.Publisher('/mother/command_deliveries',String,queue_size=100)
         # Passive evaluation view only. The runner never consumes relay truth.
         self.progress=rospy.Publisher('/scene/delivery_progress',String,queue_size=1,latch=True)
         self.last_progress=-1.
@@ -69,6 +70,7 @@ class SceneTransport:
                 rospy.Subscriber(prefix+'/odometry',Odometry,lambda m,k=member:self.odom(k,m),queue_size=5),
                 rospy.Subscriber(prefix+'/diagnostics',DiagnosticArray,lambda m,k=member:self.mode(k,m),queue_size=5),
                 rospy.Subscriber(source+'/local_products',String,lambda m,k=member:self.produce(k,m),queue_size=100)))
+        self.subs.append(rospy.Subscriber('/mother/command_requests',String,self.command,queue_size=100))
         self.timer=rospy.Timer(rospy.Duration(.1),self.tick)
 
     def odom(self,key,msg):
@@ -125,6 +127,33 @@ class SceneTransport:
         except (ValueError,KeyError,TypeError) as error:
             rospy.logerr_throttle(2.,'Rejected local product: %s',str(error))
 
+    def command(self,msg):
+        from qn_aav_simulator.observation_coverage import DeliveryProduct
+        try:
+            event=json.loads(msg.data)
+            ident='command:'+event['command_id']
+            generated=event['generated_at'];now=rospy.Time.now().to_sec()
+            digest=event['goal_digest']
+            if (event['request_id']!=self.request.request_id or
+                    event['receiver'] not in ('drone_0','drone_1','drone_2','usv','uuv') or
+                    not isinstance(event['execution_id'],str) or not event['execution_id'] or
+                    not isinstance(event['command_id'],str) or not event['command_id'] or
+                    type(event['plan_revision']) is not int or event['plan_revision']<0 or
+                    type(event['required_bytes']) is not int or event['required_bytes']<=0 or
+                    not isinstance(digest,str) or len(digest)!=64 or
+                    any(char not in '0123456789abcdef' for char in digest) or
+                    not math.isfinite(generated) or not self.delivery.start_time<=generated<=now):
+                raise ValueError('invalid mother command identity, size or generation time')
+            with self.lock:
+                if ident in self.events:
+                    if self.events[ident]!=event:raise ValueError('conflicting duplicate command')
+                    return
+                self.events[ident]=event
+                self.delivery.produce(ident,DeliveryProduct('mother',event['receiver'],
+                    event['required_bytes'],generated,True))
+        except (ValueError,KeyError,TypeError) as error:
+            rospy.logerr_throttle(2.,'Rejected mother command: %s',str(error))
+
     def tick(self,_):
         from qn_aav_simulator.observation_coverage import declared_delivery_channels
         now=math.floor(rospy.Time.now().to_sec()*10.)/10.;out=[];progress=None
@@ -140,8 +169,10 @@ class SceneTransport:
             receipts=self.delivery.advance_all(now,declared_delivery_channels(
                 self.delivery.products,self.previous,states,self.obstacles,continuous))
             for ident in receipts:
-                kind,key=ident.split(':',1);notice=kind=='notice'
-                out.append((notice,dict(self.events[key],received_at=now)))
+                kind,key=ident.split(':',1)
+                if kind=='command':out.append((self.command_deliveries,dict(self.events[ident],received_at=now)))
+                else:out.append((self.notifications if kind=='notice' else self.receipts,
+                                 dict(self.events[key],received_at=now)))
             self.last_time=now;self.previous=states
             if now-self.last_progress>=.5:
                 progress=dict(at_ros_s=now,scope='INDEPENDENT_TRANSPORT_VIEW',products=[
@@ -154,8 +185,8 @@ class SceneTransport:
                 self.last_progress=now
         if progress is not None:
             self.progress.publish(self.String(data=json.dumps(progress,allow_nan=False)))
-        for notice,event in out:
-            (self.notifications if notice else self.receipts).publish(self.String(data=json.dumps(event,allow_nan=False)))
+        for publisher,event in out:
+            publisher.publish(self.String(data=json.dumps(event,allow_nan=False)))
 
 
 class SceneView:

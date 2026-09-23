@@ -6,6 +6,7 @@ JOINT_OUTPUT="${1:?usage: docker_run_joint_request.sh new-output-directory}"
 JOINT_IMAGE="${JOINT_IMAGE:-swarm-formation-qn:joint-wip}"
 JOINT_VISUALIZE="${JOINT_VISUALIZE:-true}"
 JOINT_PLANNING_BUDGET_S="${JOINT_PLANNING_BUDGET_S:-10}"
+JOINT_SIM_CPUSET="${JOINT_SIM_CPUSET:-}"
 JOINT_PLANNER_CPUSET="${JOINT_PLANNER_CPUSET:-}"
 JOINT_VIEW_CPUSET="${JOINT_VIEW_CPUSET:-}"
 JOINT_VIEW_HOLD_S="${JOINT_VIEW_HOLD_S:-5}"
@@ -40,6 +41,7 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
   --env ROS_HOME=/tmp/joint-request-ros \
   --env JOINT_VISUALIZE="$JOINT_VISUALIZE" \
   --env JOINT_PLANNING_BUDGET_S="$JOINT_PLANNING_BUDGET_S" \
+  --env JOINT_SIM_CPUSET="$JOINT_SIM_CPUSET" \
   --env JOINT_PLANNER_CPUSET="$JOINT_PLANNER_CPUSET" \
   --env JOINT_VIEW_CPUSET="$JOINT_VIEW_CPUSET" \
   --env JOINT_VIEW_HOLD_S="$JOINT_VIEW_HOLD_S" \
@@ -52,7 +54,9 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
     set -eo pipefail
     source /opt/ros/noetic/setup.bash
     source /workspace/devel/setup.bash
-    roslaunch qn_aav_simulator five_qualification.launch record:=false \
+    sim_prefix=()
+    if [[ -n "$JOINT_SIM_CPUSET" ]]; then sim_prefix=(taskset -c "$JOINT_SIM_CPUSET"); fi
+    "${sim_prefix[@]}" roslaunch qn_aav_simulator five_qualification.launch record:=false \
       request_file:=/workspace/src/src/qn_aav_simulator/config/monitoring_request_joint.yaml \
       scene_file:=/experiments/scene.yaml visualize:="$JOINT_VISUALIZE" \
       usv_initial_position:="[-10.0, 4.0, 0.0]" > /experiments/current/launch.log 2>&1 &
@@ -90,7 +94,8 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
       /drone_2_qn/odometry /drone_2_qn/diagnostics
       /usv/odometry /usv/diagnostics /uuv/odometry /uuv/diagnostics
       /drone_0_planning/safety_status /drone_0_planning/trajectory
-      /mother/received_products /mother/received_notifications)
+      /mother/received_products /mother/received_notifications
+      /mother/command_requests /mother/command_deliveries)
     if [[ -n "$JOINT_VIEW_CPUSET" ]]; then record_cmd=(taskset -c "$JOINT_VIEW_CPUSET" "${record_cmd[@]}"); fi
     "${record_cmd[@]}" > /experiments/current/recorder.log 2>&1 &
     recorder_pid=$!

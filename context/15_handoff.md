@@ -1,5 +1,7 @@
 # 最新交接：分层监测需求基线与 AAV 本地停止保持
 
+> **2026-09-23 当前继续点**：受限下行Goal送达已接入现有`scene_publisher`/`FiniteDelivery`和正式runner；`20260923-command-gate-r1`组件实跑先收命令后发原生Action。`joint-command-gate-live-r2`在同一RViz/中文面板运行中10/10命令回执、9 Action验证、2摘要收件、AAV1/AAV2/USV返回、资源释放，**任务层PASS但独立整场审计FAIL**：模型/ROS峰值0.13555s、跨平台0.13567s>原0.05s，定位见`drift-probe.json`，其余场景/位置/净距/参考采用通过。r1因AIR动作0.08290s超时差门槛锁定。先查模型时间落后，不放宽阈值；然后才称同次完整运行有效。当前UUV待命、缺测复查和正式10秒规划仍未完成，用户示范几何及预算策略异步选择仍待答。细节见WORKLOG顶部和源/假设审计。
+
 > **2026-09-23 长Goal实跑交接**：原港口Otter/PVS同位置静止配平Goal的`terminal_wait=185s`、`execution_timeout=230s`已实际运行约192.28秒并获SUCCEEDED/终态已验证/资源未锁，19,230条状态样本、部署误差0.037713m；证据`experiments/20260923-pvs-long-timeout-r1/{result.json,execution.bag}`及WORKLOG顶部。只证明本机PVS期限不再隐截180秒，不代表UUV长航线/五平台请求完成；原REMUS港内失败及异步几何选择保留。
 
 > **2026-09-23 搜索补充**：`iter_execution_candidates()`已让AIR/跨介质原生候选通过现有有界子进程流逐个返回，不再等待同单元剩余方法列表；34项相关测试通过。`experiments/20260923-joint-stream-10s-r1`真实正式入口在原10秒预算下仍明确无完整计划、零Goal、零锁；不能宣称在线预算达标。预算选项的异步用户问题仍待答，见WORKLOG顶部。

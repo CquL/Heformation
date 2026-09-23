@@ -13,6 +13,8 @@ instead is which plan revision each dispatch actually read.
 """
 
 import json
+import hashlib
+import io
 import math
 import threading
 import time
@@ -196,6 +198,7 @@ class MissionRunner:
                         "formation_business_shape_verdict": "NOT_DEFINED"}
         self.plan = None
         self.finite_delivery=bool(rospy.get_param('/mission/request_file',''))
+        self.command_delivery_required=self.finite_delivery and self.planning_mode=='joint_request'
         if self.finite_delivery:
             from std_msgs.msg import String
             self.metrics['delivery_model']='FINITE_DECLARED_EXPERIMENT'
@@ -205,6 +208,12 @@ class MissionRunner:
                 self._on_received_product,queue_size=100))
             self.action_subs.append(rospy.Subscriber('/mother/received_notifications',String,
                 self._on_received_notification,queue_size=100))
+            if self.command_delivery_required:
+                self.command_requests=rospy.Publisher('/mother/command_requests',String,queue_size=100)
+                self.metrics['command_requests']={}
+                self.metrics['command_deliveries']={}
+                self.action_subs.append(rospy.Subscriber('/mother/command_deliveries',String,
+                    self._on_command_delivery,queue_size=100))
         for unit in self.units:
             endpoint = unit.action_endpoint.rstrip("/")
             action_type,goal_type,result_type=FormationAction,FormationActionGoal,FormationActionResult
@@ -306,6 +315,63 @@ class MissionRunner:
             self._save_executor()
         except (ValueError,TypeError,KeyError) as error:
             rospy.logerr_throttle(2.,'Rejected terminal receipt: %s',str(error))
+
+    def _on_command_delivery(self,message):
+        try:
+            event=json.loads(message.data)
+            ident=event['command_id']
+            with self.executor_mutex:
+                expected=self.metrics['command_requests'].get(ident)
+                if (expected is None or any(event.get(k)!=v for k,v in expected.items()) or
+                        not math.isfinite(event['received_at']) or
+                        event['received_at']<expected['generated_at']):
+                    raise ValueError('command receipt is not from this plan and Goal payload')
+                previous=self.metrics['command_deliveries'].get(ident)
+                if previous is not None:
+                    if previous!=event:raise ValueError('conflicting duplicate command receipt')
+                    return
+                self.metrics['command_deliveries'][ident]=event
+            self._save_executor()
+        except (ValueError,TypeError,KeyError) as error:
+            rospy.logerr_throttle(2.,'Rejected command delivery: %s',str(error))
+
+    def _announce_command(self,item,unit,payload,kind='goal'):
+        if not getattr(self,'command_delivery_required',False):return ()
+        from std_msgs.msg import String
+        encoded=io.BytesIO();payload.serialize(encoded)
+        data=encoded.getvalue()
+        if not data:raise RuntimeError('empty native command payload')
+        digest=hashlib.sha256(data).hexdigest();identities=[]
+        for member in unit.physical_agent_ids:
+            identity='|'.join((self.request.request_id,str(self.plan_revision),
+                               item.execution_id,kind,member,digest))
+            ident=hashlib.sha256(identity.encode('utf-8')).hexdigest()
+            with self.executor_mutex:
+                previous=self.metrics['command_requests'].get(ident)
+                if previous is None:
+                    previous=dict(command_id=ident,request_id=self.request.request_id,
+                        plan_revision=self.plan_revision,execution_id=item.execution_id,
+                        receiver=member,goal_digest=digest,required_bytes=len(data),
+                        generated_at=rospy.Time.now().to_sec())
+                    self.metrics['command_requests'][ident]=previous
+            self.command_requests.publish(String(data=json.dumps(previous,allow_nan=False)))
+            identities.append(ident)
+        self._save_executor()
+        return tuple(identities)
+
+    def _await_command_delivery(self,identities,deadline):
+        if not identities:return
+        while not rospy.is_shutdown():
+            with self.executor_mutex:
+                requests=self.metrics['command_requests']
+                delivered=self.metrics['command_deliveries']
+                if any(requests[ident]['plan_revision']!=self.plan_revision for ident in identities):
+                    raise RuntimeError('plan changed before finite command delivery; retain member reservation')
+                if all(ident in delivered for ident in identities):return
+            if time.monotonic()>=deadline:
+                raise RuntimeError('finite command delivery unverified before observation deadline; retain member reservation')
+            time.sleep(.05)
+        raise RuntimeError('shutdown before command delivery; retain member reservation')
 
     def _on_executor_odom(self, message, member):
         from qn_aav_simulator.odometry import parse_standard_odometry, OdometryContractError
@@ -766,11 +832,17 @@ class MissionRunner:
     def _send_executor_goal(self,item,unit,goal,action,sent_deadline=None):
         native=item.native_action
         client = self.clients[unit.executor_id]
+        node=self.server_nodes[unit.executor_id]
         def feedback(message):
             with self.executor_mutex:
                 action["phase"] = (message.operation if native else 'HOLDING' if message.phase==1 else 'MOVING')
-        if sent_deadline is None:client.send_goal(goal, feedback_cb=feedback)
-        node = self.server_nodes[unit.executor_id]
+        if sent_deadline is None:
+            if getattr(self,'command_delivery_required',False):
+                command_budget=(native.execution_timeout_s if native else
+                    float(rospy.get_param(node+'/execution_timeout',180.)))
+                identities=self._announce_command(item,unit,goal)
+                self._await_command_delivery(identities,time.monotonic()+command_budget)
+            client.send_goal(goal, feedback_cb=feedback)
         disposition_budget = (float(rospy.get_param(node + "/safety_hold_timeout_s", 180))
                               if rospy.get_param(node + "/safety_hold_enabled", False) else 0.0)
         deadline = (sent_deadline if sent_deadline is not None else time.monotonic() +
@@ -823,6 +895,9 @@ class MissionRunner:
             for item,action in zip(items,actions):self.metrics.setdefault('current_actions',{})[item.execution_id]=action
         self._save_executor()
         try:
+            commands=tuple(ident for item,unit,goal in zip(items,units,goals)
+                for ident in self._announce_command(item,unit,goal))
+            self._await_command_delivery(commands,deadline)
             for item,unit,goal,action in zip(items,units,goals,actions):
                 def feedback(message,a=action):
                     with self.executor_mutex:
@@ -854,8 +929,15 @@ class MissionRunner:
                 try:
                     item=items[index];unit=units[index]
                     service=self.server_nodes[unit.executor_id]+'/start_prepared'
+                    if getattr(self,'command_delivery_required',False):
+                        from qn_aav_simulator.srv import StartPreparedActionRequest
+                        request=StartPreparedActionRequest(identities[index][0],generations[index])
+                        command=self._announce_command(item,unit,request,kind='start')
+                        self._await_command_delivery(command,deadline)
                     rospy.wait_for_service(service,timeout=max(.001,deadline-time.monotonic()))
-                    response=rospy.ServiceProxy(service,StartPreparedAction)(identities[index][0],generations[index])
+                    proxy=rospy.ServiceProxy(service,StartPreparedAction)
+                    response=(proxy(request) if getattr(self,'command_delivery_required',False) else
+                              proxy(identities[index][0],generations[index]))
                     replies.put((index,response.accepted,response.reason))
                 except Exception as error:replies.put((index,False,str(error)))
             pending=set(range(len(items)));waiting=set()

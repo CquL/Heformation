@@ -118,13 +118,25 @@ def declared_delivery_channels(products,previous,states,obstacles=(),continuous=
         if source not in samples or destination not in samples:return False
         a,ma=samples[source];b,mb=samples[destination]
         if water:
-            if ma!='WATER' or mb!='SURFACE':return False
+            if {ma,mb}!={'WATER','SURFACE'}:return False
         elif ma not in ('AIR','SURFACE') or mb not in ('AIR','SURFACE'):return False
         return math.dist(a,b)<=(8. if water else 30.) and not any(o.blocks(a,b) for o in obstacles)
     acoustic=[];radio=[]
     for ident,product in products.items():
         if product.received_at is not None:continue
         source=product.producer
+        if source=='mother':
+            destination=product.receiver
+            radio.append((ident,'mother',destination,continuous and
+                link(previous,'mother',destination,False) and link(states,'mother',destination,False)))
+            if destination!='usv':
+                radio.append((ident,'mother','usv',continuous and
+                    link(previous,'mother','usv',False) and link(states,'mother','usv',False)))
+                radio.append((ident,'usv',destination,continuous and
+                    link(previous,'usv',destination,False) and link(states,'usv',destination,False)))
+                acoustic.append((ident,'usv',destination,continuous and
+                    link(previous,'usv',destination,True) and link(states,'usv',destination,True)))
+            continue
         if source!='usv':
             acoustic.append((ident,source,'usv',continuous and
                 link(previous,source,'usv',True) and link(states,source,'usv',True)))

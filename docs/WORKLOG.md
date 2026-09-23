@@ -1,3 +1,12 @@
+## 2026-09-23 UTC — 有限下行命令进入同一传输模型；同次可视化任务完成但全程时间审计失败
+
+- 计划：补当前`FiniteDelivery`只有平台→母船上行、没有母船→USV/AAV/UUV下行的真实断点。第一版命令仍由原Action执行，但发送前必须得到原场景传输节点对同请求、Plan代次、执行活动及Goal载荷摘要的有限送达回执；不新增协调节点、通用数据协议或任意速率。依据是原固定链路/步首共享容量合同、[Guo–Zavlanos间歇会合](https://arxiv.org/html/1706.02092)的先约定通信机会原则以及[APEX-MR实际事件释放](https://arxiv.org/html/2503.15836v2)的执行依赖语义；具体字节与Goal校验来自本仓库ROS消息/现有任务权威，论文不提供设备性能。
+- 实际：`declared_delivery_channels()`增加母船直达/经USV的RF与USV→水下的声学反向流，保留同一0.1秒步首前缀与共享容量；`scene_publisher.py`在已有传输节点接收`/mother/command_requests`，经真实五平台Odometry/实际介质/声明实体遮挡计算，再发布`/mother/command_deliveries`。正式`joint_request` worker只在同请求、Plan修订、execution_id、接收成员、序列化Goal SHA-256与字节数匹配的回执后发送Goal；组级预装Goal先为所有成员请求回执，启动服务请求也走此门；旧三机/七机入口不启用新门。命令按生成的Goal消息序列化长度计字节，**不包含TCPROS/actionlib链路开销**，故仍是声明实验模型。动态bag增加两命令话题；中文面板增加短“指令已达 n/m”任务权威提示。11项有限传输与34项runner相关测试通过，语法与diff检查通过。
+- 组件实跑：`20260923-command-gate-r1`在原港口ROS场景由真实传输节点先于Action派发收到267字节USV命令（收于1790201242.9，Goal发于1790201243.0084），随后原生Otter Action SUCCEEDED、终态verified、资源未锁。`20260923-joint-command-gate-live-r1`正式长预算+RViz/中文面板中USV/AAV命令2/2送达，USV Result成功，但AAV首段因同次qn模型/ROS峰值偏差0.082896s>0.05s而实验INVALID/父资源锁；安全判据未放宽。其诊断显示末段约0.1s积分落后后追平，不把命令门控本身写成已证明的时间漂移原因。
+- 同请求复验：仅将动力学/Action进程限CPU0–11、规划限12–15、渲染和录包限24–31的`20260923-joint-command-gate-live-r2`，原360秒**隔离诊断规划**得到同一三活动计划；10条命令请求/10条实际送达在同次bag可核，9子Action均verified、两个32KiB观测结果和终结通知到母船、交付1.0、AAV1/AAV2/USV回区0.09424m/约0/0.03771m、资源锁空、任务权威状态`PASS_GEOMETRIC_PROXY_QUALIFICATION`，运行中中文面板与RViz真窗口图已保存（新最终帧因窗口按脚本关闭未捕获）。**独立全程审计仍FAIL**：唯一失败`model time alignment failed`，全程峰值模型/ROS漂移0.13555s、跨平台0.13567s均大于原0.05s；3240个执行期对齐位置样本0缺失、最小五平台代理净距1.46444m、声明实体云发布者/哈希/单条bag及AIR回程参考采用均合格。`drift_probe`把最大落后定位为drone_1在首Goal后115.61s、另一机动作期间，单步最大间隔约0.0305s、GC峰值约0.00045s；**不能仅据此断言CPU亲和性或垃圾回收的单一根因**。
+- 证据：`experiments/20260923-command-gate-r1/{result.json,execution.bag}`；`experiments/20260923-joint-command-gate-live-{r1,r2}/{metrics.json,execution.bag,scene-once.bag,*.diagnostics.json}`，r2另有`{dashboard-running.png,dashboard-water.png,rviz-running.png,rviz-water.png,safety-audit.json,drift-probe.json}`；上述生产源码与测试。bag中独立记录命令请求10条/送达10条/观测产品2条。所有实验目录本地忽略，WORKLOG保存可追溯命令与结果口径。
+- 未完成／下一步：下行控制门已接到现有worker，但Action Result本身尚未作为有限上行控制通知计容量；本轮收件判定对观测产品/终结报告已受容量限制，不能扩称完整受限控制协议。修复模型时间落后且全程独立审计PASS之前，r2不能作最终整场有效验收；UUV实际参与、第二USV会合、真实缺测复查和默认10秒初始求解仍未完成。保留r1/r2原始失败，不改0.05s门槛、模型步数或业务要求。
+
 ## 2026-09-23 UTC — 原港口PVS超过180秒的Action实际终态复验
 
 - 计划：验证上一轮去掉隐藏`min(Goal期限,180秒)`后，真实ROS Action是否能够超过旧上限仍继续积分、给出有限终态Result，而不靠改业务点、放宽安全判据或伪造模型时间。

@@ -70,6 +70,38 @@ def test_air_result_uses_shared_rf_to_usv_then_mother_without_instant_relay():
     assert ledger.advance_all(.2,channels)==('air',)
 
 
+def test_mother_command_uses_rf_then_acoustic_without_instant_downlink():
+    from qn_aav_simulator.observation_coverage import declared_delivery_channels
+    ledger=FiniteDelivery()
+    ledger.produce('command',DeliveryProduct('mother','uuv',100,0.,True))
+    states={'mother':((15.,-8.,2.),'SURFACE'),
+            'usv':((0.,8.,0.),'SURFACE'),
+            'uuv':((0.,8.,-2.),'WATER')}
+    channels=declared_delivery_channels(ledger.products,states,states)
+    assert ledger.advance_all(.1,channels)==()
+    assert ledger.products['command'].received_prefix['usv']==100
+    assert ledger.products['command'].received_prefix.get('uuv',0.)==0.
+    assert ledger.advance_all(.2,channels)==('command',)
+
+
+def test_command_and_observation_share_the_same_acoustic_capacity():
+    from qn_aav_simulator.observation_coverage import declared_delivery_channels
+    ledger=FiniteDelivery()
+    ledger.produce('observation',DeliveryProduct('uuv','mother',150,0.,True))
+    ledger.produce('command',DeliveryProduct('mother','uuv',150,0.,True))
+    states={'mother':((15.,-8.,2.),'SURFACE'),
+            'usv':((0.,8.,0.),'SURFACE'),
+            'uuv':((0.,8.,-2.),'WATER')}
+    channels=declared_delivery_channels(ledger.products,states,states)
+    assert ledger.advance_all(.1,channels)==()
+    # Both directions use the single declared 2 KiB/s acoustic channel.
+    first=ledger.products['observation'].received_prefix.get('usv',0.)
+    second=ledger.products['command'].received_prefix.get('uuv',0.)
+    assert first+second<=204.8+1e-9
+    assert first==150 and second==0
+    assert set(ledger.advance_all(.2,channels))=={'command','observation'}
+
+
 def test_air_product_published_at_action_terminal_needs_committed_following_reference():
     import time
     from qn_aav_simulator.observation_coverage import predict_received_events

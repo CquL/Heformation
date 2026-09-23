@@ -612,8 +612,11 @@ class MissionDashboard:
         if not rows:line(.79,'正在规划；确认前不派发',12)
         locks=state.get('resource_locks',[])
         line(.44,'占用／锁定：'+('、'.join(member_name(k) for k in locks) or '无'),12)
-        line(.38,'母船确认接收：{:.0%}   已确认业务结果：{} 项'.format(
-            state.get('delivered_fraction',0.),len(state.get('results_received',[]))),13)
+        commands=state.get('command_requests',{})
+        command_status=(' · 指令已达 {}/{}'.format(len(state.get('command_deliveries',{})),len(commands))
+                        if commands else '')
+        line(.38,'母船结果 {:.0%} · 业务 {} 项{}'.format(
+            state.get('delivered_fraction',0.),len(state.get('results_received',[])),command_status),12)
         line(.32,'传输过程（独立仿真视图，不作为任务完成判定）',11)
         if not progress or now-progress.get('at_ros_s',0.)>2.:
             detail='传输状态缺失／过期，不能推断接收进度'

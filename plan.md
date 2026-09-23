@@ -1,6 +1,6 @@
 # Heformation 三类平台协同任务实施计划
 
-> 当前验收进度（2026-09-23）：现有MissionRunner的`joint_request`入口已在同一五平台港口ROS会话完成用户确认、AAV2 AIR＋USV支援、AAV1七步跨介质水下观测/返回、两份母船收件和锁释放；中文RViz/任务面板的最终完成帧及同次静态场景bag＋动态执行bag全项独立安全审计均有证据。该结果仍是声明初态几何代理、360秒隔离规划的普通两区域资格仿真；UUV在此请求待命。当前未完成的是REMUS合格回区与实际参与、收到真实缺测报告后的一轮重搜/Action、在线内部状态修复、正式10秒规划和最终三类平台共同任务。继续顺序及旧失败边界见`context/02_current_status.md`和WORKLOG顶部，不能用本轮通过代替最终验收。
+> 当前验收进度（2026-09-23）：既有`joint-runner-live-audited-r1`仍是同次静态云＋动态bag**全项独立审计PASS**的两区域资格基线，UUV待命。新增有限下行Goal门之后，`joint-command-gate-live-r2`的正式runner在同一RViz/中文面板中得到10/10命令送达、九段原生Action、两份母船收件、AAV1/AAV2/USV规定返回及资源释放；但**独立全程审计FAIL**，唯一失败是模型/ROS及跨成员时间偏差超过原0.05s门槛。任务层PASS不等于该次仿真有效。当前仍缺REMUS合格回区与实际参与、真实缺测后的联合重搜/Action、在线内部状态修复、正式10秒规划和最终三类平台共同任务；新命令门的Action Result上行尚未计入有限容量。继续顺序、负例与证据见`context/02_current_status.md`及WORKLOG顶部。
 
 ## 1. 目标、依据与默认选择
 
