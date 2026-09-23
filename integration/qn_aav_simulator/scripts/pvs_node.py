@@ -117,7 +117,7 @@ class PvsNode:
                     raise ValueError('finite positive timeout required')
                 wait=getattr(goal,'terminal_wait',None)
                 terminal_wait_s=wait.to_sec() if wait is not None else 0.
-                if not math.isfinite(terminal_wait_s) or not 0<=terminal_wait_s<min(timeout,180.):
+                if not math.isfinite(terminal_wait_s) or not 0<=terminal_wait_s<timeout:
                     raise ValueError('terminal wait must fit the observation deadline')
                 from qn_aav_simulator.observation_coverage import LocalObservationWindow
                 ids=getattr(goal,'observation_ids',())
@@ -145,7 +145,7 @@ class PvsNode:
         self.generation+=1
         self.work=dict(handle=handle,id=ident,task=task,paths=paths,segment=0,point=1,
                        coast=False,settled=None,cause='',model_start=self.backend.time_s,waiting_commit=prepare_only,
-                       deadline=time.monotonic()+min(timeout,180.),observations=observations,ros_start=rospy.Time.now().to_sec(),
+                       deadline=time.monotonic()+timeout,observations=observations,ros_start=rospy.Time.now().to_sec(),
                        terminal_wait_s=terminal_wait_s,return_left=False,return_reentered=False)
         if self.last_prediction.get('goal_id')==ident:
             self.last_prediction['accepted_model_time_s']=self.backend.time_s
@@ -155,7 +155,7 @@ class PvsNode:
         try:
             prediction=bounded_travel_query(ExecutorTravelTimeProvider.query_native_fragment,
                 (token['backend'],token['paths'],self.effort,self.scene,token['deadline'],
-                 self.dt,self.speed_limit,self.hold_seconds+token['terminal_wait_s'],min(token['timeout'],180.)),token['deadline'])
+                 self.dt,self.speed_limit,self.hold_seconds+token['terminal_wait_s'],token['timeout']),token['deadline'])
         except Exception as exc:
             prediction=dict(status='UNKNOWN',reason=str(exc))
         # Same order as actionlib goal/cancel callbacks; never model->actionlib.
