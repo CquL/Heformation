@@ -96,6 +96,29 @@ def test_native_result_commits_motion_without_creating_coverage(runner_module,tm
     assert runner.active_executor_ids=={unit.executor_id}
 
 
+def test_remus_through_return_uses_matching_terminal_result(runner_module,tmp_path):
+    from dataclasses import replace
+    runner,item,_,_=native_setup(runner_module,tmp_path)
+    action=replace(item.execution_steps[0].native_action,observation_ids=('water_sample',))
+    item.execution_steps=(replace(item.execution_steps[0],native_action=action),)
+    item.status='COMPLETED'
+    site={'radius_m':.8056208785775105}
+    result=dict(goal_id='native-goal',task_completed=True,terminal_verified=True,
+                resource_locked=False,actual_mode='WATER')
+    row=dict(execution_id=item.execution_id,result='SUCCEEDED',goal_id='native-goal',native_result=result)
+    runner.metrics['executions']=[row]
+    assert runner._member_return_complete('uuv',18.,site)==(True,'NATIVE_REENTRY_AND_COAST_RESULT')
+    assert runner._member_return_complete('usv',18.,site)[0] is False
+    row['goal_id']='stale-goal'
+    assert runner._member_return_complete('uuv',18.,site)[0] is False
+    row['goal_id']='native-goal';result['terminal_verified']=False
+    assert runner._member_return_complete('uuv',18.,site)[0] is False
+    result['terminal_verified']=True
+    runner.plan.items.append(replace(item,execution_id='later-uuv-goal',planned_start=65.,
+                                     planned_finish=100.,actual_finish=100.))
+    assert runner._member_return_complete('uuv',18.,site)[0] is False
+
+
 def test_native_support_result_keeps_booking_until_group_finishes(runner_module,tmp_path):
     runner,item,unit,result=native_setup(runner_module,tmp_path)
     runner._refresh_executor_timing=lambda _: (_ for _ in ()).throw(

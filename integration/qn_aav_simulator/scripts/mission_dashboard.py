@@ -572,7 +572,7 @@ class MissionDashboard:
                'RUNNING':'协作执行中','RUNNING_DIAGNOSTIC':'同请求诊断执行中',
                'PASS_JOINT_NO_RETURN_DIAGNOSTIC':'空中／水下交付完成（无返回诊断）',
                'PASS_AAV_CROSS_MEDIUM_DIAGNOSTIC':'跨介质观测与返回完成（诊断）',
-               'PASS_GEOMETRIC_PROXY_QUALIFICATION':'两区域观测、收件与返回完成（几何代理）',
+               'PASS_GEOMETRIC_PROXY_QUALIFICATION':'规定作业、收件与返回完成（几何代理）',
                'PASS_WATER_GEOMETRIC_PROXY':'水下阶段完成（几何观测代理）',
                'PASS_AIR_SUPPORT_COMPONENT':'空中与无人船组件完成（几何代理）',
                'FAILED':'失败，请查看原因与资源锁定',
@@ -629,10 +629,17 @@ class MissionDashboard:
         reason=state.get('failure_reason','')
         if reason:
             line(.16,'失败：'+textwrap.fill(reason,62),10,'#b71c1c')
+        elif state.get('return_completion'):
+            parts=[]
+            for member,row in state['return_completion'].items():
+                name={'uuv':'潜航器','usv':'无人船'}.get(member,member_name(member))
+                method='通过式' if row.get('evidence')=='NATIVE_REENTRY_AND_COAST_RESULT' else '回区'
+                parts.append(name+method+('完成' if row.get('completed') else '未证实'))
+            line(.16,'返回：'+'、'.join(parts),10)
         else:
             line(.16,'实际收件与 Action 结果分别判断。',10)
         if status=='PASS_GEOMETRIC_PROXY_QUALIFICATION':
-            conclusion='两区域观测、实际收件与参与成员返回已完成；本次未触发异常复查。'
+            conclusion='规定作业、实际收件与参与成员返回已完成；复查以任务记录为准。'
         elif status in ('FAILED','FAIL','UNKNOWN_LOCKED'):
             conclusion='本请求未完成；请查看失败原因与成员占用。'
         else:

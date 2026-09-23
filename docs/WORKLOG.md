@@ -1,3 +1,11 @@
+## 2026-09-23 UTC — 总请求结项按REMUS通过式返回合同读取实际Result
+
+- 计划：消除已核实的语义冲突：PVS本机Action已在观测后核“离开→重进部署区→原生安全尾段”，但`joint_request`最终还用末端位置在回区球内要求UUV，必将用户认可的合法通过式返回误判失败。
+- 实际：仅在现有`MissionRunner`结项增加成员返回判定。AAV/USV仍用新鲜实际位置对明确部署区半径；UUV只接受本计划中该成员**最后一项活动**匹配的`COAST_STOP`水下观测Goal的同GoalID成功原生Result，并要求`task_completed/terminal_verified`且资源未锁、实际介质WATER。旧Result不能替新UUV活动作返回证据。结项保留末端距离供展示，同时新增`return_completion`记录各成员的判定及证据类型；中文任务面板有该权威结果时用短字显示“回区/通过式完成或未证实”，不自行读真值推断，完成标题不再写死“两区域”。不改本机PVS重进/尾段检查，不加Action字段或控制器。
+- 结果：旧GoalID、未验证尾段不能使UUV返回通过；合法Result允许终点在部署区外；USV仍必须末态在区内。`test_executor_runner.py`全文件32项通过，其中新增一项针对上述正反例；尚未获得>180秒真实UUV Action和总请求结项实跑，不能称三类平台完成。
+- 证据：`formation_mission_runner.py::_member_return_complete/_run_joint_request`，`test_executor_runner.py::test_remus_through_return_uses_matching_terminal_result`；本地`pvs_node.py::_needs_return_entry/finish`与用户确认的通过式返回定义。
+- 未完成／下一步：等待示范几何答复后，用实际Action证明同GoalID重进/尾段/有限收件/结项；失约和观测缺失依旧按原锁定或修复路径处理。
+
 ## 2026-09-23 UTC — PVS原生Goal观察期限不再被隐藏的180秒截断
 
 - 计划：REMUS原模型通过式回区及安全尾段约346模型秒；核查本地Action能否接受由完整方法预测给出的更长**有限**Goal期限，不能通过提高速度或忽略尾段把动作挤进180秒。

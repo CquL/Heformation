@@ -668,6 +668,28 @@ class MissionRunner:
                 result.task_completed and result.terminal_verified and not result.resource_locked and
                 result.actual_mode==native.final_mode and result.reason==reason)
 
+    def _member_return_complete(self,member,distance,site):
+        if member!='uuv':
+            return distance<=site['radius_m'],'ACTUAL_TERMINAL_IN_RETURN_SITE'
+        # The REMUS endpoint verifies observation-after-departure, re-entry
+        # and its safe coast tail before this specific native Result succeeds.
+        # Its final position can legitimately lie outside the return ball.
+        activities=[item for item in self.plan.items if member in item.coalition]
+        if activities:
+            item=max(activities,key=lambda item:(item.actual_finish if item.actual_finish is not None
+                                                 else item.planned_finish,item.execution_id))
+            native=item.native_action
+            if (item.fulfills_task and item.status=='COMPLETED' and native is not None and
+                    native.terminal_behavior=='COAST_STOP' and native.observation_ids):
+                for row in self.metrics['executions']:
+                    result=row.get('native_result')
+                    if (row.get('execution_id')==item.execution_id and row.get('result')=='SUCCEEDED' and
+                            result is not None and result.get('goal_id')==row.get('goal_id') and
+                            result.get('task_completed') and result.get('terminal_verified') and
+                            not result.get('resource_locked') and result.get('actual_mode')=='WATER'):
+                        return True,'NATIVE_REENTRY_AND_COAST_RESULT'
+        return False,'NATIVE_REENTRY_AND_COAST_RESULT_MISSING'
+
     def _wait_observation_report(self,goal_id,timeout):
         deadline=time.monotonic()+timeout
         while not rospy.is_shutdown():
@@ -1412,11 +1434,14 @@ class MissionRunner:
             returns={member:math.dist(sample.position,scene['return_sites'][member]['position'])
                      for member,sample in samples.items()}
             self.metrics['return_distance_m']=returns
+            self.metrics['return_completion']={member:dict(completed=completed,evidence=evidence)
+                for member,distance in returns.items()
+                for completed,evidence in (self._member_return_complete(
+                    member,distance,scene['return_sites'][member]),)}
             complete=(all(item.status=='COMPLETED' for item in self.plan.items) and
                 not self.active_executor_ids and delivered==1. and
                 set(self.metrics['results_received'])=={task.task_id for task in tasks} and
-                all(distance<=scene['return_sites'][member]['radius_m']
-                    for member,distance in returns.items()))
+                all(row['completed'] for row in self.metrics['return_completion'].values()))
             self.metrics['status']='PASS_GEOMETRIC_PROXY_QUALIFICATION' if complete else 'FAILED'
             if not complete:self.metrics['failure_reason']='actual work, receipt or return incomplete'
             self._save_executor()
