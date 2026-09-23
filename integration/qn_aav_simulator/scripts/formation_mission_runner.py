@@ -1387,6 +1387,10 @@ class MissionRunner:
         from qn_aav_simulator.qn_python_backend import QnPythonClosedLoopBackend
         from qn_aav_simulator.task_line import build_request_executor_plan, retest_tasks
         timer=None
+        self.points={point.point_id:point.position for region in self.request.regions
+                     for point in region.interest_points}
+        self.weights={point.point_id:point.weight for region in self.request.regions
+                      for point in region.interest_points}
         try:
             if self.executor_serial or not self.finite_delivery:
                 raise RuntimeError('joint request requires parallel executor and actual finite receipt inputs')
@@ -1397,10 +1401,6 @@ class MissionRunner:
             geometry=StaticSceneGeometry.from_mapping(scene)
             if geometry is None or not scene.get('return_sites'):
                 raise RuntimeError('joint request needs the declared obstacle scene and return sites')
-            self.points={point.point_id:point.position for region in self.request.regions
-                         for point in region.interest_points}
-            self.weights={point.point_id:point.weight for region in self.request.regions
-                          for point in region.interest_points}
             positions={};models={}
             for member in ('drone_0','drone_1','drone_2'):
                 node='/'+member+'_qn_aav'

@@ -1,3 +1,12 @@
+## 2026-09-23 UTC — 五平台同运行时间失效的核拓扑反例、原qn热路径与早期失败记录修正
+
+- 计划：独立审计已指出`joint-command-gate-live-r2`全程时间偏差0.13555s>原0.05s。尝试只改变OS进程核放置来区分负载干扰与模型计算，不改原qn/PVS方程、积分步、ROS时间戳、状态新鲜度或审计门槛；同时核对任何早期失败能否如实留在任务权威结果。
+- 实际：r3将三台qn手动固定逻辑CPU0/1/2、其余仿真3–11、规划12–15、显示24–31；实际AIR首段仍因模型/ROS峰值0.07116s而INVALID/锁定，终态中文面板与RViz真窗口由观察器捕获。随后查本机`/sys/devices/system/cpu/cpu*/topology/thread_siblings_list`，发现CPU0/1和2/3分别为**同物理核心的超线程**，r3的所谓独立核其实让qn0/qn1共享一个核心、qn2又与其它仿真进程共享核心。r4将三台qn真正分开放在CPU0/2/4、其它仿真6–11，规划与显示不变；本次在Goal前即由AAV1就绪门拒绝，30秒基线模型/ROS偏差0.0585s>0.05s、零Goal。r4失败保存状态时又因`joint_request`此前在就绪检查之后才设置`self.weights`而抛`AttributeError`，掩盖原始原因；现只把请求点/权重初始化移到就绪检查前，保持原失败判定。针对性“就绪失败保留原原因”测试及相关49项通过。
+- 热路径核对：只读`20260923-qn-step-profile`在同一Python原qn后端、`model_step_s=.001`及原港口几何下完整积分10模型秒的纯计算约1.90秒墙钟；1000个外层步中位1.885ms、P99约1.989ms、最大2.006ms。cProfile主要耗在原`qn_closed_loop_ode4_step`和控制器/刚体导数；该隔离结果不能把ROS实跑偶发20ms后端墙钟步精确归咎于控制方程、Python GC或某一OS进程。r3同次qn1诊断最慢外层步23.45ms，其中后端20.05ms，GC峰值0.00046s；核拓扑与调度竞争是合理调查方向，尚非完整因果证明。
+- 结果：r3和r4均不是可用完整请求正例；所有时间失败按原门槛保留，未用跳过待命成员、改时间戳或减少积分步制造通过。早期失败现在可在任务权威`FAIL`及`failure_reason`保留而不被`weights`异常覆盖；ROS r4原现场仍保留旧遮蔽失败作为历史证据，修正后的早期故障已由确定性接口测试复核，未称新ROS实跑。
+- 证据：`experiments/20260923-joint-command-gate-live-r3/{metrics.json,*.diagnostics.json,execution.bag,dashboard-terminal.png,rviz-terminal.png}`、`...r4/{runner.log,launch.log,execution.bag}`、`experiments/20260923-qn-step-profile/{probe.py,result.json}`（本机忽略目录）；本机CPU拓扑sysfs与`qn_aav_node.py`现有逐步时间诊断；`formation_mission_runner.py::_run_joint_request`及`test_executor_runner.py::test_joint_readiness_failure_preserves_original_reason`。
+- 未完成／下一步：需要继续定位ROS运行时持续/偶发调度落后并取得同次全程时间审计PASS，不能以独立纯模型速度或任务层PASS替代。当前AAV+USV两区域全链仍以旧`joint-runner-live-audited-r1`为全项审计通过基线；新增有限下行版本尚无整场有效正例。最终UUV实际参与、真实复查、在线完整状态修复及10秒默认求解仍未完成。
+
 ## 2026-09-23 UTC — 有限下行命令进入同一传输模型；同次可视化任务完成但全程时间审计失败
 
 - 计划：补当前`FiniteDelivery`只有平台→母船上行、没有母船→USV/AAV/UUV下行的真实断点。第一版命令仍由原Action执行，但发送前必须得到原场景传输节点对同请求、Plan代次、执行活动及Goal载荷摘要的有限送达回执；不新增协调节点、通用数据协议或任意速率。依据是原固定链路/步首共享容量合同、[Guo–Zavlanos间歇会合](https://arxiv.org/html/1706.02092)的先约定通信机会原则以及[APEX-MR实际事件释放](https://arxiv.org/html/2503.15836v2)的执行依赖语义；具体字节与Goal校验来自本仓库ROS消息/现有任务权威，论文不提供设备性能。

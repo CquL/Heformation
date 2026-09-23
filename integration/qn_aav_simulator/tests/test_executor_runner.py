@@ -590,6 +590,26 @@ def test_unreceived_finite_command_never_reaches_action_client(runner_module,tmp
     assert not sent and runner.active_executor_ids=={unit.executor_id}
 
 
+def test_joint_readiness_failure_preserves_original_reason(runner_module,tmp_path):
+    from qn_aav_simulator.observation_coverage import CoverageResult
+    runner=make_runner(runner_module,tmp_path)
+    runner.request=load_request(Path(__file__).parents[1]/'config/monitoring_request_joint.yaml')
+    runner.fleet=['drone_0','drone_1','drone_2','usv','uuv']
+    runner.executor_serial=False;runner.finite_delivery=True
+    runner.coverage=CoverageResult();runner.plan_revision=0;runner.plan=None
+    runner.metrics.update(status='STARTING',request_id=runner.request.request_id,
+        plan_history=[],resource_locks=[],coverage={},observed_fraction=0.,
+        delivered_fraction=0.,observation_model='GEOMETRIC_PROXY',
+        payload_quality='UNVERIFIED',failure_reason='')
+    runner._save_executor=lambda:runner._save_executor_locked()
+    runner._wait_executor_ready=lambda _: (_ for _ in ()).throw(
+        RuntimeError('time baseline not qualified'))
+    runner._run_joint_request()
+    assert runner.metrics['status']=='FAIL'
+    assert runner.metrics['failure_reason']=='time baseline not qualified'
+    assert set(runner.weights)=={'air_sample','water_sample'}
+
+
 def test_selected_client_and_successful_result_release_next_item(runner_module, tmp_path):
     runner, item, unit = dispatch_setup(runner_module, tmp_path)
     result = SimpleNamespace(task_id=item.execution_id, goal_id="native-goal", reason=0,
