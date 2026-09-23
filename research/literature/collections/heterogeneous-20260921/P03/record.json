@@ -1,0 +1,57 @@
+{
+  "id": "P03",
+  "title": "A Decoupled Solution to Heterogeneous Multi-Formation Planning and Coordination for Object Transportation",
+  "doi": "10.1016/j.robot.2024.104773",
+  "arxiv": null,
+  "official_url": "https://www.sciencedirect.com/science/article/pii/S092188902400157X",
+  "code_urls": [
+    "https://github.com/HyPAIR/Heterogeneous-formation-controller"
+  ],
+  "source_index": "references_verified_20260921.json",
+  "prior_read_scope": "本轮未成功取得论文全文；核对出版记录、作者机构摘要、作者README及实际源码。",
+  "prior_code_scope": "读取README、src目录和heterogeneous_formation_controller/src/task_assignment/ta_test_node.cpp。ROS Noetic、yaml-cpp、MOSEK许可；未构建运行。",
+  "mechanism_from_supplied_review": "异构地面车辆的编队生成、编队运动规划和多编队协调，用于协同运输。",
+  "boundary_from_supplied_review": "本轮所查task_assignment示例按车型分组后，以起终点欧氏距离构造成本并做Hungarian匹配。这是到目标位置的分配，不足以证明具备多业务任务调度。不是空—水—潜系统。",
+  "project_use_from_supplied_review": "直接研究异构运动约束与编队执行的工程组织；不要因task_assignment目录名就整套替换业务调度。",
+  "access_attempts": [
+    {
+      "url": "https://www.sciencedirect.com/science/article/pii/S092188902400157X",
+      "checked_utc": "2026-09-21T05:44:10.146552+00:00",
+      "http_status": 403,
+      "final_url": "https://www.sciencedirect.com/science/article/pii/S092188902400157X",
+      "content_type": "text/html; charset=UTF-8",
+      "result": "unresolved",
+      "error": "403 Client Error: Forbidden for url: https://www.sciencedirect.com/science/article/pii/S092188902400157X"
+    },
+    {
+      "url": "https://research.birmingham.ac.uk/files/235497554/zhang2024decoupled.pdf",
+      "checked_utc": "2026-09-21T05:45:15.799794+00:00",
+      "http_status": 403,
+      "final_url": "https://research.birmingham.ac.uk/files/235497554/zhang2024decoupled.pdf",
+      "content_type": "text/html; charset=UTF-8",
+      "result": "unresolved",
+      "error": "403 Client Error: Forbidden for url: https://research.birmingham.ac.uk/files/235497554/zhang2024decoupled.pdf"
+    },
+    {
+      "url": "https://simonzhang1999.github.io/paper/1-s2.0-S092188902400157X-main.pdf",
+      "checked_utc": "2026-09-21T05:46:56.657961+00:00",
+      "http_status": 200,
+      "final_url": "https://simonzhang1999.github.io/paper/1-s2.0-S092188902400157X-main.pdf",
+      "content_type": "application/pdf",
+      "result": "verified-pdf"
+    }
+  ],
+  "status": "downloaded-open-pdf",
+  "local_pdf": "research/literature/collections/heterogeneous-20260921/P03/paper.pdf",
+  "this_round_read_scope": "no fulltext; supplied review plus discovered metadata only",
+  "sha256": "d6f5db2f47b800dd92fb7d69814f4b9d37d69c0550880d05d189d91f193ab666",
+  "size_bytes": 4884052,
+  "pages": 21,
+  "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+  "source_url": "https://simonzhang1999.github.io/paper/1-s2.0-S092188902400157X-main.pdf",
+  "resolved_source_url": "https://simonzhang1999.github.io/paper/1-s2.0-S092188902400157X-main.pdf",
+  "downloaded_utc": "2026-09-21T05:46:56.657961+00:00",
+  "verified_pdf_title": "A Decoupled Solution to Heterogeneous Multi-Formation Planning and Coordination for Object Transportation",
+  "resolved_pdf": "research/literature/collections/heterogeneous-20260921/P03/paper.pdf",
+  "integrity_rechecked_utc": "2026-09-21T05:50:03.539423+00:00"
+}

@@ -1,0 +1,37 @@
+{
+  "id": "P18",
+  "title": "HetSwarm: Cooperative Navigation of Heterogeneous Swarm in Dynamic and Dense Environments through Impedance-based Guidance",
+  "doi": null,
+  "arxiv": "2502.06722",
+  "official_url": "https://arxiv.org/abs/2502.06722",
+  "code_urls": [],
+  "source_index": "references_verified_20260921.json",
+  "prior_read_scope": "核查arXiv正文的异构导航、引导和实验描述；正式会刊未确认。",
+  "prior_code_scope": "本轮未确认作者完整公开代码。",
+  "mechanism_from_supplied_review": "空地异构群体在动态拥挤环境中开展协同导航。",
+  "boundary_from_supplied_review": "协同导航不是全任务分配，平台也不是两栖转换。",
+  "project_use_from_supplied_review": "运动层补充对照，不按题名就替换现有主链。",
+  "access_attempts": [
+    {
+      "url": "https://arxiv.org/pdf/2502.06722",
+      "checked_utc": "2026-09-21T05:45:17.263781+00:00",
+      "http_status": 200,
+      "final_url": "https://arxiv.org/pdf/2502.06722",
+      "content_type": "application/pdf",
+      "result": "verified-pdf"
+    }
+  ],
+  "sha256": "56e93296d86bd353417aa18199f81b17a3b3447bcd19dcff0e18394ef79bb0d1",
+  "size_bytes": 1241008,
+  "pages": 7,
+  "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+  "status": "downloaded-open-pdf",
+  "source_url": "https://arxiv.org/pdf/2502.06722",
+  "resolved_source_url": "https://arxiv.org/pdf/2502.06722",
+  "downloaded_utc": "2026-09-21T05:45:17.263781+00:00",
+  "verified_pdf_title": "HetSwarm: Cooperative Navigation of Heterogeneous Swarm in Dynamic and Dense Environments through Impedance-based Guidance",
+  "local_pdf": "research/literature/collections/heterogeneous-20260921/P18/paper.pdf",
+  "resolved_pdf": "research/literature/collections/heterogeneous-20260921/P18/paper.pdf",
+  "this_round_read_scope": "download and identity inspection only; selected-section review pending",
+  "integrity_rechecked_utc": "2026-09-21T05:50:03.401025+00:00"
+}

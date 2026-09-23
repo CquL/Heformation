@@ -1,0 +1,45 @@
+{
+  "id": "P20",
+  "title": "Simultaneous Task Allocation and Planning for Temporal Logic Goals in Heterogeneous Multi-Robot Systems",
+  "doi": "10.1177/0278364918774135",
+  "arxiv": null,
+  "official_url": "https://journals.sagepub.com/doi/abs/10.1177/0278364918774135",
+  "code_urls": [],
+  "source_index": "references_verified_20260921.json",
+  "prior_read_scope": "核查期刊发表信息和摘要；本轮未完成全文审查。",
+  "prior_code_scope": "本轮未确认对应公开代码。",
+  "mechanism_from_supplied_review": "异构机器人面向时序逻辑目标的任务分配与规划。",
+  "boundary_from_supplied_review": "不是几何编队，不能把全部时序逻辑推理能力直接归给当前任务图。",
+  "project_use_from_supplied_review": "任务层联合规划的补充奠基来源，不再作为唯一主线。",
+  "access_attempts": [
+    {
+      "url": "https://kth.diva-portal.org/smash/get/diva2:1143759/FULLTEXT01.pdf",
+      "checked_utc": "2026-09-21T05:45:17.505355+00:00",
+      "http_status": 404,
+      "final_url": "https://kth.diva-portal.org/smash/get/diva2:1143759/FULLTEXT01.pdf",
+      "content_type": "text/html;charset=UTF-8",
+      "result": "unresolved",
+      "error": "404 Client Error: Not Found for url: https://kth.diva-portal.org/smash/get/diva2:1143759/FULLTEXT01.pdf"
+    },
+    {
+      "url": "https://people.kth.se/~dimos/pdfs/SchBurDimIJRR18.pdf",
+      "checked_utc": "2026-09-21T05:50:03.409200+00:00",
+      "http_status": 200,
+      "final_url": "https://people.kth.se/~dimos/pdfs/SchBurDimIJRR18.pdf",
+      "content_type": "application/pdf",
+      "result": "verified-pdf"
+    }
+  ],
+  "status": "downloaded-open-pdf",
+  "local_pdf": "research/literature/collections/heterogeneous-20260921/P20/paper.pdf",
+  "this_round_read_scope": "no fulltext; supplied review plus discovered metadata only",
+  "sha256": "873fcf3fbb7689e8ab9e8028a6f924a58551c1fb521c15b2a9e25292521af355",
+  "size_bytes": 864524,
+  "pages": 19,
+  "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+  "source_url": "https://people.kth.se/~dimos/pdfs/SchBurDimIJRR18.pdf",
+  "resolved_source_url": "https://people.kth.se/~dimos/pdfs/SchBurDimIJRR18.pdf",
+  "downloaded_utc": "2026-09-21T05:50:03.409200+00:00",
+  "verified_pdf_title": "Simultaneous Task Allocation and Planning for Temporal Logic Goals in Heterogeneous Multi-Robot Systems",
+  "resolved_pdf": "research/literature/collections/heterogeneous-20260921/P20/paper.pdf"
+}

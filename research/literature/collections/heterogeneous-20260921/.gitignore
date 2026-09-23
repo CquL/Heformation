@@ -1,0 +1,4 @@
+# Local reading copies and extraction are not repository artifacts.
+*/paper.pdf
+*/extracted.txt
+*.html

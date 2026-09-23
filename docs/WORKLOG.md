@@ -1,3 +1,115 @@
+## 2026-09-23 UTC — 水下缺测终结的真实链路负例通过
+
+- 计划：不用注入伪母船事件，检验物理终态合格但样点未观测时 Action、资源标志和有限通知是否各自如实报告。
+- 实际：先令 Otter 到水下样点附近的 RF/声学支援区；随后 REMUS 在原港口场景执行经原生 PVS 查询可行的极短 WATER_PATH（-5→-4.99，实际终端约[-3.759,8,-2]），请求 `water_sample` 观测而不进入其几何范围。观察 UUV 本地产品话题、母船产品与通知话题及原生 Action 结果。
+- 结果：UUV Action 为 ABORTED/`OBSERVATION_NOT_SATISFIED`、`terminal_verified=true`、`resource_locked=false`；本地只生成一个 `observed_ids=[]` 的终结通知，不生成32KiB业务产品。母船经USV实际收到相同GoalID的负报告，产品仍为0。这证明“物理已结束”和“业务缺测结果已收到”可分开，未把缺测误写成安全锁；任务层仅在该母船接收事件后才允许考虑复查。尚未实际执行复查。本轮最终113项受影响范围检查及`git diff --check`通过，运行容器均退出。
+- 证据：`experiments/20260923-negative-terminal-live/{probe.py,probe-result.json,probe.log,launch.log}`；终结通知接收 ROS 时间1790138584.3，旧动作终态未更改。
+- 未完成／下一步：把该真实负报告接到联合请求的修复规划，并保留原返回点；缺完整内部状态/已验证替代动作时仍只能UNKNOWN，不可试探派发。
+
+## 2026-09-23 UTC — 降低 REMUS 推进指令未解除东栈桥返航冲突
+
+- 计划：检查东栈桥前的不能掉头是否只由当前 500 RPM 推进设定造成，不修改原场景净距或水下目标。
+- 实际：用原 PVS 控制和同一“起点→样点→起点”返回路线，在隔离只读查询中分别给 200、100 RPM，并保持原30秒必要通信等待候选。
+- 结果：两种指令均在 x≈12m 的东栈桥前碰到原0.2m安全几何门槛（余量约0.199031/0.199266m），各自约62.07/144.13模型秒；未发现可行返回方法，未改线上500 RPM或任务验收。
+- 证据：本轮 Noetic `PvsBackend.predict_native_fragment` 查询输出，模型和场景未更改。
+- 未完成／下一步：不继续盲扫推进参数；应从有依据的任务恢复地点或平台控制资格解决，而非把临界失败调成通过。
+
+## 2026-09-23 UTC — AIR 完整查询的共享预算实测
+
+- 计划：在接联合 AIR 方法前量化同场景 Swarm 原优化器只读参考加 qn 完整状态跟踪是否能在原 10 秒调用预算内完成，不用欧氏时间替代。
+- 实际：Noetic 港口声明实体地图以原0.2m网格取 244248 个 SOLID 地图点，drone_1 从(-30,4,0.8)到 air_sample(-28,4,0.8)，声明两名静止邻机；原只读 Swarm 查询后对同一参考做完整 qn AIR 保持/几何查询，共用单一单调10秒期限。将新 AIR 产品、RF 首跳、缺测通知和返回失败范围同步到既有 `docs/requirements/cooperation-source-design-20260920.md`，不增加文献或算法宣称。
+- 结果：Swarm 名义参考 FEASIBLE，耗时2.844秒、参考时长7.010秒；qn 实际模型查询 FEASIBLE，累计墙钟6.404秒、实际终态运动/保持11.03模型秒，终点(-27.9977,4,0.8000)。只证明此单候选满足本次预算，不代表另一个水下方法、整体检查、返回及反馈修复也能同预算完成。
+- 证据：`experiments/20260923-air-query/{probe.py,probe.log,query-result.json,launch.log}`；只读查询未向实际 Goal 话题派发探针目标。
+- 未完成／下一步：AIR 完整方法与实际可交付的支援/后继片段必须同一候选校核；现有水下返回仍不可行。不能仅凭这条查询把全联合入口标完成。
+
+## 2026-09-23 UTC — AIR 产品及终结通知的母船接收复验
+
+- 计划：r2 探针在 32 KiB 产品刚到母船时即结束，未覆盖终结通知接收；本轮只延长观察到两类消息均到达，不改场景、Action 或链路条件。
+- 实际：同一 Noetic 镜像、港口障碍场景和 `aav_2`/Otter 路线 r3 实跑；USV 原生 Action SUCCEEDED，AIR Action `reason=0`、任务/安全/有效性均通过。AIR 本地生成一个观测产品和一个终结通知；母船收到产品通知、32 KiB 产品和 `OBSERVATION_TERMINAL`，三者 GoalID 一致，终结通知在数据之后到达。旧 Formation 消息镜像的无观测 AIR 目标继续不访问新字段；真正要求 AIR 有限交付时明确拒绝旧消息。README 同步消息镜像要求。
+- 结果：AIR 的本机实际观测→共享 RF 经 USV→母船产品与终结通知链在该声明场景成立；113 项受影响范围检查通过、`git diff --check` 通过，运行容器均已退出。仍是受控动作探针，未由联合求解自动分配，也不代表返回/复查通过。
+- 证据：`experiments/20260923-air-finite-probe-r3/{probe-result.json,probe.log,launch.log}`；母船产品接收时间 1790137758.0，终结通知 1790137758.1（同运行 ROS 时标）。
+- 未完成／下一步：把 AIR 运动/产品与 UUV/USV 支援加入同一有限候选搜索，并取得可行返回及同请求修复证据。
+
+## 2026-09-23 UTC — 港内水下回程路径变体仍不可行
+
+- 计划：排除“只沿水平线返航导致越障”的可能，用已知港口通道方向增加先向南转、再接近样点、再回起点的有限路径，仍用原控制和安全判据。
+- 实际：原生 PVS 对六条含南向/斜向中间点的完整路线分别查询，进而要求原终端等待；起点、样点、500 RPM 努力和港口实体障碍不变。
+- 结果：六条均在东侧栈桥前 x≈12m 被拒，某路径已接近 y≈12.56m，净距约0.192–0.195m，未取得可用于交付的有效终态。没有把这些失败路线留在生产方法集合。
+- 证据：本轮 Noetic 原生 `PvsBackend.predict_native_fragment` 查询输出；任务/场景文件未为通过而移动样点或障碍。
+- 未完成／下一步：当前水下返回需要不同的已验证控制/入口或声明恢复地点；原方案规定不能靠瞬时停车假设，继续保持失败记录。
+
+## 2026-09-23 UTC — 欠驱动 UUV 返航候选的场景几何复核
+
+- 计划：检查“原路返航失败”能否由请求已声明的水下样区角点作为转弯视点解决，不凭空增设点位。
+- 实际：在原起点、原 REMUS100 控制及港口实体几何下，以样点中心、两个区域角点和两种同域对称角点作为返航航点，分别做原生 PVS 完整查询，均试图返回起点；不更改 0.2 m 安全余量或控制增益。
+- 结果：五条候选全部在东栈桥附近实际位置约 x=12m 时被净距判据拒绝，最早净距约 0.192–0.199 m；尚未到可评价观测/交付的完整终态。证明这些有限近点调整无效，不构成所有可能路径数学无解。
+- 证据：本轮 Noetic `PvsBackend.predict_native_fragment` 查询输出，源模型和场景仍是 `five_scene_harbor.yaml`；未把失败路线加入生产候选。
+- 未完成／下一步：必须用物理可执行的恢复路线/场景返回政策，或保留返回未通过；不能在代码中假设瞬时掉头或停止。
+
+## 2026-09-23 UTC — AIR 本地观测与有限 RF 中继实跑
+
+- 计划：让单机 Swarm AIR Action 的实际几何观测进入与水下相同的本机产品→有限交付→母船接收通路，且不把组级转场冒充观测。
+- 实际：`Formation.action` 仅增本次 `observation_ids`；单机服务端根据已接受 qn 保持窗口，用既有 `LocalObservationWindow` 生成 32 KiB 产品与终结通知；旧无有限交付入口发空 ID，不改既有七机/三机控制目标。重建 Noetic 镜像 `swarm-formation-qn:joint-wip`，确认新 Goal 字段。港口原生探针先令 Otter 到 RF 支援位置，再由 `aav_2` 执行 `air_sample`。r1 两个原生 Action 均 SUCCEEDED，AIR 产品及终结通知本地生成，但母船零接收；定位 `declared_delivery_channels` 只有 WATER→USV 声学首跳、遗漏 AIR→USV RF。复用现有共享 RF 信道补首跳及步首因果，r2 原条件复跑，两项 Action 再成功，母船实际收到 AIR 的 32 KiB 产品，原产品通知也到达；终结通知本地生成，但探针在产品接收后即关闭链，未观察到其母船接收。
+- 结果：AIR 产品有限交付从零接收变为实际接收，r1 失败与 r2 改进分开保留；仅是受控执行探针，不是联合搜索选出的方法，也不证明完整五平台业务完成。相关 Action/runner/通信定向检查通过。
+- 证据：`experiments/20260923-air-finite-probe/{probe.log,probe-result.json,launch.log}`、`experiments/20260923-air-finite-probe-r2/{probe.log,probe-result.json,launch.log}`、`experiments/20260923-joint-build.log`；`integration/qn_aav_simulator/action/Formation.action`、`scripts/formation_action_server.py`、`src/qn_aav_simulator/observation_coverage.py`。
+- 未完成／下一步：确认 AIR 终结通知在有限链路被母船接收并供 runner 释放；之后接 AIR 完整候选、跨介质方法、返回和复查于同一规划入口。
+
+## 2026-09-23 UTC — 代表性联合请求明确返回政策
+
+- 计划：让最终目标请求直接声明必要返回，避免运行入口把无返回的水下阶段误报成整项业务成功。
+- 实际：`monitoring_request_joint.yaml` 声明 `return_required: true`；旧 `monitoring_request_water.yaml` 仍是单阶段资格请求，默认不强制返回。请求、观测和有限交付相关 40 项定向检查通过。
+- 结果：联合请求的返回要求现在可被加载和完整计划校核；当前原路返回候选实际不可行，故仍没有完整联合计划或运行通过。
+- 证据：`integration/qn_aav_simulator/config/monitoring_request_joint.yaml`、本次相关 pytest 输出。
+- 未完成／下一步：接入有原生资格的返回路线或声明的恢复点，继续 AIR/跨介质/复查方法与单一运行入口。
+
+## 2026-09-23 UTC — REMUS 返航候选反例与撤回
+
+- 计划：核实直接返航失败是否仅因观测中心太靠近东侧栈桥，尝试从声明的观测半径推导较早转弯视点。
+- 实际：临时增加朝来向的 footprint 边缘视点并用原生 PVS 查询同一港口返回候选；12 个组合全部仍被原静态安全几何拒绝，首次两类最小余量约 0.193263 m 与 0.199926 m，均小于现有 0.2 m 要求。该额外视点没有解决已定位问题且扩大搜索，已从生产候选撤回。
+- 结果：保留直接返回的拒绝结论，不降低障碍或机体几何阈值，不把无效候选留在第一版搜索中。
+- 证据：同镜像 `swarm-formation-qn:cooperation` 的原生 `_iter_cooperative_candidates` 查询输出；本轮终态代码 diff 无该边缘视点。
+- 未完成／下一步：只有取得可执行恢复位置/路线的场景与原生模型证据后，才能推进规定返回的成功案例。
+
+## 2026-09-23 UTC — 规定返回进入方法候选与完整计划校核
+
+- 计划：把业务返回从口头要求变成请求字段、实际方法尾段和模型终态约束，不以仅有返回标签代替物理返回。
+- 实际：`MonitoringRequest.return_required` 默认为否；启用时现有 REMUS/Otter 有限方法尾段回到各自接受时起点，完整计划校核要求执行成员在全计划终点仍处于原起点既有 0.2 m PVS 交接容差内。修复调用必须传原返回点，防止把新状态位置误当原始归宿。增加仅验证这些约束的小例。用相同港口场景和原生 PVS 模型查询返回候选，全部被真实障碍判据拒绝，最早明确原因 `SCENE_CLEARANCE: jetty_east=0.193263m`。
+- 结果：72 项相关检查通过。原路返回在现有窄港口与 REMUS 欠驱动模型下不可用，不能宣布规定返回成功；不放宽障碍门槛。当前水下协作回归使用默认不强制返回，仍如实单列。
+- 证据：`integration/qn_aav_simulator/src/qn_aav_simulator/{monitoring_request.py,task_line.py}`、`integration/mrta_python/executors.py`、对应 `test_task_line.py`/`test_complete_plan_validation.py`；原生查询命令和输出保留于本轮交互记录，结果 `no complete candidate found`（非数学无解证明）。
+- 未完成／下一步：从现有场景定义选择可执行恢复地点或避障返航候选，经 PVS 完整运动资格实测后再允许返回；AIR/跨介质/复查完整入口仍未接通。
+
+## 2026-09-23 UTC — 有限观测终结的原生水下协作回归
+
+- 计划：确认新终结通知不破坏原有 USV/UUV 支援、实际观测和母船接收；实跑与定向逻辑检查分开报告。
+- 实际：在 `five_scene_harbor.yaml` 以原 `run_water_cooperation.py` 具体计划确认后运行；USV 和 UUV 原生 Action 均实际执行。母船收到 `water_sample` 的 32 KiB 产品和同 GoalID 的观测终结通知。定向检查新增“未收到缺测终结不得释放”反例后共 55 项通过。
+- 结果：`PASS_WATER_GEOMETRIC_PROXY`，无失败原因；这是原水下协作阶段回归，仍不包括 AIR、跨介质、复查及返回。规划外围记录 10.029 s，不把它宣称为完整请求求解性能。
+- 证据：`experiments/20260923-negative-report-water-r1/{metrics.json,handover.bag,probe.log}`；`integration/qn_aav_simulator/tests/test_executor_runner.py`。
+- 未完成／下一步：对缺测终结做故障/实际链路负例，接通完整联合业务方法及修复；本轮交付未完成。
+
+## 2026-09-23 UTC — 本地观测终结经有限链路上报
+
+- 计划：解决水下动作物理终态成功但几何观测缺失时，母船没有可接收终结报告、不能合法释放复查的断点。
+- 实际：在现有 `LocalObservationWindow` 生成含 GoalID、声明点和实际观测点的终结通知；原 qn/PVS 本地动作在可靠物理终态时发布；原 `SceneTransport` 只对该通知扣有限信道容量，不生成假业务产品；runner 从母船通知 topic 验证关联并接收。缺测与安全故障分开：只有物理终态可验证且无故障时，本机可以解除物理锁；任务层直到真正收到终结通知仍保留占用。单机及协同 worker 均等待该通知，超时继续锁定。
+- 结果：相关 54 项定向检查与 Python 语法检查通过；首次 pytest 受主机 ROS Jazzy 自动插件缺失 `lark` 阻断，关闭无关插件后正常运行。尚未进行该路径 ROS 实跑，不能声称复查闭环通过。
+- 证据：`integration/qn_aav_simulator/src/qn_aav_simulator/{observation_coverage.py,platform_action.py}`、`integration/qn_aav_simulator/scripts/{pvs_node.py,scene_publisher.py,formation_mission_runner.py}`；命令 `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q integration/qn_aav_simulator/tests/test_observation_coverage.py integration/qn_aav_simulator/tests/test_pvs_boundary.py integration/qn_aav_simulator/tests/test_platform_execution.py integration/qn_aav_simulator/tests/test_executor_runner.py`。
+- 未完成／下一步：补小例验证缺测通知的端到端关联，再接返回和 AIR/跨介质完整方法；维持五平台完整请求未通过状态。
+
+## 2026-09-22/23 UTC — 第一版联合协作实施：入口与执行语义核查
+
+- 计划：沿现有请求、候选搜索、Action 和有限交付链实现一项完整近岸任务，不增加管理框架。
+- 实际：核对 `main@8274cd7` 的业务请求、`request_native_methods`、完整计划校核、`run_water_cooperation`、runner 结果处理及五平台场景。现有 joint 入口只为 UNDERWATER 生成 REMUS＋Otter 方法；SURFACE 必做区域没有方法，AIR、水陆转换、返回和复查均未在这条入口执行。水下端只发布观测成功产品，缺测终结无法经母船接收，runner 因而不能正确触发复查。完整候选有 10 秒共享预算与有限交付校核；其余旧 runner 仍走 AIR-only 展开。
+- 结果：现有水下协作和旧三机演示不能代替本轮完整请求；本轮从上述实际断点逐项接线，所有未取得原生资格的候选保持 UNKNOWN。
+- 证据：`integration/qn_aav_simulator/src/qn_aav_simulator/{task_line.py,monitoring_request.py}`、`integration/mrta_python/executors.py`、`integration/qn_aav_simulator/scripts/{run_water_cooperation.py,formation_mission_runner.py}`。
+- 未完成／下一步：先使缺测终结和返回要求可表达、可检验，再补 AIR／跨介质完整方法与同请求执行修复；没有实跑证据前不宣称完成。
+
+## 2026-09-21 UTC — 应用户要求打开当前水下协作实时系统
+
+- 计划：展示当前已接通的系统，复用正式cooperative入口、RViz和中文任务面板。
+- 实际：从桌面终端启动`experiments/20260921T052700Z-operator-water-live`，使用cooperation消息镜像和当前挂载源码。已核对两个显示窗口存在；所选USV计划0–99.16s、UUV计划0–92.42s，UUV终端等待30s。首次终端记录为等待yes，随后只读检查已为RUNNING，USV/UUV占用、录包进行中，尚无业务接收结果。
+- 效果：当前水下任务可实时观看；三台AAV待命，母船是固定接收端。此记录仅确认启动及运行，不宣称本次最终成功或完整五平台任务通过。
+- 证据：上述实验目录的`probe.log`与`operator-open-snapshot.json`；容器`fb2e98608d6e`，执行中原始记录暂存于其`/experiments/current`，终端结束后归档。
+- 未完成／下一步：用户查看期间保持独立桌面终端和仿真运行，不擅自重启或关闭；本次最终动作、接收及释放结果待核对。完整AIR/跨介质/复查/返回的既有缺口不变。
+
 ## 2026-09-21 UTC — 新Swarm七机/查询回归完成，qn执行证据接入完整校核
 
 - 计划：保留旧入口并验证新增C++字段后的完整二进制链，继续补AAV原生执行证据。

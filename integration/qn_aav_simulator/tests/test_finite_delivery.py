@@ -56,6 +56,20 @@ def test_shared_capacity_is_not_granted_once_per_product():
     assert sum(p.received_prefix.get('mother',0) for p in ledger.products.values())==100
 
 
+def test_air_result_uses_shared_rf_to_usv_then_mother_without_instant_relay():
+    from qn_aav_simulator.observation_coverage import declared_delivery_channels
+    ledger=FiniteDelivery()
+    ledger.produce('air',DeliveryProduct('drone_1','mother',100,0.,True))
+    states={'drone_1':((-28.,4.,.8),'AIR'),
+            'usv':((-10.,4.,0.),'SURFACE'),
+            'mother':((15.,-8.,2.),'SURFACE')}
+    channels=declared_delivery_channels(ledger.products,states,states)
+    assert ledger.advance_all(.1,channels)==()
+    assert ledger.products['air'].received_prefix['usv']==100
+    assert ledger.products['air'].received_prefix.get('mother',0)==0
+    assert ledger.advance_all(.2,channels)==('air',)
+
+
 def test_received_unobserved_product_is_not_delivered_and_future_generation_cannot_send():
     ledger=FiniteDelivery()
     ledger.produce('p',DeliveryProduct('uuv','mother',10,1.,False))

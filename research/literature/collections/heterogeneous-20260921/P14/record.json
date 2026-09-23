@@ -1,0 +1,39 @@
+{
+  "id": "P14",
+  "title": "Collaborative Exploration With a Marsupial Ground-Aerial Robot Team Through Task-Driven Map Compression",
+  "doi": "10.1109/LRA.2025.3609040",
+  "arxiv": "2509.07655",
+  "official_url": "https://ieeexplore.ieee.org/document/11159273",
+  "code_urls": [
+    "https://github.com/ntnu-arl/pcl-vae"
+  ],
+  "source_index": "references_verified_20260921.json",
+  "prior_read_scope": "正文重点核查空地部署、协同探索、会合及地图压缩方法。",
+  "prior_code_scope": "读取README，明确公开的是任务驱动点云压缩模块、训练/推理/权重，不是整套协同系统。BSD-3-Clause；未运行。",
+  "mechanism_from_supplied_review": "按探索需求部署空中机器人、协同地图交换与会合，考虑任务相关的带宽节省。",
+  "boundary_from_supplied_review": "不能把压缩模块公开描述成全系统开源；母体携带空中机器人不等于同一AAV跨介质。",
+  "project_use_from_supplied_review": "通信代价与任务信息需求相联的较新实证，不建议当前先加入VAE。",
+  "access_attempts": [
+    {
+      "url": "https://arxiv.org/pdf/2509.07655",
+      "checked_utc": "2026-09-21T05:45:16.265977+00:00",
+      "http_status": 200,
+      "final_url": "https://arxiv.org/pdf/2509.07655",
+      "content_type": "application/pdf",
+      "result": "verified-pdf"
+    }
+  ],
+  "sha256": "442273904ecb54b137fef9fdbf68c8f6e96f9754c03e4af4da28c8f19abc0ff7",
+  "size_bytes": 3273308,
+  "pages": 8,
+  "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+  "status": "downloaded-open-pdf",
+  "source_url": "https://arxiv.org/pdf/2509.07655",
+  "resolved_source_url": "https://arxiv.org/pdf/2509.07655",
+  "downloaded_utc": "2026-09-21T05:45:16.265977+00:00",
+  "verified_pdf_title": "Collaborative Exploration With a Marsupial Ground-Aerial Robot Team Through Task-Driven Map Compression",
+  "local_pdf": "research/literature/collections/heterogeneous-20260921/P14/paper.pdf",
+  "resolved_pdf": "research/literature/collections/heterogeneous-20260921/P14/paper.pdf",
+  "this_round_read_scope": "download and identity inspection only; selected-section review pending",
+  "integrity_rechecked_utc": "2026-09-21T05:50:03.375073+00:00"
+}

@@ -99,8 +99,10 @@ docker build -t swarm-formation-upstream:noetic upstream/Swarm-Formation
 docker build -f docker/Dockerfile.qn -t swarm-formation-qn:cooperation .
 ```
 
-本轮 `PlatformTask` 增加预装载、选定观测点ID字段与幂等启动服务，需要同时重建客户端和服务端消息；
-不要混用旧镜像中的该Action类型。原 `Formation.action` 未改变。
+`PlatformTask` 已增加预装载、选定观测点ID字段与幂等启动服务；当前开发中的
+AIR 有限交付还为 `Formation.action` Goal 增加本次观测点 ID。使用这些路径时，
+客户端和 Action 服务端必须来自同一次 Noetic 消息构建，不要混用旧镜像。
+已有水下协作命令仍是单阶段入口，不能将 AIR 探针或其新镜像当作完整联合任务验收。
 
 ## 七机兼容与回归入口
 

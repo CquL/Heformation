@@ -1,0 +1,46 @@
+{
+  "id": "P01",
+  "title": "Cooperation Detection and Tracking of Underwater Target via Aerial–Surface–Underwater Vehicles",
+  "doi": "10.1109/TAC.2024.3447976",
+  "arxiv": null,
+  "official_url": "https://doi.org/10.1109/TAC.2024.3447976",
+  "code_urls": [],
+  "source_index": "references_verified_20260921.json",
+  "prior_read_scope": "已取得原论文正文，重点核查平台模型、探测几何、跟踪与通信连通、定理条件和实验。正文来自作者上传的原文镜像；未确认arXiv版本。",
+  "prior_code_scope": "本轮未确认作者公开源码。",
+  "mechanism_from_supplied_review": "UAV、USV、UUV协作探测与跟踪；探测模型把队形间距、角度与探测表现联系起来；跟踪阶段考虑通信连通。",
+  "boundary_from_supplied_review": "固定的不同平台不是同一AAV跨介质转换；不是多业务分配与全任务工期优化；连通不等于有限数据量完成交付。",
+  "project_use_from_supplied_review": "优先参考“任务性能决定协同几何”的建模思路，而非直接移植原传感器参数或控制保证。",
+  "access_attempts": [
+    {
+      "url": "https://www.researchgate.net/publication/383322768_Cooperation_Detection_and_Tracking_of_Underwater_Target_via_Aerial-Surface-Underwater_Vehicles",
+      "checked_utc": "2026-09-21T05:44:10.143736+00:00",
+      "http_status": 403,
+      "final_url": "https://www.researchgate.net/publication/383322768_Cooperation_Detection_and_Tracking_of_Underwater_Target_via_Aerial-Surface-Underwater_Vehicles",
+      "content_type": "text/html; charset=UTF-8",
+      "result": "unresolved",
+      "error": "403 Client Error: Forbidden for url: https://www.researchgate.net/publication/383322768_Cooperation_Detection_and_Tracking_of_Underwater_Target_via_Aerial-Surface-Underwater_Vehicles"
+    },
+    {
+      "url": "https://ieeexplore.ieee.org/stampPDF/getPDF.jsp?tp=&arnumber=10643681",
+      "checked_utc": "2026-09-21T05:45:15.796859+00:00",
+      "http_status": 418,
+      "final_url": "https://ieeexplore.ieee.org/stampPDF/getPDF.jsp?tp=&arnumber=10643681",
+      "content_type": "text/html",
+      "result": "unresolved",
+      "error": "418 Client Error: Unknown Code for url: https://ieeexplore.ieee.org/stampPDF/getPDF.jsp?tp=&arnumber=10643681"
+    },
+    {
+      "url": "https://ieeexplore.ieee.org/ielx8/9/10857662/10643681.pdf",
+      "checked_utc": "2026-09-21T05:45:16.089223+00:00",
+      "http_status": 418,
+      "final_url": "https://ieeexplore.ieee.org/ielx8/9/10857662/10643681.pdf",
+      "content_type": "text/html",
+      "result": "unresolved",
+      "error": "418 Client Error: Unknown Code for url: https://ieeexplore.ieee.org/ielx8/9/10857662/10643681.pdf"
+    }
+  ],
+  "status": "fulltext-access-unresolved",
+  "local_pdf": null,
+  "this_round_read_scope": "no fulltext; supplied review plus discovered metadata only"
+}

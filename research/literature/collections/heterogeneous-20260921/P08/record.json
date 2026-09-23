@@ -1,0 +1,28 @@
+{
+  "id": "P08",
+  "title": "CAT-ORA: Collision-Aware Time-Optimal Formation Reshaping for Efficient Robot Coordination in 3-D Environments",
+  "doi": "10.1109/TRO.2025.3547296",
+  "arxiv": "2412.00603",
+  "official_url": "https://doi.org/10.1109/TRO.2025.3547296",
+  "code_urls": [
+    "https://github.com/ctu-mrs/catora"
+  ],
+  "source_index": "references_verified_20260921.json",
+  "prior_read_scope": "核查问题定义、A1–A6假设、目标匹配与轨迹生成方法和实验说明。",
+  "prior_code_scope": "读取README。ROS Noetic、mrs_lib、GPL-3.0；可作为服务或库调用，未运行。",
+  "mechanism_from_supplied_review": "联合考虑机器人到目标槽位的匹配、队形变换时间和机器人间碰撞。",
+  "boundary_from_supplied_review": "A6要求起终点凸包内除机器人外无障碍，另有同一时间参数化/静止端点等假设；不能直接作为港口任意障碍编队规划器。",
+  "project_use_from_supplied_review": "集结/重构阶段的明确代价与槽位分配基线，不替代整项任务调度。",
+  "access_attempts": [],
+  "sha256": "86ecfb1f42b28f23e9868c72cbfb4b1ce56dfa37009031be9e61f507396774d3",
+  "size_bytes": 11175971,
+  "pages": 20,
+  "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+  "status": "reused-local-pdf",
+  "reused_from": "research/literature/papers/formation/cat-ora-2025.pdf",
+  "local_pdf": "research/literature/collections/heterogeneous-20260921/P08/paper.pdf",
+  "resolved_pdf": "research/literature/papers/formation/cat-ora-2025.pdf",
+  "this_round_read_scope": "download and identity inspection only; selected-section review pending",
+  "integrity_rechecked_utc": "2026-09-21T05:50:03.358012+00:00",
+  "verified_pdf_title": "CAT-ORA: Collision-Aware Time-Optimal Formation Reshaping for Efficient Robot Coordination in 3-D Environments"
+}

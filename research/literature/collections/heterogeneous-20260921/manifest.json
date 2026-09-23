@@ -1,0 +1,782 @@
+{
+  "collection": "heterogeneous-20260921",
+  "source_index": "references_verified_20260921.json",
+  "checked_utc": "2026-09-21T05:50:07.399695+00:00",
+  "policy": "Public author/repository/arXiv/publisher copies only; no access-control bypass; no inferred full-paper reading or reproduction claim.",
+  "records": [
+    {
+      "id": "P01",
+      "title": "Cooperation Detection and Tracking of Underwater Target via Aerial–Surface–Underwater Vehicles",
+      "doi": "10.1109/TAC.2024.3447976",
+      "arxiv": null,
+      "official_url": "https://doi.org/10.1109/TAC.2024.3447976",
+      "code_urls": [],
+      "source_index": "references_verified_20260921.json",
+      "prior_read_scope": "已取得原论文正文，重点核查平台模型、探测几何、跟踪与通信连通、定理条件和实验。正文来自作者上传的原文镜像；未确认arXiv版本。",
+      "prior_code_scope": "本轮未确认作者公开源码。",
+      "mechanism_from_supplied_review": "UAV、USV、UUV协作探测与跟踪；探测模型把队形间距、角度与探测表现联系起来；跟踪阶段考虑通信连通。",
+      "boundary_from_supplied_review": "固定的不同平台不是同一AAV跨介质转换；不是多业务分配与全任务工期优化；连通不等于有限数据量完成交付。",
+      "project_use_from_supplied_review": "优先参考“任务性能决定协同几何”的建模思路，而非直接移植原传感器参数或控制保证。",
+      "access_attempts": [
+        {
+          "url": "https://www.researchgate.net/publication/383322768_Cooperation_Detection_and_Tracking_of_Underwater_Target_via_Aerial-Surface-Underwater_Vehicles",
+          "checked_utc": "2026-09-21T05:44:10.143736+00:00",
+          "http_status": 403,
+          "final_url": "https://www.researchgate.net/publication/383322768_Cooperation_Detection_and_Tracking_of_Underwater_Target_via_Aerial-Surface-Underwater_Vehicles",
+          "content_type": "text/html; charset=UTF-8",
+          "result": "unresolved",
+          "error": "403 Client Error: Forbidden for url: https://www.researchgate.net/publication/383322768_Cooperation_Detection_and_Tracking_of_Underwater_Target_via_Aerial-Surface-Underwater_Vehicles"
+        },
+        {
+          "url": "https://ieeexplore.ieee.org/stampPDF/getPDF.jsp?tp=&arnumber=10643681",
+          "checked_utc": "2026-09-21T05:45:15.796859+00:00",
+          "http_status": 418,
+          "final_url": "https://ieeexplore.ieee.org/stampPDF/getPDF.jsp?tp=&arnumber=10643681",
+          "content_type": "text/html",
+          "result": "unresolved",
+          "error": "418 Client Error: Unknown Code for url: https://ieeexplore.ieee.org/stampPDF/getPDF.jsp?tp=&arnumber=10643681"
+        },
+        {
+          "url": "https://ieeexplore.ieee.org/ielx8/9/10857662/10643681.pdf",
+          "checked_utc": "2026-09-21T05:45:16.089223+00:00",
+          "http_status": 418,
+          "final_url": "https://ieeexplore.ieee.org/ielx8/9/10857662/10643681.pdf",
+          "content_type": "text/html",
+          "result": "unresolved",
+          "error": "418 Client Error: Unknown Code for url: https://ieeexplore.ieee.org/ielx8/9/10857662/10643681.pdf"
+        }
+      ],
+      "status": "fulltext-access-unresolved",
+      "local_pdf": null,
+      "this_round_read_scope": "no fulltext; supplied review plus discovered metadata only"
+    },
+    {
+      "id": "P02",
+      "title": "A Resilient and Energy-Aware Task Allocation Framework for Heterogeneous Multi-Robot Systems",
+      "doi": "10.1109/TRO.2021.3102379",
+      "arxiv": "2105.05586",
+      "official_url": "https://ieeexplore.ieee.org/document/9531464/",
+      "code_urls": [
+        "https://github.com/gnotomista/multi_robot_task_allocation"
+      ],
+      "source_index": "references_verified_20260921.json",
+      "prior_read_scope": "正文重点核查问题定义、特征—能力—任务映射、式(34)、条件性分析、集中/分散实现和实验设置。",
+      "prior_code_scope": "读取README和resilient_task_allocation/mixed_centralized_decentralized/rta_central_unit.m；未构建运行。MATLAB、CVX、Gurobi；混合实现使用MQTT。",
+      "mechanism_from_supplied_review": "在MIQP中联合确定任务优先级/分配、控制输入和任务松弛；给出慢速集中MIQP与快速局部QP的实现。",
+      "boundary_from_supplied_review": "瞬时任务优先级分配不是未来全任务调度；原目标是控制努力等而非makespan；代码使用简化动力学。不能直接继承跨介质海洋平台安全/稳定性结论。",
+      "project_use_from_supplied_review": "统一任务与控制理论的重要对照。先独立验证数学模型，不作为无代价替换当前系统的ROS模块。",
+      "access_attempts": [
+        {
+          "url": "https://arxiv.org/pdf/2105.05586",
+          "checked_utc": "2026-09-21T05:44:10.145286+00:00",
+          "http_status": 200,
+          "final_url": "https://arxiv.org/pdf/2105.05586",
+          "content_type": "application/pdf",
+          "result": "verified-pdf"
+        }
+      ],
+      "sha256": "0193c17f42c3703cf99e351006469ae610032e9ac5e60fdc17993327b54b57af",
+      "size_bytes": 3576652,
+      "pages": 19,
+      "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+      "status": "downloaded-open-pdf",
+      "source_url": "https://arxiv.org/pdf/2105.05586",
+      "resolved_source_url": "https://arxiv.org/pdf/2105.05586",
+      "downloaded_utc": "2026-09-21T05:44:10.145286+00:00",
+      "local_pdf": "research/literature/collections/heterogeneous-20260921/P02/paper.pdf",
+      "resolved_pdf": "research/literature/collections/heterogeneous-20260921/P02/paper.pdf",
+      "this_round_read_scope": "download and identity inspection only; selected-section review pending",
+      "integrity_rechecked_utc": "2026-09-21T05:50:03.237734+00:00",
+      "verified_pdf_title": "A Resilient and Energy-Aware Task Allocation Framework for Heterogeneous Multi-Robot Systems"
+    },
+    {
+      "id": "P03",
+      "title": "A Decoupled Solution to Heterogeneous Multi-Formation Planning and Coordination for Object Transportation",
+      "doi": "10.1016/j.robot.2024.104773",
+      "arxiv": null,
+      "official_url": "https://www.sciencedirect.com/science/article/pii/S092188902400157X",
+      "code_urls": [
+        "https://github.com/HyPAIR/Heterogeneous-formation-controller"
+      ],
+      "source_index": "references_verified_20260921.json",
+      "prior_read_scope": "本轮未成功取得论文全文；核对出版记录、作者机构摘要、作者README及实际源码。",
+      "prior_code_scope": "读取README、src目录和heterogeneous_formation_controller/src/task_assignment/ta_test_node.cpp。ROS Noetic、yaml-cpp、MOSEK许可；未构建运行。",
+      "mechanism_from_supplied_review": "异构地面车辆的编队生成、编队运动规划和多编队协调，用于协同运输。",
+      "boundary_from_supplied_review": "本轮所查task_assignment示例按车型分组后，以起终点欧氏距离构造成本并做Hungarian匹配。这是到目标位置的分配，不足以证明具备多业务任务调度。不是空—水—潜系统。",
+      "project_use_from_supplied_review": "直接研究异构运动约束与编队执行的工程组织；不要因task_assignment目录名就整套替换业务调度。",
+      "access_attempts": [
+        {
+          "url": "https://www.sciencedirect.com/science/article/pii/S092188902400157X",
+          "checked_utc": "2026-09-21T05:44:10.146552+00:00",
+          "http_status": 403,
+          "final_url": "https://www.sciencedirect.com/science/article/pii/S092188902400157X",
+          "content_type": "text/html; charset=UTF-8",
+          "result": "unresolved",
+          "error": "403 Client Error: Forbidden for url: https://www.sciencedirect.com/science/article/pii/S092188902400157X"
+        },
+        {
+          "url": "https://research.birmingham.ac.uk/files/235497554/zhang2024decoupled.pdf",
+          "checked_utc": "2026-09-21T05:45:15.799794+00:00",
+          "http_status": 403,
+          "final_url": "https://research.birmingham.ac.uk/files/235497554/zhang2024decoupled.pdf",
+          "content_type": "text/html; charset=UTF-8",
+          "result": "unresolved",
+          "error": "403 Client Error: Forbidden for url: https://research.birmingham.ac.uk/files/235497554/zhang2024decoupled.pdf"
+        },
+        {
+          "url": "https://simonzhang1999.github.io/paper/1-s2.0-S092188902400157X-main.pdf",
+          "checked_utc": "2026-09-21T05:46:56.657961+00:00",
+          "http_status": 200,
+          "final_url": "https://simonzhang1999.github.io/paper/1-s2.0-S092188902400157X-main.pdf",
+          "content_type": "application/pdf",
+          "result": "verified-pdf"
+        }
+      ],
+      "status": "downloaded-open-pdf",
+      "local_pdf": "research/literature/collections/heterogeneous-20260921/P03/paper.pdf",
+      "this_round_read_scope": "no fulltext; supplied review plus discovered metadata only",
+      "sha256": "d6f5db2f47b800dd92fb7d69814f4b9d37d69c0550880d05d189d91f193ab666",
+      "size_bytes": 4884052,
+      "pages": 21,
+      "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+      "source_url": "https://simonzhang1999.github.io/paper/1-s2.0-S092188902400157X-main.pdf",
+      "resolved_source_url": "https://simonzhang1999.github.io/paper/1-s2.0-S092188902400157X-main.pdf",
+      "downloaded_utc": "2026-09-21T05:46:56.657961+00:00",
+      "verified_pdf_title": "A Decoupled Solution to Heterogeneous Multi-Formation Planning and Coordination for Object Transportation",
+      "resolved_pdf": "research/literature/collections/heterogeneous-20260921/P03/paper.pdf",
+      "integrity_rechecked_utc": "2026-09-21T05:50:03.539423+00:00"
+    },
+    {
+      "id": "P04",
+      "title": "Cooperative Aerial Robot Inspection Challenge: A Benchmark for Heterogeneous Multi-Uncrewed-Aerial-Vehicle Planning and Lessons Learned",
+      "doi": "10.1109/MRA.2025.3584341",
+      "arxiv": "2501.06566",
+      "official_url": "https://ramagazine.ieee.org/2026/06/29/cooperative-aerial-robot-inspection-challenge-a-benchmark-for-heterogeneous-multi-uncrewed-aerial-vehicle-planning-and-lessons-learned/",
+      "code_urls": [
+        "https://github.com/ntu-aris/caric_mission",
+        "https://github.com/ntu-aris/caric_baseline"
+      ],
+      "source_index": "references_verified_20260921.json",
+      "prior_read_scope": "正文重点核查任务/传感器/通信假设、参赛方法分工、探索与巡检策略及讨论；同时核对官方项目页https://ntu-aris.github.io/caric/。",
+      "prior_code_scope": "读取caric_mission和caric_baseline的README；未运行。基线限制与依赖以项目页/源码为准。",
+      "mechanism_from_supplied_review": "互补传感器无人机共同探索与巡检，包含任务区域分配、运动、信息交换和巡检评价。",
+      "boundary_from_supplied_review": "异构主要是传感器与角色；team formation不等于固定几何编队；不是跨介质平台。",
+      "project_use_from_supplied_review": "与监测业务直接相关的开放评测和任务建模参考，不是要求迁移整个仿真器。",
+      "access_attempts": [],
+      "sha256": "c4c2ab5724f25699e15ff93efe810a1a7e80ef55c7477877a09fe99d5e968e89",
+      "size_bytes": 3603818,
+      "pages": 9,
+      "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+      "status": "reused-local-pdf",
+      "reused_from": "research/literature/papers/benchmark/caric-2025.pdf",
+      "verified_pdf_title": "Cooperative Aerial Robot Inspection Challenge: A Benchmark for Heterogeneous Multi-UAV Planning and Lessons Learned",
+      "local_pdf": "research/literature/collections/heterogeneous-20260921/P04/paper.pdf",
+      "resolved_pdf": "research/literature/papers/benchmark/caric-2025.pdf",
+      "this_round_read_scope": "download and identity inspection only; selected-section review pending",
+      "integrity_rechecked_utc": "2026-09-21T05:50:03.173195+00:00"
+    },
+    {
+      "id": "P05",
+      "title": "A Cost-Effective Cooperative Exploration and Inspection Strategy for Heterogeneous Aerial System",
+      "doi": "10.1109/ICCA62789.2024.10591842",
+      "arxiv": "2403.01225",
+      "official_url": "https://doi.org/10.1109/ICCA62789.2024.10591842",
+      "code_urls": [
+        "https://github.com/ntu-aris/caric_baseline"
+      ],
+      "source_index": "references_verified_20260921.json",
+      "prior_read_scope": "取得arXiv正文并核查任务分配与探索/巡检方法；未逐图复算结果。",
+      "prior_code_scope": "README明确给出initial_task.h/cpp、baseline_planner.h/cpp；目前基线不是所有子任务通用方法，穷举MTSP可耗时很长。未运行。",
+      "mechanism_from_supplied_review": "异构探索者与拍摄者分组，区域分配和探索/巡检相结合。",
+      "boundary_from_supplied_review": "ICCA不是ICRA；挑战赛在CDC举办不等于该论文发表在CDC。不能把分组等同于严格编队。",
+      "project_use_from_supplied_review": "开放基线入口和任务评价参考。",
+      "access_attempts": [
+        {
+          "url": "https://arxiv.org/pdf/2403.01225",
+          "checked_utc": "2026-09-21T05:44:10.210475+00:00",
+          "http_status": 200,
+          "final_url": "https://arxiv.org/pdf/2403.01225",
+          "content_type": "application/pdf",
+          "result": "verified-pdf"
+        }
+      ],
+      "sha256": "8a1b07ca0f4ddda470ad732bff7ae083e65a6a4422fb484a879da7b1f40669c4",
+      "size_bytes": 6538224,
+      "pages": 7,
+      "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+      "status": "downloaded-open-pdf",
+      "source_url": "https://arxiv.org/pdf/2403.01225",
+      "resolved_source_url": "https://arxiv.org/pdf/2403.01225",
+      "downloaded_utc": "2026-09-21T05:44:10.210475+00:00",
+      "local_pdf": "research/literature/collections/heterogeneous-20260921/P05/paper.pdf",
+      "resolved_pdf": "research/literature/collections/heterogeneous-20260921/P05/paper.pdf",
+      "this_round_read_scope": "download and identity inspection only; selected-section review pending",
+      "integrity_rechecked_utc": "2026-09-21T05:50:03.176676+00:00",
+      "verified_pdf_title": "A Cost-Effective Cooperative Exploration and Inspection Strategy for Heterogeneous Aerial System"
+    },
+    {
+      "id": "P06",
+      "title": "How to Coordinate UAVs and UGVs for Efficient Mission Planning? Optimizing Energy-Constrained Cooperative Routing with a DRL Framework",
+      "doi": "10.15607/RSS.2025.XXI.101",
+      "arxiv": "2504.21111",
+      "official_url": "https://www.roboticsproceedings.org/rss21/p101.html",
+      "code_urls": [
+        "https://github.com/imsafwan/multi-uav-ugv-cooperative-routing-drl"
+      ],
+      "source_index": "references_verified_20260921.json",
+      "prior_read_scope": "核查RSS正式记录与arXiv问题定义、约束、编码器/解码器、训练和计算实验。",
+      "prior_code_scope": "读取作者README，确认环境、训练、评估与数据生成入口；未训练或运行。",
+      "mechanism_from_supplied_review": "共同选择任务点访问、路线和移动补给会合，目标包含整体任务时间。",
+      "boundary_from_supplied_review": "UGV提供充电，不是水声通信中继；不存在你们的AAV转换和海洋动力学；计算实验不等于海上实机验证。",
+      "project_use_from_supplied_review": "借鉴“支援角色的运动和会合也必须进入计划选择”，不新增充电需求，也不默认替换成DRL。",
+      "access_attempts": [
+        {
+          "url": "https://arxiv.org/pdf/2504.21111",
+          "checked_utc": "2026-09-21T05:44:10.509367+00:00",
+          "http_status": 200,
+          "final_url": "https://arxiv.org/pdf/2504.21111",
+          "content_type": "application/pdf",
+          "result": "verified-pdf"
+        }
+      ],
+      "sha256": "e711d083bea82daeec8d3f3c12ea894370b7decebe44118d58228622fee2d052",
+      "size_bytes": 8680850,
+      "pages": 19,
+      "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+      "status": "downloaded-open-pdf",
+      "source_url": "https://arxiv.org/pdf/2504.21111",
+      "resolved_source_url": "https://arxiv.org/pdf/2504.21111",
+      "downloaded_utc": "2026-09-21T05:44:10.509367+00:00",
+      "local_pdf": "research/literature/collections/heterogeneous-20260921/P06/paper.pdf",
+      "resolved_pdf": "research/literature/collections/heterogeneous-20260921/P06/paper.pdf",
+      "this_round_read_scope": "download and identity inspection only; selected-section review pending",
+      "integrity_rechecked_utc": "2026-09-21T05:50:03.322902+00:00",
+      "verified_pdf_title": "How to Coordinate UAVs and UGVs for Efficient Mission Planning? Optimizing Energy-Constrained Cooperative Routing with a DRL Framework"
+    },
+    {
+      "id": "P07",
+      "title": "Greedy Perspectives: Multi-Drone View Planning for Collaborative Perception in Cluttered Environments",
+      "doi": null,
+      "arxiv": "2310.10863",
+      "official_url": "https://greedyperspectives.github.io/",
+      "code_urls": [
+        "https://github.com/GreedyPerspectives/GreedyPerspectives"
+      ],
+      "source_index": "references_verified_20260921.json",
+      "prior_read_scope": "核查任务模型、渲染式视角收益、顺序贪心规划、碰撞与近似保证条件；并核对作者IROS记录。",
+      "prior_code_scope": "读取README。Ubuntu22.04、C++20、vcpkg、AI-Toolbox/OpenGL等；未构建运行。",
+      "mechanism_from_supplied_review": "相机视角、遮挡和多机重复观测决定联合视角规划，而不是单纯追求预设队形。",
+      "boundary_from_supplied_review": "不是三介质异构系统。论文50%近似保证不能直接带到包含机器人间碰撞约束的版本。",
+      "project_use_from_supplied_review": "建立编队/相对几何为什么服务观测的对照，不直接照搬其像素收益到当前传感器。",
+      "access_attempts": [
+        {
+          "url": "https://arxiv.org/pdf/2310.10863",
+          "checked_utc": "2026-09-21T05:44:11.578966+00:00",
+          "http_status": 200,
+          "final_url": "https://arxiv.org/pdf/2310.10863",
+          "content_type": "application/pdf",
+          "result": "verified-pdf"
+        }
+      ],
+      "sha256": "f324603ee6ce166162872fd2e5bfb692a27984e95dd23962589002c6afb2be9b",
+      "size_bytes": 2552366,
+      "pages": 8,
+      "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+      "status": "downloaded-open-pdf",
+      "source_url": "https://arxiv.org/pdf/2310.10863",
+      "resolved_source_url": "https://arxiv.org/pdf/2310.10863",
+      "downloaded_utc": "2026-09-21T05:44:11.578966+00:00",
+      "local_pdf": "research/literature/collections/heterogeneous-20260921/P07/paper.pdf",
+      "resolved_pdf": "research/literature/collections/heterogeneous-20260921/P07/paper.pdf",
+      "this_round_read_scope": "download and identity inspection only; selected-section review pending",
+      "integrity_rechecked_utc": "2026-09-21T05:50:03.231075+00:00",
+      "verified_pdf_title": "Greedy Perspectives: Multi-Drone View Planning for Collaborative Perception in Cluttered Environments"
+    },
+    {
+      "id": "P08",
+      "title": "CAT-ORA: Collision-Aware Time-Optimal Formation Reshaping for Efficient Robot Coordination in 3-D Environments",
+      "doi": "10.1109/TRO.2025.3547296",
+      "arxiv": "2412.00603",
+      "official_url": "https://doi.org/10.1109/TRO.2025.3547296",
+      "code_urls": [
+        "https://github.com/ctu-mrs/catora"
+      ],
+      "source_index": "references_verified_20260921.json",
+      "prior_read_scope": "核查问题定义、A1–A6假设、目标匹配与轨迹生成方法和实验说明。",
+      "prior_code_scope": "读取README。ROS Noetic、mrs_lib、GPL-3.0；可作为服务或库调用，未运行。",
+      "mechanism_from_supplied_review": "联合考虑机器人到目标槽位的匹配、队形变换时间和机器人间碰撞。",
+      "boundary_from_supplied_review": "A6要求起终点凸包内除机器人外无障碍，另有同一时间参数化/静止端点等假设；不能直接作为港口任意障碍编队规划器。",
+      "project_use_from_supplied_review": "集结/重构阶段的明确代价与槽位分配基线，不替代整项任务调度。",
+      "access_attempts": [],
+      "sha256": "86ecfb1f42b28f23e9868c72cbfb4b1ce56dfa37009031be9e61f507396774d3",
+      "size_bytes": 11175971,
+      "pages": 20,
+      "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+      "status": "reused-local-pdf",
+      "reused_from": "research/literature/papers/formation/cat-ora-2025.pdf",
+      "local_pdf": "research/literature/collections/heterogeneous-20260921/P08/paper.pdf",
+      "resolved_pdf": "research/literature/papers/formation/cat-ora-2025.pdf",
+      "this_round_read_scope": "download and identity inspection only; selected-section review pending",
+      "integrity_rechecked_utc": "2026-09-21T05:50:03.358012+00:00",
+      "verified_pdf_title": "CAT-ORA: Collision-Aware Time-Optimal Formation Reshaping for Efficient Robot Coordination in 3-D Environments"
+    },
+    {
+      "id": "P09",
+      "title": "Collaboration of Heterogeneous Marine Robots Toward Multidomain Sensing and Situational Awareness on Partially Submerged Targets",
+      "doi": "10.1109/JOE.2022.3156631",
+      "arxiv": null,
+      "official_url": "https://ieeexplore.ieee.org/document/9772063/",
+      "code_urls": [],
+      "source_index": "references_verified_20260921.json",
+      "prior_read_scope": "已核查IEEE出版摘要和发表信息，本轮未取得完整正文。",
+      "prior_code_scope": "本轮未确认作者公开代码。",
+      "mechanism_from_supplied_review": "UAV、USV、UUV对部分浸没物体开展跨域感知，USV承担协同位置和作业支援。",
+      "boundary_from_supplied_review": "不能从摘要推定其包含完整联合优化公式、AAV跨介质转换或有限交付理论。",
+      "project_use_from_supplied_review": "与你们近岸分层观测最直接的场景论文之一，全文是后续需要补齐的关键来源。",
+      "access_attempts": [
+        {
+          "url": "https://ieeexplore.ieee.org/document/9772063/",
+          "checked_utc": "2026-09-21T05:45:15.972910+00:00",
+          "http_status": 202,
+          "final_url": "https://ieeexplore.ieee.org/document/9772063/",
+          "content_type": "text/html; charset=UTF-8",
+          "result": "unresolved",
+          "error": "response is not a PDF"
+        }
+      ],
+      "status": "fulltext-access-unresolved",
+      "local_pdf": null,
+      "this_round_read_scope": "no fulltext; supplied review plus discovered metadata only"
+    },
+    {
+      "id": "P10",
+      "title": "Ocean Front Detection and Tracking Using a Team of Heterogeneous Marine Vehicles",
+      "doi": "10.1002/rob.22014",
+      "arxiv": null,
+      "official_url": "https://onlinelibrary.wiley.com/doi/abs/10.1002/rob.22014",
+      "code_urls": [],
+      "source_index": "references_verified_20260921.json",
+      "prior_read_scope": "核查出版摘要、期刊目录及作者信息，本轮未取得完整正文。",
+      "prior_code_scope": "本轮未确认对应作者源码；未把其他海洋锋面项目当成本文代码。",
+      "mechanism_from_supplied_review": "异构海洋平台协同探测/跟踪海洋锋面，用信息和任务结果驱动作业。",
+      "boundary_from_supplied_review": "不等于固定几何编队，也不包含你们的三台AAV。",
+      "project_use_from_supplied_review": "真实海洋观测任务及协作收益的场景参考。",
+      "access_attempts": [
+        {
+          "url": "https://onlinelibrary.wiley.com/doi/abs/10.1002/rob.22014",
+          "checked_utc": "2026-09-21T05:45:16.028002+00:00",
+          "http_status": 403,
+          "final_url": "https://onlinelibrary.wiley.com/doi/abs/10.1002/rob.22014",
+          "content_type": "text/html; charset=UTF-8",
+          "result": "unresolved",
+          "error": "403 Client Error: Forbidden for url: https://onlinelibrary.wiley.com/doi/abs/10.1002/rob.22014"
+        },
+        {
+          "url": "https://rss.onlinelibrary.wiley.com/doi/am-pdf/10.1002/rob.22014",
+          "checked_utc": "2026-09-21T05:48:06.855312+00:00",
+          "http_status": 403,
+          "final_url": "https://rss.onlinelibrary.wiley.com/doi/am-pdf/10.1002/rob.22014",
+          "content_type": "text/html; charset=UTF-8",
+          "result": "unresolved",
+          "error": "403 Client Error: Forbidden for url: https://rss.onlinelibrary.wiley.com/doi/am-pdf/10.1002/rob.22014"
+        }
+      ],
+      "status": "fulltext-access-unresolved",
+      "local_pdf": null,
+      "this_round_read_scope": "no fulltext; supplied review plus discovered metadata only"
+    },
+    {
+      "id": "P11",
+      "title": "Distributed Cooperative Control of Heterogeneous Multiagent Systems for Air-to-Ground Formation",
+      "doi": "10.1002/rob.22462",
+      "arxiv": null,
+      "official_url": "https://onlinelibrary.wiley.com/doi/full/10.1002/rob.22462",
+      "code_urls": [],
+      "source_index": "references_verified_20260921.json",
+      "prior_read_scope": "核查出版摘要与信息；未取得完整可读正文。",
+      "prior_code_scope": "本轮未确认作者公开代码。",
+      "mechanism_from_supplied_review": "不同地面车辆与空中平台的分层异构编队控制。",
+      "boundary_from_supplied_review": "异构动力学/编队控制不自动包含多业务任务分配和通信交付。",
+      "project_use_from_supplied_review": "控制层的异构性建模对照，不能当现成任务调度器。",
+      "access_attempts": [
+        {
+          "url": "https://onlinelibrary.wiley.com/doi/full/10.1002/rob.22462",
+          "checked_utc": "2026-09-21T05:45:16.028556+00:00",
+          "http_status": 403,
+          "final_url": "https://onlinelibrary.wiley.com/doi/full/10.1002/rob.22462",
+          "content_type": "text/html; charset=UTF-8",
+          "result": "unresolved",
+          "error": "403 Client Error: Forbidden for url: https://onlinelibrary.wiley.com/doi/full/10.1002/rob.22462"
+        }
+      ],
+      "status": "fulltext-access-unresolved",
+      "local_pdf": null,
+      "this_round_read_scope": "no fulltext; supplied review plus discovered metadata only"
+    },
+    {
+      "id": "P12",
+      "title": "Multi-Nonholonomic Robot Object Transportation with Obstacle Crossing Using a Deformable Sheet",
+      "doi": "10.1109/ICRA55743.2025.11128313",
+      "arxiv": null,
+      "official_url": "https://doi.org/10.1109/ICRA55743.2025.11128313",
+      "code_urls": [
+        "https://github.com/HyPAIR/CPDOT"
+      ],
+      "source_index": "references_verified_20260921.json",
+      "prior_read_scope": "核查作者机构发表记录和项目说明；本轮未完成全文审查。",
+      "prior_code_scope": "已确认作者公开仓库/项目说明；未检查全部实现或运行。",
+      "mechanism_from_supplied_review": "利用多机器人与变形载荷的几何关系开展协同运输和越障。",
+      "boundary_from_supplied_review": "不是空—水—潜任务，不能给本项目新增搬运任务。",
+      "project_use_from_supplied_review": "任务所需几何与协同运动紧耦合的结构性参考。",
+      "access_attempts": [
+        {
+          "url": "https://research.birmingham.ac.uk/files/259517981/ICRA_25_FINAL_PAPER.pdf",
+          "checked_utc": "2026-09-21T05:45:16.041679+00:00",
+          "http_status": 403,
+          "final_url": "https://research.birmingham.ac.uk/files/259517981/ICRA_25_FINAL_PAPER.pdf",
+          "content_type": "text/html; charset=UTF-8",
+          "result": "unresolved",
+          "error": "403 Client Error: Forbidden for url: https://research.birmingham.ac.uk/files/259517981/ICRA_25_FINAL_PAPER.pdf"
+        },
+        {
+          "url": "https://simonzhang1999.github.io/paper/Multi-Nonholonomic_Robot_Object_Transportation_with_Obstacle_Crossing_Using_a_Deformable_Sheet.pdf",
+          "checked_utc": "2026-09-21T05:46:56.785203+00:00",
+          "http_status": 200,
+          "final_url": "https://simonzhang1999.github.io/paper/Multi-Nonholonomic_Robot_Object_Transportation_with_Obstacle_Crossing_Using_a_Deformable_Sheet.pdf",
+          "content_type": "application/pdf",
+          "result": "verified-pdf"
+        }
+      ],
+      "status": "downloaded-open-pdf",
+      "local_pdf": "research/literature/collections/heterogeneous-20260921/P12/paper.pdf",
+      "this_round_read_scope": "no fulltext; supplied review plus discovered metadata only",
+      "sha256": "f1e1be1e0d9d0613d716e35cfee319abdd64adcc201f50c6607c5d7202f26b32",
+      "size_bytes": 5711658,
+      "pages": 7,
+      "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+      "source_url": "https://simonzhang1999.github.io/paper/Multi-Nonholonomic_Robot_Object_Transportation_with_Obstacle_Crossing_Using_a_Deformable_Sheet.pdf",
+      "resolved_source_url": "https://simonzhang1999.github.io/paper/Multi-Nonholonomic_Robot_Object_Transportation_with_Obstacle_Crossing_Using_a_Deformable_Sheet.pdf",
+      "downloaded_utc": "2026-09-21T05:46:56.785203+00:00",
+      "verified_pdf_title": "Multi-Nonholonomic Robot Object Transportation with Obstacle Crossing Using a Deformable Sheet",
+      "resolved_pdf": "research/literature/collections/heterogeneous-20260921/P12/paper.pdf",
+      "integrity_rechecked_utc": "2026-09-21T05:50:03.300469+00:00"
+    },
+    {
+      "id": "P13",
+      "title": "Robots Calling the Shots: Using Multiple Ground Robots for Autonomous Tracking in Cluttered Environments",
+      "doi": "10.1109/IROS60139.2025.11247464",
+      "arxiv": null,
+      "official_url": "https://doi.org/10.1109/IROS60139.2025.11247464",
+      "code_urls": [
+        "https://github.com/HyPAIR/VisFormationPlanner"
+      ],
+      "source_index": "references_verified_20260921.json",
+      "prior_read_scope": "核查作者仓库/发表信息；本轮未取得完整论文正文。",
+      "prior_code_scope": "项目README级核查；ROS Noetic、Gurobi许可；未运行。",
+      "mechanism_from_supplied_review": "为协同视觉跟踪安排多机器人视角、运动和云台，处理遮挡与碰撞。",
+      "boundary_from_supplied_review": "地面机器人，不是三介质；没有据此确认业务任务调度。",
+      "project_use_from_supplied_review": "任务感知的队形/视角规划参考。",
+      "access_attempts": [
+        {
+          "url": "https://research.birmingham.ac.uk/files/269684691/IROS_25_FINAL_PAPER.pdf",
+          "checked_utc": "2026-09-21T05:45:16.164868+00:00",
+          "http_status": 403,
+          "final_url": "https://research.birmingham.ac.uk/files/269684691/IROS_25_FINAL_PAPER.pdf",
+          "content_type": "text/html; charset=UTF-8",
+          "result": "unresolved",
+          "error": "403 Client Error: Forbidden for url: https://research.birmingham.ac.uk/files/269684691/IROS_25_FINAL_PAPER.pdf"
+        },
+        {
+          "url": "https://simonzhang1999.github.io/paper/Robots_Calling_the_Shots_Using_Multiple_Ground_Robots_for_Autonomous_Tracking_in_Cluttered_Environments.pdf",
+          "checked_utc": "2026-09-21T05:46:56.850964+00:00",
+          "http_status": 200,
+          "final_url": "https://simonzhang1999.github.io/paper/Robots_Calling_the_Shots_Using_Multiple_Ground_Robots_for_Autonomous_Tracking_in_Cluttered_Environments.pdf",
+          "content_type": "application/pdf",
+          "result": "verified-pdf"
+        }
+      ],
+      "status": "downloaded-open-pdf",
+      "local_pdf": "research/literature/collections/heterogeneous-20260921/P13/paper.pdf",
+      "this_round_read_scope": "no fulltext; supplied review plus discovered metadata only",
+      "sha256": "2c91588fdfb7b9158fae6fd8fa82af8a18135b5c99bcf8475527709251094f81",
+      "size_bytes": 5470613,
+      "pages": 8,
+      "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+      "source_url": "https://simonzhang1999.github.io/paper/Robots_Calling_the_Shots_Using_Multiple_Ground_Robots_for_Autonomous_Tracking_in_Cluttered_Environments.pdf",
+      "resolved_source_url": "https://simonzhang1999.github.io/paper/Robots_Calling_the_Shots_Using_Multiple_Ground_Robots_for_Autonomous_Tracking_in_Cluttered_Environments.pdf",
+      "downloaded_utc": "2026-09-21T05:46:56.850964+00:00",
+      "verified_pdf_title": "Robots Calling the Shots: Using Multiple Ground Robots for Autonomous Tracking in Cluttered Environments",
+      "resolved_pdf": "research/literature/collections/heterogeneous-20260921/P13/paper.pdf",
+      "integrity_rechecked_utc": "2026-09-21T05:50:03.356708+00:00"
+    },
+    {
+      "id": "P14",
+      "title": "Collaborative Exploration With a Marsupial Ground-Aerial Robot Team Through Task-Driven Map Compression",
+      "doi": "10.1109/LRA.2025.3609040",
+      "arxiv": "2509.07655",
+      "official_url": "https://ieeexplore.ieee.org/document/11159273",
+      "code_urls": [
+        "https://github.com/ntnu-arl/pcl-vae"
+      ],
+      "source_index": "references_verified_20260921.json",
+      "prior_read_scope": "正文重点核查空地部署、协同探索、会合及地图压缩方法。",
+      "prior_code_scope": "读取README，明确公开的是任务驱动点云压缩模块、训练/推理/权重，不是整套协同系统。BSD-3-Clause；未运行。",
+      "mechanism_from_supplied_review": "按探索需求部署空中机器人、协同地图交换与会合，考虑任务相关的带宽节省。",
+      "boundary_from_supplied_review": "不能把压缩模块公开描述成全系统开源；母体携带空中机器人不等于同一AAV跨介质。",
+      "project_use_from_supplied_review": "通信代价与任务信息需求相联的较新实证，不建议当前先加入VAE。",
+      "access_attempts": [
+        {
+          "url": "https://arxiv.org/pdf/2509.07655",
+          "checked_utc": "2026-09-21T05:45:16.265977+00:00",
+          "http_status": 200,
+          "final_url": "https://arxiv.org/pdf/2509.07655",
+          "content_type": "application/pdf",
+          "result": "verified-pdf"
+        }
+      ],
+      "sha256": "442273904ecb54b137fef9fdbf68c8f6e96f9754c03e4af4da28c8f19abc0ff7",
+      "size_bytes": 3273308,
+      "pages": 8,
+      "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+      "status": "downloaded-open-pdf",
+      "source_url": "https://arxiv.org/pdf/2509.07655",
+      "resolved_source_url": "https://arxiv.org/pdf/2509.07655",
+      "downloaded_utc": "2026-09-21T05:45:16.265977+00:00",
+      "verified_pdf_title": "Collaborative Exploration With a Marsupial Ground-Aerial Robot Team Through Task-Driven Map Compression",
+      "local_pdf": "research/literature/collections/heterogeneous-20260921/P14/paper.pdf",
+      "resolved_pdf": "research/literature/collections/heterogeneous-20260921/P14/paper.pdf",
+      "this_round_read_scope": "download and identity inspection only; selected-section review pending",
+      "integrity_rechecked_utc": "2026-09-21T05:50:03.375073+00:00"
+    },
+    {
+      "id": "P15",
+      "title": "Online Multi-Robot Coordination and Cooperation with Task Precedence Relationships",
+      "doi": "10.1109/TRO.2025.3613558",
+      "arxiv": "2509.15052",
+      "official_url": "https://arxiv.org/abs/2509.15052",
+      "code_urls": [],
+      "source_index": "references_verified_20260921.json",
+      "prior_read_scope": "核查正文问题定义、联盟收益/前置关系、在线修复及局限；录用信息来自作者arXiv记录。",
+      "prior_code_scope": "本轮未确认配套作者源码。",
+      "mechanism_from_supplied_review": "联合任务前置、联盟规模和前序任务表现，在线重新分配应对偏差。",
+      "boundary_from_supplied_review": "这里formation of coalitions是形成联盟，不是几何编队；论文把异构扩展列为后续工作。",
+      "project_use_from_supplied_review": "更新此前ICRA2023文献依据，但不能把它当成已经解决异构几何编队。",
+      "access_attempts": [
+        {
+          "url": "https://arxiv.org/pdf/2509.15052",
+          "checked_utc": "2026-09-21T05:45:16.271509+00:00",
+          "http_status": 200,
+          "final_url": "https://arxiv.org/pdf/2509.15052",
+          "content_type": "application/pdf",
+          "result": "verified-pdf"
+        }
+      ],
+      "sha256": "b4609fbeb2055d6379186b706b6ecc940dbeb01e31c10d27e582fe62ff1c8022",
+      "size_bytes": 2635049,
+      "pages": 20,
+      "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+      "status": "downloaded-open-pdf",
+      "source_url": "https://arxiv.org/pdf/2509.15052",
+      "resolved_source_url": "https://arxiv.org/pdf/2509.15052",
+      "downloaded_utc": "2026-09-21T05:45:16.271509+00:00",
+      "verified_pdf_title": "Online Multi-Robot Coordination and Cooperation with Task Precedence Relationships",
+      "local_pdf": "research/literature/collections/heterogeneous-20260921/P15/paper.pdf",
+      "resolved_pdf": "research/literature/collections/heterogeneous-20260921/P15/paper.pdf",
+      "this_round_read_scope": "download and identity inspection only; selected-section review pending",
+      "integrity_rechecked_utc": "2026-09-21T05:50:03.457125+00:00"
+    },
+    {
+      "id": "P16",
+      "title": "A Cooperative Heterogeneous Formation Control and Motion Planning Design of 3U: UAV-USV-UUV Systems",
+      "doi": "10.1016/j.oceaneng.2025.123867",
+      "arxiv": null,
+      "official_url": "https://www.sciencedirect.com/science/article/pii/S0029801825035498",
+      "code_urls": [],
+      "source_index": "references_verified_20260921.json",
+      "prior_read_scope": "核查出版社摘要、章节片段和发表信息；本轮未取得完整正文。",
+      "prior_code_scope": "本轮未确认作者公开代码。",
+      "mechanism_from_supplied_review": "UAV-USV-UUV异构编队控制与运动规划，结合刚性图、控制与避障/变形方法。",
+      "boundary_from_supplied_review": "不是T-RO或TAC；固定3U平台类别不等于AAV入出水转换；未据摘要确认业务任务分配。",
+      "project_use_from_supplied_review": "新近、平台类型直接相关的补充文献，需补全文后才决定采用其公式。",
+      "access_attempts": [
+        {
+          "url": "https://www.sciencedirect.com/science/article/pii/S0029801825035498",
+          "checked_utc": "2026-09-21T05:45:16.273361+00:00",
+          "http_status": 403,
+          "final_url": "https://www.sciencedirect.com/science/article/pii/S0029801825035498",
+          "content_type": "text/html; charset=UTF-8",
+          "result": "unresolved",
+          "error": "403 Client Error: Forbidden for url: https://www.sciencedirect.com/science/article/pii/S0029801825035498"
+        }
+      ],
+      "status": "fulltext-access-unresolved",
+      "local_pdf": null,
+      "this_round_read_scope": "no fulltext; supplied review plus discovered metadata only"
+    },
+    {
+      "id": "P17",
+      "title": "CoPCS: Collaborative Planning with Concurrent Synchronization for Operationally Constrained UAV-UGV Teams",
+      "doi": null,
+      "arxiv": "2603.06898",
+      "official_url": "https://arxiv.org/abs/2603.06898",
+      "code_urls": [],
+      "source_index": "references_verified_20260921.json",
+      "prior_read_scope": "核查arXiv正文的问题与方法描述；未确认顶会/顶刊发表。",
+      "prior_code_scope": "确认项目页线索https://hcrlab.gitlab.io/project/CoPCS/；本轮未确认完整公开实现。",
+      "mechanism_from_supplied_review": "约束下的空地协同规划与并行同步。",
+      "boundary_from_supplied_review": "不能把预印本列成已经发表的顶会论文；不是海洋跨介质系统。",
+      "project_use_from_supplied_review": "前沿补充，不作为当前工程首选依赖。",
+      "access_attempts": [
+        {
+          "url": "https://arxiv.org/pdf/2603.06898",
+          "checked_utc": "2026-09-21T05:45:16.378728+00:00",
+          "http_status": 200,
+          "final_url": "https://arxiv.org/pdf/2603.06898",
+          "content_type": "application/pdf",
+          "result": "verified-pdf"
+        }
+      ],
+      "sha256": "cd8bca26154d6c8cca71fa38e41124d4f52ef9aea6e05c1065261a961500d286",
+      "size_bytes": 2449479,
+      "pages": 8,
+      "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+      "status": "downloaded-open-pdf",
+      "source_url": "https://arxiv.org/pdf/2603.06898",
+      "resolved_source_url": "https://arxiv.org/pdf/2603.06898",
+      "downloaded_utc": "2026-09-21T05:45:16.378728+00:00",
+      "verified_pdf_title": "CoPCS: Collaborative Planning with Concurrent Synchronization for Operationally Constrained UAV-UGV Teams",
+      "local_pdf": "research/literature/collections/heterogeneous-20260921/P17/paper.pdf",
+      "resolved_pdf": "research/literature/collections/heterogeneous-20260921/P17/paper.pdf",
+      "this_round_read_scope": "download and identity inspection only; selected-section review pending",
+      "integrity_rechecked_utc": "2026-09-21T05:50:03.408601+00:00"
+    },
+    {
+      "id": "P18",
+      "title": "HetSwarm: Cooperative Navigation of Heterogeneous Swarm in Dynamic and Dense Environments through Impedance-based Guidance",
+      "doi": null,
+      "arxiv": "2502.06722",
+      "official_url": "https://arxiv.org/abs/2502.06722",
+      "code_urls": [],
+      "source_index": "references_verified_20260921.json",
+      "prior_read_scope": "核查arXiv正文的异构导航、引导和实验描述；正式会刊未确认。",
+      "prior_code_scope": "本轮未确认作者完整公开代码。",
+      "mechanism_from_supplied_review": "空地异构群体在动态拥挤环境中开展协同导航。",
+      "boundary_from_supplied_review": "协同导航不是全任务分配，平台也不是两栖转换。",
+      "project_use_from_supplied_review": "运动层补充对照，不按题名就替换现有主链。",
+      "access_attempts": [
+        {
+          "url": "https://arxiv.org/pdf/2502.06722",
+          "checked_utc": "2026-09-21T05:45:17.263781+00:00",
+          "http_status": 200,
+          "final_url": "https://arxiv.org/pdf/2502.06722",
+          "content_type": "application/pdf",
+          "result": "verified-pdf"
+        }
+      ],
+      "sha256": "56e93296d86bd353417aa18199f81b17a3b3447bcd19dcff0e18394ef79bb0d1",
+      "size_bytes": 1241008,
+      "pages": 7,
+      "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+      "status": "downloaded-open-pdf",
+      "source_url": "https://arxiv.org/pdf/2502.06722",
+      "resolved_source_url": "https://arxiv.org/pdf/2502.06722",
+      "downloaded_utc": "2026-09-21T05:45:17.263781+00:00",
+      "verified_pdf_title": "HetSwarm: Cooperative Navigation of Heterogeneous Swarm in Dynamic and Dense Environments through Impedance-based Guidance",
+      "local_pdf": "research/literature/collections/heterogeneous-20260921/P18/paper.pdf",
+      "resolved_pdf": "research/literature/collections/heterogeneous-20260921/P18/paper.pdf",
+      "this_round_read_scope": "download and identity inspection only; selected-section review pending",
+      "integrity_rechecked_utc": "2026-09-21T05:50:03.401025+00:00"
+    },
+    {
+      "id": "P19",
+      "title": "Formation Control for Mixed-Order UAVs–USVs–UUVs Systems under Cooperative and Optimal Control",
+      "doi": null,
+      "arxiv": null,
+      "official_url": "https://consensus.app/papers/formation-control-for-mixedorder-uavs–usvs–uuvs-systems-liu-li/63e620fb116555d7b6edfbf671fd66ea/?utm_source=chatgpt",
+      "code_urls": [],
+      "source_index": "references_verified_20260921.json",
+      "prior_read_scope": "Consensus已搜索并fetch完整论文记录；本轮不将该记录当作论文全文。",
+      "prior_code_scope": "本轮未确认作者代码。",
+      "mechanism_from_supplied_review": "混阶异构UAV、USV、UUV的静态/动态编队控制及合作最优控制。",
+      "boundary_from_supplied_review": "不能由cooperative和optimal字样推定其解决业务任务分配；JMSE不混列成T-RO/TAC核心顶刊。",
+      "project_use_from_supplied_review": "关键词直接命中的补充，不取代核心理论与工程来源。",
+      "access_attempts": [
+        {
+          "url": "https://www.mdpi.com/2077-1312/11/4/704/pdf",
+          "checked_utc": "2026-09-21T05:45:17.452799+00:00",
+          "http_status": 403,
+          "final_url": "https://www.mdpi.com/2077-1312/11/4/704/pdf",
+          "content_type": "text/html",
+          "result": "unresolved",
+          "error": "403 Client Error: Forbidden for url: https://www.mdpi.com/2077-1312/11/4/704/pdf"
+        },
+        {
+          "url": "https://mdpi-res.com/d_attachment/jmse/jmse-11-00704/article_deploy/jmse-11-00704.pdf",
+          "checked_utc": "2026-09-21T05:46:57.085217+00:00",
+          "http_status": 200,
+          "final_url": "https://mdpi-res.com/d_attachment/jmse/jmse-11-00704/article_deploy/jmse-11-00704.pdf",
+          "content_type": "application/pdf",
+          "result": "verified-pdf"
+        }
+      ],
+      "status": "downloaded-open-pdf",
+      "local_pdf": "research/literature/collections/heterogeneous-20260921/P19/paper.pdf",
+      "this_round_read_scope": "no fulltext; supplied review plus discovered metadata only",
+      "sha256": "d1df20803631d67f9dcd01d530868a17548af48bda1b8f812b719d059a085172",
+      "size_bytes": 7912122,
+      "pages": 24,
+      "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+      "source_url": "https://mdpi-res.com/d_attachment/jmse/jmse-11-00704/article_deploy/jmse-11-00704.pdf",
+      "resolved_source_url": "https://mdpi-res.com/d_attachment/jmse/jmse-11-00704/article_deploy/jmse-11-00704.pdf",
+      "downloaded_utc": "2026-09-21T05:46:57.085217+00:00",
+      "verified_pdf_title": "Formation Control for Mixed-Order UAVs–USVs–UUVs Systems under Cooperative and Optimal Control",
+      "resolved_pdf": "research/literature/collections/heterogeneous-20260921/P19/paper.pdf",
+      "integrity_rechecked_utc": "2026-09-21T05:50:03.506990+00:00"
+    },
+    {
+      "id": "P20",
+      "title": "Simultaneous Task Allocation and Planning for Temporal Logic Goals in Heterogeneous Multi-Robot Systems",
+      "doi": "10.1177/0278364918774135",
+      "arxiv": null,
+      "official_url": "https://journals.sagepub.com/doi/abs/10.1177/0278364918774135",
+      "code_urls": [],
+      "source_index": "references_verified_20260921.json",
+      "prior_read_scope": "核查期刊发表信息和摘要；本轮未完成全文审查。",
+      "prior_code_scope": "本轮未确认对应公开代码。",
+      "mechanism_from_supplied_review": "异构机器人面向时序逻辑目标的任务分配与规划。",
+      "boundary_from_supplied_review": "不是几何编队，不能把全部时序逻辑推理能力直接归给当前任务图。",
+      "project_use_from_supplied_review": "任务层联合规划的补充奠基来源，不再作为唯一主线。",
+      "access_attempts": [
+        {
+          "url": "https://kth.diva-portal.org/smash/get/diva2:1143759/FULLTEXT01.pdf",
+          "checked_utc": "2026-09-21T05:45:17.505355+00:00",
+          "http_status": 404,
+          "final_url": "https://kth.diva-portal.org/smash/get/diva2:1143759/FULLTEXT01.pdf",
+          "content_type": "text/html;charset=UTF-8",
+          "result": "unresolved",
+          "error": "404 Client Error: Not Found for url: https://kth.diva-portal.org/smash/get/diva2:1143759/FULLTEXT01.pdf"
+        },
+        {
+          "url": "https://people.kth.se/~dimos/pdfs/SchBurDimIJRR18.pdf",
+          "checked_utc": "2026-09-21T05:50:03.409200+00:00",
+          "http_status": 200,
+          "final_url": "https://people.kth.se/~dimos/pdfs/SchBurDimIJRR18.pdf",
+          "content_type": "application/pdf",
+          "result": "verified-pdf"
+        }
+      ],
+      "status": "downloaded-open-pdf",
+      "local_pdf": "research/literature/collections/heterogeneous-20260921/P20/paper.pdf",
+      "this_round_read_scope": "no fulltext; supplied review plus discovered metadata only",
+      "sha256": "873fcf3fbb7689e8ab9e8028a6f924a58551c1fb521c15b2a9e25292521af355",
+      "size_bytes": 864524,
+      "pages": 19,
+      "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+      "source_url": "https://people.kth.se/~dimos/pdfs/SchBurDimIJRR18.pdf",
+      "resolved_source_url": "https://people.kth.se/~dimos/pdfs/SchBurDimIJRR18.pdf",
+      "downloaded_utc": "2026-09-21T05:50:03.409200+00:00",
+      "verified_pdf_title": "Simultaneous Task Allocation and Planning for Temporal Logic Goals in Heterogeneous Multi-Robot Systems",
+      "resolved_pdf": "research/literature/collections/heterogeneous-20260921/P20/paper.pdf"
+    }
+  ]
+}

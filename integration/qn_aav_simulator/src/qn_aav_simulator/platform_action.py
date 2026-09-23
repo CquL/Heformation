@@ -310,10 +310,14 @@ class LocalPlatformAction:
         work=self.work
         normal=not work['cause'] and terminal_verified
         observations=work.get('observations')
-        if normal and observations is not None and observations.emitted!=set(observations.points):
-            normal=False;reason='OBSERVATION_NOT_SATISFIED'
+        observation_missing=normal and observations is not None and observations.emitted!=set(observations.points)
+        if observation_missing:normal=False;reason='OBSERVATION_NOT_SATISFIED'
         if terminal_verified:self.terminal_mode=self.mode()
-        self.owner.finish(work['id'],normal)
+        # Missing business coverage does not invalidate a verified physical
+        # terminal. Faults and unverified terminals still retain the local lock.
+        self.owner.finish(work['id'],terminal_verified and not work['cause'])
+        if terminal_verified and observations is not None and not work['cause']:
+            self.products.publish(String(data=json.dumps(observations.terminal_report(rospy.Time.now().to_sec()),allow_nan=False)))
         result=PlatformTaskResult(task_id=work['task'],goal_id=work['id'],
             task_completed=normal,terminal_verified=terminal_verified,
             actual_mode=self.mode(),reason=reason,resource_locked=self.owner.locked,

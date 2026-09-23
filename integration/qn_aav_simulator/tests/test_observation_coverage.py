@@ -30,6 +30,22 @@ def test_native_observation_requires_fresh_active_domain_samples_and_emits_once(
     assert events[0]['producer']=='uuv' and events[0]['observed'] is True
     assert events[0]['result']['dwell_s']==pytest.approx(1.)
     assert 'received_at' not in events[0]
+    report=window.terminal_report(102.)
+    assert report['event_type']=='OBSERVATION_TERMINAL'
+    assert report['point_ids']==report['observed_ids']==['water_sample']
+
+
+def test_missing_observation_has_a_distinct_received_report_without_a_business_product():
+    from pathlib import Path
+    from qn_aav_simulator.task_line import load_request
+    from qn_aav_simulator.observation_coverage import LocalObservationWindow
+    request=load_request(Path(__file__).parents[1]/'config/monitoring_request_joint.yaml')
+    window=LocalObservationWindow(request,['water_sample'],'uuv','missed-goal')
+    assert not window.sample(0.,(10.,8.,-2.),'WATER',100.)
+    report=window.terminal_report(101.)
+    assert report['point_ids']==['water_sample'] and report['observed_ids']==[]
+    assert report['product_id']=='missed-goal:terminal'
+    assert 'required_bytes' not in report
 
 
 def dwell_samples(member="m0", start=0.0, end=1.2, step=0.2, xy=(-28.0, 4.0),

@@ -208,9 +208,11 @@ class PvsNode:
         w=self.work
         normal=verified and not w['cause']
         observations=w.get('observations')
-        if normal and observations is not None and observations.emitted!=set(observations.points):
-            normal=False;reason='OBSERVATION_NOT_SATISFIED'
-        self.locked=self.locked or not normal
+        observation_missing=normal and observations is not None and observations.emitted!=set(observations.points)
+        if observation_missing:normal=False;reason='OBSERVATION_NOT_SATISFIED'
+        self.locked=self.locked or not verified or bool(w['cause'])
+        if verified and observations is not None and not w['cause']:
+            self.products.publish(String(data=json.dumps(observations.terminal_report(rospy.Time.now().to_sec()),allow_nan=False)))
         self.retired.add(w['id'])
         if self.last_prediction.get('goal_id')==w['id']:
             self.last_prediction['actual_duration_s']=self.backend.time_s-w['model_start']

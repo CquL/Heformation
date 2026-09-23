@@ -1,0 +1,39 @@
+{
+  "id": "P05",
+  "title": "A Cost-Effective Cooperative Exploration and Inspection Strategy for Heterogeneous Aerial System",
+  "doi": "10.1109/ICCA62789.2024.10591842",
+  "arxiv": "2403.01225",
+  "official_url": "https://doi.org/10.1109/ICCA62789.2024.10591842",
+  "code_urls": [
+    "https://github.com/ntu-aris/caric_baseline"
+  ],
+  "source_index": "references_verified_20260921.json",
+  "prior_read_scope": "取得arXiv正文并核查任务分配与探索/巡检方法；未逐图复算结果。",
+  "prior_code_scope": "README明确给出initial_task.h/cpp、baseline_planner.h/cpp；目前基线不是所有子任务通用方法，穷举MTSP可耗时很长。未运行。",
+  "mechanism_from_supplied_review": "异构探索者与拍摄者分组，区域分配和探索/巡检相结合。",
+  "boundary_from_supplied_review": "ICCA不是ICRA；挑战赛在CDC举办不等于该论文发表在CDC。不能把分组等同于严格编队。",
+  "project_use_from_supplied_review": "开放基线入口和任务评价参考。",
+  "access_attempts": [
+    {
+      "url": "https://arxiv.org/pdf/2403.01225",
+      "checked_utc": "2026-09-21T05:44:10.210475+00:00",
+      "http_status": 200,
+      "final_url": "https://arxiv.org/pdf/2403.01225",
+      "content_type": "application/pdf",
+      "result": "verified-pdf"
+    }
+  ],
+  "sha256": "8a1b07ca0f4ddda470ad732bff7ae083e65a6a4422fb484a879da7b1f40669c4",
+  "size_bytes": 6538224,
+  "pages": 7,
+  "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+  "status": "downloaded-open-pdf",
+  "source_url": "https://arxiv.org/pdf/2403.01225",
+  "resolved_source_url": "https://arxiv.org/pdf/2403.01225",
+  "downloaded_utc": "2026-09-21T05:44:10.210475+00:00",
+  "local_pdf": "research/literature/collections/heterogeneous-20260921/P05/paper.pdf",
+  "resolved_pdf": "research/literature/collections/heterogeneous-20260921/P05/paper.pdf",
+  "this_round_read_scope": "download and identity inspection only; selected-section review pending",
+  "integrity_rechecked_utc": "2026-09-21T05:50:03.176676+00:00",
+  "verified_pdf_title": "A Cost-Effective Cooperative Exploration and Inspection Strategy for Heterogeneous Aerial System"
+}

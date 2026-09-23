@@ -1,0 +1,37 @@
+{
+  "id": "P10",
+  "title": "Ocean Front Detection and Tracking Using a Team of Heterogeneous Marine Vehicles",
+  "doi": "10.1002/rob.22014",
+  "arxiv": null,
+  "official_url": "https://onlinelibrary.wiley.com/doi/abs/10.1002/rob.22014",
+  "code_urls": [],
+  "source_index": "references_verified_20260921.json",
+  "prior_read_scope": "核查出版摘要、期刊目录及作者信息，本轮未取得完整正文。",
+  "prior_code_scope": "本轮未确认对应作者源码；未把其他海洋锋面项目当成本文代码。",
+  "mechanism_from_supplied_review": "异构海洋平台协同探测/跟踪海洋锋面，用信息和任务结果驱动作业。",
+  "boundary_from_supplied_review": "不等于固定几何编队，也不包含你们的三台AAV。",
+  "project_use_from_supplied_review": "真实海洋观测任务及协作收益的场景参考。",
+  "access_attempts": [
+    {
+      "url": "https://onlinelibrary.wiley.com/doi/abs/10.1002/rob.22014",
+      "checked_utc": "2026-09-21T05:45:16.028002+00:00",
+      "http_status": 403,
+      "final_url": "https://onlinelibrary.wiley.com/doi/abs/10.1002/rob.22014",
+      "content_type": "text/html; charset=UTF-8",
+      "result": "unresolved",
+      "error": "403 Client Error: Forbidden for url: https://onlinelibrary.wiley.com/doi/abs/10.1002/rob.22014"
+    },
+    {
+      "url": "https://rss.onlinelibrary.wiley.com/doi/am-pdf/10.1002/rob.22014",
+      "checked_utc": "2026-09-21T05:48:06.855312+00:00",
+      "http_status": 403,
+      "final_url": "https://rss.onlinelibrary.wiley.com/doi/am-pdf/10.1002/rob.22014",
+      "content_type": "text/html; charset=UTF-8",
+      "result": "unresolved",
+      "error": "403 Client Error: Forbidden for url: https://rss.onlinelibrary.wiley.com/doi/am-pdf/10.1002/rob.22014"
+    }
+  ],
+  "status": "fulltext-access-unresolved",
+  "local_pdf": null,
+  "this_round_read_scope": "no fulltext; supplied review plus discovered metadata only"
+}

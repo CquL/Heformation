@@ -37,7 +37,7 @@ from geometry_msgs.msg import PoseStamped, TwistStamped
 from nav_msgs.msg import Odometry
 from quadrotor_msgs.msg import PositionCommand
 from sensor_msgs.msg import Image, PointCloud2
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 
 from qn_aav_simulator.action_lifecycle import (
     ACCEPTED, ActionResourceStateMachine, REJECTED_INVALID,
@@ -190,6 +190,15 @@ class FormationActionServer:
                 SENSOR_BACKEND_CPU, SENSOR_BACKEND_CUDA))
         self.output_dir = Path(rospy.get_param("~output_dir", "/experiments/current"))
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        request_file=rospy.get_param('/mission/request_file','')
+        self.observation_request=None
+        self.local_product_publishers={}
+        if request_file:
+            from qn_aav_simulator.task_line import load_request
+            self.observation_request=load_request(Path(request_file))
+            self.local_product_publishers={agent_id:rospy.Publisher(
+                '/drone_{}_qn_aav/local_products'.format(agent_id),String,queue_size=100)
+                for agent_id in self.agent_ids}
 
         self.lock = threading.RLock()
         self.terminal_lock = threading.RLock()
@@ -872,6 +881,14 @@ class FormationActionServer:
     def _validate_goal(self, goal):
         if not str(goal.task_id).strip():
             raise ValueError("task_id must not be empty")
+        requested=tuple(getattr(goal,'observation_ids',()))
+        if requested:
+            if self.observation_request is None or len(self.agent_ids)!=1:
+                raise ValueError('AIR observation needs one local member and a declared request')
+            declared={p.point_id for region in self.observation_request.regions
+                      if region.kind in ('SURFACE','SHORELINE') for p in region.interest_points}
+            if len(set(requested))!=len(requested) or not set(requested)<=declared:
+                raise ValueError('unknown or repeated AIR observation IDs')
         return validate_target(goal.formation_center.header.frame_id,
                                (goal.formation_center.point.x,
                                 goal.formation_center.point.y,
@@ -1768,6 +1785,31 @@ class FormationActionServer:
         }
         return minimum
 
+    def _air_observation_events(self,work,diagnostics,member_samples,stamp):
+        """Generate local geometric products from the accepted qn hold only."""
+        requested=tuple(getattr(work.goal,'observation_ids',()))
+        if not requested:return ()
+        from qn_aav_simulator.observation_coverage import (
+            ObstacleBox,LocalObservationWindow)
+        member=self.agent_ids[0];producer='drone_{}'.format(member)
+        hold=diagnostics.get('successful_hold_window') or {}
+        obstacles=tuple(ObstacleBox(c,s) for _,kind,c,s in self.static_scene.objects if kind=='SOLID')
+        window=LocalObservationWindow(self.observation_request,requested,producer,diagnostics['goal_id'],
+            obstacles,sample_timeout_s=self.odom_timeout)
+        events=[];previous=None
+        try:
+            for row in member_samples[member]:
+                when=row.state_stamp_s
+                if (when is None or hold.get('start') is None or hold.get('end') is None or
+                        not hold['start']<=when<=hold['end'] or when==previous):continue
+                previous=when
+                events.extend(window.sample(when,tuple(row.position),'AIR',when))
+        except ValueError as error:
+            diagnostics['observation_report_error']=str(error)
+            events=[];window.emitted.clear()
+        events.append(window.terminal_report(stamp))
+        return tuple(events)
+
     # ------------------------------------------------------------ finalize
     def _finalize(self, diagnostics, work, monitor, adoption, alignment,
                   member_samples, obstacle_clearances, reference_missing,
@@ -1997,6 +2039,10 @@ class FormationActionServer:
                 work.goal_handle.set_canceled(result, text)
             else:
                 work.goal_handle.set_aborted(result, text)
+        if accepted and getattr(work.goal,'observation_ids',()):
+            for event in self._air_observation_events(work,diagnostics,member_samples,finish.to_sec()):
+                self.local_product_publishers[self.agent_ids[0]].publish(
+                    String(data=json.dumps(event,allow_nan=False)))
         rospy.loginfo("FormationAction %s: %s", diagnostics["task_id"], text)
         return True
 

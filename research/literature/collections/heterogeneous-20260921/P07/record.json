@@ -1,0 +1,39 @@
+{
+  "id": "P07",
+  "title": "Greedy Perspectives: Multi-Drone View Planning for Collaborative Perception in Cluttered Environments",
+  "doi": null,
+  "arxiv": "2310.10863",
+  "official_url": "https://greedyperspectives.github.io/",
+  "code_urls": [
+    "https://github.com/GreedyPerspectives/GreedyPerspectives"
+  ],
+  "source_index": "references_verified_20260921.json",
+  "prior_read_scope": "核查任务模型、渲染式视角收益、顺序贪心规划、碰撞与近似保证条件；并核对作者IROS记录。",
+  "prior_code_scope": "读取README。Ubuntu22.04、C++20、vcpkg、AI-Toolbox/OpenGL等；未构建运行。",
+  "mechanism_from_supplied_review": "相机视角、遮挡和多机重复观测决定联合视角规划，而不是单纯追求预设队形。",
+  "boundary_from_supplied_review": "不是三介质异构系统。论文50%近似保证不能直接带到包含机器人间碰撞约束的版本。",
+  "project_use_from_supplied_review": "建立编队/相对几何为什么服务观测的对照，不直接照搬其像素收益到当前传感器。",
+  "access_attempts": [
+    {
+      "url": "https://arxiv.org/pdf/2310.10863",
+      "checked_utc": "2026-09-21T05:44:11.578966+00:00",
+      "http_status": 200,
+      "final_url": "https://arxiv.org/pdf/2310.10863",
+      "content_type": "application/pdf",
+      "result": "verified-pdf"
+    }
+  ],
+  "sha256": "f324603ee6ce166162872fd2e5bfb692a27984e95dd23962589002c6afb2be9b",
+  "size_bytes": 2552366,
+  "pages": 8,
+  "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+  "status": "downloaded-open-pdf",
+  "source_url": "https://arxiv.org/pdf/2310.10863",
+  "resolved_source_url": "https://arxiv.org/pdf/2310.10863",
+  "downloaded_utc": "2026-09-21T05:44:11.578966+00:00",
+  "local_pdf": "research/literature/collections/heterogeneous-20260921/P07/paper.pdf",
+  "resolved_pdf": "research/literature/collections/heterogeneous-20260921/P07/paper.pdf",
+  "this_round_read_scope": "download and identity inspection only; selected-section review pending",
+  "integrity_rechecked_utc": "2026-09-21T05:50:03.231075+00:00",
+  "verified_pdf_title": "Greedy Perspectives: Multi-Drone View Planning for Collaborative Perception in Cluttered Environments"
+}

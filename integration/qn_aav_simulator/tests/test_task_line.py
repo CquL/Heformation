@@ -52,11 +52,42 @@ def test_regional_request_keeps_all_domains_and_points_before_method_selection()
         build_request_executor_plan(request,scene,units,provider,states)
 
 
-def test_unimplemented_return_requirement_is_not_silently_ignored(tmp_path):
+def test_return_requirement_is_loaded_and_native_methods_have_checked_return_tails(tmp_path):
     import yaml
-    raw=yaml.safe_load(REQUEST_PATH.read_text());raw['return_required']=True
+    import time
+    from types import SimpleNamespace
+    from mrta_python import Executor
+    from qn_aav_simulator.task_line import request_native_methods
+    raw=yaml.safe_load((Path(__file__).parents[1]/'config/monitoring_request_water.yaml').read_text())
+    raw['return_required']=True
     path=tmp_path/'request.yaml';path.write_text(yaml.safe_dump(raw))
-    with pytest.raises(ValueError,match='unsupported request fields'):load_request(path)
+    request=load_request(path)
+    assert request.return_required is True
+    units=[Executor('uuv',('uuv',),frozenset({'WATER'})),Executor('usv',('usv',),frozenset({'SURFACE'}))]
+    models={'uuv':SimpleNamespace(model='remus100',terminal_behavior='COAST_STOP'),
+            'usv':SimpleNamespace(model='otter',terminal_behavior='TRIM_PROPULSION')}
+    states={'uuv':dict(position=(-5.,8.,-2.),mode='WATER'),
+            'usv':dict(position=(-5.,-8.,0.),mode='SURFACE')}
+    scene=yaml.safe_load((Path(__file__).parents[1]/'config/five_scene_harbor.yaml').read_text())['scene']
+    _,methods=request_native_methods(request,scene,units,states,models,time.monotonic()+1.)
+    assert methods
+    for choice in next(iter(methods.values())):
+        for unit,fragment in choice.items():
+            member=unit.physical_agent_ids[0]
+            assert fragment.segments[0].points[-1]==states[member]['position']
+    original={'uuv':(-6.,8.,-2.),'usv':(-6.,-8.,0.)}
+    _,repaired=request_native_methods(request,scene,units,states,models,time.monotonic()+1.,
+                                      return_positions=original)
+    for choice in next(iter(repaired.values())):
+        for unit,fragment in choice.items():
+            assert fragment.segments[0].points[-1]==original[unit.physical_agent_ids[0]]
+    from mrta_python.executors import ExecutorTravelTimeProvider
+    from qn_aav_simulator.task_line import build_request_executor_plan
+    changed={key:dict(value,available_from=1.) for key,value in states.items()}
+    provider=ExecutorTravelTimeProvider({'start':states['uuv']['position']},{'uuv':1.,'usv':1.},
+        native_models=models,native_efforts={'uuv':500.,'usv':20.})
+    with pytest.raises(ValueError,match='retain the original declared return positions'):
+        build_request_executor_plan(request,scene,units,provider,changed)
 
 
 def test_missing_deadline_reaches_request_expansion_and_both_planners(tmp_path):

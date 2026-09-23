@@ -1,0 +1,48 @@
+{
+  "id": "P12",
+  "title": "Multi-Nonholonomic Robot Object Transportation with Obstacle Crossing Using a Deformable Sheet",
+  "doi": "10.1109/ICRA55743.2025.11128313",
+  "arxiv": null,
+  "official_url": "https://doi.org/10.1109/ICRA55743.2025.11128313",
+  "code_urls": [
+    "https://github.com/HyPAIR/CPDOT"
+  ],
+  "source_index": "references_verified_20260921.json",
+  "prior_read_scope": "核查作者机构发表记录和项目说明；本轮未完成全文审查。",
+  "prior_code_scope": "已确认作者公开仓库/项目说明；未检查全部实现或运行。",
+  "mechanism_from_supplied_review": "利用多机器人与变形载荷的几何关系开展协同运输和越障。",
+  "boundary_from_supplied_review": "不是空—水—潜任务，不能给本项目新增搬运任务。",
+  "project_use_from_supplied_review": "任务所需几何与协同运动紧耦合的结构性参考。",
+  "access_attempts": [
+    {
+      "url": "https://research.birmingham.ac.uk/files/259517981/ICRA_25_FINAL_PAPER.pdf",
+      "checked_utc": "2026-09-21T05:45:16.041679+00:00",
+      "http_status": 403,
+      "final_url": "https://research.birmingham.ac.uk/files/259517981/ICRA_25_FINAL_PAPER.pdf",
+      "content_type": "text/html; charset=UTF-8",
+      "result": "unresolved",
+      "error": "403 Client Error: Forbidden for url: https://research.birmingham.ac.uk/files/259517981/ICRA_25_FINAL_PAPER.pdf"
+    },
+    {
+      "url": "https://simonzhang1999.github.io/paper/Multi-Nonholonomic_Robot_Object_Transportation_with_Obstacle_Crossing_Using_a_Deformable_Sheet.pdf",
+      "checked_utc": "2026-09-21T05:46:56.785203+00:00",
+      "http_status": 200,
+      "final_url": "https://simonzhang1999.github.io/paper/Multi-Nonholonomic_Robot_Object_Transportation_with_Obstacle_Crossing_Using_a_Deformable_Sheet.pdf",
+      "content_type": "application/pdf",
+      "result": "verified-pdf"
+    }
+  ],
+  "status": "downloaded-open-pdf",
+  "local_pdf": "research/literature/collections/heterogeneous-20260921/P12/paper.pdf",
+  "this_round_read_scope": "no fulltext; supplied review plus discovered metadata only",
+  "sha256": "f1e1be1e0d9d0613d716e35cfee319abdd64adcc201f50c6607c5d7202f26b32",
+  "size_bytes": 5711658,
+  "pages": 7,
+  "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+  "source_url": "https://simonzhang1999.github.io/paper/Multi-Nonholonomic_Robot_Object_Transportation_with_Obstacle_Crossing_Using_a_Deformable_Sheet.pdf",
+  "resolved_source_url": "https://simonzhang1999.github.io/paper/Multi-Nonholonomic_Robot_Object_Transportation_with_Obstacle_Crossing_Using_a_Deformable_Sheet.pdf",
+  "downloaded_utc": "2026-09-21T05:46:56.785203+00:00",
+  "verified_pdf_title": "Multi-Nonholonomic Robot Object Transportation with Obstacle Crossing Using a Deformable Sheet",
+  "resolved_pdf": "research/literature/collections/heterogeneous-20260921/P12/paper.pdf",
+  "integrity_rechecked_utc": "2026-09-21T05:50:03.300469+00:00"
+}

@@ -1,6 +1,7 @@
 string task_id
 geometry_msgs/PointStamped formation_center
 duration hold_duration
+string[] observation_ids
 ---
 uint8 NONE=0
 uint8 INVALID_TARGET=1

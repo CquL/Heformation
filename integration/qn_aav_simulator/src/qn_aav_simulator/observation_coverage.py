@@ -128,6 +128,11 @@ def declared_delivery_channels(products,previous,states,obstacles=(),continuous=
         if source!='usv':
             acoustic.append((ident,source,'usv',continuous and
                 link(previous,source,'usv',True) and link(states,source,'usv',True)))
+            # AIR/SURFACE observations use the same declared RF capacity to
+            # reach a support USV. The old underwater-only hop made an AIR
+            # product outside direct mother range permanently undeliverable.
+            radio.append((ident,source,'usv',continuous and
+                link(previous,source,'usv',False) and link(states,source,'usv',False)))
         for sender in dict.fromkeys((source,'usv')):
             radio.append((ident,sender,'mother',continuous and
                 link(previous,sender,'mother',False) and link(states,sender,'mother',False)))
@@ -346,6 +351,18 @@ class LocalObservationWindow:
                 goal_id=self.goal_id,point_id=key,producer=self.producer,generated_at=stamp,observed=True,
                 result=dict(model='GEOMETRIC_PROXY',dwell_s=dwell),required_bytes=32*1024))
         return tuple(events)
+
+    def terminal_report(self,stamp):
+        """Report the observed and missing IDs after a verified local terminal.
+
+        This small notification is a result of the local observation window,
+        not a synthetic business product. The mother must actually receive it
+        before deciding whether a missing point needs a retest.
+        """
+        if not math.isfinite(stamp):raise ValueError('nonfinite observation terminal time')
+        return dict(event_type='OBSERVATION_TERMINAL',product_id=self.goal_id+':terminal',
+            request_id=self.request.request_id,goal_id=self.goal_id,producer=self.producer,
+            point_ids=sorted(self.points),observed_ids=sorted(self.emitted),generated_at=stamp)
 
 
 def predict_received_products(request,point_ids,producer,goal_id,traces,mother_position,obstacles,deadline):

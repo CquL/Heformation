@@ -1,0 +1,46 @@
+{
+  "id": "P19",
+  "title": "Formation Control for Mixed-Order UAVs–USVs–UUVs Systems under Cooperative and Optimal Control",
+  "doi": null,
+  "arxiv": null,
+  "official_url": "https://consensus.app/papers/formation-control-for-mixedorder-uavs–usvs–uuvs-systems-liu-li/63e620fb116555d7b6edfbf671fd66ea/?utm_source=chatgpt",
+  "code_urls": [],
+  "source_index": "references_verified_20260921.json",
+  "prior_read_scope": "Consensus已搜索并fetch完整论文记录；本轮不将该记录当作论文全文。",
+  "prior_code_scope": "本轮未确认作者代码。",
+  "mechanism_from_supplied_review": "混阶异构UAV、USV、UUV的静态/动态编队控制及合作最优控制。",
+  "boundary_from_supplied_review": "不能由cooperative和optimal字样推定其解决业务任务分配；JMSE不混列成T-RO/TAC核心顶刊。",
+  "project_use_from_supplied_review": "关键词直接命中的补充，不取代核心理论与工程来源。",
+  "access_attempts": [
+    {
+      "url": "https://www.mdpi.com/2077-1312/11/4/704/pdf",
+      "checked_utc": "2026-09-21T05:45:17.452799+00:00",
+      "http_status": 403,
+      "final_url": "https://www.mdpi.com/2077-1312/11/4/704/pdf",
+      "content_type": "text/html",
+      "result": "unresolved",
+      "error": "403 Client Error: Forbidden for url: https://www.mdpi.com/2077-1312/11/4/704/pdf"
+    },
+    {
+      "url": "https://mdpi-res.com/d_attachment/jmse/jmse-11-00704/article_deploy/jmse-11-00704.pdf",
+      "checked_utc": "2026-09-21T05:46:57.085217+00:00",
+      "http_status": 200,
+      "final_url": "https://mdpi-res.com/d_attachment/jmse/jmse-11-00704/article_deploy/jmse-11-00704.pdf",
+      "content_type": "application/pdf",
+      "result": "verified-pdf"
+    }
+  ],
+  "status": "downloaded-open-pdf",
+  "local_pdf": "research/literature/collections/heterogeneous-20260921/P19/paper.pdf",
+  "this_round_read_scope": "no fulltext; supplied review plus discovered metadata only",
+  "sha256": "d1df20803631d67f9dcd01d530868a17548af48bda1b8f812b719d059a085172",
+  "size_bytes": 7912122,
+  "pages": 24,
+  "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+  "source_url": "https://mdpi-res.com/d_attachment/jmse/jmse-11-00704/article_deploy/jmse-11-00704.pdf",
+  "resolved_source_url": "https://mdpi-res.com/d_attachment/jmse/jmse-11-00704/article_deploy/jmse-11-00704.pdf",
+  "downloaded_utc": "2026-09-21T05:46:57.085217+00:00",
+  "verified_pdf_title": "Formation Control for Mixed-Order UAVs–USVs–UUVs Systems under Cooperative and Optimal Control",
+  "resolved_pdf": "research/literature/collections/heterogeneous-20260921/P19/paper.pdf",
+  "integrity_rechecked_utc": "2026-09-21T05:50:03.506990+00:00"
+}

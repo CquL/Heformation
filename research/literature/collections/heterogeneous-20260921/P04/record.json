@@ -1,0 +1,29 @@
+{
+  "id": "P04",
+  "title": "Cooperative Aerial Robot Inspection Challenge: A Benchmark for Heterogeneous Multi-Uncrewed-Aerial-Vehicle Planning and Lessons Learned",
+  "doi": "10.1109/MRA.2025.3584341",
+  "arxiv": "2501.06566",
+  "official_url": "https://ramagazine.ieee.org/2026/06/29/cooperative-aerial-robot-inspection-challenge-a-benchmark-for-heterogeneous-multi-uncrewed-aerial-vehicle-planning-and-lessons-learned/",
+  "code_urls": [
+    "https://github.com/ntu-aris/caric_mission",
+    "https://github.com/ntu-aris/caric_baseline"
+  ],
+  "source_index": "references_verified_20260921.json",
+  "prior_read_scope": "正文重点核查任务/传感器/通信假设、参赛方法分工、探索与巡检策略及讨论；同时核对官方项目页https://ntu-aris.github.io/caric/。",
+  "prior_code_scope": "读取caric_mission和caric_baseline的README；未运行。基线限制与依赖以项目页/源码为准。",
+  "mechanism_from_supplied_review": "互补传感器无人机共同探索与巡检，包含任务区域分配、运动、信息交换和巡检评价。",
+  "boundary_from_supplied_review": "异构主要是传感器与角色；team formation不等于固定几何编队；不是跨介质平台。",
+  "project_use_from_supplied_review": "与监测业务直接相关的开放评测和任务建模参考，不是要求迁移整个仿真器。",
+  "access_attempts": [],
+  "sha256": "c4c2ab5724f25699e15ff93efe810a1a7e80ef55c7477877a09fe99d5e968e89",
+  "size_bytes": 3603818,
+  "pages": 9,
+  "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+  "status": "reused-local-pdf",
+  "reused_from": "research/literature/papers/benchmark/caric-2025.pdf",
+  "verified_pdf_title": "Cooperative Aerial Robot Inspection Challenge: A Benchmark for Heterogeneous Multi-UAV Planning and Lessons Learned",
+  "local_pdf": "research/literature/collections/heterogeneous-20260921/P04/paper.pdf",
+  "resolved_pdf": "research/literature/papers/benchmark/caric-2025.pdf",
+  "this_round_read_scope": "download and identity inspection only; selected-section review pending",
+  "integrity_rechecked_utc": "2026-09-21T05:50:03.173195+00:00"
+}

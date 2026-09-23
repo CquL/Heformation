@@ -1,0 +1,28 @@
+{
+  "id": "P16",
+  "title": "A Cooperative Heterogeneous Formation Control and Motion Planning Design of 3U: UAV-USV-UUV Systems",
+  "doi": "10.1016/j.oceaneng.2025.123867",
+  "arxiv": null,
+  "official_url": "https://www.sciencedirect.com/science/article/pii/S0029801825035498",
+  "code_urls": [],
+  "source_index": "references_verified_20260921.json",
+  "prior_read_scope": "核查出版社摘要、章节片段和发表信息；本轮未取得完整正文。",
+  "prior_code_scope": "本轮未确认作者公开代码。",
+  "mechanism_from_supplied_review": "UAV-USV-UUV异构编队控制与运动规划，结合刚性图、控制与避障/变形方法。",
+  "boundary_from_supplied_review": "不是T-RO或TAC；固定3U平台类别不等于AAV入出水转换；未据摘要确认业务任务分配。",
+  "project_use_from_supplied_review": "新近、平台类型直接相关的补充文献，需补全文后才决定采用其公式。",
+  "access_attempts": [
+    {
+      "url": "https://www.sciencedirect.com/science/article/pii/S0029801825035498",
+      "checked_utc": "2026-09-21T05:45:16.273361+00:00",
+      "http_status": 403,
+      "final_url": "https://www.sciencedirect.com/science/article/pii/S0029801825035498",
+      "content_type": "text/html; charset=UTF-8",
+      "result": "unresolved",
+      "error": "403 Client Error: Forbidden for url: https://www.sciencedirect.com/science/article/pii/S0029801825035498"
+    }
+  ],
+  "status": "fulltext-access-unresolved",
+  "local_pdf": null,
+  "this_round_read_scope": "no fulltext; supplied review plus discovered metadata only"
+}

@@ -5,6 +5,9 @@ request_id: nearshore-joint-20260920
 service_time_s: 4.0
 deadline_s: null
 delivery_required: true
+# System policy for this representative request: every dispatched member must
+# reach its accepted starting location; a failed native return leaves it open.
+return_required: true
 # Explicit geometric proxy, not a calibrated camera/sonar quality model.
 requirement:
   footprint_radius_m: 2.5

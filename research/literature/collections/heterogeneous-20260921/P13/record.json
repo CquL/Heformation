@@ -1,0 +1,48 @@
+{
+  "id": "P13",
+  "title": "Robots Calling the Shots: Using Multiple Ground Robots for Autonomous Tracking in Cluttered Environments",
+  "doi": "10.1109/IROS60139.2025.11247464",
+  "arxiv": null,
+  "official_url": "https://doi.org/10.1109/IROS60139.2025.11247464",
+  "code_urls": [
+    "https://github.com/HyPAIR/VisFormationPlanner"
+  ],
+  "source_index": "references_verified_20260921.json",
+  "prior_read_scope": "核查作者仓库/发表信息；本轮未取得完整论文正文。",
+  "prior_code_scope": "项目README级核查；ROS Noetic、Gurobi许可；未运行。",
+  "mechanism_from_supplied_review": "为协同视觉跟踪安排多机器人视角、运动和云台，处理遮挡与碰撞。",
+  "boundary_from_supplied_review": "地面机器人，不是三介质；没有据此确认业务任务调度。",
+  "project_use_from_supplied_review": "任务感知的队形/视角规划参考。",
+  "access_attempts": [
+    {
+      "url": "https://research.birmingham.ac.uk/files/269684691/IROS_25_FINAL_PAPER.pdf",
+      "checked_utc": "2026-09-21T05:45:16.164868+00:00",
+      "http_status": 403,
+      "final_url": "https://research.birmingham.ac.uk/files/269684691/IROS_25_FINAL_PAPER.pdf",
+      "content_type": "text/html; charset=UTF-8",
+      "result": "unresolved",
+      "error": "403 Client Error: Forbidden for url: https://research.birmingham.ac.uk/files/269684691/IROS_25_FINAL_PAPER.pdf"
+    },
+    {
+      "url": "https://simonzhang1999.github.io/paper/Robots_Calling_the_Shots_Using_Multiple_Ground_Robots_for_Autonomous_Tracking_in_Cluttered_Environments.pdf",
+      "checked_utc": "2026-09-21T05:46:56.850964+00:00",
+      "http_status": 200,
+      "final_url": "https://simonzhang1999.github.io/paper/Robots_Calling_the_Shots_Using_Multiple_Ground_Robots_for_Autonomous_Tracking_in_Cluttered_Environments.pdf",
+      "content_type": "application/pdf",
+      "result": "verified-pdf"
+    }
+  ],
+  "status": "downloaded-open-pdf",
+  "local_pdf": "research/literature/collections/heterogeneous-20260921/P13/paper.pdf",
+  "this_round_read_scope": "no fulltext; supplied review plus discovered metadata only",
+  "sha256": "2c91588fdfb7b9158fae6fd8fa82af8a18135b5c99bcf8475527709251094f81",
+  "size_bytes": 5470613,
+  "pages": 8,
+  "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+  "source_url": "https://simonzhang1999.github.io/paper/Robots_Calling_the_Shots_Using_Multiple_Ground_Robots_for_Autonomous_Tracking_in_Cluttered_Environments.pdf",
+  "resolved_source_url": "https://simonzhang1999.github.io/paper/Robots_Calling_the_Shots_Using_Multiple_Ground_Robots_for_Autonomous_Tracking_in_Cluttered_Environments.pdf",
+  "downloaded_utc": "2026-09-21T05:46:56.850964+00:00",
+  "verified_pdf_title": "Robots Calling the Shots: Using Multiple Ground Robots for Autonomous Tracking in Cluttered Environments",
+  "resolved_pdf": "research/literature/collections/heterogeneous-20260921/P13/paper.pdf",
+  "integrity_rechecked_utc": "2026-09-21T05:50:03.356708+00:00"
+}

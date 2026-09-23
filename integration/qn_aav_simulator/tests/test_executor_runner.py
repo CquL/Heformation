@@ -96,6 +96,29 @@ def test_native_result_commits_motion_without_creating_coverage(runner_module,tm
     assert runner.active_executor_ids=={unit.executor_id}
 
 
+def test_negative_observation_report_must_reach_mother_before_release(runner_module,tmp_path):
+    from dataclasses import replace
+    runner,item,unit,result=native_setup(runner_module,tmp_path)
+    action=replace(item.execution_steps[0].native_action,observation_ids=('water_sample',))
+    item.execution_steps=(replace(item.execution_steps[0],native_action=action),)
+    runner.observation_tasks={item.task_id:object()}
+    runner.metrics['received_products']={}
+    runner.metrics['received_terminal_reports']={}
+    runner.native_result=lambda _:('native-goal',SimpleNamespace(status=SimpleNamespace(status=4)))
+    result.task_completed=False
+    result.reason='OBSERVATION_NOT_SATISFIED'
+    with pytest.raises(RuntimeError,match='negative observation report missing'):
+        runner._commit_executor_result(item,unit,4,result)
+    assert unit.executor_id in runner.active_executor_ids
+    runner.metrics['received_terminal_reports']['native-goal']={
+        'point_ids':['water_sample'],'observed_ids':[]}
+    runner._commit_executor_result(item,unit,4,result)
+    assert runner.plan.item(item.execution_id).status=='COMPLETED'
+    assert unit.executor_id not in runner.active_executor_ids
+    assert runner.metrics['executions'][-1]['result']=='OBSERVATION_MISSING'
+    assert runner.metrics['results_received']==[item.task_id]
+
+
 def test_received_product_requires_this_goal_and_never_releases_members(runner_module,tmp_path,monkeypatch):
     from dataclasses import replace
     from qn_aav_simulator.observation_coverage import CoverageResult
@@ -117,6 +140,33 @@ def test_received_product_requires_this_goal_and_never_releases_members(runner_m
     assert len(runner.metrics['received_products'])==1
     assert runner.coverage.delivered_fraction({'water_sample':1.})==1.
     assert runner.active_executor_ids=={unit.executor_id} and item.status=='RUNNING'
+
+
+def test_air_report_and_product_follow_same_mother_receipt_gate(runner_module,tmp_path,monkeypatch):
+    from qn_aav_simulator.observation_coverage import CoverageResult
+    runner=make_runner(runner_module,tmp_path)
+    runner.request=load_request(Path(__file__).parents[1]/'config/monitoring_request_joint.yaml')
+    unit=runner.routing['aav_1']
+    item=ExecutorPlanItem('air-e','air-t',unit.executor_id,unit.physical_agent_ids,0.,6.,2.,0.,4.,
+        status='RUNNING',execution_steps=(ExecutionStep(unit.executor_id,6.,'overview',service_time_s=4.),))
+    runner.plan=ExecutorPlan([item]);runner.observation_tasks={'air-t':SimpleNamespace(covers=('air_sample',))}
+    runner.condition=threading.Condition();runner.goal_ids={item.execution_id:{'air-goal'}}
+    runner.coverage=CoverageResult();runner.active_executor_ids={unit.executor_id}
+    runner.metrics.update(received_products={},received_terminal_reports={})
+    monkeypatch.setattr(runner_module.rospy,'logerr_throttle',lambda *a:None,raising=False)
+    report=dict(event_type='OBSERVATION_TERMINAL',product_id='air-goal:terminal',
+        request_id=runner.request.request_id,goal_id='air-goal',producer='drone_0',
+        point_ids=['air_sample'],observed_ids=['air_sample'],generated_at=100.,received_at=101.)
+    runner._on_received_notification(SimpleNamespace(data=json.dumps(report)))
+    assert runner.coverage.delivered_fraction({'air_sample':1.})==0.
+    assert unit.executor_id in runner.active_executor_ids
+    event=dict(product_id='air-goal:air_sample',request_id=runner.request.request_id,
+        point_id='air_sample',producer='drone_0',goal_id='air-goal',observed=True,
+        required_bytes=32768,generated_at=100.,received_at=102.,
+        result=dict(model='GEOMETRIC_PROXY',dwell_s=1.))
+    runner._on_received_product(SimpleNamespace(data=json.dumps(event)))
+    assert runner.coverage.delivered_fraction({'air_sample':1.})==1.
+    assert unit.executor_id in runner.active_executor_ids
 
 
 @pytest.mark.parametrize('failure',['rejected','hung_start'])

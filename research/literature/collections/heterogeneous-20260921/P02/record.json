@@ -1,0 +1,39 @@
+{
+  "id": "P02",
+  "title": "A Resilient and Energy-Aware Task Allocation Framework for Heterogeneous Multi-Robot Systems",
+  "doi": "10.1109/TRO.2021.3102379",
+  "arxiv": "2105.05586",
+  "official_url": "https://ieeexplore.ieee.org/document/9531464/",
+  "code_urls": [
+    "https://github.com/gnotomista/multi_robot_task_allocation"
+  ],
+  "source_index": "references_verified_20260921.json",
+  "prior_read_scope": "正文重点核查问题定义、特征—能力—任务映射、式(34)、条件性分析、集中/分散实现和实验设置。",
+  "prior_code_scope": "读取README和resilient_task_allocation/mixed_centralized_decentralized/rta_central_unit.m；未构建运行。MATLAB、CVX、Gurobi；混合实现使用MQTT。",
+  "mechanism_from_supplied_review": "在MIQP中联合确定任务优先级/分配、控制输入和任务松弛；给出慢速集中MIQP与快速局部QP的实现。",
+  "boundary_from_supplied_review": "瞬时任务优先级分配不是未来全任务调度；原目标是控制努力等而非makespan；代码使用简化动力学。不能直接继承跨介质海洋平台安全/稳定性结论。",
+  "project_use_from_supplied_review": "统一任务与控制理论的重要对照。先独立验证数学模型，不作为无代价替换当前系统的ROS模块。",
+  "access_attempts": [
+    {
+      "url": "https://arxiv.org/pdf/2105.05586",
+      "checked_utc": "2026-09-21T05:44:10.145286+00:00",
+      "http_status": 200,
+      "final_url": "https://arxiv.org/pdf/2105.05586",
+      "content_type": "application/pdf",
+      "result": "verified-pdf"
+    }
+  ],
+  "sha256": "0193c17f42c3703cf99e351006469ae610032e9ac5e60fdc17993327b54b57af",
+  "size_bytes": 3576652,
+  "pages": 19,
+  "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+  "status": "downloaded-open-pdf",
+  "source_url": "https://arxiv.org/pdf/2105.05586",
+  "resolved_source_url": "https://arxiv.org/pdf/2105.05586",
+  "downloaded_utc": "2026-09-21T05:44:10.145286+00:00",
+  "local_pdf": "research/literature/collections/heterogeneous-20260921/P02/paper.pdf",
+  "resolved_pdf": "research/literature/collections/heterogeneous-20260921/P02/paper.pdf",
+  "this_round_read_scope": "download and identity inspection only; selected-section review pending",
+  "integrity_rechecked_utc": "2026-09-21T05:50:03.237734+00:00",
+  "verified_pdf_title": "A Resilient and Energy-Aware Task Allocation Framework for Heterogeneous Multi-Robot Systems"
+}

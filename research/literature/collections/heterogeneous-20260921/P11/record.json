@@ -1,0 +1,28 @@
+{
+  "id": "P11",
+  "title": "Distributed Cooperative Control of Heterogeneous Multiagent Systems for Air-to-Ground Formation",
+  "doi": "10.1002/rob.22462",
+  "arxiv": null,
+  "official_url": "https://onlinelibrary.wiley.com/doi/full/10.1002/rob.22462",
+  "code_urls": [],
+  "source_index": "references_verified_20260921.json",
+  "prior_read_scope": "核查出版摘要与信息；未取得完整可读正文。",
+  "prior_code_scope": "本轮未确认作者公开代码。",
+  "mechanism_from_supplied_review": "不同地面车辆与空中平台的分层异构编队控制。",
+  "boundary_from_supplied_review": "异构动力学/编队控制不自动包含多业务任务分配和通信交付。",
+  "project_use_from_supplied_review": "控制层的异构性建模对照，不能当现成任务调度器。",
+  "access_attempts": [
+    {
+      "url": "https://onlinelibrary.wiley.com/doi/full/10.1002/rob.22462",
+      "checked_utc": "2026-09-21T05:45:16.028556+00:00",
+      "http_status": 403,
+      "final_url": "https://onlinelibrary.wiley.com/doi/full/10.1002/rob.22462",
+      "content_type": "text/html; charset=UTF-8",
+      "result": "unresolved",
+      "error": "403 Client Error: Forbidden for url: https://onlinelibrary.wiley.com/doi/full/10.1002/rob.22462"
+    }
+  ],
+  "status": "fulltext-access-unresolved",
+  "local_pdf": null,
+  "this_round_read_scope": "no fulltext; supplied review plus discovered metadata only"
+}

@@ -95,9 +95,18 @@ class SceneTransport:
         try:
             event=json.loads(msg.data);ident=event['product_id']
             points={p.point_id for r in self.request.regions for p in r.interest_points}
+            terminal=event.get('event_type')=='OBSERVATION_TERMINAL'
+            if terminal:
+                declared=event['point_ids'];observed=event['observed_ids']
+                if (not isinstance(declared,list) or not declared or len(declared)!=len(set(declared)) or
+                        not set(declared)<=points or not isinstance(observed,list) or
+                        len(observed)!=len(set(observed)) or not set(observed)<=set(declared) or
+                        ident!=event['goal_id']+':terminal'):
+                    raise ValueError('invalid observation terminal report')
             if (not isinstance(ident,str) or not ident or event['producer']!=member or
-                    event['request_id']!=self.request.request_id or event['point_id'] not in points or
-                    event['observed'] is not True or event['required_bytes']!=32*1024):
+                    event['request_id']!=self.request.request_id or
+                    (not terminal and (event['point_id'] not in points or
+                     event['observed'] is not True or event['required_bytes']!=32*1024))):
                 raise ValueError('product identity or declared size mismatch')
             generated=event['generated_at'];now=rospy.Time.now().to_sec()
             if not math.isfinite(generated) or not self.delivery.start_time<=generated<=now:
@@ -111,7 +120,8 @@ class SceneTransport:
                 # notice is explicitly not the 32 KiB business product.
                 size=4+len(msg.data.encode('utf-8'))  # std_msgs/String length prefix + actual UTF-8 payload
                 self.delivery.produce('notice:'+ident,DeliveryProduct(member,'mother',size,generated,True))
-                self.delivery.produce('data:'+ident,DeliveryProduct(member,'mother',32*1024,generated,True))
+                if not terminal:
+                    self.delivery.produce('data:'+ident,DeliveryProduct(member,'mother',32*1024,generated,True))
         except (ValueError,KeyError,TypeError) as error:
             rospy.logerr_throttle(2.,'Rejected local product: %s',str(error))
 

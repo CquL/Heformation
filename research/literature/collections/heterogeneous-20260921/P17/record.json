@@ -1,0 +1,37 @@
+{
+  "id": "P17",
+  "title": "CoPCS: Collaborative Planning with Concurrent Synchronization for Operationally Constrained UAV-UGV Teams",
+  "doi": null,
+  "arxiv": "2603.06898",
+  "official_url": "https://arxiv.org/abs/2603.06898",
+  "code_urls": [],
+  "source_index": "references_verified_20260921.json",
+  "prior_read_scope": "核查arXiv正文的问题与方法描述；未确认顶会/顶刊发表。",
+  "prior_code_scope": "确认项目页线索https://hcrlab.gitlab.io/project/CoPCS/；本轮未确认完整公开实现。",
+  "mechanism_from_supplied_review": "约束下的空地协同规划与并行同步。",
+  "boundary_from_supplied_review": "不能把预印本列成已经发表的顶会论文；不是海洋跨介质系统。",
+  "project_use_from_supplied_review": "前沿补充，不作为当前工程首选依赖。",
+  "access_attempts": [
+    {
+      "url": "https://arxiv.org/pdf/2603.06898",
+      "checked_utc": "2026-09-21T05:45:16.378728+00:00",
+      "http_status": 200,
+      "final_url": "https://arxiv.org/pdf/2603.06898",
+      "content_type": "application/pdf",
+      "result": "verified-pdf"
+    }
+  ],
+  "sha256": "cd8bca26154d6c8cca71fa38e41124d4f52ef9aea6e05c1065261a961500d286",
+  "size_bytes": 2449479,
+  "pages": 8,
+  "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+  "status": "downloaded-open-pdf",
+  "source_url": "https://arxiv.org/pdf/2603.06898",
+  "resolved_source_url": "https://arxiv.org/pdf/2603.06898",
+  "downloaded_utc": "2026-09-21T05:45:16.378728+00:00",
+  "verified_pdf_title": "CoPCS: Collaborative Planning with Concurrent Synchronization for Operationally Constrained UAV-UGV Teams",
+  "local_pdf": "research/literature/collections/heterogeneous-20260921/P17/paper.pdf",
+  "resolved_pdf": "research/literature/collections/heterogeneous-20260921/P17/paper.pdf",
+  "this_round_read_scope": "download and identity inspection only; selected-section review pending",
+  "integrity_rechecked_utc": "2026-09-21T05:50:03.408601+00:00"
+}

@@ -1,0 +1,29 @@
+{
+  "P01": [
+    "https://ieeexplore.ieee.org/stampPDF/getPDF.jsp?tp=&arnumber=10643681",
+    "https://ieeexplore.ieee.org/ielx8/9/10857662/10643681.pdf"
+  ],
+  "P03": [
+    "https://research.birmingham.ac.uk/files/235497554/zhang2024decoupled.pdf",
+    "https://simonzhang1999.github.io/paper/1-s2.0-S092188902400157X-main.pdf"
+  ],
+  "P12": [
+    "https://research.birmingham.ac.uk/files/259517981/ICRA_25_FINAL_PAPER.pdf",
+    "https://simonzhang1999.github.io/paper/Multi-Nonholonomic_Robot_Object_Transportation_with_Obstacle_Crossing_Using_a_Deformable_Sheet.pdf"
+  ],
+  "P13": [
+    "https://research.birmingham.ac.uk/files/269684691/IROS_25_FINAL_PAPER.pdf",
+    "https://simonzhang1999.github.io/paper/Robots_Calling_the_Shots_Using_Multiple_Ground_Robots_for_Autonomous_Tracking_in_Cluttered_Environments.pdf"
+  ],
+  "P19": [
+    "https://www.mdpi.com/2077-1312/11/4/704/pdf",
+    "https://mdpi-res.com/d_attachment/jmse/jmse-11-00704/article_deploy/jmse-11-00704.pdf"
+  ],
+  "P20": [
+    "https://kth.diva-portal.org/smash/get/diva2:1143759/FULLTEXT01.pdf",
+    "https://people.kth.se/~dimos/pdfs/SchBurDimIJRR18.pdf"
+  ],
+  "P10": [
+    "https://rss.onlinelibrary.wiley.com/doi/am-pdf/10.1002/rob.22014"
+  ]
+}

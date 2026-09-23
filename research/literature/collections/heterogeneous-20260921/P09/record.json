@@ -1,0 +1,28 @@
+{
+  "id": "P09",
+  "title": "Collaboration of Heterogeneous Marine Robots Toward Multidomain Sensing and Situational Awareness on Partially Submerged Targets",
+  "doi": "10.1109/JOE.2022.3156631",
+  "arxiv": null,
+  "official_url": "https://ieeexplore.ieee.org/document/9772063/",
+  "code_urls": [],
+  "source_index": "references_verified_20260921.json",
+  "prior_read_scope": "已核查IEEE出版摘要和发表信息，本轮未取得完整正文。",
+  "prior_code_scope": "本轮未确认作者公开代码。",
+  "mechanism_from_supplied_review": "UAV、USV、UUV对部分浸没物体开展跨域感知，USV承担协同位置和作业支援。",
+  "boundary_from_supplied_review": "不能从摘要推定其包含完整联合优化公式、AAV跨介质转换或有限交付理论。",
+  "project_use_from_supplied_review": "与你们近岸分层观测最直接的场景论文之一，全文是后续需要补齐的关键来源。",
+  "access_attempts": [
+    {
+      "url": "https://ieeexplore.ieee.org/document/9772063/",
+      "checked_utc": "2026-09-21T05:45:15.972910+00:00",
+      "http_status": 202,
+      "final_url": "https://ieeexplore.ieee.org/document/9772063/",
+      "content_type": "text/html; charset=UTF-8",
+      "result": "unresolved",
+      "error": "response is not a PDF"
+    }
+  ],
+  "status": "fulltext-access-unresolved",
+  "local_pdf": null,
+  "this_round_read_scope": "no fulltext; supplied review plus discovered metadata only"
+}

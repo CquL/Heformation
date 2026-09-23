@@ -1,0 +1,925 @@
+[
+  {
+    "id": "P01",
+    "title": "Cooperation Detection and Tracking of Underwater Target via Aerial–Surface–Underwater Vehicles",
+    "openalex": {
+      "open_access": {
+        "is_oa": true,
+        "oa_status": "hybrid",
+        "oa_url": "https://doi.org/10.1109/tac.2024.3447976",
+        "any_repository_has_fulltext": false
+      },
+      "locations": [
+        {
+          "id": "doi:10.1109/tac.2024.3447976",
+          "is_oa": true,
+          "landing_page_url": "https://doi.org/10.1109/tac.2024.3447976",
+          "pdf_url": null,
+          "source": {
+            "id": "https://openalex.org/S184954342",
+            "display_name": "IEEE Transactions on Automatic Control",
+            "issn_l": "0018-9286",
+            "issn": [
+              "0018-9286",
+              "1558-2523",
+              "2334-3303"
+            ],
+            "is_oa": false,
+            "is_in_doaj": false,
+            "is_core": true,
+            "host_organization": "https://openalex.org/P4310319808",
+            "host_organization_name": "Institute of Electrical and Electronics Engineers",
+            "host_organization_lineage": [
+              "https://openalex.org/P4310319808"
+            ],
+            "host_organization_lineage_names": [
+              "Institute of Electrical and Electronics Engineers"
+            ],
+            "type": "journal"
+          },
+          "license": "cc-by-nc-nd",
+          "license_id": "https://openalex.org/licenses/cc-by-nc-nd",
+          "version": "publishedVersion",
+          "is_accepted": true,
+          "is_published": true,
+          "raw_source_name": "IEEE Transactions on Automatic Control",
+          "raw_type": "journal-article"
+        }
+      ],
+      "best_oa_location": {
+        "id": "doi:10.1109/tac.2024.3447976",
+        "is_oa": true,
+        "landing_page_url": "https://doi.org/10.1109/tac.2024.3447976",
+        "pdf_url": null,
+        "source": {
+          "id": "https://openalex.org/S184954342",
+          "display_name": "IEEE Transactions on Automatic Control",
+          "issn_l": "0018-9286",
+          "issn": [
+            "0018-9286",
+            "1558-2523",
+            "2334-3303"
+          ],
+          "is_oa": false,
+          "is_in_doaj": false,
+          "is_core": true,
+          "host_organization": "https://openalex.org/P4310319808",
+          "host_organization_name": "Institute of Electrical and Electronics Engineers",
+          "host_organization_lineage": [
+            "https://openalex.org/P4310319808"
+          ],
+          "host_organization_lineage_names": [
+            "Institute of Electrical and Electronics Engineers"
+          ],
+          "type": "journal"
+        },
+        "license": "cc-by-nc-nd",
+        "license_id": "https://openalex.org/licenses/cc-by-nc-nd",
+        "version": "publishedVersion",
+        "is_accepted": true,
+        "is_published": true,
+        "raw_source_name": "IEEE Transactions on Automatic Control",
+        "raw_type": "journal-article"
+      },
+      "title": "Cooperation Detection and Tracking of Underwater Target via Aerial–Surface–Underwater Vehicles",
+      "id": "https://openalex.org/W4401746870"
+    },
+    "crossref": {
+      "title": [
+        "Cooperation Detection and Tracking of Underwater Target via Aerial–Surface–Underwater Vehicles"
+      ],
+      "link": [
+        {
+          "URL": "http://xplorestaging.ieee.org/ielx8/9/10857662/10643681.pdf?arnumber=10643681",
+          "content-type": "unspecified",
+          "content-version": "vor",
+          "intended-application": "similarity-checking"
+        }
+      ],
+      "resource": {
+        "primary": {
+          "URL": "https://ieeexplore.ieee.org/document/10643681/"
+        }
+      },
+      "URL": "https://doi.org/10.1109/tac.2024.3447976"
+    }
+  },
+  {
+    "id": "P03",
+    "title": "A Decoupled Solution to Heterogeneous Multi-Formation Planning and Coordination for Object Transportation",
+    "openalex": {
+      "open_access": {
+        "is_oa": true,
+        "oa_status": "hybrid",
+        "oa_url": "https://www.sciencedirect.com/science/article/pii/S092188902400157X/pdf",
+        "any_repository_has_fulltext": true
+      },
+      "locations": [
+        {
+          "id": "doi:10.1016/j.robot.2024.104773",
+          "is_oa": true,
+          "landing_page_url": "https://www.sciencedirect.com/science/article/pii/S092188902400157X/pdf",
+          "pdf_url": null,
+          "source": {
+            "id": "https://openalex.org/S133768115",
+            "display_name": "Robotics and Autonomous Systems",
+            "issn_l": "0921-8890",
+            "issn": [
+              "0921-8890",
+              "1872-793X"
+            ],
+            "is_oa": false,
+            "is_in_doaj": false,
+            "is_core": true,
+            "listed_in": [
+              "cwts-core",
+              "jufo-2",
+              "norway-1"
+            ],
+            "host_organization": "https://openalex.org/P4310320990",
+            "host_organization_name": "Elsevier BV",
+            "host_organization_lineage": [
+              "https://openalex.org/P4310320990"
+            ],
+            "host_organization_lineage_names": [
+              "Elsevier BV"
+            ],
+            "type": "journal"
+          },
+          "license": "cc-by",
+          "license_id": "https://openalex.org/licenses/cc-by",
+          "version": "publishedVersion",
+          "is_accepted": true,
+          "is_published": true,
+          "raw_source_name": "Robotics and Autonomous Systems",
+          "raw_type": "journal-article"
+        },
+        {
+          "id": "pmh:oai:pure.atira.dk:openaire/f9678c9e-f127-49c5-89ce-88de5d8f2957",
+          "is_oa": true,
+          "landing_page_url": "https://research.birmingham.ac.uk/en/publications/f9678c9e-f127-49c5-89ce-88de5d8f2957",
+          "pdf_url": null,
+          "source": {
+            "id": "https://openalex.org/S4306402634",
+            "display_name": "University of Birmingham Research Portal (University of Birmingham)",
+            "issn_l": null,
+            "issn": null,
+            "is_oa": false,
+            "is_in_doaj": false,
+            "is_core": false,
+            "listed_in": [],
+            "host_organization": "https://openalex.org/I79619799",
+            "host_organization_name": "University of Birmingham",
+            "host_organization_lineage": [
+              "https://openalex.org/I79619799"
+            ],
+            "host_organization_lineage_names": [],
+            "type": "repository"
+          },
+          "license": "cc-by",
+          "license_id": "https://openalex.org/licenses/cc-by",
+          "version": "submittedVersion",
+          "is_accepted": false,
+          "is_published": false,
+          "raw_source_name": "Zhang, W, Street, C & Mansouri, M 2024, 'A Decoupled Solution to Heterogeneous Multi-Formation Planning and Coordination for Object Transportation', Robotics and Autonomous Systems, vol. 180, 104773. https://doi.org/10.1016/j.robot.2024.104773",
+          "raw_type": "info:eu-repo/semantics/article"
+        }
+      ],
+      "best_oa_location": {
+        "id": "doi:10.1016/j.robot.2024.104773",
+        "is_oa": true,
+        "landing_page_url": "https://www.sciencedirect.com/science/article/pii/S092188902400157X/pdf",
+        "pdf_url": null,
+        "source": {
+          "id": "https://openalex.org/S133768115",
+          "display_name": "Robotics and Autonomous Systems",
+          "issn_l": "0921-8890",
+          "issn": [
+            "0921-8890",
+            "1872-793X"
+          ],
+          "is_oa": false,
+          "is_in_doaj": false,
+          "is_core": true,
+          "listed_in": [
+            "cwts-core",
+            "jufo-2",
+            "norway-1"
+          ],
+          "host_organization": "https://openalex.org/P4310320990",
+          "host_organization_name": "Elsevier BV",
+          "host_organization_lineage": [
+            "https://openalex.org/P4310320990"
+          ],
+          "host_organization_lineage_names": [
+            "Elsevier BV"
+          ],
+          "type": "journal"
+        },
+        "license": "cc-by",
+        "license_id": "https://openalex.org/licenses/cc-by",
+        "version": "publishedVersion",
+        "is_accepted": true,
+        "is_published": true,
+        "raw_source_name": "Robotics and Autonomous Systems",
+        "raw_type": "journal-article"
+      },
+      "title": "A decoupled solution to heterogeneous multi-formation planning and coordination for object transportation",
+      "id": "https://openalex.org/W4401327690"
+    },
+    "crossref": {
+      "title": [
+        "A decoupled solution to heterogeneous multi-formation planning and coordination for object transportation"
+      ],
+      "link": [
+        {
+          "URL": "https://api.elsevier.com/content/article/PII:S092188902400157X?httpAccept=text/xml",
+          "content-type": "text/xml",
+          "content-version": "vor",
+          "intended-application": "text-mining"
+        },
+        {
+          "URL": "https://api.elsevier.com/content/article/PII:S092188902400157X?httpAccept=text/plain",
+          "content-type": "text/plain",
+          "content-version": "vor",
+          "intended-application": "text-mining"
+        }
+      ],
+      "resource": {
+        "primary": {
+          "URL": "https://linkinghub.elsevier.com/retrieve/pii/S092188902400157X"
+        }
+      },
+      "URL": "https://doi.org/10.1016/j.robot.2024.104773"
+    }
+  },
+  {
+    "id": "P09",
+    "title": "Collaboration of Heterogeneous Marine Robots Toward Multidomain Sensing and Situational Awareness on Partially Submerged Targets",
+    "openalex": {
+      "open_access": {
+        "is_oa": false,
+        "oa_status": "closed",
+        "oa_url": null,
+        "any_repository_has_fulltext": false
+      },
+      "locations": [
+        {
+          "id": "doi:10.1109/joe.2022.3156631",
+          "is_oa": false,
+          "landing_page_url": "https://doi.org/10.1109/joe.2022.3156631",
+          "pdf_url": null,
+          "source": {
+            "id": "https://openalex.org/S132957497",
+            "display_name": "IEEE Journal of Oceanic Engineering",
+            "issn_l": "0364-9059",
+            "issn": [
+              "0364-9059",
+              "1558-1691",
+              "2373-7786"
+            ],
+            "is_oa": false,
+            "is_in_doaj": false,
+            "is_core": true,
+            "host_organization": "https://openalex.org/P4310319808",
+            "host_organization_name": "Institute of Electrical and Electronics Engineers",
+            "host_organization_lineage": [
+              "https://openalex.org/P4310319808"
+            ],
+            "host_organization_lineage_names": [
+              "Institute of Electrical and Electronics Engineers"
+            ],
+            "type": "journal"
+          },
+          "license": null,
+          "license_id": null,
+          "version": "publishedVersion",
+          "is_accepted": true,
+          "is_published": true,
+          "raw_source_name": "IEEE Journal of Oceanic Engineering",
+          "raw_type": "journal-article"
+        }
+      ],
+      "best_oa_location": null,
+      "title": "Collaboration of Heterogeneous Marine Robots Toward Multidomain Sensing and Situational Awareness on Partially Submerged Targets",
+      "id": "https://openalex.org/W4285173995"
+    },
+    "crossref": {
+      "title": [
+        "Collaboration of Heterogeneous Marine Robots Toward Multidomain Sensing and Situational Awareness on Partially Submerged Targets"
+      ],
+      "link": [
+        {
+          "URL": "http://xplorestaging.ieee.org/ielx7/48/9917395/09772063.pdf?arnumber=9772063",
+          "content-type": "unspecified",
+          "content-version": "vor",
+          "intended-application": "similarity-checking"
+        }
+      ],
+      "resource": {
+        "primary": {
+          "URL": "https://ieeexplore.ieee.org/document/9772063/"
+        }
+      },
+      "URL": "https://doi.org/10.1109/joe.2022.3156631"
+    }
+  },
+  {
+    "id": "P10",
+    "title": "Ocean Front Detection and Tracking Using a Team of Heterogeneous Marine Vehicles",
+    "openalex": {
+      "open_access": {
+        "is_oa": false,
+        "oa_status": "closed",
+        "oa_url": null,
+        "any_repository_has_fulltext": false
+      },
+      "locations": [
+        {
+          "id": "doi:10.1002/rob.22014",
+          "is_oa": false,
+          "landing_page_url": "https://doi.org/10.1002/rob.22014",
+          "pdf_url": null,
+          "source": {
+            "id": "https://openalex.org/S151299380",
+            "display_name": "Journal of Field Robotics",
+            "issn_l": "1556-4959",
+            "issn": [
+              "1556-4959",
+              "1556-4967"
+            ],
+            "is_oa": false,
+            "is_in_doaj": false,
+            "is_core": true,
+            "host_organization": "https://openalex.org/P4310320595",
+            "host_organization_name": "Wiley",
+            "host_organization_lineage": [
+              "https://openalex.org/P4310320595"
+            ],
+            "host_organization_lineage_names": [
+              "Wiley"
+            ],
+            "type": "journal"
+          },
+          "license": null,
+          "license_id": null,
+          "version": "publishedVersion",
+          "is_accepted": true,
+          "is_published": true,
+          "raw_source_name": "Journal of Field Robotics",
+          "raw_type": "journal-article"
+        }
+      ],
+      "best_oa_location": null,
+      "title": "Ocean front detection and tracking using a team of heterogeneous marine vehicles",
+      "id": "https://openalex.org/W3123681199"
+    },
+    "crossref": {
+      "title": [
+        "Ocean front detection and tracking using a team of heterogeneous marine vehicles"
+      ],
+      "link": [
+        {
+          "URL": "https://onlinelibrary.wiley.com/doi/pdf/10.1002/rob.22014",
+          "content-type": "application/pdf",
+          "content-version": "vor",
+          "intended-application": "text-mining"
+        },
+        {
+          "URL": "https://onlinelibrary.wiley.com/doi/full-xml/10.1002/rob.22014",
+          "content-type": "application/xml",
+          "content-version": "vor",
+          "intended-application": "text-mining"
+        },
+        {
+          "URL": "https://onlinelibrary.wiley.com/doi/am-pdf/10.1002/rob.22014",
+          "content-type": "application/pdf",
+          "content-version": "am",
+          "intended-application": "syndication"
+        },
+        {
+          "URL": "https://onlinelibrary.wiley.com/doi/pdf/10.1002/rob.22014",
+          "content-type": "unspecified",
+          "content-version": "vor",
+          "intended-application": "similarity-checking"
+        }
+      ],
+      "resource": {
+        "primary": {
+          "URL": "https://onlinelibrary.wiley.com/doi/10.1002/rob.22014"
+        }
+      },
+      "URL": "https://doi.org/10.1002/rob.22014"
+    }
+  },
+  {
+    "id": "P11",
+    "title": "Distributed Cooperative Control of Heterogeneous Multiagent Systems for Air-to-Ground Formation",
+    "openalex": {
+      "open_access": {
+        "is_oa": false,
+        "oa_status": "closed",
+        "oa_url": null,
+        "any_repository_has_fulltext": false
+      },
+      "locations": [
+        {
+          "id": "doi:10.1002/rob.22462",
+          "is_oa": false,
+          "landing_page_url": "https://doi.org/10.1002/rob.22462",
+          "pdf_url": null,
+          "source": {
+            "id": "https://openalex.org/S151299380",
+            "display_name": "Journal of Field Robotics",
+            "issn_l": "1556-4959",
+            "issn": [
+              "1556-4959",
+              "1556-4967"
+            ],
+            "is_oa": false,
+            "is_in_doaj": false,
+            "is_core": true,
+            "host_organization": "https://openalex.org/P4310320595",
+            "host_organization_name": "Wiley",
+            "host_organization_lineage": [
+              "https://openalex.org/P4310320595"
+            ],
+            "host_organization_lineage_names": [
+              "Wiley"
+            ],
+            "type": "journal"
+          },
+          "license": null,
+          "license_id": null,
+          "version": "publishedVersion",
+          "is_accepted": true,
+          "is_published": true,
+          "raw_source_name": "Journal of Field Robotics",
+          "raw_type": "journal-article"
+        }
+      ],
+      "best_oa_location": null,
+      "title": "Distributed Cooperative Control of Heterogeneous Multiagent Systems for Air‐to‐Ground Formation",
+      "id": "https://openalex.org/W4403894136"
+    },
+    "crossref": {
+      "title": [
+        "Distributed Cooperative Control of Heterogeneous Multiagent Systems for Air‐to‐Ground Formation"
+      ],
+      "link": [
+        {
+          "URL": "https://onlinelibrary.wiley.com/doi/pdf/10.1002/rob.22462",
+          "content-type": "unspecified",
+          "content-version": "vor",
+          "intended-application": "similarity-checking"
+        }
+      ],
+      "resource": {
+        "primary": {
+          "URL": "https://onlinelibrary.wiley.com/doi/10.1002/rob.22462"
+        }
+      },
+      "URL": "https://doi.org/10.1002/rob.22462"
+    }
+  },
+  {
+    "id": "P12",
+    "title": "Multi-Nonholonomic Robot Object Transportation with Obstacle Crossing Using a Deformable Sheet",
+    "openalex": {
+      "open_access": {
+        "is_oa": true,
+        "oa_status": "green",
+        "oa_url": "https://research.birmingham.ac.uk/en/publications/1a16198c-bc31-4ba1-ba7e-3f11d9c1e14d",
+        "any_repository_has_fulltext": true
+      },
+      "locations": [
+        {
+          "id": "doi:10.1109/icra55743.2025.11128313",
+          "is_oa": false,
+          "landing_page_url": "https://doi.org/10.1109/icra55743.2025.11128313",
+          "pdf_url": null,
+          "source": null,
+          "license": null,
+          "license_id": null,
+          "version": "publishedVersion",
+          "is_accepted": true,
+          "is_published": true,
+          "raw_source_name": "2025 IEEE International Conference on Robotics and Automation (ICRA)",
+          "raw_type": "proceedings-article"
+        },
+        {
+          "id": "pmh:oai:pure.atira.dk:openaire/1a16198c-bc31-4ba1-ba7e-3f11d9c1e14d",
+          "is_oa": true,
+          "landing_page_url": "https://research.birmingham.ac.uk/en/publications/1a16198c-bc31-4ba1-ba7e-3f11d9c1e14d",
+          "pdf_url": null,
+          "source": {
+            "id": "https://openalex.org/S4306402634",
+            "display_name": "University of Birmingham Research Portal (University of Birmingham)",
+            "issn_l": null,
+            "issn": null,
+            "is_oa": false,
+            "is_in_doaj": false,
+            "is_core": false,
+            "listed_in": [],
+            "host_organization": "https://openalex.org/I79619799",
+            "host_organization_name": "University of Birmingham",
+            "host_organization_lineage": [
+              "https://openalex.org/I79619799"
+            ],
+            "host_organization_lineage_names": [],
+            "type": "repository"
+          },
+          "license": "cc-by",
+          "license_id": "https://openalex.org/licenses/cc-by",
+          "version": "submittedVersion",
+          "is_accepted": false,
+          "is_published": false,
+          "raw_source_name": "Zhang, W, Street, C & Mansouri, M 2025, Multi-Nonholonomic Robot Object Transportation with Obstacle Crossing using a Deformable Sheet. in 2025 IEEE International Conference on Robotics and Automation (ICRA)., 11128313, IEEE International Conference on Robotics and Automation, Institute of Electrical and Electronics Engineers (IEEE), 2025 IEEE International Conference on Robotics and Automation, Atlanta, Georgia, United States, 19/05/25. https://doi.org/10.1109/ICRA55743.2025.11128313",
+          "raw_type": "info:eu-repo/semantics/conferenceObject"
+        }
+      ],
+      "best_oa_location": {
+        "id": "pmh:oai:pure.atira.dk:openaire/1a16198c-bc31-4ba1-ba7e-3f11d9c1e14d",
+        "is_oa": true,
+        "landing_page_url": "https://research.birmingham.ac.uk/en/publications/1a16198c-bc31-4ba1-ba7e-3f11d9c1e14d",
+        "pdf_url": null,
+        "source": {
+          "id": "https://openalex.org/S4306402634",
+          "display_name": "University of Birmingham Research Portal (University of Birmingham)",
+          "issn_l": null,
+          "issn": null,
+          "is_oa": false,
+          "is_in_doaj": false,
+          "is_core": false,
+          "listed_in": [],
+          "host_organization": "https://openalex.org/I79619799",
+          "host_organization_name": "University of Birmingham",
+          "host_organization_lineage": [
+            "https://openalex.org/I79619799"
+          ],
+          "host_organization_lineage_names": [],
+          "type": "repository"
+        },
+        "license": "cc-by",
+        "license_id": "https://openalex.org/licenses/cc-by",
+        "version": "submittedVersion",
+        "is_accepted": false,
+        "is_published": false,
+        "raw_source_name": "Zhang, W, Street, C & Mansouri, M 2025, Multi-Nonholonomic Robot Object Transportation with Obstacle Crossing using a Deformable Sheet. in 2025 IEEE International Conference on Robotics and Automation (ICRA)., 11128313, IEEE International Conference on Robotics and Automation, Institute of Electrical and Electronics Engineers (IEEE), 2025 IEEE International Conference on Robotics and Automation, Atlanta, Georgia, United States, 19/05/25. https://doi.org/10.1109/ICRA55743.2025.11128313",
+        "raw_type": "info:eu-repo/semantics/conferenceObject"
+      },
+      "title": "Multi-Nonholonomic Robot Object Transportation with Obstacle Crossing Using a Deformable Sheet",
+      "id": "https://openalex.org/W4413926292"
+    },
+    "crossref": {
+      "title": [
+        "Multi-Nonholonomic Robot Object Transportation with Obstacle Crossing Using a Deformable Sheet"
+      ],
+      "link": [
+        {
+          "URL": "http://xplorestaging.ieee.org/ielx8/11127273/11127223/11128313.pdf?arnumber=11128313",
+          "content-type": "unspecified",
+          "content-version": "vor",
+          "intended-application": "similarity-checking"
+        }
+      ],
+      "resource": {
+        "primary": {
+          "URL": "https://ieeexplore.ieee.org/document/11128313/"
+        }
+      },
+      "URL": "https://doi.org/10.1109/icra55743.2025.11128313"
+    }
+  },
+  {
+    "id": "P13",
+    "title": "Robots Calling the Shots: Using Multiple Ground Robots for Autonomous Tracking in Cluttered Environments",
+    "openalex": {
+      "open_access": {
+        "is_oa": true,
+        "oa_status": "green",
+        "oa_url": "https://research.birmingham.ac.uk/en/publications/0547f03d-9ad8-47b0-956f-ba7896e5eb13",
+        "any_repository_has_fulltext": true
+      },
+      "locations": [
+        {
+          "id": "doi:10.1109/iros60139.2025.11247464",
+          "is_oa": false,
+          "landing_page_url": "https://doi.org/10.1109/iros60139.2025.11247464",
+          "pdf_url": null,
+          "source": null,
+          "license": null,
+          "license_id": null,
+          "version": "publishedVersion",
+          "is_accepted": true,
+          "is_published": true,
+          "raw_source_name": "2025 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)",
+          "raw_type": "proceedings-article"
+        },
+        {
+          "id": "pmh:oai:pure.atira.dk:openaire/0547f03d-9ad8-47b0-956f-ba7896e5eb13",
+          "is_oa": true,
+          "landing_page_url": "https://research.birmingham.ac.uk/en/publications/0547f03d-9ad8-47b0-956f-ba7896e5eb13",
+          "pdf_url": null,
+          "source": {
+            "id": "https://openalex.org/S4306402634",
+            "display_name": "University of Birmingham Research Portal (University of Birmingham)",
+            "issn_l": null,
+            "issn": null,
+            "is_oa": false,
+            "is_in_doaj": false,
+            "is_core": false,
+            "host_organization": "https://openalex.org/I79619799",
+            "host_organization_name": "University of Birmingham",
+            "host_organization_lineage": [
+              "https://openalex.org/I79619799"
+            ],
+            "host_organization_lineage_names": [],
+            "type": "repository"
+          },
+          "license": "cc-by",
+          "license_id": "https://openalex.org/licenses/cc-by",
+          "version": "submittedVersion",
+          "is_accepted": false,
+          "is_published": false,
+          "raw_source_name": null,
+          "raw_type": "info:eu-repo/semantics/conferenceObject"
+        }
+      ],
+      "best_oa_location": {
+        "id": "pmh:oai:pure.atira.dk:openaire/0547f03d-9ad8-47b0-956f-ba7896e5eb13",
+        "is_oa": true,
+        "landing_page_url": "https://research.birmingham.ac.uk/en/publications/0547f03d-9ad8-47b0-956f-ba7896e5eb13",
+        "pdf_url": null,
+        "source": {
+          "id": "https://openalex.org/S4306402634",
+          "display_name": "University of Birmingham Research Portal (University of Birmingham)",
+          "issn_l": null,
+          "issn": null,
+          "is_oa": false,
+          "is_in_doaj": false,
+          "is_core": false,
+          "host_organization": "https://openalex.org/I79619799",
+          "host_organization_name": "University of Birmingham",
+          "host_organization_lineage": [
+            "https://openalex.org/I79619799"
+          ],
+          "host_organization_lineage_names": [],
+          "type": "repository"
+        },
+        "license": "cc-by",
+        "license_id": "https://openalex.org/licenses/cc-by",
+        "version": "submittedVersion",
+        "is_accepted": false,
+        "is_published": false,
+        "raw_source_name": null,
+        "raw_type": "info:eu-repo/semantics/conferenceObject"
+      },
+      "title": "Robots Calling the Shots: Using Multiple Ground Robots for Autonomous Tracking in Cluttered Environments",
+      "id": "https://openalex.org/W4416749115"
+    },
+    "crossref": {
+      "title": [
+        "Robots Calling the Shots: Using Multiple Ground Robots for Autonomous Tracking in Cluttered Environments"
+      ],
+      "link": [
+        {
+          "URL": "http://xplorestaging.ieee.org/ielx8/11245651/11245652/11247464.pdf?arnumber=11247464",
+          "content-type": "unspecified",
+          "content-version": "vor",
+          "intended-application": "similarity-checking"
+        }
+      ],
+      "resource": {
+        "primary": {
+          "URL": "https://ieeexplore.ieee.org/document/11247464/"
+        }
+      },
+      "URL": "https://doi.org/10.1109/iros60139.2025.11247464"
+    }
+  },
+  {
+    "id": "P16",
+    "title": "A Cooperative Heterogeneous Formation Control and Motion Planning Design of 3U: UAV-USV-UUV Systems",
+    "openalex": {
+      "open_access": {
+        "is_oa": false,
+        "oa_status": "closed",
+        "oa_url": null,
+        "any_repository_has_fulltext": false
+      },
+      "locations": [
+        {
+          "id": "doi:10.1016/j.oceaneng.2025.123867",
+          "is_oa": false,
+          "landing_page_url": "https://doi.org/10.1016/j.oceaneng.2025.123867",
+          "pdf_url": null,
+          "source": {
+            "id": "https://openalex.org/S76910236",
+            "display_name": "Ocean Engineering",
+            "issn_l": "0029-8018",
+            "issn": [
+              "0029-8018",
+              "1873-5258"
+            ],
+            "is_oa": false,
+            "is_in_doaj": false,
+            "is_core": true,
+            "host_organization": "https://openalex.org/P4310320990",
+            "host_organization_name": "Elsevier BV",
+            "host_organization_lineage": [
+              "https://openalex.org/P4310320990"
+            ],
+            "host_organization_lineage_names": [
+              "Elsevier BV"
+            ],
+            "type": "journal"
+          },
+          "license": null,
+          "license_id": null,
+          "version": "publishedVersion",
+          "is_accepted": true,
+          "is_published": true,
+          "raw_source_name": "Ocean Engineering",
+          "raw_type": "journal-article"
+        }
+      ],
+      "best_oa_location": null,
+      "title": "A cooperative heterogeneous formation control and motion planning design of 3U: UAV-USV-UUV systems",
+      "id": "https://openalex.org/W7116630357"
+    },
+    "crossref": {
+      "title": [
+        "A cooperative heterogeneous formation control and motion planning design of 3U: UAV-USV-UUV systems"
+      ],
+      "link": [
+        {
+          "URL": "https://api.elsevier.com/content/article/PII:S0029801825035498?httpAccept=text/xml",
+          "content-type": "text/xml",
+          "content-version": "vor",
+          "intended-application": "text-mining"
+        },
+        {
+          "URL": "https://api.elsevier.com/content/article/PII:S0029801825035498?httpAccept=text/plain",
+          "content-type": "text/plain",
+          "content-version": "vor",
+          "intended-application": "text-mining"
+        }
+      ],
+      "resource": {
+        "primary": {
+          "URL": "https://linkinghub.elsevier.com/retrieve/pii/S0029801825035498"
+        }
+      },
+      "URL": "https://doi.org/10.1016/j.oceaneng.2025.123867"
+    }
+  },
+  {
+    "id": "P19",
+    "title": "Formation Control for Mixed-Order UAVs–USVs–UUVs Systems under Cooperative and Optimal Control"
+  },
+  {
+    "id": "P20",
+    "title": "Simultaneous Task Allocation and Planning for Temporal Logic Goals in Heterogeneous Multi-Robot Systems",
+    "openalex": {
+      "open_access": {
+        "is_oa": true,
+        "oa_status": "green",
+        "oa_url": "http://urn.kb.se/resolve?urn=urn:nbn:se:kth:diva-214835",
+        "any_repository_has_fulltext": true
+      },
+      "locations": [
+        {
+          "id": "doi:10.1177/0278364918774135",
+          "is_oa": false,
+          "landing_page_url": "https://doi.org/10.1177/0278364918774135",
+          "pdf_url": null,
+          "source": {
+            "id": "https://openalex.org/S73484101",
+            "display_name": "The International Journal of Robotics Research",
+            "issn_l": "0278-3649",
+            "issn": [
+              "0278-3649",
+              "1741-3176"
+            ],
+            "is_oa": false,
+            "is_in_doaj": false,
+            "is_core": true,
+            "listed_in": [
+              "cwts-core"
+            ],
+            "host_organization": "https://openalex.org/P4310320017",
+            "host_organization_name": "SAGE Publishing",
+            "host_organization_lineage": [
+              "https://openalex.org/P4310320017"
+            ],
+            "host_organization_lineage_names": [
+              "SAGE Publishing"
+            ],
+            "type": "journal"
+          },
+          "license": null,
+          "license_id": null,
+          "version": "publishedVersion",
+          "is_accepted": true,
+          "is_published": true,
+          "raw_source_name": "The International Journal of Robotics Research",
+          "raw_type": "journal-article"
+        },
+        {
+          "id": "pmh:oai:DiVA.org:kth-214835",
+          "is_oa": true,
+          "landing_page_url": "http://urn.kb.se/resolve?urn=urn:nbn:se:kth:diva-214835",
+          "pdf_url": null,
+          "source": {
+            "id": "https://openalex.org/S4306401559",
+            "display_name": "KTH Publication Database DiVA (KTH Royal Institute of Technology)",
+            "issn_l": null,
+            "issn": null,
+            "is_oa": false,
+            "is_in_doaj": false,
+            "is_core": false,
+            "listed_in": [],
+            "host_organization": "https://openalex.org/I86987016",
+            "host_organization_name": "KTH Royal Institute of Technology",
+            "host_organization_lineage": [
+              "https://openalex.org/I86987016"
+            ],
+            "host_organization_lineage_names": [],
+            "type": "repository"
+          },
+          "license": "other-oa",
+          "license_id": "https://openalex.org/licenses/other-oa",
+          "version": "submittedVersion",
+          "is_accepted": false,
+          "is_published": false,
+          "raw_source_name": null,
+          "raw_type": "info:eu-repo/semantics/article"
+        }
+      ],
+      "best_oa_location": {
+        "id": "pmh:oai:DiVA.org:kth-214835",
+        "is_oa": true,
+        "landing_page_url": "http://urn.kb.se/resolve?urn=urn:nbn:se:kth:diva-214835",
+        "pdf_url": null,
+        "source": {
+          "id": "https://openalex.org/S4306401559",
+          "display_name": "KTH Publication Database DiVA (KTH Royal Institute of Technology)",
+          "issn_l": null,
+          "issn": null,
+          "is_oa": false,
+          "is_in_doaj": false,
+          "is_core": false,
+          "listed_in": [],
+          "host_organization": "https://openalex.org/I86987016",
+          "host_organization_name": "KTH Royal Institute of Technology",
+          "host_organization_lineage": [
+            "https://openalex.org/I86987016"
+          ],
+          "host_organization_lineage_names": [],
+          "type": "repository"
+        },
+        "license": "other-oa",
+        "license_id": "https://openalex.org/licenses/other-oa",
+        "version": "submittedVersion",
+        "is_accepted": false,
+        "is_published": false,
+        "raw_source_name": null,
+        "raw_type": "info:eu-repo/semantics/article"
+      },
+      "title": "Simultaneous task allocation and planning for temporal logic goals in heterogeneous multi-robot systems",
+      "id": "https://openalex.org/W2804655496"
+    },
+    "crossref": {
+      "title": [
+        "Simultaneous task allocation and planning for temporal logic goals in heterogeneous multi-robot systems"
+      ],
+      "link": [
+        {
+          "URL": "https://journals.sagepub.com/doi/pdf/10.1177/0278364918774135",
+          "content-type": "application/pdf",
+          "content-version": "vor",
+          "intended-application": "text-mining"
+        },
+        {
+          "URL": "https://journals.sagepub.com/doi/full-xml/10.1177/0278364918774135",
+          "content-type": "application/xml",
+          "content-version": "vor",
+          "intended-application": "text-mining"
+        },
+        {
+          "URL": "https://journals.sagepub.com/doi/pdf/10.1177/0278364918774135",
+          "content-type": "unspecified",
+          "content-version": "vor",
+          "intended-application": "similarity-checking"
+        }
+      ],
+      "resource": {
+        "primary": {
+          "URL": "https://journals.sagepub.com/doi/10.1177/0278364918774135"
+        }
+      },
+      "URL": "https://doi.org/10.1177/0278364918774135"
+    }
+  }
+]

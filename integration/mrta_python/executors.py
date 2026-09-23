@@ -391,6 +391,9 @@ class ExecutorTravelTimeProvider:
     cooperative_routes: Mapping = field(default_factory=dict)
     observation_request: object = None
     mother_position: tuple = ()
+    # Only set when the request declares return. Starting physical member
+    # positions are the return references; no hidden centre or new service.
+    return_positions: Mapping = field(default_factory=dict)
 
     def execution_candidates(self,unit,task,start,states,deadline):
         """Evaluate declared finite native route alternatives with plant state.
@@ -732,6 +735,20 @@ class ExecutorTravelTimeProvider:
                     rows.extend((origin+t,p,mode) for t,p in idle['trajectory'][1:])
             if rows[-1][0]+1e-6<horizon:return unknown('PLAN_MOTION_HORIZON_MISSING')
             traces[member]=tuple(rows)
+            if self.return_positions and pieces[member]:
+                home=self.return_positions.get(member)
+                if home is None or len(home)!=3:return unknown('PLAN_RETURN_SITE_MISSING')
+                # Use the existing endpoint's position tolerance: PVS/qn
+                # native handover is 0.2 m; the current Swarm Action is 0.5 m.
+                # A method with no checked return tail cannot pass.
+                from qn_aav_simulator.pvs_backend import NATIVE_START_TOLERANCE_M
+                final_item=max((item for item in plan.items if member in item.coalition),
+                               key=lambda item:item.planned_finish)
+                air_action=bool(final_item.execution_steps and
+                                final_item.execution_steps[-1].native_action is None)
+                tolerance=.5 if air_action else NATIVE_START_TOLERANCE_M
+                if math.dist(rows[-1][1],home)>tolerance:
+                    return dict(status='INFEASIBLE',reason='PLAN_REQUIRED_RETURN_NOT_REACHED')
         clocks={member:[row[0] for row in rows] for member,rows in traces.items()}
         # Include exact activity boundaries and the endpoint, even when they
         # are not an integer number of 10 ms samples.

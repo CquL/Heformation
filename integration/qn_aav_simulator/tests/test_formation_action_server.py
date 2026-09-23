@@ -19,6 +19,44 @@ from qn_aav_simulator.action_lifecycle import (
 from qn_aav_simulator.formation_monitor import DEFAULT_RELATIVE_SLOTS
 
 
+def test_single_air_action_produces_local_product_and_distinct_terminal_report(server_module):
+    import yaml
+    from qn_aav_simulator.task_line import load_request
+    from qn_aav_simulator.experiment_verdict import MemberSample,StaticSceneGeometry
+    root=Path(__file__).parents[1]/'config'
+    server=server_module.FormationActionServer.__new__(server_module.FormationActionServer)
+    server.observation_request=load_request(root/'monitoring_request_joint.yaml')
+    server.static_scene=StaticSceneGeometry.from_mapping(
+        yaml.safe_load((root/'five_scene_harbor.yaml').read_text())['scene'])
+    server.agent_ids=[0];server.odom_timeout=.25
+    samples=[MemberSample(0,100.+i/10.,(-28.,4.,.8),(0.,0.,0.),
+                          state_stamp_s=100.+i/10.) for i in range(13)]
+    work=SimpleNamespace(goal=SimpleNamespace(observation_ids=['air_sample']))
+    events=server._air_observation_events(work,dict(goal_id='accepted-goal',
+        successful_hold_window=dict(start=100.,end=101.2)),{0:samples},101.2)
+    assert len(events)==2
+    assert events[0]['point_id']=='air_sample' and events[0]['producer']=='drone_0'
+    assert events[0]['required_bytes']==32768
+    assert events[1]['event_type']=='OBSERVATION_TERMINAL'
+    assert events[1]['point_ids']==events[1]['observed_ids']==['air_sample']
+
+
+def test_air_observation_goal_requires_declared_point_and_one_member(server_module):
+    from qn_aav_simulator.task_line import load_request
+    server=server_module.FormationActionServer.__new__(server_module.FormationActionServer)
+    server.observation_request=load_request(Path(__file__).parents[1]/'config/monitoring_request_joint.yaml')
+    server.agent_ids=[0];server.cruise_altitude_m=.8
+    goal=SimpleNamespace(task_id='air-job',observation_ids=['air_sample'],
+        formation_center=SimpleNamespace(header=SimpleNamespace(frame_id='world'),
+            point=SimpleNamespace(x=-28.,y=4.,z=.8)),
+        hold_duration=SimpleNamespace(to_sec=lambda:4.))
+    server._validate_goal(goal)
+    goal.observation_ids=['water_sample']
+    with pytest.raises(ValueError,match='unknown or repeated'):server._validate_goal(goal)
+    goal.observation_ids=['air_sample'];server.agent_ids=[0,1,2]
+    with pytest.raises(ValueError,match='one local member'):server._validate_goal(goal)
+
+
 @pytest.fixture
 def server_module(monkeypatch):
     class Stamp:
@@ -104,7 +142,7 @@ def server_module(monkeypatch):
         "nav_msgs.msg": dict(Odometry=object),
         "quadrotor_msgs.msg": dict(PositionCommand=object),
         "sensor_msgs.msg": dict(Image=object, PointCloud2=object),
-        "std_msgs.msg": dict(Bool=object),
+            "std_msgs.msg": dict(Bool=object, String=SimpleNamespace),
         "qn_aav_simulator.msg": dict(
             FormationAction=object,
             FormationFeedback=SimpleNamespace(MOVING=0, HOLDING=1),

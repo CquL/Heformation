@@ -200,8 +200,11 @@ class MissionRunner:
             from std_msgs.msg import String
             self.metrics['delivery_model']='FINITE_DECLARED_EXPERIMENT'
             self.metrics['received_products']={}
+            self.metrics['received_terminal_reports']={}
             self.action_subs.append(rospy.Subscriber('/mother/received_products',String,
                 self._on_received_product,queue_size=100))
+            self.action_subs.append(rospy.Subscriber('/mother/received_notifications',String,
+                self._on_received_notification,queue_size=100))
         for unit in self.units:
             endpoint = unit.action_endpoint.rstrip("/")
             action_type,goal_type,result_type=FormationAction,FormationActionGoal,FormationActionResult
@@ -253,6 +256,10 @@ class MissionRunner:
                         if (step.native_action is not None and key in step.native_action.observation_ids and
                                 event['producer'] in item.coalition and event['goal_id'] in goals.get(execution_id,())):
                             accepted=True
+                        if (step.native_action is None and
+                                key in getattr(self.observation_tasks.get(item.task_id),'covers',()) and
+                                event['producer'] in item.coalition and event['goal_id'] in goals.get(execution_id,())):
+                            accepted=True
                 if not accepted:raise ValueError('receipt is not from this plan execution')
                 old=self.metrics['received_products'].get(ident)
                 if old is not None:
@@ -265,6 +272,40 @@ class MissionRunner:
             self._save_executor()
         except (ValueError,TypeError,KeyError) as error:
             rospy.logerr_throttle(2.,'Rejected product receipt: %s',str(error))
+
+    def _on_received_notification(self,message):
+        """Only an actual mother receipt can close a negative observation report."""
+        try:
+            event=json.loads(message.data)
+            if event.get('event_type')!='OBSERVATION_TERMINAL':return
+            if (event['request_id']!=self.request.request_id or
+                    event['product_id']!=event['goal_id']+':terminal' or
+                    not all(math.isfinite(event[k]) for k in ('generated_at','received_at')) or
+                    event['received_at']<event['generated_at']):
+                raise ValueError('invalid terminal receipt')
+            with self.condition:goals={k:set(v) for k,v in self.goal_ids.items()}
+            with self.executor_mutex:
+                matching=[]
+                for item in self.plan.items if self.plan is not None else ():
+                    if item.status not in ('RUNNING','COMPLETED','UNKNOWN_LOCKED'):continue
+                    for index,step in enumerate(item.execution_steps):
+                        execution_id=item.execution_id if len(item.execution_steps)==1 else item.execution_id+':step:'+str(index)
+                        if (step.native_action is not None and
+                                event['producer'] in item.coalition and event['goal_id'] in goals.get(execution_id,())):
+                            matching.extend(step.native_action.observation_ids)
+                        if (step.native_action is None and
+                                event['producer'] in item.coalition and event['goal_id'] in goals.get(execution_id,())):
+                            matching.extend(getattr(self.observation_tasks.get(item.task_id),'covers',()))
+                if sorted(matching)!=event['point_ids'] or not set(event['observed_ids'])<=set(matching):
+                    raise ValueError('terminal report is not from this planned observation')
+                previous=self.metrics['received_terminal_reports'].get(event['goal_id'])
+                if previous is not None:
+                    if previous!=event:raise ValueError('conflicting repeated terminal receipt')
+                    return
+                self.metrics['received_terminal_reports'][event['goal_id']]=event
+            self._save_executor()
+        except (ValueError,TypeError,KeyError) as error:
+            rospy.logerr_throttle(2.,'Rejected terminal receipt: %s',str(error))
 
     def _on_executor_odom(self, message, member):
         from qn_aav_simulator.odometry import parse_standard_odometry, OdometryContractError
@@ -557,6 +598,12 @@ class MissionRunner:
             target_ref=step.target_ref if step else task.target_ref
             goal.formation_center.point.x,goal.formation_center.point.y,goal.formation_center.point.z=self.centers[target_ref]
             goal.hold_duration=rospy.Duration(step.service_time_s if step else item.service_time)
+            observation_ids=(list(getattr(self.observation_tasks.get(item.task_id),'covers',()))
+                             if getattr(self,'finite_delivery',False) else [])
+            if hasattr(goal,'observation_ids'):
+                goal.observation_ids=observation_ids
+            elif observation_ids:
+                raise RuntimeError('Formation.action lacks observation_ids; rebuild the Noetic message image')
             return goal
         if unit.action_type!='PlatformTaskAction':raise RuntimeError('native fragment routed to AIR Action')
         self._checked_native_prediction(item)
@@ -586,6 +633,26 @@ class MissionRunner:
                 result.task_completed and result.terminal_verified and not result.resource_locked and
                 result.actual_mode==native.final_mode and result.reason==reason)
 
+    def _wait_observation_report(self,goal_id,timeout):
+        deadline=time.monotonic()+timeout
+        while not rospy.is_shutdown():
+            with self.executor_mutex:
+                if goal_id in self.metrics.get('received_terminal_reports',{}):return
+            if time.monotonic()>=deadline:
+                raise RuntimeError('observation terminal report not received; keep member reserved')
+            time.sleep(.05)
+        raise RuntimeError('shutdown before observation receipt; keep member reserved')
+
+    def _wait_missing_report(self,state,result,native):
+        if (native is None or result is None or state!=GoalStatus.ABORTED or
+                result.reason!='OBSERVATION_NOT_SATISFIED' or not result.terminal_verified or
+                result.resource_locked):
+            return
+        # A received negative report is the business trigger. An Action result
+        # alone cannot reveal the missing point to an intermittently connected
+        # mother. Never hold executor_mutex across this wait/callback boundary.
+        self._wait_observation_report(result.goal_id,native.execution_timeout_s)
+
     def _dispatch_executor_item(self, item, reserved=False):
         if len(item.execution_steps)>1:
             return self._dispatch_executor_chain(item,reserved)
@@ -609,6 +676,10 @@ class MissionRunner:
             if getattr(self,"executor_serial",True):self.metrics["current_action"] = action
         self._save_executor()  # reserve before sending, survive runner interruption
         state,result=self._send_executor_goal(item,unit,goal,action)
+        self._wait_missing_report(state,result,native)
+        if native is None and getattr(goal,'observation_ids',()) and self._release_result_ok(state,result,item.execution_id):
+            node=self.server_nodes[unit.executor_id]
+            self._wait_observation_report(result.goal_id,float(rospy.get_param(node+'/execution_timeout',180.)))
         # Only result commits hold this mutex, never physical Action waits.
         with self.executor_mutex:
             outcome=self._commit_executor_result(item,unit,state,result)
@@ -761,6 +832,7 @@ class MissionRunner:
             def observe(index):
                 item,unit,goal,action=items[index],units[index],goals[index],actions[index]
                 state,result=self._send_executor_goal(item,unit,goal,action,sent_deadline=deadline)
+                self._wait_missing_report(state,result,item.native_action)
                 with self.executor_mutex:self._commit_executor_result(item,unit,state,result)
                 self._save_executor()
             workers=ThreadPoolExecutor(max_workers=len(items))
@@ -815,6 +887,9 @@ class MissionRunner:
                 action.update(endpoint=unit.action_endpoint,step=index,step_count=len(units),
                               step_execution_id=view.execution_id,phase='DISPATCHING')
             state,result=self._send_executor_goal(view,unit,goal,action)
+            if step.native_action is None and getattr(goal,'observation_ids',()) and self._release_result_ok(state,result,view.execution_id):
+                node=self.server_nodes[unit.executor_id]
+                self._wait_observation_report(result.goal_id,float(rospy.get_param(node+'/execution_timeout',180.)))
             ok=(self._native_motion_result_ok(state,result,view.execution_id,step.native_action)
                 if step.native_action else self._release_result_ok(state,result,view.execution_id))
             row=dict(activity_id=item.execution_id,execution_id=view.execution_id,endpoint=unit.action_endpoint,
@@ -919,22 +994,33 @@ class MissionRunner:
         payload=None if result is None else {key:getattr(result,key) for key in (
             'task_id','goal_id','task_completed','terminal_verified','actual_mode','reason','resource_locked','model_time_s')}
         previous=next((r for r in self.metrics['executions'] if r.get('execution_id')==item.execution_id
-                       and r.get('result')=='SUCCEEDED'),None)
+                       and r.get('result') in ('SUCCEEDED','OBSERVATION_MISSING')),None)
         if previous is not None:
-            if previous.get('native_result')!=payload or state!=GoalStatus.SUCCEEDED:
+            expected=GoalStatus.ABORTED if previous['result']=='OBSERVATION_MISSING' else GoalStatus.SUCCEEDED
+            if previous.get('native_result')!=payload or state!=expected:
                 raise RuntimeError('conflicting repeated native Result')
             return  # May now be booked by another task; never remove its lock.
-        if not self._native_motion_result_ok(state,result,item.execution_id,native):
+        missing=(state==GoalStatus.ABORTED and result is not None and
+                 result.task_id==item.execution_id and bool(result.goal_id) and
+                 result.reason=='OBSERVATION_NOT_SATISFIED' and result.terminal_verified and
+                 not result.resource_locked and result.actual_mode==native.final_mode and
+                 bool(native.observation_ids))
+        if not missing and not self._native_motion_result_ok(state,result,item.execution_id,native):
             detail='missing Result' if result is None else result.reason
             self.metrics['executions'].append(dict(task_id=item.task_id,execution_id=item.execution_id,
                 endpoint=unit.action_endpoint,result='NON_SUCCESS',native_state=state,native_result=payload,detail=detail))
             raise RuntimeError('native motion Result cannot release members: '+detail)
         goal_id,envelope=self.native_result(item.execution_id)
-        if goal_id!=result.goal_id or envelope.status.status!=GoalStatus.SUCCEEDED:
+        if goal_id!=result.goal_id or envelope.status.status!=(GoalStatus.ABORTED if missing else GoalStatus.SUCCEEDED):
             raise RuntimeError('native GoalID/Result envelope mismatch')
+        if missing:
+            report=self.metrics.get('received_terminal_reports',{}).get(result.goal_id)
+            if (report is None or report['point_ids']!=sorted(native.observation_ids) or
+                    set(report['observed_ids'])==set(native.observation_ids)):
+                raise RuntimeError('negative observation report missing or inconsistent; keep member reserved')
         if item.fulfills_task and item.task_id in self.observation_tasks and not native.observation_ids:
             raise RuntimeError('native motion Result does not contain validated observation products')
-        if native.observation_ids and self.request.delivery_required:
+        if native.observation_ids and self.request.delivery_required and not missing:
             delivered={event['point_id'] for event in self.metrics.get('received_products',{}).values()
                        if event.get('goal_id')==result.goal_id and event.get('observed') is True}
             if not set(native.observation_ids)<=delivered:
@@ -944,7 +1030,8 @@ class MissionRunner:
         self.plan,changed=process_executor_completion(self.plan,event,self.final_events)
         self.metrics['executions'].append(dict(task_id=item.task_id,execution_id=item.execution_id,
             endpoint=unit.action_endpoint,goal_id=goal_id,result_received_at=received,
-            result='SUCCEEDED',plan_updated=changed,scope='NATIVE_MOTION',safety_outcome='NOT_VERIFIED',native_result=payload))
+            result='OBSERVATION_MISSING' if missing else 'SUCCEEDED',plan_updated=changed,
+            scope='NATIVE_MOTION',safety_outcome='NOT_VERIFIED',native_result=payload))
         if all(i.status=='COMPLETED' for i in self.plan.items if i.task_id==item.task_id):
             self.metrics['results_received'].append(item.task_id)
         self.metrics['native_qualification_only']=True
@@ -1029,6 +1116,10 @@ class MissionRunner:
                 samples.append(ObservationSample("drone_" + member, stamp, tuple(row["position"])))
         coverage = evaluate_coverage(samples, {p: self.points[p] for p in task.covers},
             self.request.requirement, self.obstacles, sample_timeout_s=evidence["sample_timeout_s"])
+        if getattr(self,'finite_delivery',False):
+            report=self.metrics.get('received_terminal_reports',{}).get(evidence['goal_id'])
+            if report is None or set(report['observed_ids'])!={p for p,row in coverage.points.items() if row.observed}:
+                raise RuntimeError('AIR local report and accepted qn samples disagree; keep members reserved')
         for point_id, observation in coverage.points.items():
             if observation.observed or point_id not in self.coverage.points:
                 self.coverage.points[point_id] = observation

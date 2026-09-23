@@ -1,0 +1,37 @@
+{
+  "id": "P15",
+  "title": "Online Multi-Robot Coordination and Cooperation with Task Precedence Relationships",
+  "doi": "10.1109/TRO.2025.3613558",
+  "arxiv": "2509.15052",
+  "official_url": "https://arxiv.org/abs/2509.15052",
+  "code_urls": [],
+  "source_index": "references_verified_20260921.json",
+  "prior_read_scope": "核查正文问题定义、联盟收益/前置关系、在线修复及局限；录用信息来自作者arXiv记录。",
+  "prior_code_scope": "本轮未确认配套作者源码。",
+  "mechanism_from_supplied_review": "联合任务前置、联盟规模和前序任务表现，在线重新分配应对偏差。",
+  "boundary_from_supplied_review": "这里formation of coalitions是形成联盟，不是几何编队；论文把异构扩展列为后续工作。",
+  "project_use_from_supplied_review": "更新此前ICRA2023文献依据，但不能把它当成已经解决异构几何编队。",
+  "access_attempts": [
+    {
+      "url": "https://arxiv.org/pdf/2509.15052",
+      "checked_utc": "2026-09-21T05:45:16.271509+00:00",
+      "http_status": 200,
+      "final_url": "https://arxiv.org/pdf/2509.15052",
+      "content_type": "application/pdf",
+      "result": "verified-pdf"
+    }
+  ],
+  "sha256": "b4609fbeb2055d6379186b706b6ecc940dbeb01e31c10d27e582fe62ff1c8022",
+  "size_bytes": 2635049,
+  "pages": 20,
+  "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+  "status": "downloaded-open-pdf",
+  "source_url": "https://arxiv.org/pdf/2509.15052",
+  "resolved_source_url": "https://arxiv.org/pdf/2509.15052",
+  "downloaded_utc": "2026-09-21T05:45:16.271509+00:00",
+  "verified_pdf_title": "Online Multi-Robot Coordination and Cooperation with Task Precedence Relationships",
+  "local_pdf": "research/literature/collections/heterogeneous-20260921/P15/paper.pdf",
+  "resolved_pdf": "research/literature/collections/heterogeneous-20260921/P15/paper.pdf",
+  "this_round_read_scope": "download and identity inspection only; selected-section review pending",
+  "integrity_rechecked_utc": "2026-09-21T05:50:03.457125+00:00"
+}

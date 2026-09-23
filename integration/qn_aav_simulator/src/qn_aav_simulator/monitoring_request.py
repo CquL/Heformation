@@ -66,6 +66,9 @@ class MonitoringRequest:
     #: the request explicitly demands underwater work or a USV relay
     requires_underwater: bool = False
     requires_relay_delivery: bool = False
+    #: declared mission policy: every participating member returns to its
+    #: accepted starting location before the request can finish
+    return_required: bool = False
 
 
 @dataclass(frozen=True)
@@ -219,6 +222,8 @@ def validate_request(request: MonitoringRequest) -> None:
         raise ValueError("service_time_s must be finite and at least min_dwell_s")
     if request.deadline_s is not None and (not math.isfinite(request.deadline_s) or request.deadline_s <= 0):
         raise ValueError("deadline_s must be absent or finite and positive")
+    if type(request.return_required) is not bool:
+        raise ValueError('return_required must be boolean')
     region_ids, point_ids = set(), set()
     for region in request.regions:
         if not region.region_id or region.region_id in region_ids or not region.interest_points:

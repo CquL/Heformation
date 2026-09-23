@@ -38,13 +38,14 @@ class SampledProvider(ExecutorTravelTimeProvider):
             collision_radii={member:.1},generated_products=products)]
 
 
-def planned(case,members):
+def planned(case,members,require_return=False):
     scene=StaticSceneGeometry('world',-10.,.1,())
     states={m:dict(position=(-2. if m=='a' else 2.,0.,0.),mode='SURFACE',available_from=0.) for m in members}
     units=[Executor(m,(m,),frozenset({'SURFACE'})) for m in members]
     tasks=[Task(m,frozenset({'SURFACE'}),1,0.,None,m,required_members=(m,)) for m in members]
     provider=SampledProvider({'start':(0.,0.,0.)},{m:1. for m in members},
-        scene_geometry=scene,mother_position=(0.,5.,0.),case=case)
+        scene_geometry=scene,mother_position=(0.,5.,0.),case=case,
+        return_positions={m:state['position'] for m,state in states.items()} if require_return else {})
     return build_executor_plan(units,tasks,provider,initial_target_ref='start',
         member_states=states,execution_candidates=provider.execution_candidates,budget_s=3.)
 
@@ -70,3 +71,8 @@ def test_separately_deliverable_products_compete_for_one_plan_channel_budget():
 def test_real_provider_path_cannot_accept_a_complete_plan_without_motion_evidence():
     with pytest.raises(ValueError,match='unknown.*PLAN_MOTION_EVIDENCE_MISSING'):
         planned('missing',('a',))
+
+
+def test_declared_return_checks_actual_model_terminal_not_only_route_label():
+    with pytest.raises(ValueError,match='PLAN_REQUIRED_RETURN_NOT_REACHED'):
+        planned('crossing',('a',),require_return=True)

@@ -1,0 +1,39 @@
+{
+  "id": "P06",
+  "title": "How to Coordinate UAVs and UGVs for Efficient Mission Planning? Optimizing Energy-Constrained Cooperative Routing with a DRL Framework",
+  "doi": "10.15607/RSS.2025.XXI.101",
+  "arxiv": "2504.21111",
+  "official_url": "https://www.roboticsproceedings.org/rss21/p101.html",
+  "code_urls": [
+    "https://github.com/imsafwan/multi-uav-ugv-cooperative-routing-drl"
+  ],
+  "source_index": "references_verified_20260921.json",
+  "prior_read_scope": "核查RSS正式记录与arXiv问题定义、约束、编码器/解码器、训练和计算实验。",
+  "prior_code_scope": "读取作者README，确认环境、训练、评估与数据生成入口；未训练或运行。",
+  "mechanism_from_supplied_review": "共同选择任务点访问、路线和移动补给会合，目标包含整体任务时间。",
+  "boundary_from_supplied_review": "UGV提供充电，不是水声通信中继；不存在你们的AAV转换和海洋动力学；计算实验不等于海上实机验证。",
+  "project_use_from_supplied_review": "借鉴“支援角色的运动和会合也必须进入计划选择”，不新增充电需求，也不默认替换成DRL。",
+  "access_attempts": [
+    {
+      "url": "https://arxiv.org/pdf/2504.21111",
+      "checked_utc": "2026-09-21T05:44:10.509367+00:00",
+      "http_status": 200,
+      "final_url": "https://arxiv.org/pdf/2504.21111",
+      "content_type": "application/pdf",
+      "result": "verified-pdf"
+    }
+  ],
+  "sha256": "e711d083bea82daeec8d3f3c12ea894370b7decebe44118d58228622fee2d052",
+  "size_bytes": 8680850,
+  "pages": 19,
+  "identity_check": "PDF signature, pdftotext parse, title words in opening text; human title check recorded separately",
+  "status": "downloaded-open-pdf",
+  "source_url": "https://arxiv.org/pdf/2504.21111",
+  "resolved_source_url": "https://arxiv.org/pdf/2504.21111",
+  "downloaded_utc": "2026-09-21T05:44:10.509367+00:00",
+  "local_pdf": "research/literature/collections/heterogeneous-20260921/P06/paper.pdf",
+  "resolved_pdf": "research/literature/collections/heterogeneous-20260921/P06/paper.pdf",
+  "this_round_read_scope": "download and identity inspection only; selected-section review pending",
+  "integrity_rechecked_utc": "2026-09-21T05:50:03.322902+00:00",
+  "verified_pdf_title": "How to Coordinate UAVs and UGVs for Efficient Mission Planning? Optimizing Energy-Constrained Cooperative Routing with a DRL Framework"
+}
