@@ -546,7 +546,7 @@ class MissionDashboard:
         return self.render()
 
     def draw_water_cooperation(self, now):
-        """Task outcomes come from the runner; transport truth is labelled apart."""
+        """Show the selected AIR/WATER activities from the one task authority."""
         state=json.loads(rospy.get_param('/formation_mission_runner/task_state','{}'))
         with self.lock:
             progress=dict(self.delivery_progress)
@@ -555,55 +555,72 @@ class MissionDashboard:
         def line(y,content,size=12,colour='#263238'):
             axis.text(0,y,content,fontproperties=self.five_font,fontsize=size,
                       color=colour,va='top',wrap=True)
-        names={'PLANNING':'正在比较候选计划','AWAITING_CONFIRMATION':'等待终端确认，尚未派发',
-               'RUNNING':'协作执行中','PASS_WATER_GEOMETRIC_PROXY':'水下阶段完成（几何观测代理）',
+        rows=(state.get('plan') or {}).get('items',[])
+        air=any(r['executor_id'].startswith('aav_') for r in rows)
+        water=any(r['executor_id']=='uuv' for r in rows)
+        names={'PLANNING':'正在比较候选计划','PLANNING_DIAGNOSTIC':'隔离诊断：正在比较候选',
+               'AWAITING_CONFIRMATION':'等待终端确认，尚未派发',
+               'RUNNING':'协作执行中','RUNNING_DIAGNOSTIC':'同请求诊断执行中',
+               'PASS_JOINT_NO_RETURN_DIAGNOSTIC':'空中／水下交付完成（无返回诊断）',
+               'PASS_WATER_GEOMETRIC_PROXY':'水下阶段完成（几何观测代理）',
+               'PASS_AIR_SUPPORT_COMPONENT':'空中与无人船组件完成（几何代理）',
                'FAILED':'失败，请查看原因与资源锁定','NOT_CONFIRMED':'未确认，未派发'}
-        line(1.,'水下观测 → 无人船支援 → 母船接收',18)
+        title=('近岸联合观测' if not rows else '空中＋水下联合观测' if air and water else
+               '空中观测＋无人船射频支援' if air else '水下观测＋无人船支援')
+        line(1.,title,18)
         status=state.get('status','STANDBY')
         line(.93,names.get(status,'等待任务程序'),14)
         age=now-state.get('updated_at_ros_s',now)
-        line(.875,'任务记录年龄 {:.1f}s · 三台无人机本轮待命'.format(age),10)
+        line(.875,'任务记录年龄 {:.1f}s · 当前计划 {} 项活动'.format(age,len(rows)),10)
         statuses={'PLANNED':'等待派发','RUNNING':'执行中','COMPLETED':'动作完成',
                   'UNKNOWN_LOCKED':'未知，保持锁定','FAILED':'失败'}
-        rows=(state.get('plan') or {}).get('items',[])
-        for index,member in enumerate(('uuv','usv')):
-            row=next((r for r in rows if r['executor_id']==member),None)
-            title='潜航器 · 水下样点观测' if member=='uuv' else '无人船 · 移动通信支援'
-            y=.8-index*.14
-            line(y,title,14)
-            if row:
-                action=row['execution_steps'][0]['native_action']
-                point=action['segments'][-1]['points'][-1]
-                phase=(state.get('current_actions',{}).get(row['execution_id']) or {}).get('phase','')
-                phases={'PREPARING':'正在预装载','PREPARED':'已接纳，等待共同启动','WATER_PATH':'水下航行／观测','SURFACE_PATH':'前往支援区','TERMINAL':'减速／终端保持','COAST_STOP':'滑行减速／交付等待','TRIM_PROPULSION':'终端配平保持','UNKNOWN_LOCKED':'未知，保持锁定'}
-                label=phases.get(phase,statuses.get(row['status'],row['status']))
-                line(y-.045,'{}  |  预计 {:.0f}–{:.0f}s  |  终点 ({:.1f}, {:.1f})'.format(
-                    label,row['planned_start'],row['planned_finish'],point[0],point[1]),11)
-            else:
-                line(y-.045,'正在规划；未派发',11)
+        phases={'PREPARING':'正在预装载','PREPARED':'等待共同启动','AIR_MOVE':'空中转场',
+                'WATER_PATH':'水下航行／观测','SURFACE_PATH':'驶往支援区',
+                'COAST_STOP':'滑行终端','TRIM_PROPULSION':'配平保持',
+                'UNKNOWN_LOCKED':'未知，保持锁定'}
+        for index,row in enumerate(rows[:6]):
+            executor=row['executor_id']
+            member=('无人机'+str(int(executor.split('_')[-1])) if executor.startswith('aav_') and
+                    executor.split('_')[-1].isdigit() else '潜航器' if executor=='uuv' else
+                    '无人船' if executor=='usv' else executor)
+            role=('通信支援' if not row['fulfills_task'] else
+                  '空中观测' if executor.startswith('aav_') else '水下观测' if executor=='uuv' else '作业')
+            phase=(state.get('current_actions',{}).get(row['execution_id']) or {}).get('phase','')
+            label=phases.get(phase,statuses.get(row['status'],row['status']))
+            steps=row.get('execution_steps') or ()
+            native=steps[0].get('native_action') if steps else None
+            wait=0. if native is None else native.get('terminal_wait_s',0.)
+            detail=(' · 交付等待{:.1f}s'.format(wait) if wait else '')
+            line(.81-index*.06,'{} · {}  {}  {:.0f}–{:.0f}s{}'.format(
+                member,role,label,row['planned_start'],row['planned_finish'],detail),11)
+        if len(rows)>6:line(.45,'另有 {} 项活动；完整记录见任务结果'.format(len(rows)-6),10)
+        if not rows:line(.79,'正在规划；确认前不派发',12)
         locks=state.get('resource_locks',[])
-        line(.5,'占用／锁定：'+('、'.join({'uuv':'潜航器','usv':'无人船'}.get(k,k) for k in locks) or '无'),12)
-        line(.445,'母船确认接收：{:.0%}   已确认业务结果：{} 项'.format(
+        line(.44,'占用／锁定：'+('、'.join(
+            '无人机'+k.split('_')[-1] if k.startswith('aav_') else
+            {'uuv':'潜航器','usv':'无人船'}.get(k,k) for k in locks) or '无'),12)
+        line(.38,'母船确认接收：{:.0%}   已确认业务结果：{} 项'.format(
             state.get('delivered_fraction',0.),len(state.get('results_received',[]))),13)
-        line(.375,'传输过程（独立仿真视图，不作为任务完成判定）',11)
+        line(.32,'传输过程（独立仿真视图，不作为任务完成判定）',11)
         if not progress or now-progress.get('at_ros_s',0.)>2.:
             detail='传输状态缺失／过期，不能推断接收进度'
         elif not progress.get('products'):
-            detail='等待潜航器产生观测摘要'
+            detail='等待平台产生观测摘要'
         else:
-            p=progress['products'][0]
-            detail='摘要 {:.0f} KiB  |  无人船已收 {:.1f}  |  母船已收 {:.1f} KiB'.format(
-                p['required_bytes']/1024.,p['relay_bytes']/1024.,p['mother_bytes']/1024.)
-        line(.325,detail,12)
-        line(.26,'水下链路：8 m / 2 KiB/s；母船链路：30 m / 32 KiB/s',10)
-        line(.22,'声明的实验通信模型；断链不增加接收量。',10)
+            products=progress['products']
+            detail='{} 份摘要 · 无人船已收 {:.1f} KiB · 母船已收 {:.1f} KiB'.format(
+                len(products),sum(p['relay_bytes'] for p in products)/1024.,
+                sum(p['mother_bytes'] for p in products)/1024.)
+        line(.27,detail,12)
+        line(.21,'声明链路：水下 8 m / 2 KiB/s；射频 30 m / 32 KiB/s',10)
         reason=state.get('failure_reason','')
         if reason:
             line(.16,'失败：'+textwrap.fill(reason,62),10,'#b71c1c')
         else:
-            line(.16,'已生成的方法按完整工期比较；有界等待用于交付。',10)
-        line(.085,'当前仅水下阶段；完整空中／跨介质／复查／返回未完成。',10)
-        line(.045,'全平台安全未综合验收；关闭窗口不停止物理执行。',10)
+            line(.16,'实际收件与 Action 结果分别判断。',10)
+        line(.09,'当前是{}；全请求复查／返回未通过。'.format('AIR＋USV组件' if air and not water else
+            '水下阶段' if water and not air else '联合计划诊断'),10)
+        line(.045,'关闭窗口不停止物理执行；几何代理不等于真实载荷质量。',10)
         self.figure.tight_layout()
         return self.render()
 

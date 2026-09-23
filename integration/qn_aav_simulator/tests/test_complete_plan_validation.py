@@ -45,7 +45,8 @@ def planned(case,members,require_return=False):
     tasks=[Task(m,frozenset({'SURFACE'}),1,0.,None,m,required_members=(m,)) for m in members]
     provider=SampledProvider({'start':(0.,0.,0.)},{m:1. for m in members},
         scene_geometry=scene,mother_position=(0.,5.,0.),case=case,
-        return_positions={m:state['position'] for m,state in states.items()} if require_return else {})
+        return_sites={m:dict(position=state['position'],radius_m=.2)
+                      for m,state in states.items()} if require_return else {})
     return build_executor_plan(units,tasks,provider,initial_target_ref='start',
         member_states=states,execution_candidates=provider.execution_candidates,budget_s=3.)
 

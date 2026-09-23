@@ -228,7 +228,7 @@ class SceneView:
         # Finite display extents only: they do not create a navigation boundary.
         add('water', M.CUBE, (-9.,0.,self.scene['surface_z_m']), (62.,32.,.025), (.1,.55,.8,.14))
         add('seabed', M.CUBE, (-9.,0.,self.scene['seabed_z_m']), (62.,32.,.08), (.28,.3,.25,.65))
-        label('legend', (-9.,14.,4.), '水下观测 → 无人船支援 → 母船接收' if self.cooperative else '五平台联合运动验证', .85)
+        label('legend', (-9.,14.,4.), '近岸五平台 · 实际状态与障碍', .85)
         label('water_label', (18.,12.,.2), '海面', .65)
         label('bed_label', (18.,12.,-5.5), '海底', .65)
         for item in self.scene.get('objects', []):
@@ -264,7 +264,7 @@ class SceneView:
         for item in self.scene.get('observation_targets', []):
             p = item['position']
             add('targets', M.SPHERE, p, (.6,.6,.6), (1.,.9,.25,.8))
-            name = '预设空中观测点' if item['domain']=='AIR' else '预设水下样点'
+            name = '空中样点' if item['domain']=='AIR' else '水下样点'
             offset_y = -2.5 if item['domain']=='AIR' else 0.
             label('target_label', (p[0],p[1]+offset_y,p[2]+.5), name, .55)
         for item in self.scene.get('transition_sites', []):

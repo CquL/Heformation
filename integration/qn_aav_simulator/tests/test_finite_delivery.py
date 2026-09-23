@@ -70,6 +70,36 @@ def test_air_result_uses_shared_rf_to_usv_then_mother_without_instant_relay():
     assert ledger.advance_all(.2,channels)==('air',)
 
 
+def test_air_product_published_at_action_terminal_needs_committed_following_reference():
+    import time
+    from qn_aav_simulator.observation_coverage import predict_received_events
+    product=dict(product_id='air-goal:air_sample',request_id='r',goal_id='air-goal',
+        point_id='air_sample',producer='drone_1',generated_at=11.,observed=True,
+        result=dict(model='GEOMETRIC_PROXY',dwell_s=1.),required_bytes=32768)
+    air=[(i/10.,(-28.,4.,.8),'AIR') for i in range(111)]
+    support=[(i/10.,(-5.,-8.,0.),'SURFACE') for i in range(151)]
+    mother=(15.,-8.,2.)
+    no_tail=predict_received_events([product],{'drone_1':air,'usv':support},
+        {'drone_1':((0.,11.),),'usv':((0.,15.),)},mother,(),time.monotonic()+1.)
+    assert no_tail['status']=='INFEASIBLE'
+    held_air=air+[(i/10.,(-28.,4.,.8),'AIR') for i in range(111,151)]
+    held=predict_received_events([product],{'drone_1':held_air,'usv':support},
+        {'drone_1':((0.,15.),),'usv':((0.,15.),)},mother,(),time.monotonic()+1.)
+    assert held['status']=='FEASIBLE' and held['received_at'][product['product_id']]>11.
+
+
+def test_terminal_report_uses_capacity_without_inventing_a_32_kib_product():
+    import time
+    from qn_aav_simulator.observation_coverage import predict_received_events
+    report=dict(event_type='OBSERVATION_TERMINAL',product_id='goal:terminal',
+        request_id='r',goal_id='goal',producer='drone_1',
+        point_ids=['air_sample'],observed_ids=['air_sample'],generated_at=1.)
+    traces={'drone_1':[(i/10.,(-10.,4.,.8),'AIR') for i in range(31)]}
+    result=predict_received_events([report],traces,{'drone_1':((0.,3.),)},
+        (15.,-8.,2.),(),time.monotonic()+1.)
+    assert result['status']=='FEASIBLE' and result['received_at']['goal:terminal']>=1.
+
+
 def test_received_unobserved_product_is_not_delivered_and_future_generation_cannot_send():
     ledger=FiniteDelivery()
     ledger.produce('p',DeliveryProduct('uuv','mother',10,1.,False))

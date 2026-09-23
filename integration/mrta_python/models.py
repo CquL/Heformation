@@ -64,6 +64,9 @@ class ExecutionStep:
     native_action: 'NativeActionSpec | None' = None
     service_time_s: float = 0.0
     native_prediction: dict = field(default_factory=dict)
+    # AIR FormationGoal has no NativeActionSpec; only this step may produce
+    # the declared local observation. A following same-position hold does not.
+    observation_ids: Tuple[str, ...] = ()
 
     def __post_init__(self):
         if not self.executor_id or not self.target_ref or not math.isfinite(self.duration_s) or self.duration_s<0:
@@ -72,6 +75,10 @@ class ExecutionStep:
             raise ValueError('invalid step service duration')
         if self.native_action is not None and self.service_time_s!=0:
             raise ValueError('native step already includes its terminal duration')
+        if self.native_action is not None and self.observation_ids:
+            raise ValueError('native step keeps observation IDs in its native action')
+        if len(set(self.observation_ids))!=len(self.observation_ids) or any(not isinstance(v,str) or not v for v in self.observation_ids):
+            raise ValueError('AIR step observation IDs must be unique nonempty strings')
         if any(k in self.native_prediction for k in ('trajectory','terminal_backend')):
             raise ValueError('keep dense trajectory/model state outside published step metadata')
 

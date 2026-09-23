@@ -66,8 +66,8 @@ class MonitoringRequest:
     #: the request explicitly demands underwater work or a USV relay
     requires_underwater: bool = False
     requires_relay_delivery: bool = False
-    #: declared mission policy: every participating member returns to its
-    #: accepted starting location before the request can finish
+    #: declared mission policy: participating members reach scenario-declared
+    #: return/exit sites before the request can finish
     return_required: bool = False
 
 

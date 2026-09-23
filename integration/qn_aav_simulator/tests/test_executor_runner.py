@@ -119,6 +119,25 @@ def test_negative_observation_report_must_reach_mother_before_release(runner_mod
     assert runner.metrics['results_received']==[item.task_id]
 
 
+def test_native_success_waits_for_same_goal_product_after_result(runner_module,tmp_path):
+    from dataclasses import replace
+    import time
+    runner,item,_,result=native_setup(runner_module,tmp_path)
+    action=replace(item.native_action,observation_ids=('water_sample',),execution_timeout_s=.5)
+    runner.metrics['received_products']={}
+    def deliver():
+        time.sleep(.08)
+        with runner.executor_mutex:
+            runner.metrics['received_products']['water-product']=dict(
+                point_id='water_sample',goal_id=result.goal_id,observed=True)
+    thread=threading.Thread(target=deliver)
+    thread.start()
+    began=time.monotonic()
+    try:runner._wait_native_observation_receipt(3,result,action)
+    finally:thread.join()
+    assert time.monotonic()-began>=.08
+
+
 def test_received_product_requires_this_goal_and_never_releases_members(runner_module,tmp_path,monkeypatch):
     from dataclasses import replace
     from qn_aav_simulator.observation_coverage import CoverageResult
@@ -148,7 +167,8 @@ def test_air_report_and_product_follow_same_mother_receipt_gate(runner_module,tm
     runner.request=load_request(Path(__file__).parents[1]/'config/monitoring_request_joint.yaml')
     unit=runner.routing['aav_1']
     item=ExecutorPlanItem('air-e','air-t',unit.executor_id,unit.physical_agent_ids,0.,6.,2.,0.,4.,
-        status='RUNNING',execution_steps=(ExecutionStep(unit.executor_id,6.,'overview',service_time_s=4.),))
+        status='RUNNING',execution_steps=(ExecutionStep(unit.executor_id,6.,'overview',service_time_s=4.,
+            observation_ids=('air_sample',)),))
     runner.plan=ExecutorPlan([item]);runner.observation_tasks={'air-t':SimpleNamespace(covers=('air_sample',))}
     runner.condition=threading.Condition();runner.goal_ids={item.execution_id:{'air-goal'}}
     runner.coverage=CoverageResult();runner.active_executor_ids={unit.executor_id}
@@ -167,6 +187,71 @@ def test_air_report_and_product_follow_same_mother_receipt_gate(runner_module,tm
     runner._on_received_product(SimpleNamespace(data=json.dumps(event)))
     assert runner.coverage.delivered_fraction({'air_sample':1.})==1.
     assert unit.executor_id in runner.active_executor_ids
+
+
+def test_air_work_waits_for_usv_action_start_and_releases_group_together(runner_module,tmp_path):
+    import time
+    import copy
+    runner=make_runner(runner_module,tmp_path)
+    support=load_routing([dict(executor_id='usv',physical_agent_ids=['usv'],capabilities=['SURFACE'],
+        action_endpoint='/usv/platform_task',action_type='PlatformTaskAction',operations=['SURFACE_PATH'],
+        odometry_topics={'usv':'/usv/odometry'})],default_members=(),default_initial_target_ref='start')['usv']
+    runner.routing[support.executor_id]=support
+    native=NativeActionSpec((NativeSegmentSpec('SURFACE_PATH',((-10.,4.,0.),(-10.,4.,0.))),),'TRIM_PROPULSION')
+    work=ExecutorPlanItem('air-work','overview','aav_2',('drone_1',),0.,11.,7.,0.,4.,
+        execution_steps=(ExecutionStep('aav_2',11.,'overview',service_time_s=4.),),candidate_id='joint')
+    boat=ExecutorPlanItem('boat-support','overview','usv',('usv',),0.,12.,12.,0.,0.,
+        execution_steps=(ExecutionStep('usv',12.,'overview',native),),candidate_id='joint',fulfills_task=False)
+    runner.plan=ExecutorPlan([work,boat],serial=False)
+    runner.condition=threading.Condition();runner.goal_ids={};runner.metrics['current_actions']={}
+    runner.active_executor_ids={'aav_2','usv'}
+    calls=[]
+    def dispatch(item,reserved,retain):
+        assert reserved and retain==(item is boat)
+        calls.append(item.executor_id)
+        if item is boat:
+            with runner.executor_mutex:
+                runner.metrics['current_actions'][item.execution_id]={'phase':'SURFACE_PATH'}
+            with runner.condition:runner.goal_ids[item.execution_id]={'accepted-support'}
+            assert runner.active_executor_ids=={'aav_2','usv'}
+            time.sleep(.08)
+        else:
+            assert runner.metrics['events'][-1]['kind']=='SUPPORT_START_CONFIRMED'
+            with runner.executor_mutex:runner.active_executor_ids.remove('aav_2')
+        # Completion propagation replaces the plan; original activity objects
+        # are stale and must not decide the group's resource release.
+        with runner.executor_mutex:
+            updated=copy.deepcopy(runner.plan)
+            updated.item(item.execution_id).status='COMPLETED'
+            runner.plan=updated
+    runner._dispatch_executor_item=dispatch
+    runner._dispatch_air_support_items([work,boat])
+    assert calls==['usv','aav_2']
+    assert not runner.active_executor_ids
+
+
+def test_rejected_air_support_never_dispatches_air_and_keeps_both_bookings(runner_module,tmp_path):
+    runner=make_runner(runner_module,tmp_path)
+    support=load_routing([dict(executor_id='usv',physical_agent_ids=['usv'],capabilities=['SURFACE'],
+        action_endpoint='/usv/platform_task',action_type='PlatformTaskAction',operations=['SURFACE_PATH'],
+        odometry_topics={'usv':'/usv/odometry'})],default_members=(),default_initial_target_ref='start')['usv']
+    runner.routing[support.executor_id]=support
+    native=NativeActionSpec((NativeSegmentSpec('SURFACE_PATH',((-10.,4.,0.),(-10.,4.,0.))),),'TRIM_PROPULSION')
+    work=ExecutorPlanItem('air-work','overview','aav_2',('drone_1',),0.,11.,7.,0.,4.,
+        execution_steps=(ExecutionStep('aav_2',11.,'overview',service_time_s=4.),),candidate_id='joint')
+    boat=ExecutorPlanItem('boat-support','overview','usv',('usv',),0.,12.,12.,0.,0.,
+        execution_steps=(ExecutionStep('usv',12.,'overview',native),),candidate_id='joint',fulfills_task=False)
+    runner.plan=ExecutorPlan([work,boat],serial=False)
+    runner.condition=threading.Condition();runner.goal_ids={};runner.metrics['current_actions']={}
+    runner.active_executor_ids={'aav_2','usv'}
+    calls=[]
+    def reject(item,reserved,retain):
+        calls.append(item.executor_id)
+        raise RuntimeError('support rejected')
+    runner._dispatch_executor_item=reject
+    with pytest.raises(RuntimeError,match='support rejected'):
+        runner._dispatch_air_support_items([work,boat])
+    assert calls==['usv'] and runner.active_executor_ids=={'aav_2','usv'}
 
 
 @pytest.mark.parametrize('failure',['rejected','hung_start'])

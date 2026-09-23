@@ -257,7 +257,7 @@ class MissionRunner:
                                 event['producer'] in item.coalition and event['goal_id'] in goals.get(execution_id,())):
                             accepted=True
                         if (step.native_action is None and
-                                key in getattr(self.observation_tasks.get(item.task_id),'covers',()) and
+                                key in step.observation_ids and
                                 event['producer'] in item.coalition and event['goal_id'] in goals.get(execution_id,())):
                             accepted=True
                 if not accepted:raise ValueError('receipt is not from this plan execution')
@@ -295,7 +295,7 @@ class MissionRunner:
                             matching.extend(step.native_action.observation_ids)
                         if (step.native_action is None and
                                 event['producer'] in item.coalition and event['goal_id'] in goals.get(execution_id,())):
-                            matching.extend(getattr(self.observation_tasks.get(item.task_id),'covers',()))
+                            matching.extend(step.observation_ids)
                 if sorted(matching)!=event['point_ids'] or not set(event['observed_ids'])<=set(matching):
                     raise ValueError('terminal report is not from this planned observation')
                 previous=self.metrics['received_terminal_reports'].get(event['goal_id'])
@@ -598,8 +598,8 @@ class MissionRunner:
             target_ref=step.target_ref if step else task.target_ref
             goal.formation_center.point.x,goal.formation_center.point.y,goal.formation_center.point.z=self.centers[target_ref]
             goal.hold_duration=rospy.Duration(step.service_time_s if step else item.service_time)
-            observation_ids=(list(getattr(self.observation_tasks.get(item.task_id),'covers',()))
-                             if getattr(self,'finite_delivery',False) else [])
+            observation_ids=(list(step.observation_ids) if step is not None else
+                list(getattr(self.observation_tasks.get(item.task_id),'covers',()))) if getattr(self,'finite_delivery',False) else []
             if hasattr(goal,'observation_ids'):
                 goal.observation_ids=observation_ids
             elif observation_ids:
@@ -643,19 +643,38 @@ class MissionRunner:
             time.sleep(.05)
         raise RuntimeError('shutdown before observation receipt; keep member reserved')
 
-    def _wait_missing_report(self,state,result,native):
-        if (native is None or result is None or state!=GoalStatus.ABORTED or
-                result.reason!='OBSERVATION_NOT_SATISFIED' or not result.terminal_verified or
-                result.resource_locked):
-            return
-        # A received negative report is the business trigger. An Action result
-        # alone cannot reveal the missing point to an intermittently connected
-        # mother. Never hold executor_mutex across this wait/callback boundary.
-        self._wait_observation_report(result.goal_id,native.execution_timeout_s)
+    def _wait_observation_receipt(self,goal_id,point_ids,timeout):
+        """Wait for this Goal's positive product or received negative report."""
+        wanted=set(point_ids);deadline=time.monotonic()+timeout
+        while not rospy.is_shutdown():
+            with self.executor_mutex:
+                received={event['point_id'] for event in self.metrics.get('received_products',{}).values()
+                          if event.get('goal_id')==goal_id and event.get('observed') is True}
+                report=self.metrics.get('received_terminal_reports',{}).get(goal_id)
+            if wanted<=received:return
+            if report is not None and set(report['observed_ids'])!=wanted:return
+            if time.monotonic()>=deadline:
+                raise RuntimeError('AIR required products or negative report not received; keep member reserved')
+            time.sleep(.05)
+        raise RuntimeError('shutdown before AIR observation receipt; keep member reserved')
 
-    def _dispatch_executor_item(self, item, reserved=False):
+    def _wait_native_observation_receipt(self,state,result,native):
+        if native is None or result is None or not native.observation_ids:return
+        if state==GoalStatus.SUCCEEDED:
+            # Native motion may finish before the finite link delivers its
+            # product. Keep the physical booking while the receiver event is
+            # in flight; the matching GoalID is checked before commit below.
+            self._wait_observation_receipt(result.goal_id,native.observation_ids,
+                                           native.execution_timeout_s)
+        elif (state==GoalStatus.ABORTED and result.reason=='OBSERVATION_NOT_SATISFIED'
+                and result.terminal_verified and not result.resource_locked):
+            # A missing observation is known to the mother only after its
+            # negative terminal report arrives. Never wait holding the mutex.
+            self._wait_observation_report(result.goal_id,native.execution_timeout_s)
+
+    def _dispatch_executor_item(self, item, reserved=False,retain_booking=False):
         if len(item.execution_steps)>1:
-            return self._dispatch_executor_chain(item,reserved)
+            return self._dispatch_executor_chain(item,reserved,retain_booking)
         from mrta_python.repair import process_executor_completion
         task=self.tasks_by_id[item.task_id]
         native=getattr(item,'native_action',None)
@@ -676,13 +695,14 @@ class MissionRunner:
             if getattr(self,"executor_serial",True):self.metrics["current_action"] = action
         self._save_executor()  # reserve before sending, survive runner interruption
         state,result=self._send_executor_goal(item,unit,goal,action)
-        self._wait_missing_report(state,result,native)
+        self._wait_native_observation_receipt(state,result,native)
         if native is None and getattr(goal,'observation_ids',()) and self._release_result_ok(state,result,item.execution_id):
             node=self.server_nodes[unit.executor_id]
-            self._wait_observation_report(result.goal_id,float(rospy.get_param(node+'/execution_timeout',180.)))
+            self._wait_observation_receipt(result.goal_id,goal.observation_ids,
+                float(rospy.get_param(node+'/execution_timeout',180.)))
         # Only result commits hold this mutex, never physical Action waits.
         with self.executor_mutex:
-            outcome=self._commit_executor_result(item,unit,state,result)
+            outcome=self._commit_executor_result(item,unit,state,result,retain_booking=retain_booking)
         self._save_executor()
         return outcome
 
@@ -721,6 +741,8 @@ class MissionRunner:
         plan/current_actions; this is a branch of the existing worker, not a
         second coordinator. RPC completion is bounded even for a hung call.
         """
+        if any(item.native_action is None for item in items):
+            return self._dispatch_air_support_items(items)
         from qn_aav_simulator.srv import StartPreparedAction
         from mrta_python.executors import activity_predecessors
         dependencies=activity_predecessors(self.plan)
@@ -832,7 +854,7 @@ class MissionRunner:
             def observe(index):
                 item,unit,goal,action=items[index],units[index],goals[index],actions[index]
                 state,result=self._send_executor_goal(item,unit,goal,action,sent_deadline=deadline)
-                self._wait_missing_report(state,result,item.native_action)
+                self._wait_native_observation_receipt(state,result,item.native_action)
                 with self.executor_mutex:self._commit_executor_result(item,unit,state,result)
                 self._save_executor()
             workers=ThreadPoolExecutor(max_workers=len(items))
@@ -848,7 +870,57 @@ class MissionRunner:
                 except Exception as error:rospy.logerr('cooperative cancel request failed: %s',str(error))
             raise
 
-    def _dispatch_executor_chain(self,item,reserved=False):
+    def _dispatch_air_support_items(self,items):
+        """Start accepted USV support before AIR work; release both together."""
+        if (len(items)!=2 or len({item.task_id for item in items})!=1 or
+                len({item.candidate_id for item in items})!=1):
+            raise RuntimeError('AIR support method needs one work and one support activity')
+        work=next((item for item in items if item.fulfills_task and item.native_action is None),None)
+        support=next((item for item in items if not item.fulfills_task and item.native_action is not None),None)
+        if work is None or support is None or set(work.coalition)&set(support.coalition):
+            raise RuntimeError('AIR/USV support roles or physical members are invalid')
+        support_unit=unit_for_coalition(self.routing,support.coalition,executor_id=support.executor_id,
+            operations=tuple(s.operation for s in support.native_action.segments))
+        if support_unit is None or support_unit.action_type!='PlatformTaskAction':
+            raise RuntimeError('AIR support has no native USV endpoint')
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            support_future=workers.submit(self._dispatch_executor_item,support,True,True)
+            deadline=time.monotonic()+support.native_action.execution_timeout_s
+            while not rospy.is_shutdown():
+                if support_future.done():
+                    support_future.result()
+                    raise RuntimeError('AIR support ended before AIR work could start')
+                with self.executor_mutex:
+                    phase=self.metrics.get('current_actions',{}).get(support.execution_id,{}).get('phase')
+                with self.condition:
+                    ids=tuple(self.goal_ids.get(support.execution_id,()))
+                if len(ids)==1 and phase in set(support_unit.operations)|{support.native_action.terminal_behavior}:
+                    break
+                if time.monotonic()>=deadline:
+                    raise RuntimeError('AIR support start not confirmed; all members remain reserved')
+                time.sleep(.02)
+            if rospy.is_shutdown():raise RuntimeError('shutdown before AIR support confirmation')
+            with self.executor_mutex:
+                self.metrics.setdefault('events',[]).append(dict(kind='SUPPORT_START_CONFIRMED',
+                    execution_id=work.execution_id,support_execution_id=support.execution_id,
+                    support_goal_id=ids[0],at_ros_s=rospy.Time.now().to_sec()))
+            self._save_executor()
+            # AIR has its own verified terminal and received product. Its
+            # physical member becomes available then; USV stays reserved until
+            # the cooperative support commitment has also resolved.
+            work_future=workers.submit(self._dispatch_executor_item,work,True,False)
+            # Both clients have their own finite result/receipt waits. A failed
+            # side keeps the already reserved physical members locked.
+            for future in as_completed((work_future,support_future)):
+                future.result()
+        with self.executor_mutex:
+            if any(self.plan.item(item.execution_id).status!='COMPLETED' for item in items):
+                raise RuntimeError('AIR support group lacks complete matching Results')
+            self.active_executor_ids.discard(work.executor_id)
+            self.active_executor_ids.discard(support.executor_id)
+        self._save_executor()
+
+    def _dispatch_executor_chain(self,item,reserved=False,retain_booking=False):
         """Run the selected steps under one physical reservation and completion.
 
         Step views are only the existing ROS encoding boundary. They are never
@@ -857,7 +929,8 @@ class MissionRunner:
         from mrta_python.repair import process_executor_completion
         if item.wait_time:
             raise RuntimeError('qualified waiting must execute before motion')
-        has_products=any(s.native_action and s.native_action.observation_ids for s in item.execution_steps)
+        has_products=any((s.native_action and s.native_action.observation_ids) or s.observation_ids
+                         for s in item.execution_steps)
         if item.task_id in self.observation_tasks and not has_products:
             raise RuntimeError('composite motion cannot substitute for received observation products')
         units=[]
@@ -889,7 +962,8 @@ class MissionRunner:
             state,result=self._send_executor_goal(view,unit,goal,action)
             if step.native_action is None and getattr(goal,'observation_ids',()) and self._release_result_ok(state,result,view.execution_id):
                 node=self.server_nodes[unit.executor_id]
-                self._wait_observation_report(result.goal_id,float(rospy.get_param(node+'/execution_timeout',180.)))
+                self._wait_observation_receipt(result.goal_id,goal.observation_ids,
+                    float(rospy.get_param(node+'/execution_timeout',180.)))
             ok=(self._native_motion_result_ok(state,result,view.execution_id,step.native_action)
                 if step.native_action else self._release_result_ok(state,result,view.execution_id))
             row=dict(activity_id=item.execution_id,execution_id=view.execution_id,endpoint=unit.action_endpoint,
@@ -910,6 +984,7 @@ class MissionRunner:
                         not evidence.get('resource_released')):
                     raise RuntimeError('AIR step has no verified terminal evidence')
                 row['evidence_file']=result.evidence_file
+                if step.observation_ids:self._receive_observations(view,evidence)
             row.update(verified=True,result_received_at=rospy.Time.now().to_sec())
             rows.append(row)
             self._save_executor()
@@ -917,10 +992,11 @@ class MissionRunner:
             if has_products and self.request.delivery_required:
                 received_products=self.metrics.get('received_products',{}).values()
                 for step,row in zip(item.execution_steps,rows):
-                    if step.native_action is None:continue
+                    expected=(step.native_action.observation_ids if step.native_action else step.observation_ids)
+                    if not expected:continue
                     received_ids={event['point_id'] for event in received_products
                                   if event.get('goal_id')==row['goal_id'] and event.get('observed') is True}
-                    if not set(step.native_action.observation_ids)<=received_ids:
+                    if not set(expected)<=received_ids:
                         raise RuntimeError('composite terminal reached without required received products; keep member locked')
             received=rospy.Time.now().to_sec()
             event=DelayEvent(rows[-1]['goal_id'],item.execution_id,item.task_id,item.planned_finish,received-self.epoch)
@@ -931,18 +1007,18 @@ class MissionRunner:
             if all(i.status=='COMPLETED' for i in self.plan.items if i.task_id==item.task_id):
                 self.metrics['results_received'].append(item.task_id)
             self.metrics['native_qualification_only']=True
-            self.active_executor_ids.remove(item.executor_id)
+            if not retain_booking:self.active_executor_ids.remove(item.executor_id)
             self.metrics['current_actions'].pop(item.execution_id,None)
             if self.executor_serial:self.metrics['current_action']=None
             # Completion propagation preserves remaining commitments. Full
             # method re-evaluation, not scalar centre distance, is needed next.
         self._save_executor()
 
-    def _commit_executor_result(self,item,unit,state,result):
+    def _commit_executor_result(self,item,unit,state,result,retain_booking=False):
         from mrta_python.repair import process_executor_completion
         native=getattr(item,'native_action',None)
         if native is not None:
-            return self._commit_native_executor_result(item,unit,state,result,native)
+            return self._commit_native_executor_result(item,unit,state,result,native,retain_booking)
         if not self._release_result_ok(state, result, item.execution_id):
             detail = "missing native Result"
             if result is not None:
@@ -984,11 +1060,11 @@ class MissionRunner:
         self._receive_observations(item, evidence)
         # No finally-discard: every exceptional/unknown exit keeps the reservation.
         self._refresh_executor_timing(received - self.epoch)
-        self.active_executor_ids.remove(unit.executor_id)
+        if not retain_booking:self.active_executor_ids.remove(unit.executor_id)
         self.metrics.setdefault("current_actions", {}).pop(item.execution_id,None)
         if getattr(self,"executor_serial",True):self.metrics["current_action"] = None
 
-    def _commit_native_executor_result(self,item,unit,state,result,native):
+    def _commit_native_executor_result(self,item,unit,state,result,native,retain_booking=False):
         """Commit a motion Result; never synthesize observation or delivery."""
         from mrta_python.repair import process_executor_completion
         payload=None if result is None else {key:getattr(result,key) for key in (
@@ -1036,7 +1112,7 @@ class MissionRunner:
             self.metrics['results_received'].append(item.task_id)
         self.metrics['native_qualification_only']=True
         self._refresh_executor_timing(received-self.epoch)
-        self.active_executor_ids.remove(unit.executor_id)
+        if not retain_booking:self.active_executor_ids.remove(unit.executor_id)
         self.metrics.setdefault('current_actions',{}).pop(item.execution_id,None)
         if getattr(self,'executor_serial',True):self.metrics['current_action']=None
 
@@ -1118,7 +1194,7 @@ class MissionRunner:
             self.request.requirement, self.obstacles, sample_timeout_s=evidence["sample_timeout_s"])
         if getattr(self,'finite_delivery',False):
             report=self.metrics.get('received_terminal_reports',{}).get(evidence['goal_id'])
-            if report is None or set(report['observed_ids'])!={p for p,row in coverage.points.items() if row.observed}:
+            if report is not None and set(report['observed_ids'])!={p for p,row in coverage.points.items() if row.observed}:
                 raise RuntimeError('AIR local report and accepted qn samples disagree; keep members reserved')
         for point_id, observation in coverage.points.items():
             if observation.observed or point_id not in self.coverage.points:

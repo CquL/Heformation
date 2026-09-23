@@ -1422,6 +1422,13 @@ class FormationActionServer:
                   "min_inter_agent_distance", "fresh_agent_count", "stale_agent_ids",
                   "hold_elapsed", "model_hold_elapsed", "model_hold_pending"]
         member_samples = {agent_id: [] for agent_id in self.agent_ids}
+        observation_window=None
+        if getattr(goal,'observation_ids',()):
+            from qn_aav_simulator.observation_coverage import LocalObservationWindow,ObstacleBox
+            obstacles=tuple(ObstacleBox(c,s) for _,kind,c,s in self.static_scene.objects if kind=='SOLID')
+            observation_window=LocalObservationWindow(self.observation_request,goal.observation_ids,
+                'drone_{}'.format(self.agent_ids[0]),diagnostics['goal_id'],obstacles,
+                sample_timeout_s=self.odom_timeout)
         obstacle_clearances = []
         reference_missing = 0
         previous_phase = None
@@ -1528,6 +1535,16 @@ class FormationActionServer:
                         if self._safety_trigger(diagnostics["goal_id"]):
                             self._observe_safety_hold(work, diagnostics, alignment, member_samples)
                         break
+                    if observation_window is not None and snapshot.phase=='HOLDING' and adoption.verdict().state=='ADOPTED':
+                        try:
+                            events=self._air_observation_events(observation_window,member_samples,now_s)
+                        except ValueError as error:
+                            diagnostics['observation_report_error']=str(error)
+                            observation_window=None  # unknown, never fabricate a terminal report
+                        else:
+                            for event in events:
+                                self.local_product_publishers[self.agent_ids[0]].publish(
+                                    String(data=json.dumps(event,allow_nan=False)))
                     if snapshot.terminal_state:
                         break
                     rate.sleep()
@@ -1538,12 +1555,12 @@ class FormationActionServer:
         finish = rospy.Time.now()
         committed = self._finalize(diagnostics, work, monitor, adoption, alignment,
                                   member_samples, obstacle_clearances, reference_missing,
-                                  start, finish, counts_start, group_goal_start)
+                                  start, finish, counts_start, group_goal_start,observation_window)
         if not committed:
             self._observe_safety_hold(work, diagnostics, alignment, member_samples)
             self._finalize(diagnostics, work, monitor, adoption, alignment,
                            member_samples, obstacle_clearances, reference_missing,
-                           start, rospy.Time.now(), counts_start, group_goal_start)
+                           start, rospy.Time.now(), counts_start, group_goal_start,observation_window)
 
     # ------------------------------------------------------------- sampling
     @staticmethod
@@ -1785,35 +1802,18 @@ class FormationActionServer:
         }
         return minimum
 
-    def _air_observation_events(self,work,diagnostics,member_samples,stamp):
-        """Generate local geometric products from the accepted qn hold only."""
-        requested=tuple(getattr(work.goal,'observation_ids',()))
-        if not requested:return ()
-        from qn_aav_simulator.observation_coverage import (
-            ObstacleBox,LocalObservationWindow)
-        member=self.agent_ids[0];producer='drone_{}'.format(member)
-        hold=diagnostics.get('successful_hold_window') or {}
-        obstacles=tuple(ObstacleBox(c,s) for _,kind,c,s in self.static_scene.objects if kind=='SOLID')
-        window=LocalObservationWindow(self.observation_request,requested,producer,diagnostics['goal_id'],
-            obstacles,sample_timeout_s=self.odom_timeout)
-        events=[];previous=None
-        try:
-            for row in member_samples[member]:
-                when=row.state_stamp_s
-                if (when is None or hold.get('start') is None or hold.get('end') is None or
-                        not hold['start']<=when<=hold['end'] or when==previous):continue
-                previous=when
-                events.extend(window.sample(when,tuple(row.position),'AIR',when))
-        except ValueError as error:
-            diagnostics['observation_report_error']=str(error)
-            events=[];window.emitted.clear()
-        events.append(window.terminal_report(stamp))
-        return tuple(events)
+    def _air_observation_events(self,window,member_samples,stamp):
+        """Publish a product when actual held qn samples first satisfy dwell."""
+        rows=member_samples[self.agent_ids[0]]
+        if not rows:return ()
+        row=rows[-1];when=row.state_stamp_s
+        if when is None or window.previous is not None and when<=window.previous:return ()
+        return window.sample(when,tuple(row.position),'AIR',stamp)
 
     # ------------------------------------------------------------ finalize
     def _finalize(self, diagnostics, work, monitor, adoption, alignment,
                   member_samples, obstacle_clearances, reference_missing,
-                  start, finish, counts_start, group_goal_start):
+                  start, finish, counts_start, group_goal_start,observation_window=None):
         snapshot = monitor.snapshot
         diagnostics["actual_finish_time"] = finish.to_sec()
         diagnostics["final_phase"] = snapshot.phase if snapshot else "MOVING"
@@ -2039,10 +2039,9 @@ class FormationActionServer:
                 work.goal_handle.set_canceled(result, text)
             else:
                 work.goal_handle.set_aborted(result, text)
-        if accepted and getattr(work.goal,'observation_ids',()):
-            for event in self._air_observation_events(work,diagnostics,member_samples,finish.to_sec()):
-                self.local_product_publishers[self.agent_ids[0]].publish(
-                    String(data=json.dumps(event,allow_nan=False)))
+        if accepted and observation_window is not None:
+            self.local_product_publishers[self.agent_ids[0]].publish(String(data=json.dumps(
+                observation_window.terminal_report(finish.to_sec()),allow_nan=False)))
         rospy.loginfo("FormationAction %s: %s", diagnostics["task_id"], text)
         return True
 

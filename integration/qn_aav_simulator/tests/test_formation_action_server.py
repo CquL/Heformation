@@ -20,25 +20,26 @@ from qn_aav_simulator.formation_monitor import DEFAULT_RELATIVE_SLOTS
 
 
 def test_single_air_action_produces_local_product_and_distinct_terminal_report(server_module):
-    import yaml
     from qn_aav_simulator.task_line import load_request
-    from qn_aav_simulator.experiment_verdict import MemberSample,StaticSceneGeometry
+    from qn_aav_simulator.experiment_verdict import MemberSample
+    from qn_aav_simulator.observation_coverage import LocalObservationWindow
     root=Path(__file__).parents[1]/'config'
     server=server_module.FormationActionServer.__new__(server_module.FormationActionServer)
     server.observation_request=load_request(root/'monitoring_request_joint.yaml')
-    server.static_scene=StaticSceneGeometry.from_mapping(
-        yaml.safe_load((root/'five_scene_harbor.yaml').read_text())['scene'])
     server.agent_ids=[0];server.odom_timeout=.25
     samples=[MemberSample(0,100.+i/10.,(-28.,4.,.8),(0.,0.,0.),
                           state_stamp_s=100.+i/10.) for i in range(13)]
-    work=SimpleNamespace(goal=SimpleNamespace(observation_ids=['air_sample']))
-    events=server._air_observation_events(work,dict(goal_id='accepted-goal',
-        successful_hold_window=dict(start=100.,end=101.2)),{0:samples},101.2)
-    assert len(events)==2
-    assert events[0]['point_id']=='air_sample' and events[0]['producer']=='drone_0'
-    assert events[0]['required_bytes']==32768
-    assert events[1]['event_type']=='OBSERVATION_TERMINAL'
-    assert events[1]['point_ids']==events[1]['observed_ids']==['air_sample']
+    window=LocalObservationWindow(server.observation_request,['air_sample'],'drone_0','accepted-goal')
+    products=[]
+    for row in samples:
+        products.extend(server._air_observation_events(window,{0:[row]},row.state_stamp_s))
+    assert len(products)==1
+    assert products[0]['point_id']=='air_sample' and products[0]['producer']=='drone_0'
+    assert products[0]['required_bytes']==32768
+    assert products[0]['generated_at']<101.2  # published during hold, before Action terminal
+    report=window.terminal_report(101.2)
+    assert report['event_type']=='OBSERVATION_TERMINAL'
+    assert report['point_ids']==report['observed_ids']==['air_sample']
 
 
 def test_air_observation_goal_requires_declared_point_and_one_member(server_module):

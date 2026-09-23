@@ -1,3 +1,155 @@
+## 2026-09-23 UTC — 同请求并行执行的中文实时面板与RViz同运行
+
+- 计划：把已实跑的AIR＋UUV＋USV两区域任务显示在同一个实时入口，检查中文面板从任务权威读所选活动、结果、收件和占用，RViz同期显示港口实体、五平台与实际轨迹，不以离线回放冒充实时。
+- 实际：沿用r5同一有边界的无返回/60秒诊断计划，启动原`five_qualification.launch`、RViz和现有`mission_dashboard.py`窗口；仅在原面板补齐联合诊断的中文状态名、规划前通用标题及AAV锁名翻译。运行中用X11真实窗口ID截取`dashboard-planning.png`、`rviz-planning.png`和`dashboard-running.png`，核对中文面板中三个PlanItem、AIR完成、水下/USV正在执行、母船交付50%、两成员占用，与同刻任务状态一致。该会话最终仍为`PASS_JOINT_NO_RETURN_DIAGNOSTIC`：两产品实际接收、三Result成功、交付1.0、锁空；窗口随诊断容器结束关闭，关闭显示未用作控制命令。
+- 结果：同一运行中任务层面板和RViz确实同时打开并实时更新，不再只有旧水下或旧三机演示。但本次仅保存了规划时RViz与执行中中文面板截图；没有执行中RViz截图或全程bag，不能据此宣称全程独立几何安全已审计。场景仍为现有静态港口实体/禁区/海底代理，不是写实海洋物理。
+- 证据：`experiments/20260923-joint-live-r6/{probe.log,metrics.json,joint-result.json,dashboard-planning.png,dashboard-running.png,rviz-planning.png,rviz.log,dashboard.log}`；面板对应修改`integration/qn_aav_simulator/scripts/mission_dashboard.py`，相关42项检查通过。原图片与窗口记录留存，诊断结束后Docker容器为零。
+- 未完成／下一步：回收区、原10秒在线预算、缺测复查、AAV跨介质方法选择、完整实际安全审计与生产入口仍未完成；这些是最终实时验收必需项，不能将本轮诊断画面改名为最终系统。
+
+## 2026-09-23 UTC — 同请求 AIR／UUV／USV 并行诊断实跑与在途产品竞态修正
+
+- 计划：不用旧单阶段画面代替联合任务，先在同一已知港口/五实例中以现有候选和runner实测两个业务区域的并行动作、母船接收和任务层释放；继续把10秒正式预算与未声明返回区单独保留为未完成。
+- 实际：对相同有限候选仅调整遍历顺序：先试只占AAV的 AIR 方法，后试附加USV支援的方法；所有方法仍完整保留并经相同全计划轨迹/容量校核。60秒**隔离诊断**（仅撤销未声明回收区的返回要求）得到AAV1 AIR 0–13.92、UUV 0–75.62、USV 0–80.58模型秒的名义完整计划；原10秒未因此获得通过。用现有MissionRunner、原生Action、qn/PVS和母船有限传输在一个Noetic容器运行。r1诊断脚本未先设置weights、r2误从Task读取不存在的target、r3将AIR区域引用错映射为任务ID，均在派发前或AIR Goal前失败，按原样保留。r4三个活动进入同一次运行，AIR成功并接收，水下产品在UUV成功Result之后约一个传输步才到母船；旧worker立刻检查收件导致`native terminal reached without required received products`并保持资源锁。沿用已有GoalID匹配、`native.execution_timeout_s`和母船接收回调，把正向原生观测的产品等待放在Result提交前，负向仍等待终结通知；没有新增状态、消息或业务阈值。r5同条件重跑。
+- 结果：r5 `PASS_JOINT_NO_RETURN_DIAGNOSTIC`：AIR、UUV、USV三个原生Action均SUCCEEDED，原UUV/USV Result `terminal_verified=true`；母船收到`air_sample`与`water_sample`两份32KiB产品及对应终结通知，交付率1.0，两业务任务均收到结果，所有资源锁解除。AIR实际结束约15.68、UUV约78.42、USV约83.28模型/ROS相对秒，偏离名义时刻但本次不产生错误解锁。r4失败和r5通过并列保留。该结果只证明声明几何代理/有限链路下的同运行执行，不等于原10秒预算、规定返回、已触发复查、AAV跨介质或全程独立安全证明。
+- 证据：`experiments/20260923-joint-parallel-order/{probe.log,result.json}`、`experiments/20260923-joint-physical-r1`至`r5`的`probe.py/probe.log/metrics.json/joint-result.json/nominal-plan.json`（各目录按实际产生文件）；r5 `metrics.json`中三项SUCCEEDED、两产品GoalID/接收时刻、两任务`results_received`、`resource_locks=[]`。接收竞态定向测试3项通过；本轮最终相关检查与安全审计另记后续条目。
+- 未完成／下一步：将联合请求直接接入正式runner入口，解决原10秒预算与规划期间实际完整状态变化；场景需声明合格回收区；收到缺测后的一次复查和返回必须在同一请求中实跑。将现有中文任务面板与RViz同运行显示本次联合任务，并保存全程状态/净距审计；当前r5为无界面诊断，不能把两个产品到达扩大为五平台最终系统验收。
+
+## 2026-09-23 UTC — 源端早于中继的名义候选与现有Action接纳边界
+
+- 计划：根据[Guo/Zavlanos的源端/中继预协调会合](https://arxiv.org/html/1706.02092)检查水下平台是否必须等USV完成前一活动才出发；只要执行端无法兑现未来承诺，就不能把名义计划标作可派发。
+- 实际：临时把现有联合候选改成按物理成员各自可用时刻推进PVS路线与有限交付，同一runner试放行先已PREPARED的早发源端。第一版诊断因源端在乐观延续区间被错误标记“不活动”而无完整候选；修正试算区间后，原PVS＋FiniteDelivery组件从UUV第0秒、USV第14秒分别出发得到两项名义合格路线（终端等待28.8/28.5秒）。两区域60秒隔离规划找到AAV1独立AIR与UUV/USV同从第0秒开始的名义完整候选，工期80.58模型秒、`search_complete=False`；原10秒仍`PlanningBudgetExceeded`。再核对现有`pvs_node.py`：`goal()`在`self.work`或`self.pending`非空时拒绝下一Goal，runner亦将协作组整体作为一个活动预装载。因此USV仍执行上一Goal时，它无法先接纳未来会合片段；临时生产改动及其专用单测已撤回，没有把名义可行性冒充实际可派发。
+- 结果：确认“分别起步可降低等待”有原生模型依据，但当前本地Action合同缺未来片段接纳。完整同请求、10秒在线预算、实际跨活动预承诺及返回/复查仍未通过；旧共同释放方法继续可用。隔离诊断副本r2自身计时钩子曾误把完整Plan当执行单元报错，r3使用未插桩正式代码得到上述名义结果；两者均保留，不将r2工具错误记作物理失败。
+- 证据：`experiments/20260923-staggered-component/{probe.py,result.json}`、`experiments/20260923-staggered-cooperation-{10,60,r2,r3}/{probe.py,probe.log,result.json}`，以及`pvs_node.py`的`goal/_accept/start_prepared`、`formation_mission_runner.py`的`_execute_parallel_pending/_dispatch_cooperative_items`。依据与不能继承的结论已写入`docs/reviews/source-and-assumption-audit-20260923.md`。
+- 未完成／下一步：先接通一个请求到现有runner并解决原10秒计划与场景回收区；若要开放前一Goal期间的未来会合，必须让本地端点真实接纳有限后继片段、保持GoalID/代次及占用，再对该时序做同运行实验，不能只移动PlanItem时间。
+
+## 2026-09-23 UTC — 全请求10秒预算的原生查询耗时定位
+
+- 计划：回应当前是否仍在运行，并定位全区域请求为何没有进入实时仿真运动；不以延长预算或删除硬检查代替原因分析。
+- 实际：确认Docker、ROS、RViz均无运行进程，随后仅在隔离Noetic诊断容器复现同五平台、同港口两区域请求的10秒规划。临时实验副本在候选worker中记录方法耗时，未修改生产查询代码、配置和规划期限；该诊断仍暂时不要求尚未声明合格回收区的返回，仅隔离规划耗时。
+- 结果：第一条AAV AIR候选从worker开始到两项FEASIBLE约6.204秒；随后UUV+USV方法在参与者释放时刻14.02模型秒后开始，REMUS原生idle 14.02秒计算约0.264秒，但该联合查询约3.241秒后返回`UNKNOWN/PLANNING_BUDGET_EXHAUSTED`。总规划10.011秒，零Goal，真实仿真未开始新业务动作。这里只定位本轮候选耗时，不声称完整请求无可行解，也不把离线60秒名义解当在线通过。
+- 证据：`experiments/20260923-full-plan-timing/{worker-timing.log,probe.log,result.json,probe.py,mrta_python/query_worker.py}`；当前进程核对为Docker容器零、ROS/RViz进程零。
+- 未完成／下一步：检查AIR只读Swarm/qn及水下完整PVS/交付查询的重复计算；保持共同10秒预算、真实状态和完整安全/容量校核。规定返回区、同次复查与最终全请求实跑仍未完成。
+
+## 2026-09-23 UTC — 本机PVS已有真实状态预检，但不能拿Action作试探查询
+
+- 计划：定位在不重置PVS内部状态的前提下现有本机代码已提供什么查询能力，避免为反馈修复设计重复算法或拿 speculative Goal 试路径。
+- 实际：核对 `pvs_node.py` 的 native preflight：它在本机接受Goal时复制连续 `self.backend`，然后调用原 `query_native_fragment`；但查询前该Goal已进入 `pending`，prepare_only成功后仍占资源并生成GoalID。对照现有planner外部声明初始trim快照及 Odometry/Result缺少完整控制状态的事实。
+- 结果：本机代码有可复用的真实状态查询计算，**现有Action接口不能当只读候选oracle**，否则会把试探路径变成执行承诺。没有新增服务、消息或第二套状态；在合法只读查询和受限状态接收合同落地前，不把执行后位置/模式补造成完整修复模型。
+- 证据：`integration/qn_aav_simulator/scripts/pvs_node.py`的`goal/_preflight`、`integration/mrta_python/executors.py`查询边界；依据审计文档已增对应限制。
+- 未完成／下一步：确定最小本机只读资格请求与母船信息接收边界，复用原 preflight 模型副本，核对Goal代次与实际状态后才能支持同请求重新分配。
+
+## 2026-09-23 UTC — 反馈修复必须保留PVS与qn内部状态的源码核对
+
+- 计划：确认执行后只拿实际位置/介质能否重建下一次水下或跨介质方法的完整入口状态，避免在同请求复查中悄悄把运动中的平台替换成trim副本。
+- 实际：读原Fossen `otter.py` 的航向积分与参考模型状态、`remus100.py` 的航向/深度/俯仰积分及滤波状态，并对照本项目 `PvsBackend.snapshot()`、qn观察器/执行器状态以及当前 Odometry/Action Result 字段。
+- 结果：同位置/模式不能确定PVS或qn后继可执行性；当前母船端没有足以重建这些内部状态的已接收证据。把已完成组件直接当新trim初态发起复查会制造伪可行性，因此未加此捷径。明确写入`docs/reviews/source-and-assumption-audit-20260923.md`：需要本机从连续状态做只读查询或受信息约束的足够状态快照，缺失时UNKNOWN并保留承诺。
+- 证据：`upstream/Fossen/src/python_vehicle_simulator/vehicles/{otter,remus100}.py`、`integration/qn_aav_simulator/src/qn_aav_simulator/{pvs_backend,qn_python_backend}.py`；审计文档相应条目。
+- 未完成／下一步：建立最小、受版本与接收条件约束的真实状态查询合同；未验收前不执行基于重置模型的同请求复查。
+
+## 2026-09-23 UTC — qn 静态初态的plant平衡核对，不升级为任意时长捷径
+
+- 计划：对照qn源码的静力配平、INITIAL_HOLD和控制器微分，检查是否能把未执行任务的AAV只当静态占用，从而减少全请求10秒预算内的重复积分；不能丢未来可能被分配的完整控制状态。
+- 实际：`_static_trim_state()`从原质量/浮力配出两个推力与高度通道观测器权重；`predict_idle()`在INITIAL_HOLD下仍逐1ms/10ms推进全部状态。对drone_0隔离执行一个10ms原qn步：plant字段精确不变，控制器状态有2个浮点量变化，最大约6.17e-18；既有100/110模型秒实验的位置0漂移且完整内部状态不同。
+- 结果：源码和同状态数值实例支持“声明初态下的名义驻留位置稳定”这一限定现象，但不构成所有状态/未来时长的严格不变式，也不能在修复/再分配时把完整内部状态回退到初始trim。当前未新增静态替身或减少全计划安全检查；全区域10秒预算仍不通过。
+- 证据：`qn_python_backend.py`的`_static_trim_state`、`predict_idle`、`controller_output_and_derivatives`与`qn_dynamics.py`刚体导数；本轮one-step Noetic输出及`experiments/20260923-qn-idle-{horizon,110}/result.json`。
+- 未完成／下一步：若要用位置-only待命资格，必须限定无后续活动、同一模型/初态、有限时域及本地实际状态，并写出可复查的模式证明；否则保留原生完整查询和预算耗尽结论。
+
+## 2026-09-23 UTC — 水下终端等待由本次路线与有限容量推导，原生实跑通过
+
+- 计划：删除0/30/40秒缺少来源的固定等待列表，让水下工作与USV支援的时序由已接受PVS路线、声明数据量/共享容量和真实可执行尾段共同决定；不把乐观位置假设当可行证据。
+- 实际：请求生成仅给水下路线/通信站点候选；原候选查询先计算零额外等待的REMUS与Otter全状态轨迹。只用潜航器终端固定位置提出**启发式试算起点**：原一组路线基时长62.43秒、USV时长99.16秒，这条乐观传输轨迹在87.8秒收齐，提示先试25.4秒等待；它不是可证明的下界或可提交物理轨迹。随后沿现有0.1秒通信网格逐项续算PVS终端，重新做实际轨迹、成对净距与`FiniteDelivery`共同检查；同一方法名额外等待25.4、25.5、26.0秒均未完成接收，26.5秒是从该试算起点开始首个合格候选。用原Noetic港口障碍和正式`run_water_cooperation.py`确认具体计划后实跑。现有中文任务面板直接从所选`NativeActionSpec`显示“交付等待26.5s”，离线渲染核对可读。
+- 结果：正式水下阶段 `PASS_WATER_GEOMETRIC_PROXY`；UUV选26.5秒终端等待（旧30秒）、预测终态88.92秒，USV99.16秒，两原生Action均SUCCEEDED/终态验证，母船收到32KiB产品，覆盖1.0，资源锁为空。该等待是本场景有限候选/0.1秒网格下的首个被原模型和同传输政策验过的值，不称任意海域全局最优。总体工期仍由USV决定，不能宣称整个请求缩短3.5秒。
+- 证据：`experiments/20260923-water-wait-derivation/probe.log`、`experiments/20260923-water-derived-wait-r1/{probe.log,metrics.json,handover.bag}`、`experiments/20260923-water-dashboard-derived/water-derived.png`；源码`task_line.py`、`executors.py`与`mission_dashboard.py`，来源与假设审计同步更新。
+- 未完成／下一步：同一AIR/WATER请求、回收区和收到缺测报告后真实复查尚未贯通；当前只是水下子任务实跑，不能取代五平台完整验收。生成器从原六种固定等待组合缩成按通信推导的候选后，重新在原10秒检查两区域五平台请求仍为`PlanningBudgetExceeded`、零Goal，见`experiments/20260923-full-request-derived-wait-10/result.json`；不把减少候选数误称完成全部在线规划。
+
+## 2026-09-23 UTC — 全区域首次完整解与待命qn开销定位
+
+- 计划：判断全区域规划超10秒是“根本没有完整方法”还是某一项实际模型计算过慢，并审视能否不失真地省略待命AAV状态。
+- 实际：同五平台/两区域/港口场景，在仅为隔离计算原因而暂不要求返回的诊断中，首次完整名义方案于38.212秒出现；原10秒仍无可提交计划且零Goal。对drone_0与drone_2的原qn STATIC_TRIM＋INITIAL_HOLD分别完整积分110模型秒，场景实体检查通过，墙钟25.64/26.36秒，名义位置与速度全程未偏移。前一100秒实验已显示末态控制器/执行器内部状态不等于初态。
+- 结果：长时待命原生查询是当前在线预算的实测主要负担，但“位置暂未偏移”不足以证明任意将来时刻的完整状态等于初始trim，更不足以让今后再被分配的成员跳过运动资格。未增静态捷径、未改1ms/10ms积分及10秒生产预算。
+- 证据：`experiments/20260923-full-first-feasible/{probe.log,result.json}`、`experiments/20260923-qn-idle-110/{probe.log,result.json}`，以及100秒内部状态反例`experiments/20260923-qn-idle-horizon/result.json`。
+- 未完成／下一步：若要对永不被选中的待命成员只用位置保持占用区，必须先给出限定初态/期限的模型论证和实际状态资格；当前继续保留UNKNOWN/超预算，不拿单次数值位置不变代替证明。
+
+## 2026-09-23 UTC — AIR＋USV 同运行 RViz 与中文任务权威面板
+
+- 计划：证明新联合候选不是只能靠旧水下演示解释；在同一次已确认的原生执行中同时观看实际五平台状态、港口障碍、AIR＋USV任务活动和母船收件。
+- 实际：在桌面 `DISPLAY=:1` 启动原 `five_qualification.launch`/qn/PVS、RViz、改为按PlanItem绘制的原中文 `mission_dashboard.py`，随后对AIR＋USV组件计划输入yes。运行中核对两个窗口真实存在，截取RViz与面板；面板读取`/formation_mission_runner/task_state`，显示“无人机2·空中观测”“无人船·通信支援”、Action完成、资源占用和母船接收，独立传输量仍标为仿真视图。原 `scene_publisher` 曾在任何请求下写死“水下观测→USV→母船”，现删去这条误导性的静态任务宣称，场景只标实际状态、障碍与短样点名。
+- 结果：本次探针 `PASS_AIR_SUPPORT_COMPONENT`、母船交付1.0、资源归零；RViz显示港口实体/五平台实际轨迹，中文面板在同一运行中正确显示AIR＋USV而非旧水下任务。仍仅是单AIR组件，不是AIR/WATER/复查/返回完整任务。RViz进程在保存证据后已正常停止；外层Docker由手动停止而返回143，不作为任务Action失败。
+- 证据：`experiments/20260923-air-support-live-r1/{probe.log,metrics.json,component-result.json,dashboard-running.png,rviz-live.png,rviz.log,dashboard.log}`；修改点`mission_dashboard.py`与`scene_publisher.py`。离线两类任务面板核对另见`experiments/20260923-dashboard-joint-check`。
+- 未完成／下一步：全区域请求仍需同一计划10秒完成、实际水下/复查/返回通过；最终可视化才可显示全程协作，不可把组件画面冒充完整验收。
+
+## 2026-09-23 UTC — 待命AAV静止位置不等于完整状态可跳过
+
+- 计划：核实全区域10秒预算的待命qn查询能否被有依据的静态不变式替代，而非假定无人机在原点不动。
+- 实际：对港口场景drone_0的原qn `INITIAL_HOLD`，从STATIC_TRIM完整状态只读推进100模型秒，保留1ms内步/10ms外步并检查全程实体安全；记录位置、速度和内部状态二进制比较。
+- 结果：模型位置全程恰为(-30,6,0.8)、终端速度0，计算墙钟24.679秒；**控制器/执行器内部状态末态与初态并不相同**。因此不能把100秒后的完整模型状态替换为初始trim，更不能用一个常位置迹同时宣称未来AAV方法已获资格。该单例也不是任意初态的严格静止证明。
+- 证据：`experiments/20260923-qn-idle-horizon/{probe.log,result.json}`；未修改qn方程、积分步长或10秒规划期限。
+- 未完成／下一步：若只为待命成员安全使用较简证据，必须先明确其不承担后继任务的有效条件，并独立证明位置包络；成员可能被后续分配时仍需真实完整状态。不能靠删除待命成员校核凑通过。
+
+## 2026-09-23 UTC — 中文任务面板不再把新计划画成旧水下演示
+
+- 计划：让现有实时面板直接读取 runner 的权威活动与结果，显示 AIR＋USV、UUV＋USV或两区域活动，不为可视化增加控制/任务状态源。
+- 实际：原 `draw_water_cooperation` 曾写死“水下观测、三台无人机待命、UUV/USV两行”，对AIR＋USV实际执行会误导。现按当前PlanItem逐行显示成员、角色、动作状态、预计区间；收到的任务结果/资源锁仍来自 `task_state`，独立传输量仍明确标为评测视图。用r6 AIR组件和原水下协作已归档的任务状态离线渲染两张中文面板，均成功，未启动控制节点。
+- 结果：面板可区分 AIR＋USV 与水下支援，不再宣称AIR作业时三台AAV全部待命；这只是回放状态的渲染验证，尚需同运行RViz/中文面板实时窗口验证，更不能当完整请求任务通过。
+- 证据：`experiments/20260923-dashboard-joint-check/{air.png,water.png}`；`integration/qn_aav_simulator/scripts/mission_dashboard.py`。
+- 未完成／下一步：用真实运行中的任务状态核对实时面板与RViz同步；最终仍须全区域请求、交付、复查和返回在同一运行中通过。
+
+## 2026-09-23 UTC — 文献/源码依据审计并删去任意返回与等待规则
+
+- 计划：按用户要求逐项分开论文机制、上游代码、业务/实验假设与我自行加的数值，优先修正影响计划成本和物理可执行性的规则，不为显示新成果增加壳层。
+- 实际：复核 GRSTAPS/D-ITAGS/Calvo、Guo/APEX、Swarm/CARIC/Fossen 的原文使用边界与当前代码，形成 `docs/reviews/source-and-assumption-audit-20260923.md`。指出把 `return_required` 自动解释为“回本轮起点”、把PVS入口容差当业务回收半径、AIR支援尾段硬加1秒、AIR保持写死4秒均没有独立业务依据。返回现必须由场景/调用显式声明回收区位置和半径；AIR服务时间改由请求传给只读查询、步骤及 Action。`0/30/40 s` 水下等待与通信大小/速率明确只为有限场景实验假设，尚未称通用或最优。
+- 结果：原联合请求因没有合格回收区声明，不能被默认起点替代；已实测不安全的REMUS原路返回不再被隐式生成。AIR r5 的附加同位置 Action 虽PASS，却使 AAV 实际结束13.37秒、计划12.12秒而不增交付价值，故已撤销；r6 用真实驻留产生产品、原有共享RF容量验证支援并分别释放成员，再次 `PASS_AIR_SUPPORT_COMPONENT`，正向产品实际到母船、资源归零。r6 的终结通知因USV支援 Action 较AIR提前结束而未在探针终止前到母船；正向产品足以证明该点交付，缺测时仍必须等负报告，不把 r6 当完整复查证据。受控阶段不冒充全业务请求完成。
+- 证据：`docs/reviews/source-and-assumption-audit-20260923.md`；`experiments/20260923-air-support-worker-tail/{metrics.json,component-result.json}`、`experiments/20260923-air-support-worker-minimal/{metrics.json,component-result.json}`、`experiments/20260923-joint-air-plan-minimal/probe.log`；最终129项受影响范围检查、Python语法与`git diff --check`通过，当前无运行容器。
+- 未完成／下一步：水下等待集合还需由实际会合/容量推导；场景回收区未声明且缺原生资格；全区域AIR/WATER请求10秒仍预算耗尽，未进入实时全任务派发与复查。
+
+## 2026-09-23 UTC — 全区域方法存在但不能在原在线预算内提交
+
+- 计划：区分“没有 AIR＋WATER 联合方法”与“方法存在但完整状态/交付校核超过 10 秒”，不把预算耗尽误写成数学无解。
+- 实际：仅在隔离诊断中将本次搜索观察上限设为60秒，生产 `build_request_executor_plan` 默认仍10秒；同原港口五平台/两业务区域、USV 初始 AIR RF 支援位置，暂不施加已知不可行的原路返回，以隔离计算可行性。完整计划含 AAV1 AIR 观测、USV 同段 RF 支援，之后同一 USV 前往水下支援并与 UUV 作业重叠；完整名义运动与共享交付校核通过。
+- 结果：诊断调用在60.027秒返回一份工期107.44模型秒的完整名义可行方案，`search_complete=False`；原10秒调用仍为 `PlanningBudgetExceeded`、零 Goal。证明缺口主要是在线计算与既有返回要求，不能通过把诊断预算写成生产默认或遗漏待命成员安全来宣布完成。
+- 证据：`experiments/20260923-full-request-diagnostic-60/{probe.py,probe.log,result.json,launch.log}`；原预算反例 `experiments/20260923-full-request-planning`。本轮未把该诊断方案派发。
+- 未完成／下一步：需要有依据地减少长时待命/全轨迹模型计算，保持10秒每次调用语义；然后恢复原返回政策并验证可执行终态与接收触发的复查。
+
+## 2026-09-23 UTC — 全区域候选排序尝试无效并撤回
+
+- 计划：只改变有限候选展开次序，不剪枝、不修改原10秒预算，检查按声明样点几何距离优先能否先取得完整 AIR＋WATER 可行方案。
+- 实际：短暂在原完整搜索内按成员到区域点的距离排序后，同五平台、同港口、同两个业务区域复跑；为了只隔离求解时间，仍暂不要求已知失败的 UUV 返航。10.012秒无完整方案，结果与原未排序运行相同。排序没有解决实际瓶颈，已从生产代码撤回。
+- 结果：`PlanningBudgetExceeded` 保留；不把纯排序写成方法提升，不增加没有实证收益的规则。
+- 证据：`experiments/20260923-full-request-planning-order/{probe.py,probe.log,result.json}`；终态源码不含本次距离排序。
+- 未完成／下一步：需要定位跨两区域、长时间待命与成员续接的实际模型计算负担，不能靠新的无依据启发式或放宽必做要求宣布完成。
+
+## 2026-09-23 UTC — 全区域请求仍在共享求解预算前未形成完整方案
+
+- 计划：用原港口场景、三台 AAV＋USV＋UUV 和两个业务区域检验新 AIR 支援方法与既有水下协作方法能否进入同一次 10 秒完整搜索；只规划不派发。
+- 实际：Noetic 同源模型中声明 USV 初始位于已实跑的 AIR RF 支援位置(-10,4,0)，其余初态及港口障碍不变。诊断时仅撤销返回要求，以隔离“方法/时序预算”与已知 REMUS 原路返回失败；不固定 AIR 执行成员。调用现有 `build_request_executor_plan(...,budget_s=10)`。
+- 结果：10.013 秒返回 `PlanningBudgetExceeded: no complete feasible candidate within shared budget`，无 Goal 派发。这不是数学无解证明，更不能标成业务请求通过。限定 AAV2、单 AIR 区域的受控组件计划在同预算内有完整可行解并实际运行；增加水下区域和方法选择后当前求解仍超预算。完整请求的返回要求若恢复，另有东栈桥物理失败，两项阻断分开保留。
+- 证据：`experiments/20260923-full-request-planning/{probe.py,probe.log,result.json,launch.log}`；本轮最终 117 项受影响范围检查及 `git diff --check` 通过，运行容器已结束。
+- 未完成／下一步：在不删除待命成员安全、接收因果及原10秒预算的前提下减少全方案重复运动查询，或明确报告UNKNOWN；随后才可将 AIR＋WATER 全部活动交同一 runner 执行并实测复查与规定返回。
+
+## 2026-09-23 UTC — AIR＋USV 同一候选与原 worker 实跑
+
+- 计划：把已验证的 AIR 观测和 USV RF 支援作为同一任务的两项活动，在原候选搜索及原 runner 内接受、先确认支援、实际派发和整体释放；保留 10 秒共享预算。
+- 实际：原 `ExecutionCandidate.activities` 生成 AIR Action 与 Otter 有界驻留支援；两条实际运动轨迹与步首共享容量一起预测，待命三平台仍进入完整安全校核。第一次完整检查因三个待命模型串行积分超预算；仅在原校核内并发执行独立待命模型的有界查询，检查内容不减少。并发首试用了 Noetic Python 3.8 不支持的 `shutdown(cancel_futures=...)` 而失败，改为受同一期限约束的兼容调用后 r2 取得完整可行候选。Noetic 限定 AIR 区域/指定 AAV 的组件计划在原10秒预算内找到完整可行候选（`search_complete=False`，不宣称最优）。原 worker 原子预订两成员，确认 USV Action 已采用本地程序后再派 AIR。worker 探针 r1 因实验脚本未设置 Python 路径未执行，r2 因未等待新鲜 USV 状态而在派发前退出；r3 两个 Action 与母船产品均成功，却因完成传播替换 Plan 后仍检查旧 PlanItem 而报告失败并保持两资源锁；修复为读取当前权威 Plan，加旧对象反例。r4 同场景重新确认后实跑。
+- 结果：r4 `PASS_AIR_SUPPORT_COMPONENT`；AIR 和 USV 两项均 `COMPLETED`、产品交付覆盖1.0、资源锁为空。规划外围墙钟约10.006秒含清理，搜索报告已得完整可行解但未穷尽。此请求是只含 AIR 区域、暂不强制返回的**组件实例**；五平台完整 AIR/WATER/复查/返回业务仍未通过，r3 失败保持原记录。
+- 证据：`experiments/20260923-joint-air-plan-parallel-r2/{probe.log,result.json}`、`experiments/20260923-air-support-worker-r{3,4}/{probe.log,metrics.json,component-result.json}`；相关源在 `executors.py`、`formation_mission_runner.py`，原场景障碍和安全门槛未改。
+- 未完成／下一步：将这一方法与 UUV/USV 水下方法放入真正的全区域请求，解决物理 UUV 返回和执行后完整状态修复；当前固定AAV只是受控组件资格，不是最终自动选择证据。
+
+## 2026-09-23 UTC — AIR 有效观测时及时产生本地产品
+
+- 计划：修正“计划按驻留时产生产品、实际 Action 却到终态才发布”导致的交付时序不一致，避免为此平白延长占用或提前声明可交付。
+- 实际：复用同一个 `LocalObservationWindow`，单机 Action 在确认参考采用且进入实际 qn 稳定保持后按新鲜样本连续驻留，首次合格即发布本地产品；Action 成功终态另外发布终结通知，异常采样不伪造终结。Noetic 港口 r4 与先前同一 AAV／Otter 路线复验。
+- 结果：AIR 产品在 ROS 1790141292.830 产生，母船 1790141295.0 收到；Action SUCCEEDED Result 于 1790141295.894 收到；终结通知于 1790141296.1 到母船。产品比动作终态早且通知仍独立，时间顺序与预测可一致。仍是受控探针，不是联合计划运行。
+- 证据：`experiments/20260923-air-finite-probe-r4/{probe.py,probe-result.json,probe.log,launch.log}`；相关 67 项定向检查通过。
+- 未完成／下一步：需要在联合计划中预订到终结通知到达的 USV 支援窗口，并由同一 worker 执行。
+
+## 2026-09-23 UTC — 继续统一请求：AIR 完整候选进入原搜索入口
+
+- 计划：在现有完整候选搜索内接通 AIR 区域的 Swarm 名义参考、qn 完整运动和本地几何观测，不用旧三机串行调度代替。
+- 实际：直接扩展原 `ExecutorTravelTimeProvider.execution_candidates()`；AIR 单成员方法从请求兴趣点产生有限视点，要求两名现有 AAV 邻机参考及原 traj_server 朝向参数，用原 Swarm 只读查询和同一 qn 后端状态副本，输出完整运动/终态/观测产品内部证据；完整计划校核也把 AIR 产品归属到对应活动。Noetic 港口原生查询得到 FEASIBLE 候选，实际模型时长11.03秒、1份几何产品、1104个轨迹点，墙钟6.311秒，共用原10秒查询期限。没有向实际运动话题发送查询目标。
+- 结果：AIR 方法已在同一候选接口中形成可评价候选；它仍不是可交付的完整方案，因为当前该 AIR 位置距母船超过直接 RF 范围，搜索尚未生成并占用 USV 对它的支援活动。联合请求的规定返回亦仍失败，不宣称完整业务通过。
+- 证据：`experiments/20260923-joint-air-candidate/{probe.py,probe.log,result.json,launch.log}`；`integration/mrta_python/executors.py`、`integration/qn_aav_simulator/src/qn_aav_simulator/task_line.py`；31项相关检查通过。
+- 未完成／下一步：将 AIR 的 USV 支援作为同一方法活动并接到原 worker，核对整份计划通信/成员占用；继续保留已定位的水下返回失败。
+
 ## 2026-09-23 UTC — 水下缺测终结的真实链路负例通过
 
 - 计划：不用注入伪母船事件，检验物理终态合格但样点未观测时 Action、资源标志和有限通知是否各自如实报告。

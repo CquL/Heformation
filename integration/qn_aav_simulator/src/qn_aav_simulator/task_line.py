@@ -140,7 +140,7 @@ def to_plan_tasks(tasks: Sequence[ObservationTask]):
 
 
 def request_native_methods(request,scene,executors,member_states,native_models,deadline,
-                           terminal_wait_choices=(0.,30.,40.),return_positions=None):
+                           return_sites=None):
     """Generate finite regional work/support methods, not a preselected tour.
 
     Each region remains a mandatory business Task. Single-anchor passes and
@@ -156,9 +156,9 @@ def request_native_methods(request,scene,executors,member_states,native_models,d
     tasks=regional_requirements(request)
     if not math.isfinite(deadline) or time.monotonic()>=deadline:
         raise PlanningBudgetExceeded('request method generation has no remaining budget')
-    if any(not math.isfinite(v) or not 0<=v<180. for v in terminal_wait_choices):
-        raise ValueError('finite terminal wait candidates must fit the native observation horizon')
-    return_positions=return_positions or {}
+    if request.return_required and not return_sites:
+        raise ValueError('return destinations must be declared before method generation')
+    return_sites=return_sites or {}
     sites=[]
     for site in scene.get('communication_sites',()):
         position=tuple(site['position'])
@@ -172,6 +172,7 @@ def request_native_methods(request,scene,executors,member_states,native_models,d
         for work in eligible_executors(executors,task):
             if len(work.physical_agent_ids)!=1:continue
             member=work.physical_agent_ids[0]
+            if request.return_required and member not in return_sites:continue
             backend=member_states[member].get('native_backend',native_models.get(member))
             if getattr(backend,'model',None)!='remus100':continue
             start=tuple(member_states[member]['position'])
@@ -184,7 +185,7 @@ def request_native_methods(request,scene,executors,member_states,native_models,d
                 for p in route:
                     if p!=points[-1]:points.append(p)
                 if len(points)==1:points.append(points[0])  # qualified native coast/idle at an existing sample
-                home=tuple(return_positions.get(member,start))
+                home=tuple(return_sites[member]['position']) if request.return_required else start
                 if request.return_required and points[-1]!=home:points.append(home)
                 path=tuple(points)
                 if path not in paths:paths.append(path)
@@ -192,24 +193,24 @@ def request_native_methods(request,scene,executors,member_states,native_models,d
             for support in executors:
                 if len(support.physical_agent_ids)!=1 or member in support.physical_agent_ids:continue
                 other=support.physical_agent_ids[0]
+                if request.return_required and other not in return_sites:continue
                 boat=member_states[other].get('native_backend',native_models.get(other))
                 if getattr(boat,'model',None)!='otter' or 'SURFACE' not in support.capabilities:continue
                 p=member_states[other]['position'];boat_start=(p[0],p[1],scene['surface_z_m'])
-                for wait in terminal_wait_choices:
-                    for path in paths:
-                        work_spec=NativeActionSpec((NativeSegmentSpec('WATER_PATH',path),),backend.terminal_behavior,
-                            observation_ids=tuple(p.point_id for p in region.interest_points),terminal_wait_s=wait)
-                        for site in sites:
-                            if time.monotonic()>=deadline:raise PlanningBudgetExceeded('request method generation exceeded shared budget')
-                            support_home=tuple(return_positions.get(other,boat_start))
-                            support_path=(boat_start,site,support_home) if request.return_required else (boat_start,site)
-                            support_spec=NativeActionSpec((NativeSegmentSpec('SURFACE_PATH',support_path),),boat.terminal_behavior)
-                            choices.append({work:work_spec,support:support_spec})
+                for path in paths:
+                    work_spec=NativeActionSpec((NativeSegmentSpec('WATER_PATH',path),),backend.terminal_behavior,
+                        observation_ids=tuple(p.point_id for p in region.interest_points))
+                    for site in sites:
+                        if time.monotonic()>=deadline:raise PlanningBudgetExceeded('request method generation exceeded shared budget')
+                        support_home=tuple(return_sites[other]['position']) if request.return_required else boat_start
+                        support_path=(boat_start,site,support_home) if request.return_required else (boat_start,site)
+                        support_spec=NativeActionSpec((NativeSegmentSpec('SURFACE_PATH',support_path),),boat.terminal_behavior)
+                        choices.append({work:work_spec,support:support_spec})
             if choices:methods[(work.executor_id,task.task_id)]=tuple(choices)
     return tasks,methods
 
 
-def build_request_executor_plan(request,scene,executors,provider,member_states,*,budget_s=10.,return_positions=None):
+def build_request_executor_plan(request,scene,executors,provider,member_states,*,budget_s=10.,return_sites=None):
     """Existing request/planner boundary with one budget including generation.
 
     The caller supplies the model snapshot. Unsupported regions stay mandatory;
@@ -222,21 +223,28 @@ def build_request_executor_plan(request,scene,executors,provider,member_states,*
     from .experiment_verdict import StaticSceneGeometry
     if not math.isfinite(budget_s) or budget_s<=0:raise ValueError('finite positive planning budget required')
     if request.return_required:
-        if return_positions is None:
-            if any(state.get('available_from',0.)>0 for state in member_states.values()):
-                raise ValueError('repair must retain the original declared return positions')
-            return_positions={member:tuple(state['position']) for member,state in member_states.items()}
-        if set(return_positions)!=set(member_states):
-            raise ValueError('return positions must cover the same physical members')
-        if any(len(pos)!=3 or not all(math.isfinite(v) for v in pos) for pos in return_positions.values()):
-            raise ValueError('return positions must be finite three-vectors')
+        if return_sites is None:
+            return_sites=scene.get('return_sites')
+        if not return_sites:
+            raise ValueError('return destinations must be declared in the scenario or invocation')
+        if not set(return_sites)<=set(member_states):
+            raise ValueError('return destinations refer to unknown physical members')
+        for site in return_sites.values():
+            if (not isinstance(site,Mapping) or set(site)!={'position','radius_m'} or
+                    len(site['position'])!=3 or not all(math.isfinite(v) for v in site['position']) or
+                    not math.isfinite(site['radius_m']) or site['radius_m']<=0):
+                raise ValueError('return site requires finite position and positive declared radius')
     deadline=time.monotonic()+budget_s
     tasks,methods=request_native_methods(request,scene,executors,member_states,provider.native_models,deadline,
-                                         return_positions=return_positions)
+                                         return_sites=return_sites)
     provider=replace(provider,cooperative_routes=methods,observation_request=request,
         scene_geometry=StaticSceneGeometry.from_mapping(scene),
+        scene_resolution_m=float(scene['resolution']),
+        air_support_units=tuple(unit for unit in executors if len(unit.physical_agent_ids)==1 and
+            'SURFACE' in unit.capabilities and getattr(member_states[unit.physical_agent_ids[0]].get(
+                'native_backend',provider.native_models.get(unit.physical_agent_ids[0])),'model',None)=='otter'),
         mother_position=tuple(scene.get('mother_ship_receiver_position',scene['mother_ship_position'])),
-        return_positions=dict(return_positions) if request.return_required else {})
+        return_sites=dict(return_sites) if request.return_required else {})
     remaining=deadline-time.monotonic()
     if remaining<=0:raise PlanningBudgetExceeded('request method generation exhausted planning budget')
     plan=build_executor_plan(executors,tasks,provider,initial_target_ref='start',budget_s=remaining,

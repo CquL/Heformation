@@ -430,7 +430,8 @@ def predict_received_events(generated,traces,communication_intervals,mother_posi
             event=queue.pop(0);ident=event['product_id'];events[ident]=event
             encoded=json.dumps(event,allow_nan=False).encode('utf-8')
             ledger.produce('notice:'+ident,DeliveryProduct(event['producer'],'mother',4+len(encoded),event['generated_at'],True))
-            ledger.produce('data:'+ident,DeliveryProduct(event['producer'],'mother',32768,event['generated_at'],True))
+            if event.get('event_type')!='OBSERVATION_TERMINAL':
+                ledger.produce('data:'+ident,DeliveryProduct(event['producer'],'mother',32768,event['generated_at'],True))
         states={'mother':(mother_position,'SURFACE')}
         for member,rows in traces.items():
             if not any(begin<=now<=end for begin,end in active.get(member,())):continue
@@ -442,7 +443,8 @@ def predict_received_events(generated,traces,communication_intervals,mother_posi
         for ident in ledger.advance_all(now,declared_delivery_channels(ledger.products,continuous_previous,states,obstacles)):
             kind,key=ident.split(':',1)
             (data_received if kind=='data' else notice_received).add(key)
-            if key in data_received and key in notice_received:receipts[key]=now
+            if key in notice_received and (events[key].get('event_type')=='OBSERVATION_TERMINAL' or key in data_received):
+                receipts[key]=now
         previous=states
         if len(receipts)==len(generated):
             return dict(status='FEASIBLE',reason='NOMINAL_OBSERVATION_AND_FINITE_RECEIPT',

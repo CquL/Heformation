@@ -26,6 +26,7 @@ import contextlib
 import select
 import struct
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Callable, Dict, FrozenSet, List, Mapping, Sequence, Tuple
 from typing import Optional
@@ -391,9 +392,11 @@ class ExecutorTravelTimeProvider:
     cooperative_routes: Mapping = field(default_factory=dict)
     observation_request: object = None
     mother_position: tuple = ()
-    # Only set when the request declares return. Starting physical member
-    # positions are the return references; no hidden centre or new service.
-    return_positions: Mapping = field(default_factory=dict)
+    # Only set when the request declares return. These are scenario/task
+    # recovery destinations, never silently substituted from current state.
+    return_sites: Mapping = field(default_factory=dict)
+    scene_resolution_m: float = 0.0
+    air_support_units: Tuple[Executor, ...] = ()
 
     def execution_candidates(self,unit,task,start,states,deadline):
         """Evaluate declared finite native route alternatives with plant state.
@@ -403,6 +406,10 @@ class ExecutorTravelTimeProvider:
         """
         if (unit.executor_id,task.task_id) in self.cooperative_routes:
             return list(self._iter_cooperative_candidates(unit,task,start,states,deadline))
+        if (self.observation_request is not None and 'AIR' in unit.capabilities and
+                any(r.region_id==task.target_ref and r.kind in ('SURFACE','SHORELINE')
+                    for r in self.observation_request.regions)):
+            return list(self._iter_air_candidates(unit,task,start,states,deadline))
         routes=self.native_routes.get((unit.executor_id,task.task_id),())
         if len(unit.physical_agent_ids)!=1 or not routes:
             return [ExecutionCandidate('unqualified',(),{},status='UNKNOWN',reason='EXECUTION_METHOD_NOT_QUALIFIED')]
@@ -519,6 +526,155 @@ class ExecutorTravelTimeProvider:
         else:
             yield from self.execution_candidates(unit,task,start,states,deadline)
 
+    def _iter_air_candidates(self,unit,task,start,states,deadline):
+        """Query the existing Swarm reference and qn plant for one AIR method.
+
+        This uses the same accepted local observation window as the AIR Action.
+        Missing peer/model/reference context remains UNKNOWN; no distance/speed
+        fallback can make an unsupported regional requirement disappear.
+        """
+        from qn_aav_simulator.monitoring_request import observation_candidates,observation_position
+        from qn_aav_simulator.experiment_verdict import box_sample_points
+        from qn_aav_simulator.observation_coverage import LocalObservationWindow,ObstacleBox
+        from qn_aav_simulator.platform_execution import actual_mode
+        from qn_aav_simulator.qn_dynamics import medium_flag
+        if len(unit.physical_agent_ids)!=1 or self.scene_geometry is None or self.scene_resolution_m<=0:
+            yield ExecutionCandidate('air-context',(),{},status='UNKNOWN',reason='AIR_QUERY_CONTEXT_MISSING');return
+        member=unit.physical_agent_ids[0]
+        if not member.startswith('drone_') or not member[6:].isdigit():
+            yield ExecutionCandidate('air-member',(),{},status='UNKNOWN',reason='AIR_MEMBER_ID_NOT_QUALIFIED');return
+        state=states[member];backend=state.get('native_backend',self.native_models.get(member))
+        if getattr(backend,'backend_id',None)!='PYTHON_QN_CLOSED_LOOP' or backend.reference_mode!='ROUTE_POSITION':
+            yield ExecutionCandidate('air-model',(),{},status='UNKNOWN',reason='AIR_MODEL_STATE_NOT_AVAILABLE');return
+        actual=backend.snapshot()
+        if tuple(actual.position)!=tuple(state['position']) or actual_mode(actual.medium_flag)!='AIR' or state['mode']!='AIR':
+            yield ExecutionCandidate('air-state',(),{},status='UNKNOWN',reason='AIR_SNAPSHOT_STATE_MISMATCH');return
+        # The original optimizer needs every peer reference. Only explicitly
+        # idle AIR peers can be supplied as stationary references here.
+        peers=[]
+        for other,value in sorted(states.items()):
+            if other==member or not other.startswith('drone_'):continue
+            if (not other[6:].isdigit() or value['mode']!='AIR' or
+                    value.get('available_from',0.)>start or value.get('locked',False)):
+                yield ExecutionCandidate('air-peer',(),{},status='UNKNOWN',reason='AIR_PEER_REFERENCE_UNKNOWN');return
+            peers.append(dict(id=int(other[6:]),stationary=True,position=list(value['position'])))
+        if len(peers)!=2:
+            yield ExecutionCandidate('air-peers',(),{},status='UNKNOWN',reason='AIR_THREE_MEMBER_REFERENCE_REQUIRED');return
+        idle=max(0.,start-state.get('available_from',0.));idle_trace=()
+        if idle:
+            waited=self.query_native_idle(backend,idle,self.scene_geometry,deadline)
+            if waited['status']!='FEASIBLE':
+                yield ExecutionCandidate('air-idle',(),{},status=waited['status'],reason=waited['reason']);return
+            if abs(waited['duration_s']-idle)>1e-6:
+                yield ExecutionCandidate('air-idle-grid',(),{},status='UNKNOWN',reason='AIR_IDLE_TIME_GRID_MISMATCH');return
+            idle_trace=tuple((state['available_from']+t,p,actual_mode(medium_flag(p[2],backend.constants.hg_m)))
+                             for t,p in waited['trajectory'][:-1])
+            backend=waited['terminal_backend'];actual=backend.snapshot()
+        try:
+            import rospy
+            lookahead=float(rospy.get_param('/drone_{}_traj_server/traj_server/time_forward'.format(member[6:])))
+        except Exception:
+            yield ExecutionCandidate('air-yaw-context',(),{},status='UNKNOWN',reason='AIR_TRAJECTORY_YAW_CONTEXT_MISSING');return
+        if not math.isfinite(lookahead) or lookahead<0:
+            yield ExecutionCandidate('air-yaw-context',(),{},status='UNKNOWN',reason='AIR_TRAJECTORY_YAW_CONTEXT_INVALID');return
+        points=[p for _,kind,c,s in self.scene_geometry.objects if kind=='SOLID'
+                for p in box_sample_points(c,s,self.scene_resolution_m)]
+        region=next(r for r in self.observation_request.regions if r.region_id==task.target_ref)
+        service=float(self.observation_request.service_time_s)
+        if not math.isfinite(service) or service<self.observation_request.requirement.min_dwell_s:
+            yield ExecutionCandidate('air-service',(),{},status='UNKNOWN',reason='AIR_SERVICE_REQUIREMENT_INVALID');return
+        required={p.point_id for p in region.interest_points}
+        candidates=observation_candidates(region,self.observation_request.requirement)
+        obstacles=tuple(ObstacleBox(c,s) for _,kind,c,s in self.scene_geometry.objects if kind=='SOLID')
+        w,x,y,z=actual.orientation_quat_wxyz
+        yaw=math.atan2(2*(w*z+x*y),1-2*(y*y+z*z))
+        for point in region.interest_points:
+            if time.monotonic()>=deadline:raise PlanningBudgetExceeded('AIR method query exceeded shared budget')
+            if set(candidates[point.point_id])!=required:continue
+            target=observation_position(point.position,self.observation_request.requirement)
+            name=unit.executor_id+'-'+task.task_id+'-'+point.point_id
+            reference=self.query_swarm_reference('/drone_{}_ego_planner_node'.format(member[6:]),dict(
+                drone_id=int(member[6:]),formation=False,start=list(actual.position),
+                velocity=list(actual.velocity),
+                acceleration=list(backend._last_model_acceleration or (0.,0.,0.)),
+                target=list(target),points=points,peers=peers,
+                reference_start_time=time.time(),initial_yaw=yaw,
+                initial_yaw_rate=actual.body_angular_velocity_radps[2],time_forward_s=lookahead),deadline)
+            if reference['status']!='FEASIBLE':
+                yield ExecutionCandidate(name,(),{},status=reference['status'],reason=reference.get('reason','AIR_REFERENCE_UNKNOWN'));continue
+            query=self.query_air_reference(backend,reference,self.scene_geometry,deadline,
+                                           hold_duration=service,include_state=True)
+            if query['status']!='FEASIBLE':
+                yield ExecutionCandidate(name,(),{},status=query['status'],reason=query['reason']);continue
+            trace=idle_trace+tuple((start+t,p,mode) for t,p,mode in query['trajectory'])
+            window=LocalObservationWindow(self.observation_request,required,member,name,obstacles)
+            products=[]
+            hold_start=query['duration_s']-service
+            for stamp,position,mode in trace:
+                if stamp+1e-9<start+hold_start:continue
+                products.extend(window.sample(stamp-start,position,mode,stamp))
+            if window.emitted!=required:
+                yield ExecutionCandidate(name,(),{},status='INFEASIBLE',reason='AIR_REQUIRED_OBSERVATION_NOT_COVERED');continue
+            summary={k:v for k,v in query.items() if k not in ('terminal_backend','trajectory')}
+            summary['pre_execution_idle_s']=idle
+            air_step=ExecutionStep(unit.executor_id,query['duration_s'],task.target_ref,
+                service_time_s=service,native_prediction=summary,observation_ids=tuple(sorted(required)))
+            air_terminal=dict(position=query['terminal_position'],mode=query['terminal_mode'],
+                              native_backend=query['terminal_backend'])
+            # Try the method that reserves only the observer first. The full
+            # plan check still requires actual delivery and may choose the
+            # USV-supported alternative below; no method is pruned here.
+            yield ExecutionCandidate(name,(air_step,),{member:air_terminal},
+                motion_traces={member:trace},collision_radii={member:.25},generated_products=tuple(products))
+            for support in self.air_support_units:
+                if time.monotonic()>=deadline:raise PlanningBudgetExceeded('AIR support query exceeded shared budget')
+                if len(support.physical_agent_ids)!=1 or support.executor_id not in self.native_efforts:continue
+                other=support.physical_agent_ids[0]
+                if other==member or states[other].get('available_from',0.)>start or states[other].get('locked',False):continue
+                boat=states[other].get('native_backend',self.native_models.get(other))
+                if getattr(boat,'model',None)!='otter' or boat.snapshot()['actual_mode']!='SURFACE':continue
+                if tuple(boat.snapshot()['position'])!=tuple(states[other]['position']):continue
+                from .models import NativeActionSpec,NativeSegmentSpec
+                boat_position=boat.snapshot()['position']
+                surface=(boat_position[0],boat_position[1],0.)
+                # Keep support through the planned AIR Action; the shared
+                # transport check below decides whether the actual product
+                # fits. No extra arbitrary post-action second is charged.
+                # The native PVS terminal already includes its qualified 4 s
+                # hold; only the remainder is an extra terminal wait.
+                wait=math.ceil(max(0.,query['duration_s']-4.)*10.)/10.
+                support_action=NativeActionSpec((NativeSegmentSpec('SURFACE_PATH',(surface,surface)),),
+                    boat.terminal_behavior,terminal_wait_s=wait)
+                support_query=self.query_native_fragment(boat,[support_action.segments[0].points],
+                    self.native_efforts[support.executor_id],self.scene_geometry,deadline,
+                    include_state=True,terminal_wait_s=wait)
+                if support_query['status']!='FEASIBLE':
+                    yield ExecutionCandidate(name+'-support',(),{},status=support_query['status'],reason=support_query['reason']);continue
+                support_duration=support_query['duration_s']
+                if support_duration+1e-6<query['duration_s']:
+                    yield ExecutionCandidate(name+'-support-short',(),{},status='INFEASIBLE',reason='AIR_SUPPORT_ENDS_BEFORE_WORK');continue
+                support_trace=tuple((start+t,p,'SURFACE') for t,p in support_query['trajectory'])
+                from qn_aav_simulator.observation_coverage import predict_received_events
+                received=predict_received_events(products,{member:trace,other:support_trace},
+                    {member:((start,start+query['duration_s']),),other:((start,start+support_duration),)},
+                    self.mother_position,obstacles,deadline)
+                if received['status']!='FEASIBLE':
+                    yield ExecutionCandidate(name+'-no-receipt',(),{},status=received['status'],reason=received['reason']);continue
+                support_summary={k:v for k,v in support_query.items() if k not in ('terminal_backend','trajectory','source_fingerprint')}
+                support_summary['pre_execution_idle_s']=0.
+                support_step=ExecutionStep(support.executor_id,support_duration,task.target_ref,
+                    support_action,native_prediction=support_summary)
+                air_activity=ExecutorPlanItem('air-work',task.task_id,unit.executor_id,(member,),
+                    0.,query['duration_s'],query['duration_s']-service,0.,service,execution_steps=(air_step,))
+                support_activity=ExecutorPlanItem('rf-support',task.task_id,support.executor_id,(other,),
+                    0.,support_duration,support_duration,0.,0.,execution_steps=(support_step,),fulfills_task=False)
+                yield ExecutionCandidate(name+'-rf-support',(),{
+                    member:air_terminal,other:dict(position=support_query['terminal_position'],
+                        mode=support_query['terminal_mode'],native_backend=support_query['terminal_backend'])},
+                    activities=(air_activity,support_activity),
+                    motion_traces={member:trace,other:support_trace},
+                    collision_radii={member:.25,other:support_query['collision_radius_m']},
+                    generated_products=tuple(products))
     def _iter_cooperative_candidates(self,unit,task,start,states,deadline):
         """Native work/support alternatives including observation and receipt.
 
@@ -527,7 +683,7 @@ class ExecutorTravelTimeProvider:
         is invocation-local at this exact state/environment/commitment snapshot.
         """
         from dataclasses import replace
-        from qn_aav_simulator.observation_coverage import ObstacleBox,predict_received_products
+        from qn_aav_simulator.observation_coverage import ObstacleBox,predict_received_products,predict_received_events
         choices=self.cooperative_routes[(unit.executor_id,task.task_id)]
         if self.observation_request is None or self.scene_geometry is None or len(self.mother_position)!=3:
             yield ExecutionCandidate('joint-context-missing',(),{},status='UNKNOWN',reason='OBSERVATION_OR_SCENE_CONTEXT_MISSING')
@@ -586,36 +742,81 @@ class ExecutorTravelTimeProvider:
                     query=self.query_native_fragment(backend,[s.points for s in bound.segments],
                         self.native_efforts[executor.executor_id],self.scene_geometry,deadline,
                         max_model_time=bound.execution_timeout_s,include_state=True,terminal_wait_s=bound.terminal_wait_s,resume=seed)
-                    cache[cache_key]=(bound,query,idle_trace)
-                bound,query,_=cache[cache_key]
+                    cache[cache_key]=(bound,query,idle_trace,backend)
+                bound,query,_,_=cache[cache_key]
                 if query['status']!='FEASIBLE':failure=(query['status'],query['reason']);break
                 traces[member]=tuple((t,p,query['terminal_mode']) for t,p in query['trajectory'])
                 evaluated.append((executor,bound,query))
             if failure:
                 yield ExecutionCandidate(name,(),{},status=failure[0],reason=failure[1]);continue
+            producer=unit.physical_agent_ids[0]
+            work_index=next(i for i,(e,_,_) in enumerate(evaluated) if e.executor_id==unit.executor_id)
+            work_executor,work_route,work_query=evaluated[work_index]
+            receipt=predict_received_products(self.observation_request,work_route.observation_ids,producer,
+                name,traces,self.mother_position,obstacles,deadline)
+            if (receipt['status']=='INFEASIBLE' and receipt['reason']=='RECEIPT_NOT_COMPLETED_WITHIN_CHECKED_COMMITMENTS'
+                    and work_route.terminal_wait_s==0. and receipt.get('generated_events')):
+                # Propose a wait using the real support trajectory and a fixed
+                # source terminal. This is an ordering heuristic, not a proven
+                # lower bound: actual coast can improve or worsen the link. It never
+                # authorizes dispatch; every proposed wait is rerun through PVS
+                # and the same finite transport before acceptance.
+                support_duration=max(q['duration_s'] for e,_,q in evaluated if e.executor_id!=unit.executor_id)
+                source_end=work_query['duration_s']
+                if support_duration>source_end:
+                    optimistic=traces[producer]+tuple((tick/100.,work_query['terminal_position'],work_query['terminal_mode'])
+                        for tick in range(int(math.floor(source_end*100.+1e-8))+1,
+                                          int(math.floor(support_duration*100.+1e-8))+1))
+                    estimated=predict_received_events(receipt['generated_events'],
+                        dict(traces,**{producer:optimistic}),
+                        {member:((0.,support_duration),) for member in traces},
+                        self.mother_position,obstacles,deadline)
+                    if estimated['status']=='UNKNOWN':
+                        receipt=estimated
+                    if estimated['status']=='FEASIBLE':
+                        first=max(1,int(math.ceil((estimated['receipt_finish_s']-source_end)*10.-1e-8)))
+                        last=int(math.floor(min(support_duration-source_end,
+                            work_route.execution_timeout_s-source_end-.1)*10.+1e-8))
+                        original=routes[work_executor]
+                        bound,seed,_,source_backend=cache[(work_executor.executor_id,original,release)]
+                        for tenth in range(first,last+1):
+                            if time.monotonic()>=deadline:
+                                receipt=dict(status='UNKNOWN',reason='PLANNING_BUDGET_EXHAUSTED');break
+                            wait=tenth/10.
+                            extended=replace(bound,terminal_wait_s=wait)
+                            continuation=self.query_native_fragment(source_backend,
+                                [s.points for s in extended.segments],self.native_efforts[work_executor.executor_id],
+                                self.scene_geometry,deadline,max_model_time=extended.execution_timeout_s,
+                                include_state=True,terminal_wait_s=wait,resume=seed)
+                            if continuation['status']!='FEASIBLE':
+                                receipt=dict(status=continuation['status'],reason=continuation['reason']);break
+                            seed=continuation
+                            extended_trace=tuple((t,p,continuation['terminal_mode']) for t,p in continuation['trajectory'])
+                            checked=predict_received_products(self.observation_request,extended.observation_ids,
+                                producer,name,dict(traces,**{producer:extended_trace}),
+                                self.mother_position,obstacles,deadline)
+                            if checked['status']=='FEASIBLE':
+                                evaluated[work_index]=(work_executor,extended,continuation)
+                                traces[producer]=extended_trace;receipt=checked;break
+                            receipt=checked
+                            if checked['status']=='UNKNOWN':break
+            if receipt['status']!='FEASIBLE':
+                yield ExecutionCandidate(name,(),{},status=receipt['status'],reason=receipt['reason']);continue
             # Only reject conflicts inside the actual common activity window.
             # A later selected successor may replace an early member's idle;
             # the complete-plan check supplies only the gaps that remain.
-            safety_traces=traces
             radii={e.physical_agent_ids[0]:q['collision_radius_m'] for e,_,q in evaluated}
             horizon=min(q['duration_s'] for _,_,q in evaluated)
-            if not failure:
-                from bisect import bisect_right
-                clocks={m:[r[0] for r in rows] for m,rows in safety_traces.items()}
-                for tick in range(int(horizon*100)+1):
-                    if time.monotonic()>=deadline:failure=('UNKNOWN','PLANNING_BUDGET_EXHAUSTED');break
-                    t=tick/100.;positions={m:rows[max(0,bisect_right(clocks[m],t)-1)][1] for m,rows in safety_traces.items()}
-                    if any(math.dist(positions[a],positions[b])<radii[a]+radii[b]+self.scene_geometry.clearance
-                           for a in positions for b in positions if a<b):
-                        failure=('INFEASIBLE','JOINT_PARTICIPANT_PATH_CONFLICT');break
+            from bisect import bisect_right
+            clocks={m:[r[0] for r in rows] for m,rows in traces.items()}
+            for tick in range(int(horizon*100)+1):
+                if time.monotonic()>=deadline:failure=('UNKNOWN','PLANNING_BUDGET_EXHAUSTED');break
+                t=tick/100.;positions={m:rows[max(0,bisect_right(clocks[m],t)-1)][1] for m,rows in traces.items()}
+                if any(math.dist(positions[a],positions[b])<radii[a]+radii[b]+self.scene_geometry.clearance
+                       for a in positions for b in positions if a<b):
+                    failure=('INFEASIBLE','JOINT_PARTICIPANT_PATH_CONFLICT');break
             if failure:
                 yield ExecutionCandidate(name,(),{},status=failure[0],reason=failure[1]);continue
-            producer=unit.physical_agent_ids[0]
-            work_route=next(route for e,route,_ in evaluated if e.executor_id==unit.executor_id)
-            receipt=predict_received_products(self.observation_request,work_route.observation_ids,producer,
-                name,traces,self.mother_position,obstacles,deadline)
-            if receipt['status']!='FEASIBLE':
-                yield ExecutionCandidate(name,(),{},status=receipt['status'],reason=receipt['reason']);continue
             activities=[];terminal_states={}
             for executor,route,query in evaluated:
                 member=executor.physical_agent_ids[0];duration=query['duration_s']
@@ -631,7 +832,8 @@ class ExecutorTravelTimeProvider:
             complete_traces={}
             for executor,original in routes.items():
                 member=executor.physical_agent_ids[0]
-                _,query,idle_trace=cache[(executor.executor_id,original,release)]
+                query=next(q for e,_,q in evaluated if e.executor_id==executor.executor_id)
+                idle_trace=cache[(executor.executor_id,original,release)][2]
                 complete_traces[member]=idle_trace+tuple((release+t,p,mode) for t,p,mode in traces[member])
             products=tuple(dict(event,generated_at=release+event['generated_at']) for event in receipt['generated_events'])
             yield ExecutionCandidate(name,(),terminal_states,activities=tuple(activities),
@@ -663,18 +865,39 @@ class ExecutorTravelTimeProvider:
                     if step.native_action is not None:
                         for point in step.native_action.observation_ids:
                             for member in item.coalition:expected[(member,point)]=(step_start,step_start+step.duration_s)
+                    elif self.observation_request is not None and item.fulfills_task and step.observation_ids:
+                        air_region=next((r for r in self.observation_request.regions
+                                         if r.region_id==step.target_ref and r.kind in ('SURFACE','SHORELINE')),None)
+                        if air_region is not None:
+                            declared={p.point_id for p in air_region.interest_points}
+                            if not set(step.observation_ids)<=declared:return unknown('AIR_STEP_OBSERVATION_IDS_INVALID')
+                            for point in step.observation_ids:
+                                for member in item.coalition:expected[(member,point)]=(step_start,step_start+step.duration_s)
                     step_start+=step.duration_s
             witnessed=set()
             for event in candidate.generated_products:
-                key=(event.get('producer'),event.get('point_id'))
-                if key not in expected or not expected[key][0]<=event['generated_at']<=expected[key][1]:
-                    return unknown('PLAN_PRODUCT_ACTIVITY_MISMATCH')
-                if (event.get('observed') is not True or event.get('required_bytes')!=32768 or
-                        event.get('result',{}).get('model')!='GEOMETRIC_PROXY'):
-                    return unknown('PLAN_PRODUCT_EVIDENCE_INVALID')
                 ident=event['product_id']
                 if ident in receipt_limits:return unknown('PLAN_PRODUCT_ID_REUSED')
-                receipt_limits[ident]=expected[key][1];witnessed.add(key);products.append(event)
+                if event.get('event_type')=='OBSERVATION_TERMINAL':
+                    producer=event.get('producer')
+                    points={point for member,point in expected if member==producer}
+                    if (not points or event.get('point_ids')!=sorted(points) or
+                            event.get('observed_ids')!=sorted(points) or
+                            ident!=event.get('goal_id','')+':terminal' or
+                            not any(abs(event['generated_at']-end)<=.010001
+                                    for (member,_),(_,end) in expected.items() if member==producer)):
+                        return unknown('PLAN_TERMINAL_REPORT_ACTIVITY_MISMATCH')
+                    receipt_limits[ident]=max(item.planned_finish for item in items)
+                else:
+                    key=(event.get('producer'),event.get('point_id'))
+                    if key not in expected or not expected[key][0]<=event['generated_at']<=expected[key][1]:
+                        return unknown('PLAN_PRODUCT_ACTIVITY_MISMATCH')
+                    if (event.get('observed') is not True or event.get('required_bytes')!=32768 or
+                            event.get('result',{}).get('model')!='GEOMETRIC_PROXY'):
+                        return unknown('PLAN_PRODUCT_EVIDENCE_INVALID')
+                    receipt_limits[ident]=max(item.planned_finish for item in items)
+                    witnessed.add(key)
+                products.append(event)
             if expected.keys()!=witnessed:return unknown('PLAN_OBSERVATION_PRODUCTS_MISSING')
             for member,rows in candidate.motion_traces.items():
                 radius=candidate.collision_radii[member]
@@ -694,7 +917,21 @@ class ExecutorTravelTimeProvider:
                     return unknown('PLAN_MOTION_ACTIVITY_BOUNDARY_MISMATCH')
                 pieces[member].append((rows,terminal.get('native_backend')))
         traces={};boundaries={0.,horizon}|{stamp for windows in intervals.values() for window in windows for stamp in window}
+        # Independent standby plants must all be propagated, but serially
+        # repeating their qn ODE rollouts needlessly consumes the one shared
+        # planning budget. Reuse the existing bounded query worker for each;
+        # only the wall wait overlaps, the physical checks remain unchanged.
+        standby_pool=ThreadPoolExecutor(max_workers=min(3,len(initial_states)))
+        standby={}
         for member,state in initial_states.items():
+            if pieces[member] or state['available_from']>1e-6:continue
+            backend=state.get('native_backend',self.native_models.get(member))
+            if (getattr(backend,'backend_id',None)=='PYTHON_QN_CLOSED_LOOP' or
+                    getattr(backend,'model',None) in ('otter','remus100')):
+                standby[member]=standby_pool.submit(bounded_travel_query,self.query_native_idle,
+                    (backend,horizon,self.scene_geometry,deadline),deadline)
+        try:
+          for member,state in initial_states.items():
             if time.monotonic()>=deadline:return unknown('PLANNING_BUDGET_EXHAUSTED')
             # A future available state is a terminal forecast, not evidence of
             # where an already committed platform travels before that time.
@@ -724,7 +961,11 @@ class ExecutorTravelTimeProvider:
                 if member in radii and radii[member]!=backend.collision_radius_m:
                     return unknown('PLAN_MEMBER_GEOMETRY_MISMATCH')
                 radii[member]=backend.collision_radius_m
-                idle=self.query_native_idle(backend,max(0.,remaining),self.scene_geometry,deadline)
+                try:
+                    idle=(standby[member].result(timeout=max(.001,deadline-time.monotonic()))
+                          if member in standby else self.query_native_idle(backend,max(0.,remaining),self.scene_geometry,deadline))
+                except PlanningBudgetExceeded:
+                    return unknown('PLANNING_BUDGET_EXHAUSTED')
                 if idle['status']!='FEASIBLE':return dict(status=idle['status'],reason=idle['reason'])
                 origin=rows[-1][0]
                 if is_qn:
@@ -735,20 +976,15 @@ class ExecutorTravelTimeProvider:
                     rows.extend((origin+t,p,mode) for t,p in idle['trajectory'][1:])
             if rows[-1][0]+1e-6<horizon:return unknown('PLAN_MOTION_HORIZON_MISSING')
             traces[member]=tuple(rows)
-            if self.return_positions and pieces[member]:
-                home=self.return_positions.get(member)
-                if home is None or len(home)!=3:return unknown('PLAN_RETURN_SITE_MISSING')
-                # Use the existing endpoint's position tolerance: PVS/qn
-                # native handover is 0.2 m; the current Swarm Action is 0.5 m.
-                # A method with no checked return tail cannot pass.
-                from qn_aav_simulator.pvs_backend import NATIVE_START_TOLERANCE_M
-                final_item=max((item for item in plan.items if member in item.coalition),
-                               key=lambda item:item.planned_finish)
-                air_action=bool(final_item.execution_steps and
-                                final_item.execution_steps[-1].native_action is None)
-                tolerance=.5 if air_action else NATIVE_START_TOLERANCE_M
-                if math.dist(rows[-1][1],home)>tolerance:
+            if self.return_sites and pieces[member]:
+                site=self.return_sites.get(member)
+                if site is None:return unknown('PLAN_RETURN_SITE_MISSING')
+                # Return is a business region, not the unrelated Action start
+                # tolerance. Its radius comes from the declared task scenario.
+                if math.dist(rows[-1][1],site['position'])>site['radius_m']:
                     return dict(status='INFEASIBLE',reason='PLAN_REQUIRED_RETURN_NOT_REACHED')
+        finally:
+            standby_pool.shutdown(wait=True)
         clocks={member:[row[0] for row in rows] for member,rows in traces.items()}
         # Include exact activity boundaries and the endpoint, even when they
         # are not an integer number of 10 ms samples.

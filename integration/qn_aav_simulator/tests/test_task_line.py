@@ -41,7 +41,9 @@ def test_regional_request_keeps_all_domains_and_points_before_method_selection()
     models={'uuv':SimpleNamespace(model='remus100',terminal_behavior='COAST_STOP'),
             'usv':SimpleNamespace(model='otter',terminal_behavior='TRIM_PROPULSION')}
     scene=yaml.safe_load((cfg/'five_scene.yaml').read_text())['scene']
-    generated,methods=request_native_methods(request,scene,units,states,models,time.monotonic()+1.)
+    homes={m:dict(position=value['position'],radius_m=.2) for m,value in states.items()}
+    generated,methods=request_native_methods(request,scene,units,states,models,time.monotonic()+1.,
+                                             return_sites=homes)
     assert len(generated)==2  # unsupported AIR was not silently removed
     choices=next(iter(methods.values()))
     routes={m[units[0]].segments[0].points for m in choices}
@@ -49,7 +51,7 @@ def test_regional_request_keeps_all_domains_and_points_before_method_selection()
     assert all(set(m[units[0]].observation_ids)=={'water_sample','nearby'} for m in choices)
     provider=ExecutorTravelTimeProvider({'start':(-5.,8.,-2.)},{'uuv':1.,'usv':1.},native_models=models)
     with pytest.raises(ValueError,match='no eligible executor'):
-        build_request_executor_plan(request,scene,units,provider,states)
+        build_request_executor_plan(request,scene,units,provider,states,return_sites=homes)
 
 
 def test_return_requirement_is_loaded_and_native_methods_have_checked_return_tails(tmp_path):
@@ -69,24 +71,29 @@ def test_return_requirement_is_loaded_and_native_methods_have_checked_return_tai
     states={'uuv':dict(position=(-5.,8.,-2.),mode='WATER'),
             'usv':dict(position=(-5.,-8.,0.),mode='SURFACE')}
     scene=yaml.safe_load((Path(__file__).parents[1]/'config/five_scene_harbor.yaml').read_text())['scene']
-    _,methods=request_native_methods(request,scene,units,states,models,time.monotonic()+1.)
+    with pytest.raises(ValueError,match='return destinations must be declared'):
+        request_native_methods(request,scene,units,states,models,time.monotonic()+1.)
+    homes={m:dict(position=value['position'],radius_m=.2) for m,value in states.items()}
+    _,methods=request_native_methods(request,scene,units,states,models,time.monotonic()+1.,
+                                     return_sites=homes)
     assert methods
     for choice in next(iter(methods.values())):
         for unit,fragment in choice.items():
             member=unit.physical_agent_ids[0]
             assert fragment.segments[0].points[-1]==states[member]['position']
-    original={'uuv':(-6.,8.,-2.),'usv':(-6.,-8.,0.)}
+    original={'uuv':dict(position=(-6.,8.,-2.),radius_m=.2),
+              'usv':dict(position=(-6.,-8.,0.),radius_m=.2)}
     _,repaired=request_native_methods(request,scene,units,states,models,time.monotonic()+1.,
-                                      return_positions=original)
+                                      return_sites=original)
     for choice in next(iter(repaired.values())):
         for unit,fragment in choice.items():
-            assert fragment.segments[0].points[-1]==original[unit.physical_agent_ids[0]]
+            assert fragment.segments[0].points[-1]==original[unit.physical_agent_ids[0]]['position']
     from mrta_python.executors import ExecutorTravelTimeProvider
     from qn_aav_simulator.task_line import build_request_executor_plan
     changed={key:dict(value,available_from=1.) for key,value in states.items()}
     provider=ExecutorTravelTimeProvider({'start':states['uuv']['position']},{'uuv':1.,'usv':1.},
         native_models=models,native_efforts={'uuv':500.,'usv':20.})
-    with pytest.raises(ValueError,match='retain the original declared return positions'):
+    with pytest.raises(ValueError,match='return destinations must be declared'):
         build_request_executor_plan(request,scene,units,provider,changed)
 
 
