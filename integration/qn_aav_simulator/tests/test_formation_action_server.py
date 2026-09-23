@@ -251,6 +251,8 @@ def make_server(module, state=READY_IDLE, output_dir=None):
     server.odom = {}
     server.odom_history = {agent_id: __import__("collections").deque(maxlen=8)
                            for agent_id in range(7)}
+    server.peer_odom_history = {agent_id: __import__("collections").deque(maxlen=8)
+                                for agent_id in range(7)}
     server.odom_counts = dict.fromkeys(range(7), 0)
     server.odometry_errors = {}
     import collections
@@ -557,8 +559,12 @@ def test_single_action_checks_idle_fleet_member_clearance(server_module, monkeyp
     server.odom = {0: Sample(1.0, (0, 0, .8), (0, 0, 0))}
     server.peer_odom = {1: Sample(1.0, (.6, 0, .8), (0, 0, 0)),
                         2: Sample(1.0, (0, 3, .8), (0, 0, 0))}
+    server.odom_history[0].append(server.odom[0])
+    for agent_id in (1,2):server.peer_odom_history[agent_id].append(server.peer_odom[agent_id])
     assert not server._fleet_safety(1.01)["ok"]
     server.peer_odom[1] = Sample(1.0, (0, -3, .8), (0, 0, 0))
+    server.peer_odom_history[1].clear()
+    server.peer_odom_history[1].append(server.peer_odom[1])
     assert server._fleet_safety(1.01)["ok"]
     server.peer_odom.pop(2)
     assert not server._fleet_safety(1.01)["ok"]
@@ -576,9 +582,35 @@ def test_fleet_freshness_uses_time_after_sample_snapshot(server_module, monkeypa
     server.odom = {0: Sample(1.012, (0, 0, .8), (0, 0, 0))}
     server.peer_odom = {1: Sample(1.013, (0, -3, .8), (0, 0, 0)),
                         2: Sample(1.014, (0, 3, .8), (0, 0, 0))}
+    server.odom_history[0].append(server.odom[0])
+    for agent_id in (1,2):server.peer_odom_history[agent_id].append(server.peer_odom[agent_id])
     monkeypatch.setattr(server_module.rospy.Time, 'now',
                         classmethod(lambda cls: cls(1.015)))
     assert server._fleet_safety(1.010)['ok']
+
+
+def test_fleet_uses_common_recent_snapshot_when_latest_callbacks_are_skewed(server_module, monkeypatch):
+    server = make_server(server_module, state=READY_IDLE)
+    server.agent_ids = [0]
+    server.safety_agent_ids = [0, 1, 2]
+    server.model_time_window = .06
+    server.platform_radius_m = .25
+    server.inter_agent_clearance = .5
+    server.odom_timeout = .25
+    Sample = server_module.OdometrySample
+    server.odom_history[0].extend([Sample(1.00,(0,0,.8),(0,0,0)),
+                                   Sample(1.09,(0,0,.8),(0,0,0))])
+    server.peer_odom_history[1].extend([Sample(1.01,(0,-3,.8),(0,0,0)),
+                                        Sample(1.02,(0,-3,.8),(0,0,0))])
+    server.peer_odom_history[2].extend([Sample(1.01,(0,3,.8),(0,0,0)),
+                                        Sample(1.08,(0,3,.8),(0,0,0))])
+    server.odom = {0: server.odom_history[0][-1]}
+    server.peer_odom = {a: server.peer_odom_history[a][-1] for a in (1,2)}
+    monkeypatch.setattr(server_module.rospy.Time, 'now',
+                        classmethod(lambda cls: cls(1.10)))
+    assert server._fleet_safety(1.01)['ok']
+    server.peer_odom[1] = Sample(.80,(0,-3,.8),(0,0,0))
+    assert not server._fleet_safety(1.01)['ok']
 
 
 @pytest.mark.parametrize("topics", [

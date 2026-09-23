@@ -1,3 +1,92 @@
+## 2026-09-23 UTC — 同请求中文RViz与任务权威面板真实同运行；三活动完成、审计边界清楚
+
+- 计划：在已实跑的两区域三活动请求上，让现有RViz港口场景、中文任务面板、原MissionRunner和五平台ROS/动力学处于同一会话；展示规划/确认→AIR＋USV→AAV跨介质入水→双结果接收→南侧返回，UI只读任务权威，不另推断成功。
+- 实际：`experiments/20260923-full-joint-live`在桌面DISPLAY=:1真实打开RViz与“水下协作·任务与母船接收”中文窗口，保存`rviz-planning/running/water.png`和`dashboard-planning/running/water/delivered-returning.png`等真窗口截图。面板规划期显示“正在比较候选、确认前不派发”；运行期显示AAV2 AIR与USV支援已完成、AAV1跨介质执行和资源占用，AIR收件50%；水中阶段显示入水/观测，随后两份32KiB产品均到母船但AAV仍在返程时保持“执行中/占用”。同请求经具体计划确认后实际9个原生子步骤Result均SUCCEEDED且worker验证，三活动COMPLETED、`air_sample`与`water_sample`均收到、交付1.0、锁空，实际返回AAV1 0.09360m、AAV2约0、USV 0.03771m。规划墙钟300.02秒隔离预算，名义水下活动完成约274.51模型秒，实际约323.77模型/ROS相对秒，不能称10秒在线求解通过。
+- 结果：**当前普通两区域请求的实时仿真入口已同运行展示真实分工、运动、收件与资源；不是离线轨迹回放。** 同次独立bag审计3229个五平台对齐位置样本0缺失、最小五平台代理净距1.46309m、静态实体最小净距1.90192m，所有时钟/域/轨迹项无其它失败；原审计仍因持续bag省略静态云发布者身份而总FAIL，同次Goal前云hash与声明SOLID一致。运行窗口在最终状态写出后很快关闭，自动`dashboard-final.png`抓到上次刷新帧“返程中”，故它不是完成态截图；任务权威`metrics.json`才记录最终PASS。进一步审计发现旧运行的`validation_scope`仍保留名义全检标记而实际AIR延迟已调整后继开始时刻；代码随后在复合活动实际时间修正时把现有Plan标记为需本地入口再资格检查并升版本，相关确定性测试通过，**该元数据修正未在本次旧画面实跑**。
+- 证据：`experiments/20260923-full-joint-live/{probe.py,metrics.json,joint-result.json,nominal-plan.json,independent-audit.json,scene-cloud.json,scene-resolved.json,cross-medium-execution.bag,dashboard-*.png,rviz-*.png,exec-*.diagnostics.json}`；代码`executors.py::qualified_peer_edges`使水下后继按前一AAV真实COMPLETED Result释放，计划中有对应`activity_edges`，两AAV实际开始顺序在`metrics.json`可核。
+- 未完成／下一步：用户要求的最终三类平台实例仍缺REMUS可回区的任务/部署资格；此普通请求选择UUV待命，不能强迫其出场。生产10秒预算、异常缺测后一次条件复查、最终完成态窗口留存及状态相关真实模型查询仍需继续。针对REMUS原港口样点的本机转弯负例与待用户决定的示范请求几何见WORKLOG其它条目；未获新几何前不改现有业务目标或放宽回区半径。
+
+## 2026-09-23 UTC — 完整两区域同请求首次全Action、双收件与返回成功；补足实际事件先后
+
+- 计划：将已实跑合格的七步南侧返程接进原完整请求，保持自主分配AAV2 AIR＋USV RF支援、AAV1跨介质水中方法，确认后在同一五实例/港口运行并独立审计。
+- 实际：`experiments/20260923-full-joint-action-r7`以300秒**隔离诊断规划**选出三活动名义计划（AAV2 AIR与USV支援0时刻并行，AAV1跨介质七步名义从18.04到273.04模型秒）。同一MissionRunner经具体计划确认后，AIR＋USV组和AAV1七步原生Action均收到匹配SUCCEEDED Result，AIR与水下两份32KiB几何产品及终结通知到母船，两业务计划项COMPLETED，交付1.0、资源锁空。实际返回误差AAV1 0.09645m、AAV2约0、USV 0.03771m，各在场景声明回收区域内。独立同次bag审计3193个五平台对齐位置样本、0缺失，最小五平台代理净距1.46435m、声明实体最小净距1.90088m，时钟/运动域等无其它失败；原审计整体仍因执行bag未重复录静态云发布者而FAIL，本次Goal前云hash与声明SOLID重建一致。
+- 结果：**完整两区域业务请求在声明几何代理、固定有限传输与长预算诊断范围内，同运行实际执行和交付通过**，不等于真实载荷质量、10秒生产规划、UUV参与/返回、异常缺测复查或最终实时可视化通过。复核Plan时还发现：AAV1方法的名义起点取AAV2 AIR预计结束时刻，但真实AIR可能稍迟，原`_execute_parallel_pending`只看预计时刻，可能提前派发。这次离线安全通过不能替代实际先后合同。
+- 后续修正：沿用`ExecutorPlan.activity_edges`，对当前只支持静止同伴的原生AAV方法，把已选先前AAV活动到后续AAV活动的先后边写入同一Plan。runner已有`activity_predecessors`按**实际COMPLETED Result**释放，任务业务没有被另加虚构前置；52项受影响计划/runner检查通过，需在实时同请求复跑时核对活动释放顺序。
+- 证据：`experiments/20260923-full-joint-action-r7/{probe.py,metrics.json,joint-result.json,nominal-plan.json,independent-audit.json,scene-cloud.json,scene-resolved.json,cross-medium-execution.bag,exec-*.diagnostics.json}`；`executors.py::qualified_peer_edges`及现有`formation_mission_runner.py::_execute_parallel_pending`。
+- 未完成／下一步：在原中文RViz＋任务权威面板同会话复跑并保存运行期画面与实际活动先后；单独定位10秒规划性能、REMUS水下作业和合格回区、一轮已收到缺测报告触发的复查。不得用本次普通请求的UUV待命代替最终三类平台验收。
+
+## 2026-09-23 UTC — 七步跨介质逆序南侧返程实际通过并复核交接偏航连续性
+
+- 计划：保留r1安全失败，以仅修 AIR→AIR 临时保持期偏航连续性后的同一七步方法复跑原Swarm/qn Action，独立检查五平台样本、净距和返回。
+- 实际：`experiments/20260923-aav-return-detour-action-r2`用180秒隔离规划得到名义255模型秒七步链，具体确认后七步各自Goal均SUCCEEDED/runner `verified=true`；qn入水/水中几何观测/出水Action产生`water_sample`32KiB并由母船收到，末段AIR实际终点距声明AAV1部署中心0.09133m<0.5m，父活动COMPLETED、资源锁空、交付1.0。返程第二段最低机体中心z=0.45924m，高于0.25m机体半径要求；其Action任务/安全/有效性PASS/PASS/VALID。独立同次bag审计2560个五平台对齐位置样本、0缺失，最小五平台代理净距1.46429m，声明场景实体最小净距1.91265m，时钟/域/参考交接等无其它失败。bag未持续录静态`/scene/global_cloud`，原审计的唯一失败仍为“无法由bag确认点云发布者”；本次Goal前订阅的静态云hash与声明SOLID重建hash一致。
+- 结果：**已在声明静态港口/动力学条件下取得AAV跨介质观测、有限交付、逆序返程与资源释放的真实方法资格**；不宣称任意障碍或连续时间严格安全，也不把单水下区域组件写成两区域全请求。qn日志在关键AIR→AIR接管前参考yaw约-2.490rad，临时PLATFORM保持期仍为-2.490rad、实际z约0.8m；r1的yaw归零/下沉链没有重现。旧r1失败保留，不能把原bag审计缺发布者项静默改PASS。
+- 证据：`experiments/20260923-aav-return-detour-action-r2/{probe.py,metrics.json,joint-result.json,independent-audit.json,scene-cloud.json,scene-resolved.json,cross-medium-execution.bag,exec-*.diagnostics.json}`；本地偏航连续性定向测试7项通过。
+- 未完成／下一步：让完整两区域请求选中此七步返回方法，在同次AIR＋USV支援和中文RViz/任务面板下实际执行；正式10秒规划、REMUS真实参与/返回、缺测复查及最终三类平台验收仍未完成。
+
+## 2026-09-23 UTC — 七步返程第二段的AIR临时保持偏航跳变导致海面安全失败
+
+- 计划：旧完整请求r6直返西栈桥实际净距0.19576m失败后，只使用已有南侧AIR中转点逆序构造返程，逐段原Swarm/qn只读查询与实际Action核验，不降低原0.2m净距或海面机体包络。
+- 实际：`experiments/20260923-aav-return-detour-query`的同qn完整状态七步候选为FEASIBLE，出程三AIR、原生入水/水中/出水、返程两逆序中转、最终回区总约255模型秒，名义终点距AAV1部署中心约0.011m。`experiments/20260923-aav-return-detour-action-r1`实际前五步均SUCCEEDED，母船收32KiB水中产品；返程第二AIR Goal在约0.2秒内触发AIR机体海面包络失败：中心最低z=0.22846m，半径0.25m，净高-0.022m，资源UNKNOWN_LOCKED，最终回区Goal未派发。独立同次qn诊断显示上一AIR段结束时参考z≈0.8、竖速近0；新Goal接管瞬间临时PLATFORM参考把`used_reference_yaw_rad`从-2.488突变为0，随即竖速快速向下，新Swarm参考在已下沉状态才采用。安全失败是实际参考交接/控制瞬态，不能用名义栈桥绕行成功覆盖。
+- 结果：只在现有`LocalPlatformAction._flush_reference()`记录上一已采用AIR参考偏航，AIR→AIR等待新轨迹期间的固定位置参考使用该偏航；无上一AIR参考时用当前实际姿态求偏航。PLATFORM原生动作仍沿其原偏航输出，不改qn动力学、控制器或安全条件。定向作用域/偏航连续性测试及本地故障测试7项通过；**修正后的实际返程尚未复验**。返程复用已声明中转点，不增新场景参数或新算法。
+- 证据：`experiments/20260923-aav-return-detour-{query,action-r1}/{probe.py,probe.log,result.json,metrics.json,joint-result.json,exec-*.diagnostics.json,cross-medium-execution.bag}`按实际生成文件；`platform_action.py`的`claim/_flush_reference/tick`与`qn_aav_node.py`冻结参考边界。偏航数值来自同次qn诊断，不是论文阈值。
+- 未完成／下一步：同条件复跑七步真实Action和独立全程安全审计；只有返程全部Result、实际回区及收件通过，才将逆序路线当可派发资格，再接完整两区域请求与实时中文仿真。
+
+## 2026-09-23 UTC — 原完整请求首次自主选AAV2 AIR＋USV、AAV1跨介质的合格名义计划
+
+- 计划：以已核实的原Swarm只读查询“静止AAV同伴”适用条件约束候选开始时刻，再运行原`build_request_executor_plan()`而非人为指定成员或拼接直接校核结果。
+- 实际：`experiments/20260923-full-joint-peer-qualified-plan`在同一五实例/两区域/显式返回/固定有限交付下，于240.02秒隔离计算后返回完整`NOMINAL_COMPLETE_PLAN_MOTION_AND_CAPACITY`计划：AAV2 AIR观测＋返回0–18.04，USV RF支援0–11.12，AAV1跨介质WATER观测＋返部署区18.04–245.72模型秒；UUV待命。所选执行单元由原搜索输出，未将AAV2或AAV1写入业务请求。搜索未穷尽，正式10秒调用仍不能提交；无Goal派发，不称实际任务通过。
+- 结果：证明分配、资源选择、有限支援与Swarm/同qn跨介质方法可以在一个完整**名义计划**中一致，且AIR和USV支援实际重叠；AAV两种原生运动因当前静止同伴查询资格而先后。它不是一般AAV并行最优解，也不满足最终“UUV有实际作业”的三类平台演示；接下来需要原runner同请求Action与中文实时画面。
+- 证据：`experiments/20260923-full-joint-peer-qualified-plan/{probe.py,probe.log,result.json,nominal-plan.json,scene-resolved.json}`；计划`validation_scope=NOMINAL_COMPLETE_PLAN_MOTION_AND_CAPACITY`，`search_complete=false`。
+- 未完成／下一步：实跑自主选定的AIR＋USV→AAV1 WATER/返航链，分别查每段Result、母船两份产品、实际安全与资源；仍需10秒预算、UUV合格返回/参与、条件复查和最终可视化验收。
+
+## 2026-09-23 UTC — 同请求搜索的“移动AAV同伴”资格缺口，当前方法只能从同伴已结束时刻查询
+
+- 计划：按剩余任务资格排序并加入AAV跨介质入口速度检查后，检查完整请求是否会自主改选AAV2 AIR＋USV、AAV1 WATER并实际执行。
+- 实际：`experiments/20260923-full-joint-action-r5`仍在240秒隔离预算末选AAV1先AIR/USV支援再同AAV1入水，真实后继首AIR接管再次因`AIR_ENTRY_NOT_SETTLED`拒绝，成员持续锁定，未发生水中作业。核对原有限搜索和`_iter_air_candidates/_iter_cross_medium_candidates`：搜索先安排AAV2 AIR时，`snapshot`立即成为AAV2的**未来终态**，但之后水下AAV1的起点按其本人成员可用时间仍为0；只读Swarm查询只会给其它AAV注入静止位置，见到其`available_from>start`即返回`AIR_PEER_REFERENCE_UNKNOWN`。直接整计划检查曾对两条完整轨迹判并行名义FEASIBLE，但逐方法生成器没有移动同伴轨迹输入，故原搜索还不能提交这组并行候选。
+- 结果：在现有有限候选搜索中，对使用原生Swarm只读查询的AAV方法，把候选最早开始时刻取不早于**已选其它AAV运动结束时刻**；这是当前查询“只能提供静止同伴”这一已核实适用条件，非业务要求五平台全局串行，也不改变USV/UUV支援并行。未来若接通真实移动同伴参考后应撤销此资格限制。原方法、净距、时间和交付判据不变；22项受影响计划检查及语法/diff检查通过，完整两区域计划仍需重新查实。
+- 证据：`experiments/20260923-full-joint-action-r5/{probe.py,metrics.json,joint-result.json,exec-*.diagnostics.json}`；`integration/mrta_python/executors.py`中“only explicitly idle AIR peers supplied as stationary references”的原查询边界和`_build_complete_candidate_plan`的成员预测状态。
+- 未完成／下一步：从当前可查询的有限方法集合重新求完整计划并实际执行；仍不能声称一般不共享成员的AAV并行轨迹已实现。正式10秒预算、UUV回区、复查和中文最终实时仿真未通过。
+
+## 2026-09-23 UTC — 同一AAV先AIR后入水的入口状态不稳定，保留异成员并行搜索
+
+- 计划：在协作组与共同时间安全取样修正后，再实跑完整两区域计划，要求AIR/USV实际完成、母船收件后继续AAV水下链。
+- 实际：`experiments/20260923-full-joint-action-r4`的AIR＋USV组全部原生Result成功、`air_sample`收到、两个PlanItem COMPLETED，后继水下活动从实际反馈后的约27.85秒获派发。原AIR返航Action以自己的终态容差成功，但跨介质链第一AIR接管被本机`AIR_ENTRY_NOT_SETTLED`拒绝，资源UNKNOWN_LOCKED。独立同次qn诊断在请求接管前约1.2秒显示速度曾短暂低于0.03m/s，随后在接管前升到约0.10m/s；单次瞬时低速不等于稳态。仅在runner就绪门等“当前速度≤0.03”不足以使跨步骤参考安全接纳，不能用固定短睡眠掩盖。
+- 结果：用户要系统选择平台/方法，现有已实跑的水下AAV方法从静态初态可行，而AAV1先AIR后水中的预测入口必须由原qn速度合同限定。`_iter_cross_medium_candidates`在实际候选开始状态（含已有idle推进）检查本机原`platform_speed_tolerance_mps`；超过时返回`UNKNOWN AIR_ENTRY_NOT_SETTLED_AT_CANDIDATE_START`，不称永久不可行。搜索只调整遍历：对当前任务同样合格的单元，先试与其它剩余任务资格成员不重叠者，保留全部候选。这样优先让AIR-only成员完成空中区域，使已验证跨介质AAV保持静态入口；没有把某台AAV永久绑定成水下专员。52项受影响计划/runner检查通过。真实并行组合仍须Action验证，不把名义整检当实际安全。
+- 证据：`experiments/20260923-full-joint-action-r4/{metrics.json,joint-result.json,exec-*.diagnostics.json,cross-medium-execution.bag}`及同次qn诊断速度采样；`executors.py`原qn模型快照、`platform_action.py::claim`和本次源/假设审计。能力/资源共同决定分工参考[Calvo/Capitán，T-RO 2025](https://arxiv.org/abs/2411.02062)，但具体优先顺序仅为本系统有限搜索启发式，不继承论文最优性证明。
+- 未完成／下一步：用原完整请求入口实跑AAV2 AIR＋USV RF、AAV1跨介质水下并行候选；若实际相互干扰则按真实反馈修复，不删安全门槛。正式10秒预算、REMUS回区/参与、复查与中文最终可视化尚未通过。
+
+## 2026-09-23 UTC — AIR＋USV协作组完成后，后继共享AAV参考接管速度不足
+
+- 计划：用共同时间舰队采样与协作组Result屏障修正复跑完整两区域请求，检查组完成后水下跨介质链是否接入而非只停在AIR/USV组件。
+- 实际：`experiments/20260923-full-joint-action-r3`在240秒隔离规划后确认并派发同一三活动计划。AAV1 AIR观测与返部署区两Goal均SUCCEEDED/安全PASS/有效，USV支援Result成功，`air_sample`32KiB已到母船；协作组实际完成后两个活动状态COMPLETED、资源由组一起释放，后继`aav_1_native`确实获派发机会。其首个AIR中转步骤立即由本机参考接管拒绝：`AIR_ENTRY_NOT_SETTLED`，父水下活动UNKNOWN_LOCKED，水中产品与返回均未开始。原AIR返航Action自身允许较宽速度终态，qn本机跨步骤接管却要求原`platform_speed_tolerance_mps=0.03`，runner原就绪检查只核对参考释放/模式，未核对**实际速度**。
+- 结果：直接在原qn诊断发布已有接管速度容差数值，让runner对确实启用参考交接的物理成员用新鲜Odometry与本机容差核对速度；未稳定则在现有120秒就绪观察内等待，不发Goal、不改速度条件或新增固定等待时长。相关71项受影响Action/runner/本地处置检查、语法及diff检查通过；真实复验待做。
+- 证据：`experiments/20260923-full-joint-action-r3/{metrics.json,joint-result.json,exec-*.diagnostics.json,cross-medium-execution.bag}`；`platform_action.py`原`claim`速度检查与`formation_mission_runner.py::_wait_executor_ready`。
+- 未完成／下一步：同请求实跑验证实际稳定后中转AIR→qn水中→AIR返回；正式10秒预算、UUV参与/返区、缺测复查和最终中文实时画面仍未通过。
+
+## 2026-09-23 UTC — 同请求AIR安全证据对齐误判：三台发布流连续、最新回调不同步
+
+- 计划：在协作组Result屏障修正后重跑同一完整两区域请求，保持原0.06秒跨成员对齐、0.25秒新鲜度和安全净距门槛。
+- 实际：`experiments/20260923-full-joint-action-r2`再次得到三活动名义计划并确认派发。USV原生Result成功并保留组预订，但AIR首段在约9.8秒以`fleet odometry not time aligned`给出NOT_VERIFIED/INVALID，父AIR/USV仍锁，水下Goal零派发。独立同次bag在故障时段三台qn各录60条Odometry、最大发布stamp间隔约0.0133/0.0106/0.0111秒；原Action服务端只取每个订阅回调的**最新**样本，最新回调可不同步，不能直接代表共同时间的舰队位置。
+- 结果：在原Action服务端复用已有每成员短Odometry历史，增加仅对安全监测peer的同长历史；先保留“每个最新样本均在0.25秒内”门槛，再以最新成员共同时间为基准选各历史最近样本，仍要求所选样本自身新鲜且跨度≤原0.06秒。找不到证据照旧NOT_VERIFIED，不按平均频率、bag真值或扩大容差冒充通过。三项定向测试覆盖待命成员距离、复制后取时刻及“最新不同步但历史可对齐／真正过期仍失败”；**修正后的原生Action尚待复跑**。
+- 证据：`experiments/20260923-full-joint-action-r2/{metrics.json,joint-result.json,exec-*.diagnostics.json,cross-medium-execution.bag}`；`formation_action_server.py::_fleet_safety`、`tests/test_formation_action_server.py`。这是时间同步采样的底层逻辑修正，借鉴本仓库原`TimeAlignmentMonitor`的共同时间口径，不宣称论文带来物理安全保证。
+- 未完成／下一步：复跑完整请求，观察AIR/USV组是否两Result后真正放开后继跨介质链；继续如实报告10秒预算、UUV回区、复查与实时最终画面缺口。
+
+## 2026-09-23 UTC — 同请求AIR＋USV实跑接纳与收件成功，协作组过早标量刷新阻断水下后继
+
+- 计划：用r5原完整两区域名义计划在同一Noetic实例中经原MissionRunner具体计划确认后派发AIR观测＋USV RF支援，再接AAV跨介质水下链；每段按实际GoalID/Result/母船收件判断，不能拼接历史子实验。
+- 实际：`experiments/20260923-full-joint-action-r1`用240秒隔离诊断规划得到AAV1 AIR观测/返回、USV支援、AAV1后续跨介质三活动计划。按确认派发后，USV与AIR原生Action都SUCCEEDED；母船收到`air_sample`32KiB，两个协作活动实际完成时刻相对派发分别约14.69与28.05秒（名义14.02与23.84）。旧`_commit_native_executor_result`在USV支援个体Result处对仍有水下PLANNED活动的协作计划调用`_refresh_executor_timing()`，按既有防伪护栏抛`coordinated activity timing requires method re-evaluation; refusing scalar refresh`；父运行FAILED，USV组锁未等到共同结束就保留，水下Goal为零。旧护栏拒绝标量修复本身正确，错误是**协作组尚未全部Result就调用它**。
+- 结果：只在已有`retain_booking=True`的协作支援分支延后标量刷新，让支援物理成员保持锁直到组内AIR与USV两个匹配Result完成；组结束后释放并将仍待派发计划的现有`validation_scope`降为`EXECUTION_ENTRY_REQUALIFICATION_REQUIRED`、增加原计划版本记录。后继只沿原本地Action入口，从实际状态重新接纳/拒绝；**这不等于高层已完成全模型重规划**，若本地拒绝仍须锁定/失败。定向组锁/版本两项测试通过。
+- 证据：`experiments/20260923-full-joint-action-r1/{probe.py,metrics.json,joint-result.json,exec-*.diagnostics.json}`；`formation_mission_runner.py`的`_dispatch_air_support_items/_commit_native_executor_result`和`tests/test_executor_runner.py`。依据为本项目原GoalID/Result与物理成员锁合同；[APEX-MR](https://arxiv.org/abs/2503.15836)只支持实际事件释放原则，不提供本系统状态重建保证。
+- 未完成／下一步：同计划复跑，查AIR/USV组级Result完成后能否安全进入真实水下跨介质链。正式10秒预算、受影响未承诺方法的完整重搜、UUV回区、复查和最终实时UI仍未完成。
+
+## 2026-09-23 UTC — 完整两区域方案的交付缺口与有支援名义可行组合
+
+- 计划：以原`monitoring_request_joint.yaml`两必做区域、五实例和显式返回政策核对已实跑AAV水下方法能否与AIR作业、USV支援组成整计划；仅做隔离长预算诊断，不把240秒当生产10秒。
+- 实际：原完整入口r1、仅重排AIR执行单元的r2均在240秒共享诊断预算内未找到完整方案，按`PlanningBudgetExceeded`保留UNKNOWN；r3人为指定AIR由AAV2的**诊断**提前结束仍无完整候选，不能当业务分配结论。r4尝试在父进程打印候选原因，但原查询在隔离子进程运行，打印未传回；该插桩无证据价值，未进入生产。直接以同一原生provider组合方法：AAV2独立AIR和AAV1跨介质WATER分别FEASIBLE，但原整计划检查`RECEIPT_NOT_COMPLETED_WITHIN_CHECKED_COMMITMENTS`，只显示水下产品约149模型秒收到，AIR结果无接收；AAV2 AIR＋USV既有RF支援与AAV1跨介质方法则在214.28秒隔离计算后由五平台运动/占用/有限交付全检返回`NOMINAL_COMPLETE_PLAN_MOTION_AND_CAPACITY`。这证明“需要支援”来自当前任务交付约束，不是强迫USV出场。
+- 结果：只在原`_iter_air_candidates`中按已声明固定链路预测**候选遍历顺序**：当独立AIR活动单独不能在承诺内交付，优先试现有USV支援；独立方法依旧保留给其它并行活动可能提供中继的整计划，不剪枝、不加接口。受影响22项计划检查通过。原完整请求r5在240秒诊断预算末拿到名义全计划：AAV1 AIR观测+返回0–23.84，USV RF支援0–14.02，随后同AAV1跨介质水下样点23.84–251.28；五平台整检已通过，**尚未发送这份全请求的任何Goal**。UUV待命，因此这份普通请求的名义计划仍不满足最终三类平台演示实例；正式10秒规划和复查亦未通过。
+- 证据：`experiments/20260923-full-joint-{aav-alternative,aav-alternative-order,constrained-method,method-reasons,direct-pair-check,supported-pair-check,supported-order}`各自`probe.py/probe.log/result.json`及实际产生的`nominal-plan.json`；`integration/mrta_python/executors.py`的原有限交付查询与完整校核。方法关系参考[Guo–Zavlanos，T-RO 2018](https://arxiv.org/abs/1706.02092)，但32KiB/链路范围速率仅是用户确认的实验假设。
+- 未完成／下一步：按r5同一完整计划走原runner实际Action和母船交付，先取成功/失败因果，再接中文实时入口；10秒在线求解必须单独解决，不能用诊断预算冒充。寻找REMUS观测后回区的可执行方法，否则最终三类平台任务不能验收。
+
 ## 2026-09-23 UTC — REMUS原部署方向下有限南侧回区路线均被东栈桥阻断
 
 - 计划：按用户确认的通过式返回合同，在原`(-5,8,-2)`部署区、原REMUS100控制器和同一港口障碍中，检查直接回区失败能否通过少量有物理依据的南侧开阔水域路线解决；不得扩大回收区或删障碍。

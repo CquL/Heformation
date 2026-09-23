@@ -1,5 +1,9 @@
 # 最新交接：分层监测需求基线与 AAV 本地停止保持
 
+> **2026-09-23 最新交接：同请求实时仿真子目标达成，最终三类平台目标继续**：先读WORKLOG顶部和`experiments/20260923-full-joint-live/{metrics.json,joint-result.json,independent-audit.json,dashboard-running.png,dashboard-water.png,rviz-running.png,rviz-water.png}`。同一Noetic运行中AAV2 AIR＋USV支援、AAV1七步跨介质真实执行，9个子Action成功、两份32KiB结果到母船、三活动COMPLETED、交付1.0、AAV1/AAV2/USV返回合格、锁空；中文任务面板与RViz在同一会话实时更新。独立bag3229对齐样本0缺失、最小五平台代理净距1.46309m，原审计因未录静态云发布者而总FAIL，Goal前云hash匹配声明实体。该运行使用300秒隔离规划，UUV待命且无异常复查，**不能称最终三类平台系统完成**。Plan已新增AAV活动级实际Result先后边；同次运行后发现实际AIR延迟需将validation_scope降级，代码/定向测试已补，但新标记尚未在ROS实跑复验。REMUS现有(-5,8)→(0,8)样点回部署区受东栈桥与原生转弯包络阻断，用户已收到是否允许另建明确示范请求/部署区的文本选择题；答复到来前继续推进独立的预算、修复与可视化工作，不自行更改业务点或回收半径。
+
+> **2026-09-23 最新继续点：七步AAV跨介质返航已实跑，整项任务与实时画面仍在推进**：先看WORKLOG顶部及`experiments/20260923-aav-return-detour-action-r2/{joint-result.json,metrics.json,independent-audit.json}`。r2七个Action均成功、母船收32KiB水下产品、返部署区0.09133m、锁空；实际AIR→AIR偏航连续消除了r1的海面下沉反例，五平台bag对齐2560样本0缺失、最小代理净距1.46429m；因bag没有静态云发布者信息，原审计总FAIL但Goal前云hash与声明场景相同。`executors.py`现从已声明南侧出程点逆序原生查询返程，不增算法。完整两区域r6用旧直返曾在西栈桥实际净距0.19576m<0.2m而正确失败；下一步用新返程再跑**同次AIR＋USV支援→AAV1水中→返回**，并打开现有中文RViz/任务面板记录真实状态。生产10秒预算、UUV回区/参与、缺测复查仍不通过。
+
 > **2026-09-23 最新交接：AAV跨介质方法已真实执行，整项协作仍未完成**：先读WORKLOG顶部和`experiments/20260923-aav-cross-medium-action-r12/{posthoc-assessment.json,metrics.json,independent-audit.json}`。同一五平台港口实例中，AAV1的南侧两中转＋入水入口三段AIR、同一qn水中通过式观测/出水、AIR返部署区共五个Goal均SUCCEEDED且worker验证；母船收32KiB产品与终结通知，计划项COMPLETED，锁空，实际返航误差0.08069m<0.5m。独立bag 2143个五平台对齐位置样本0缺失、最小平台代理净距1.49856m；因bag不再重复录静态全局云，原审计缺发布者证据而总FAIL，同次Goal前云哈希匹配声明场景。诊断脚本在worker完成后要求待命USV/UUV同刻新鲜而写总状态FAILED，故只能按各自证据报告“跨介质方法组件执行完成”，不能把原诊断或完整请求标PASS。r7–r11真实失败均保留。当前最大缺口：两区域三类平台同请求、UUV回区资格、复查实跑和正式10秒预算；中文实时显示已有无返回联合诊断，不是最终请求验收。
 
 > **2026-09-23 阶段记录（被上条推进覆盖）**：`experiments/20260923-aav-water-method/result.json`当时只有同一qn全状态的AIR转场74.55秒、垂直入水/短水下观测/出水54.91秒、AIR回部署区72.36秒三段只读FEASIBLE；此后已接入候选并取得r12实际五步证据，不能继续将本条“未接入Action”当当前状态。UUV返航仍失败，10秒预算仍UNKNOWN。

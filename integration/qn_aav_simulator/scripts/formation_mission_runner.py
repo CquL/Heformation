@@ -366,6 +366,7 @@ class MissionRunner:
                     with self.condition:
                         physical={member:self.executor_diagnostics.get(member,(None,{}))
                                   for member in unit.physical_agent_ids}
+                        actual={member:self.actual.get(member) for member in unit.physical_agent_ids}
                     if any(stamp is None or not 0<=now-stamp<=.25
                            for stamp,_ in physical.values()):
                         rospy.sleep(.1)
@@ -377,6 +378,19 @@ class MissionRunner:
                            values.get('actual_mode')!='AIR' or
                            values.get('reference_context_ready')!='true'
                            for values in handover):
+                        rospy.sleep(.1)
+                        continue
+                    settled=True
+                    for member,(_,values) in physical.items():
+                        if values.get('reference_handover_enabled')!='true':continue
+                        tolerance=float(values.get('platform_speed_tolerance_mps','nan'))
+                        if not math.isfinite(tolerance) or tolerance<=0:
+                            raise RuntimeError('local AIR entry speed contract missing: '+member)
+                        sample=actual[member]
+                        if (sample is None or not sample.is_fresh(now,.25) or
+                                math.sqrt(sum(v*v for v in sample.velocity))>tolerance):
+                            settled=False
+                    if not settled:
                         rospy.sleep(.1)
                         continue
                     if any(values.get('platform_resource_locked')=='true' or values.get('domain_failure')=='true'
@@ -939,6 +953,14 @@ class MissionRunner:
                 raise RuntimeError('AIR support group lacks complete matching Results')
             self.active_executor_ids.discard(work.executor_id)
             self.active_executor_ids.discard(support.executor_id)
+            if (any(item.status=='PLANNED' for item in self.plan.items) and
+                    self.plan.validation_scope!='EXECUTION_ENTRY_REQUALIFICATION_REQUIRED'):
+                # The completed group may have shifted a successor's start.
+                # Keep that execution order, but withdraw the old full-model
+                # validation until its native endpoint checks the actual entry.
+                self.plan.validation_scope='EXECUTION_ENTRY_REQUALIFICATION_REQUIRED'
+                self.plan_revision+=1
+                self.metrics['plan_history'].append({'revision':self.plan_revision,'plan':asdict(self.plan)})
         self._save_executor()
 
     def _dispatch_executor_chain(self,item,reserved=False,retain_booking=False):
@@ -1022,6 +1044,11 @@ class MissionRunner:
             received=rospy.Time.now().to_sec()
             event=DelayEvent(rows[-1]['goal_id'],item.execution_id,item.task_id,item.planned_finish,received-self.epoch)
             self.plan,changed=process_executor_completion(self.plan,event,self.final_events)
+            if changed and (self.plan.activity_edges or
+                            len({i.task_id for i in self.plan.items})!=len(self.plan.items)):
+                self.plan.validation_scope='EXECUTION_ENTRY_REQUALIFICATION_REQUIRED'
+                self.plan_revision+=1
+                self.metrics['plan_history'].append({'revision':self.plan_revision,'plan':asdict(self.plan)})
             self.metrics['executions'].append(dict(task_id=item.task_id,execution_id=item.execution_id,
                 result='SUCCEEDED',scope='COMPOSITE_MOTION',plan_updated=changed,result_received_at=received,
                 step_goal_ids=[r['goal_id'] for r in rows]))
@@ -1132,7 +1159,8 @@ class MissionRunner:
         if all(i.status=='COMPLETED' for i in self.plan.items if i.task_id==item.task_id):
             self.metrics['results_received'].append(item.task_id)
         self.metrics['native_qualification_only']=True
-        self._refresh_executor_timing(received-self.epoch)
+        if not retain_booking:
+            self._refresh_executor_timing(received-self.epoch)
         if not retain_booking:self.active_executor_ids.remove(unit.executor_id)
         self.metrics.setdefault('current_actions',{}).pop(item.execution_id,None)
         if getattr(self,'executor_serial',True):self.metrics['current_action']=None

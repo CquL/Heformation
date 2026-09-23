@@ -96,6 +96,15 @@ def test_native_result_commits_motion_without_creating_coverage(runner_module,tm
     assert runner.active_executor_ids=={unit.executor_id}
 
 
+def test_native_support_result_keeps_booking_until_group_finishes(runner_module,tmp_path):
+    runner,item,unit,result=native_setup(runner_module,tmp_path)
+    runner._refresh_executor_timing=lambda _: (_ for _ in ()).throw(
+        AssertionError('group member must not refresh a pending plan alone'))
+    runner._commit_executor_result(item,unit,3,result,retain_booking=True)
+    assert runner.plan.item(item.execution_id).status=='COMPLETED'
+    assert runner.active_executor_ids=={unit.executor_id}
+
+
 def test_negative_observation_report_must_reach_mother_before_release(runner_module,tmp_path):
     from dataclasses import replace
     runner,item,unit,result=native_setup(runner_module,tmp_path)
@@ -202,8 +211,11 @@ def test_air_work_waits_for_usv_action_start_and_releases_group_together(runner_
         execution_steps=(ExecutionStep('aav_2',11.,'overview',service_time_s=4.),),candidate_id='joint')
     boat=ExecutorPlanItem('boat-support','overview','usv',('usv',),0.,12.,12.,0.,0.,
         execution_steps=(ExecutionStep('usv',12.,'overview',native),),candidate_id='joint',fulfills_task=False)
-    runner.plan=ExecutorPlan([work,boat],serial=False)
+    future=ExecutorPlanItem('future-water','water','aav_2',('drone_1',),12.,20.,8.,0.,0.,
+        execution_steps=(ExecutionStep('aav_2',8.,'water'),),candidate_id='later')
+    runner.plan=ExecutorPlan([work,boat,future],serial=False)
     runner.condition=threading.Condition();runner.goal_ids={};runner.metrics['current_actions']={}
+    runner.metrics['plan_history']=[];runner.plan_revision=0
     runner.active_executor_ids={'aav_2','usv'}
     calls=[]
     def dispatch(item,reserved,retain):
@@ -228,6 +240,9 @@ def test_air_work_waits_for_usv_action_start_and_releases_group_together(runner_
     runner._dispatch_air_support_items([work,boat])
     assert calls==['usv','aav_2']
     assert not runner.active_executor_ids
+    assert runner.plan.item(future.execution_id).status=='PLANNED'
+    assert runner.plan.validation_scope=='EXECUTION_ENTRY_REQUALIFICATION_REQUIRED'
+    assert runner.plan_revision==1
 
 
 def test_rejected_air_support_never_dispatches_air_and_keeps_both_bookings(runner_module,tmp_path):
@@ -300,6 +315,11 @@ def test_composite_retains_booking_between_steps_and_failure_blocks_successor(ru
     runner,item,unit,result=native_setup(runner_module,tmp_path)
     item.execution_steps=(item.execution_steps[0],item.execution_steps[0])
     item.travel_time=130.;item.planned_finish=130.
+    future=ExecutorPlanItem('future-air','future-task','aav_2',('drone_1',),130.,140.,10.,0.,0.,
+        execution_steps=(ExecutionStep('aav_2',10.,'future'),))
+    runner.plan.items.append(future)
+    runner.plan.activity_edges=((item.execution_id,future.execution_id),)
+    runner.metrics['plan_history']=[];runner.plan_revision=0
     runner._executor_goal=lambda view,unit:SimpleNamespace(task_id=view.execution_id)
     runner.native_result=lambda _:('native-goal',SimpleNamespace(status=SimpleNamespace(status=3)))
     calls=[]
@@ -324,6 +344,9 @@ def test_composite_retains_booking_between_steps_and_failure_blocks_successor(ru
         assert not runner.active_executor_ids
         assert runner.plan.item(item.execution_id).status=='COMPLETED'
         assert runner.metrics['results_received']==[item.task_id]
+        assert runner.plan.validation_scope=='EXECUTION_ENTRY_REQUALIFICATION_REQUIRED'
+        assert runner.plan_revision==1
+        assert runner.plan.item(future.execution_id).status=='PLANNED'
 
 
 def test_slow_dashboard_publication_does_not_hold_execution_lock(runner_module,tmp_path,monkeypatch):

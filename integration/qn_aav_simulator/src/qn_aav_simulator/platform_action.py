@@ -37,6 +37,7 @@ class LocalPlatformAction:
         self.observation_obstacles=tuple(ObstacleBox(c,s) for _,kind,c,s in self.scene.objects if kind=='SOLID') if self.scene else ()
         self.products=rospy.Publisher('~local_products',String,queue_size=100)
         self.hold_point=node.state.position
+        self.hold_yaw=0.
         self.last_air_id=-1
         self.air_floor=-1
         self.floor_at_claim=-1
@@ -173,6 +174,12 @@ class LocalPlatformAction:
 
     def _flush_reference(self):
         from qn_aav_simulator.qn_telemetry import CommandAdoptionBuffer
+        previous=self.node.latest_command
+        if previous is not None and previous.get('reference_source')=='AIR_SWARM':
+            self.hold_yaw=float(previous['yaw_rad'])
+        else:
+            w,x,y,z=self.node.state.orientation_quat_wxyz
+            self.hold_yaw=math.atan2(2*(w*z+x*y),1-2*(y*y+z*z))
         self.node.commands=CommandAdoptionBuffer(self.node.command_buffer_size)
         self.node.latest_command=None
         self.hold_point=self.node.state.position
@@ -393,7 +400,8 @@ class LocalPlatformAction:
                         'FAULT_FINISH_'+segment.operation if finishing else work['segments'][work['index']].operation),
                     reference_source=self.owner.source,actual_mode=self.mode(),
                     reference_generation=self.owner.generation,model_time_s=t))
-        return dict(position=target,velocity=(0.,0.,0.),acceleration=(0.,0.,0.),yaw_rad=0.,
+        return dict(position=target,velocity=(0.,0.,0.),acceleration=(0.,0.,0.),
+                    yaw_rad=self.hold_yaw if self.owner.source=='AIR_SWARM' else 0.,
                     stamp_s=rospy.Time.now().to_sec(),received_ros_time_s=rospy.Time.now().to_sec(),
                     trajectory_id=self.owner.generation if self.owner.source=='PLATFORM' else max(0,self.air_floor),
                     trajectory_flag=1 if self.owner.source=='PLATFORM' else 0,
@@ -416,6 +424,7 @@ class LocalPlatformAction:
                 ('reference_active',str(self.owner.active).lower()),
                 ('platform_action_active',str(self.work is not None).lower()),
                 ('reference_handover_enabled',str(self.handover_enabled).lower()),
+                ('platform_speed_tolerance_mps',str(self.speed_tolerance)),
                 ('reference_context_ready',str(self.planner_ready(self.owner.source=='PLATFORM')).lower()),
                 ('reference_air_floor_id',str(self.air_floor)),
                 ('reference_goal_id',self.owner.goal_id),('actual_mode',self.mode()),

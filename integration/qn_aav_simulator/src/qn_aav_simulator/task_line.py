@@ -15,7 +15,7 @@ from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from .monitoring_request import (
     MonitoringRequest, ObservationRequirement, ObservationTask, SurveyRegion,
-    InterestPoint, expand,
+    InterestPoint, UNDERWATER, expand,
 )
 from .observation_coverage import CoverageResult
 
@@ -296,6 +296,19 @@ def retest_tasks(request: MonitoringRequest,
         region = next(r for r in request.regions if r.region_id == region_id)
         narrowed = SurveyRegion(region.region_id, region.kind, region.corner_a,
                                 region.corner_b, tuple(by_region[region_id]))
+        if region.kind==UNDERWATER:
+            # The legacy AIR set-cover expander skips underwater regions.
+            # Keep one regional requirement so the joint method search can
+            # select its viewpoint/pass and executor after the report arrives.
+            extra=set(request.required_capabilities)-{'AIR','WATER','SURFACE'}
+            retests.append(ObservationTask(
+                task_id='retest-'+region_id+'-0',
+                target=narrowed.interest_points[0].position,
+                covers=tuple(point.point_id for point in narrowed.interest_points),
+                region_id=region_id,service_time_s=request.service_time_s,
+                deadline_s=request.deadline_s,
+                required_capabilities=frozenset(extra|{'WATER'})))
+            continue
         for index, task in enumerate(expand(MonitoringRequest(
                 request_id="{}-retest".format(request.request_id),
                 regions=(narrowed,), requirement=request.requirement,

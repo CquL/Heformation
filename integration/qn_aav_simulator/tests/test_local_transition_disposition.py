@@ -32,7 +32,8 @@ def worker(monkeypatch):
     module=importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     obj=module.LocalPlatformAction.__new__(module.LocalPlatformAction)
-    obj.node=SimpleNamespace(state=SimpleNamespace(position=(0.,0.,-.08),medium_flag=.97),
+    obj.node=SimpleNamespace(state=SimpleNamespace(position=(0.,0.,-.08),medium_flag=.97,
+                                                  orientation_quat_wxyz=(1.,0.,0.,0.)),
                              clock=SimpleNamespace(model_time_s=5.))
     obj.owner=ReferenceOwnership()
     assert obj.owner.claim('goal','PLATFORM',0)[0]
@@ -42,6 +43,7 @@ def worker(monkeypatch):
     obj.terminal_mode='WATER'
     obj.transition_fault_behavior='COMPLETE_ACCEPTED_VERTICAL_SEGMENT'
     obj.hold_point=(0.,0.,-.6)
+    obj.hold_yaw=0.
     obj.air_floor=-1
     obj.events=[]
     handle=SimpleNamespace(set_aborted=lambda result:obj.events.append(result))
@@ -84,6 +86,21 @@ def test_verified_observation_publishes_terminal_report_before_success(worker):
     assert len(published)==len(results)==1
     assert 'OBSERVATION_TERMINAL' in published[0]
     assert results[0].terminal_verified and not results[0].resource_locked
+
+
+def test_air_to_air_handover_keeps_previous_adopted_yaw(worker):
+    worker.work=None
+    worker.owner.source='AIR_SWARM'
+    worker.air_adopted=False
+    worker.node.state.position=(-10.,0.,.8)
+    worker.node.latest_command=dict(reference_source='AIR_SWARM',yaw_rad=-2.488)
+    worker.node.command_buffer_size=16
+    worker._flush_reference()
+    assert worker.node.latest_command is None
+    assert worker.tick()['position']==(-10.,0.,.8)
+    assert worker.tick()['yaw_rad']==pytest.approx(-2.488)
+    worker.owner.source='PLATFORM'
+    assert worker.tick()['yaw_rad']==0.
 
 
 def test_domain_failure_supersedes_cancel_without_using_unreliable_position(worker):

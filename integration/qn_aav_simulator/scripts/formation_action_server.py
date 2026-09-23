@@ -110,6 +110,8 @@ class FormationActionServer:
         if not set(self.agent_ids) <= set(self.safety_agent_ids):
             raise ValueError("safety_agent_ids must include all controlled members")
         self.peer_odom = {}
+        self.peer_odom_history = {agent_id: deque(maxlen=256) for agent_id in
+                                  set(self.safety_agent_ids)-set(self.agent_ids)}
         self.scale = float(rospy.get_param("~swarm_scale", 2.0))
         self.epsilon_p = float(rospy.get_param("~epsilon_p", 0.5))
         self.epsilon_v = float(rospy.get_param("~epsilon_v", 0.25))
@@ -360,9 +362,11 @@ class FormationActionServer:
         except OdometryContractError:
             with self.lock:
                 self.peer_odom.pop(agent_id, None)
+                self.peer_odom_history[agent_id].clear()
             return
         with self.lock:
             self.peer_odom[agent_id] = sample
+            self.peer_odom_history[agent_id].append(sample)
 
     def _fleet_safety(self, now_s):
         """Discrete fleet clearance, including idle members of other units.
@@ -373,6 +377,9 @@ class FormationActionServer:
         with self.lock:
             samples = dict(self.peer_odom)
             samples.update(self.odom)
+            histories = {a: tuple((self.odom_history if a in self.agent_ids
+                                    else self.peer_odom_history)[a])
+                         for a in self.safety_agent_ids}
         # Callbacks may install newer samples after the caller captured now_s.
         # Evaluate age only after copying the samples, otherwise a valid new
         # message appears future-stamped and falsely fails the fleet check.
@@ -384,10 +391,17 @@ class FormationActionServer:
                     "missing": sorted(set(self.safety_agent_ids) - set(fresh)),
                     "sample_ages_s": {str(a):(None if a not in samples else now_s-samples[a].stamp)
                                       for a in self.safety_agent_ids}}
-        stamps = [v.stamp for v in fresh.values()]
+        common_stamp = min(v.stamp for v in fresh.values())
+        aligned = {a: min(histories[a], key=lambda sample: abs(sample.stamp-common_stamp))
+                   for a in self.safety_agent_ids if histories[a]}
+        if (len(aligned) != len(self.safety_agent_ids) or
+                any(not sample.is_fresh(now_s,self.odom_timeout) for sample in aligned.values())):
+            return {"ok": False, "reason": "fleet odometry has no fresh aligned history"}
+        stamps = [v.stamp for v in aligned.values()]
         if max(stamps) - min(stamps) > self.model_time_window:
-            return {"ok": False, "reason": "fleet odometry not time aligned"}
-        positions = [fresh[a].position for a in sorted(fresh)]
+            return {"ok": False, "reason": "fleet odometry not time aligned",
+                    "sample_ages_s": {str(a): now_s-aligned[a].stamp for a in aligned}}
+        positions = [aligned[a].position for a in sorted(aligned)]
         clearances = [math.dist(p, q) - 2*self.platform_radius_m
                       for i, p in enumerate(positions) for q in positions[i+1:]]
         minimum = min(clearances, default=None)

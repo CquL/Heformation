@@ -546,7 +546,7 @@ class ExecutorTravelTimeProvider:
         """
         from qn_aav_simulator.monitoring_request import observation_candidates,observation_position
         from qn_aav_simulator.experiment_verdict import box_sample_points
-        from qn_aav_simulator.observation_coverage import LocalObservationWindow,ObstacleBox
+        from qn_aav_simulator.observation_coverage import LocalObservationWindow,ObstacleBox,predict_received_events
         from qn_aav_simulator.platform_execution import actual_mode
         from qn_aav_simulator.qn_dynamics import medium_flag
         if len(unit.physical_agent_ids)!=1 or self.scene_geometry is None or self.scene_resolution_m<=0:
@@ -674,11 +674,16 @@ class ExecutorTravelTimeProvider:
                     total_duration+=home_query['duration_s']
                     air_terminal=dict(position=home_query['terminal_position'],mode=home_query['terminal_mode'],
                                       native_backend=home_query['terminal_backend'])
-            # Try the method that reserves only the observer first. The full
-            # plan check still requires actual delivery and may choose the
-            # USV-supported alternative below; no method is pruned here.
-            yield ExecutionCandidate(name,air_steps,{member:air_terminal},
+            direct_candidate=ExecutionCandidate(name,air_steps,{member:air_terminal},
                 motion_traces={member:full_trace},collision_radii={member:.25},generated_products=tuple(products))
+            # Ordering only. If this activity alone cannot deliver its result
+            # before its commitment ends, try an existing relay method first.
+            # Keep the direct candidate: another concurrent activity may still
+            # supply a compatible relay when the whole plan is checked.
+            solo_receipt=predict_received_events(products,{member:full_trace},
+                {member:((start,start+total_duration),)},self.mother_position,obstacles,deadline)
+            support_first=solo_receipt['status']=='INFEASIBLE'
+            if not support_first:yield direct_candidate
             for support in self.air_support_units:
                 if time.monotonic()>=deadline:raise PlanningBudgetExceeded('AIR support query exceeded shared budget')
                 if len(support.physical_agent_ids)!=1 or support.executor_id not in self.native_efforts:continue
@@ -707,7 +712,6 @@ class ExecutorTravelTimeProvider:
                 if support_duration+1e-6<query['duration_s']:
                     yield ExecutionCandidate(name+'-support-short',(),{},status='INFEASIBLE',reason='AIR_SUPPORT_ENDS_BEFORE_WORK');continue
                 support_trace=tuple((start+t,p,'SURFACE') for t,p in support_query['trajectory'])
-                from qn_aav_simulator.observation_coverage import predict_received_events
                 received=predict_received_events(products,{member:trace,other:support_trace},
                     {member:((start,start+query['duration_s']),),other:((start,start+support_duration),)},
                     self.mother_position,obstacles,deadline)
@@ -728,6 +732,7 @@ class ExecutorTravelTimeProvider:
                     motion_traces={member:full_trace,other:support_trace},
                     collision_radii={member:.25,other:support_query['collision_radius_m']},
                     generated_products=tuple(products))
+            if support_first:yield direct_candidate
 
     def _iter_cross_medium_candidates(self,unit,task,start,states,deadline):
         """One qualified AAV AIR→WATER observation→AIR method per declared site.
@@ -767,10 +772,11 @@ class ExecutorTravelTimeProvider:
         try:
             import rospy
             lookahead=float(rospy.get_param('/drone_{}_traj_server/traj_server/time_forward'.format(member[6:])))
+            entry_speed=float(rospy.get_param('/drone_{}_qn_aav/platform_speed_tolerance_mps'.format(member[6:]),.03))
         except Exception:
             yield ExecutionCandidate('cross-medium-yaw',(),{},status='UNKNOWN',
                                      reason='AIR_TRAJECTORY_YAW_CONTEXT_MISSING');return
-        if not math.isfinite(lookahead) or lookahead<0:
+        if not math.isfinite(lookahead) or lookahead<0 or not math.isfinite(entry_speed) or entry_speed<=0:
             yield ExecutionCandidate('cross-medium-yaw',(),{},status='UNKNOWN',
                                      reason='AIR_TRAJECTORY_YAW_CONTEXT_INVALID');return
         points=[p for _,kind,c,s in self.scene_geometry.objects if kind=='SOLID'
@@ -794,6 +800,9 @@ class ExecutorTravelTimeProvider:
                 actual_mode(medium_flag(p[2],backend.constants.hg_m)))
                 for t,p in waited['trajectory'][:-1])
             backend=waited['terminal_backend']
+        if math.sqrt(sum(v*v for v in backend.snapshot().velocity))>entry_speed:
+            yield ExecutionCandidate('cross-medium-entry',(),{},status='UNKNOWN',
+                                     reason='AIR_ENTRY_NOT_SETTLED_AT_CANDIDATE_START');return
 
         def air_leg(model,target,hold):
             actual=model.snapshot();w,x,y,z=actual.orientation_quat_wxyz
@@ -883,7 +892,27 @@ class ExecutorTravelTimeProvider:
                 if home is None:
                     yield ExecutionCandidate(name+'-return',(),{},status='UNKNOWN',
                                              reason='AAV_RETURN_SITE_MISSING');continue
-                returned=air_leg(native['terminal_backend'],tuple(home['position']),0.)
+                # The actual direct return cut the west jetty clearance. Use
+                # the same declared south-side stages in reverse and re-query
+                # every leg from the preceding full qn terminal state.
+                return_stage_failure=None
+                for index in reversed(range(len(stages))):
+                    staged=air_leg(terminal['terminal_backend'],stages[index],handover_hold_s)
+                    if staged['status']!='FEASIBLE':
+                        return_stage_failure=staged;break
+                    steps.append(ExecutionStep(air.executor_id,staged['duration_s'],
+                        'transition-stage:'+site_id+':'+str(index),
+                        service_time_s=handover_hold_s,
+                        native_prediction={k:v for k,v in staged.items()
+                            if k not in ('terminal_backend','trajectory')}))
+                    trace+=tuple((start+duration+t,p,mode) for t,p,mode in staged['trajectory'][1:])
+                    duration+=staged['duration_s'];terminal=staged
+                if return_stage_failure is not None:
+                    yield ExecutionCandidate(name+'-return-stage',(),{},
+                        status=return_stage_failure['status'],
+                        reason=return_stage_failure.get('reason','AIR_RETURN_STAGE_UNKNOWN'))
+                    continue
+                returned=air_leg(terminal['terminal_backend'],tuple(home['position']),0.)
                 if returned['status']!='FEASIBLE':
                     yield ExecutionCandidate(name+'-return',(),{},status=returned['status'],
                                              reason=returned.get('reason','AIR_RETURN_UNKNOWN'));continue
@@ -1616,19 +1645,46 @@ def _build_complete_candidate_plan(executors,tasks,provider,member_states,deadli
     # provider always validates complete physical evidence; missing evidence
     # is UNKNOWN, never permission to fall back to the abstract path.
     checker=getattr(getattr(provider,'__self__',None),'_check_complete_plan',None)
+    native_owner=getattr(provider,'__self__',None)
     last_check_reason=''
+
+    def qualified_peer_edges(items):
+        if not isinstance(native_owner,ExecutorTravelTimeProvider) or native_owner.scene_geometry is None:
+            return ()
+        # The current Swarm query used stationary peer AAVs. Preserve that
+        # qualification at execution: a later AAV activity waits for the
+        # earlier AAV's actual Result, not just its predicted finish time.
+        air=[item for item in items if any(m.startswith('drone_') for m in item.coalition)]
+        return tuple(sorted({(before.execution_id,after.execution_id)
+            for before in air for after in air if before is not after and
+            before.planned_finish<=after.planned_start+1e-6}))
 
     def continuations(node):
         nonlocal count,unknown
         items,remaining,snapshot,finishes,serial_release,evidence=node
         for task in sorted(remaining,key=lambda t:t.task_id):
             if not predecessors[task.task_id]<=finishes.keys():continue
-            for unit in eligible_executors(executors,task):
+            future_members={member for other in remaining if other.task_id!=task.task_id
+                            for possible in eligible_executors(executors,other)
+                            for member in possible.physical_agent_ids}
+            units=eligible_executors(executors,task)
+            # Search order only: keep members that can serve another remaining
+            # task available while trying equally qualified current units.
+            for unit in sorted(units,key=lambda u:len(set(u.physical_agent_ids)&future_members)):
                 if any(snapshot[m].get('locked',False) for m in unit.physical_agent_ids):continue
                 start=max(max(snapshot[m]['available_from'] for m in unit.physical_agent_ids),
                     unit.available_from,
                     max((finishes[p] for p in predecessors[task.task_id]),default=0.),
                     serial_release if serial and unit.executor_id in participants else 0.)
+                if (isinstance(native_owner,ExecutorTravelTimeProvider) and
+                        native_owner.scene_geometry is not None and
+                        any(m.startswith('drone_') for m in unit.physical_agent_ids)):
+                    # This native Swarm query currently supplies other AAVs as
+                    # stationary peers. Try the first qualified start after
+                    # already selected peer AAV motion, not a fabricated
+                    # simultaneous stationary reference.
+                    start=max(start,max((snapshot[m]['available_from'] for m in members
+                                         if m.startswith('drone_')),default=0.))
                 with contextlib.closing(bounded_candidate_query(provider,
                         (unit,task,start,copy.deepcopy(snapshot),deadline),deadline)) as alternatives:
                     for alternative in alternatives:
@@ -1669,7 +1725,8 @@ def _build_complete_candidate_plan(executors,tasks,provider,member_states,deadli
                             selected={a.task_id for a in prefix}
                             try:
                                 validate_executor_plan(ExecutorPlan(prefix,False,
-                                    tuple((p,t) for p,t in edges if p in selected and t in selected)),executors,
+                                    tuple((p,t) for p,t in edges if p in selected and t in selected),
+                                    activity_edges=qualified_peer_edges(prefix)),executors,
                                     [t for t in tasks if t.task_id in selected])
                             except ValueError:
                                 continue  # reject a conflicting candidate, not the accepted prefix
@@ -1732,7 +1789,8 @@ def _build_complete_candidate_plan(executors,tasks,provider,member_states,deadli
             if remaining:
                 frontier.append(continuations(node))
             else:
-                candidate_plan=ExecutorPlan(items,serial,edges)
+                candidate_plan=ExecutorPlan(items,serial,edges,
+                    activity_edges=qualified_peer_edges(items))
                 validate_executor_plan(candidate_plan,executors,tasks)
                 physical=checker is not None or any(step.native_action is not None
                     for item in items for step in item.execution_steps) or any(c.motion_traces for c,_ in evidence)

@@ -223,6 +223,23 @@ def test_full_coverage_produces_no_retest():
                         delivery_recorded=True, already_retested=False) == ()
 
 
+def test_received_missing_water_report_keeps_underwater_retest_required():
+    request=load_request(Path(__file__).parents[1]/'config/monitoring_request_joint.yaml')
+    coverage=CoverageResult(points={
+        'air_sample':PointObservation('air_sample',True,'drone_1',1.,'received'),
+        'water_sample':PointObservation('water_sample',False,None,0.,'missing')},
+        delivered_point_ids=frozenset({'air_sample'}))
+    weights={'air_sample':1.,'water_sample':1.}
+    assert retest_tasks(request,(),coverage,weights,
+                        delivery_recorded=False,already_retested=False)==()
+    extra=retest_tasks(request,(),coverage,weights,
+                       delivery_recorded=True,already_retested=False)
+    assert len(extra)==1 and extra[0].covers==('water_sample',)
+    assert extra[0].required_capabilities==frozenset({'WATER'})
+    assert retest_tasks(request,(),coverage,weights,
+                        delivery_recorded=True,already_retested=True)==()
+
+
 def test_source_metric_is_rotation_translation_scale_invariant():
     positions = {m: (4 - 3*v[1], 6 + 3*v[0], 2 + 3*v[2]) for m, v in SLOTS.items()}
     assert formation_similarity(positions, SLOTS) == pytest.approx(0)
