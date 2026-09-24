@@ -562,6 +562,10 @@ class MissionDashboard:
                 return '无人机'+parts[1]
             return {'uuv':'潜航器','usv':'无人船'}.get(executor,executor)
         rows=(state.get('plan') or {}).get('items',[])
+        selected_members={member for row in rows for member in row.get('coalition',())}
+        standby=[name for member,name in (('drone_0','无人机1'),('drone_1','无人机2'),
+                    ('drone_2','无人机3'),('usv','无人船'),('uuv','潜航器'))
+                 if member not in selected_members] if rows else []
         air=any(r['executor_id'].startswith('aav_') for r in rows)
         cross=any(r['executor_id'].startswith('aav_') and
                   any(segment.get('operation') in ('ENTER_WATER','EXIT_WATER')
@@ -656,6 +660,7 @@ class MissionDashboard:
             conclusion='本请求未完成；请查看失败原因与成员占用。'
         else:
             conclusion='当前为声明初态资格仿真；实际Action与收件决定任务结果。'
+        if standby:conclusion+=' 本方案待命：'+'、'.join(standby)+'。'
         line(.09,conclusion,10)
         line(.045,'关闭窗口不停止物理执行；几何代理不等于真实载荷质量。',10)
         self.figure.tight_layout()

@@ -1,3 +1,10 @@
+## 2026-09-24 UTC — 中文任务面板明示实际选择后的待命成员
+
+- 计划：普通完整能力请求的真实Plan选择AAV跨介质、UUV待命；先前画面只列执行活动，用户难以分辨“潜航器只是出现在场景里”和“实际参与协作”。只从现有任务权威Plan显示这一事实，不增加平台动作、业务限制或显示专属状态源。
+- 实际：原 `mission_dashboard.py::draw_water_cooperation`从PlanItem的真实物理`coalition`求选中成员，把未选中的三AAV/USV/UUV以短中文名称补在底部结论；无Plan时不把全部成员误写为已选择的待命。原动作、结果、收件、障碍与求解代码不变。
+- 结果：`python3 -m py_compile`与`git diff --check`通过；用先前正式普通Plan的`metrics.json`在同Noetic镜像直接调用原面板绘制函数，`experiments/20260924-dashboard-standby-render/ordinary-preview-panel.png`实际排版可读，底部明确写“本方案待命：无人机3、潜航器”。这是**录制状态静态重绘**，不是新的实时RViz/Action实跑；普通Plan本身的UUV待命事实由原`metrics.json`记录。显示增量不把UUV待命改成三类协同成功。
+- 依据/下一步：直接复用既有Plan的物理成员身份，区分参与和待命属于任务结果解释，不来自任意论文阈值。静态重绘命令在本机`experiments/20260924-dashboard-standby-render/render.py`；下一次真正有业务/预算资格的同次可视化运行时核实时刷新与Result，不为这行文字额外重复全套物理回归。
+
 ## 2026-09-24 UTC — 长规划待命后的海洋平台内部状态边界核查
 
 - 计划：当前 `joint_request` 用声明初态模型规划，长诊断预算期间真实 PVS 节点仍按待命动作推进；仅靠位置重合不能推出内部控制器状态相同。对当前原港口 REMUS 与 Otter，用同一Fossen/PVS模型比较初始与180模型秒无任务待命后的全状态及**同一已配置方法**的预测轨迹，不改任务或控制。

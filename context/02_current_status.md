@@ -1,5 +1,7 @@
 # 当前状态
 
+> **2026-09-24 实时面板解释增量**：`mission_dashboard.py`现直接从现有计划物理成员集合显示未选中平台的短中文“待命”说明，普通请求静态重绘已显示“无人机3、潜航器待命”；见`experiments/20260924-dashboard-standby-render/ordinary-preview-panel.png`。这是录制计划状态重绘，不是新ROS实时Action验收，更不代表UUV已参与普通请求。
+
 > **2026-09-24 普通完整能力请求最新预览**：当前原港口、原两区域业务请求和完整 `joint_request_executors.yaml`，正式同一ROS入口在180秒诊断预算下给出AAV2空中＋USV支援、AAV1跨介质水下/返回的三活动完整名义计划；UUV待命，评3候选但`search_complete=false`。终端输入`no`，零Goal/零锁；不能称新实跑。证据在`experiments/20260924-ordinary-full-preview-r1`及WORKLOG顶部。这复核了纯几何任务条件下UUV不一定被选中，最终代表请求若要求UUV特有结果需业务依据/用户决定，不能通过求解器奖励强迫出动。
 
 > **同日声明初态边界核对**：只读PVS按原场景待命180模型秒后，REMUS/Otter内部对象即使扣除时间与步数也不逐字相同；但从初始与该待命后状态查询当前两条有限合格路线，位置轨迹分别相同/数值差约`3.75e-16m`。证据`experiments/20260924-native-idle-equivalence/result.json`。这仅支持这两条方法的名义等价，不把位置当通用后继控制器状态，也不证明失联期间母船可获知该状态。
