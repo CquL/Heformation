@@ -1,3 +1,11 @@
+## 2026-09-23 UTC — Agent入口纠正过时USV/UUV及交付状态
+
+- 计划：防止项目入口仍把USV/UUV写成没有在线后端、把交付写成零延迟，误导后续按旧AAV阶段重做接口或把实际收件判据删回理想假设；只更新当前事实指引，不删除9月19日历史失败与来源。
+- 实际：`AGENT/AGENT.md`顶部增加基于`main@ace6565`及同次实时`joint-result-uplink-live-r1`证据的当前快照，明确Otter/REMUS在线**资格端点**、AAV有限跨介质方法、有限上下行和实际收件、360秒诊断/默认10秒失败、UUV待命与复查/在线修复未完成；把第2–6节标题改为“2026-09-19 历史”，其旧offline-only/零延迟/未推送语句不再当现行指令。七机/三机仅为控制回归。
+- 结果：入口现在将“当前可执行的AAV＋USV资格请求”和“尚未完成的最终三类平台任务”分开，历史文本原样保留。此为文档接线纠错，不产生新的ROS能力或实验通过；当前运行证据仍以WORKLOG/`context/02`/`context/15`和实际bag为准。
+- 证据：`AGENT/AGENT.md`顶部、`context/02_current_status.md`、`experiments/20260923-joint-result-uplink-live-r1/{metrics.json,safety-audit.json,control-audit.json}`及对应Action/PVS/有限传输源码。
+- 未完成／下一步：仍需用户对另建REMUS示范业务几何和初次规划预算政策的明确选择，才能接入真实UUV同请求/复查/在线修复并完成最终可视化验收；文档更新不替代这些动作。
+
 ## 2026-09-23 UTC — 新有限上下行版本在同次实时RViz／中文面板下取得全项资格正例
 
 - 计划：上一`joint-result-uplink-nogui-r2`已经在正式请求入口取得任务、有限控制事件与独立安全/时间全项正例，但用户最终要求是**实时可视化仿真**；必须让同一原生ROS执行过程同时驱动RViz和中文任务权威面板，不把无GUI bag回放当新验收。
