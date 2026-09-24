@@ -853,8 +853,17 @@ def test_joint_readiness_failure_preserves_original_reason(runner_module,tmp_pat
     assert set(runner.weights)=={'air_sample','water_sample'}
     runner.metrics['command_requests']={'one':{},'two':{}}
     runner.metrics['command_deliveries']={'one':{}}
+    runner.metrics['state_claim_requests']={'a':{},'b':{}}
+    runner.metrics['received_state_claims']={'a':{}}
+    runner.metrics['pending_retest']=['retest-overview-0']
+    runner.metrics['repair_wall_s']=3.4
+    runner.metrics['planning_started_monotonic']=10.
+    runner.metrics['planning_budget_s']=20.
     _,state=runner._save_executor_locked()
     assert state['command_progress']=={'requested':2,'delivered':1}
+    assert state['state_claim_progress']=={'requested':2,'received':1}
+    assert state['pending_retest']==['retest-overview-0'] and state['repair_wall_s']==3.4
+    assert (state['planning_started_monotonic'],state['planning_budget_s'])==(10.,20.)
 
 
 def test_joint_runner_rejects_mismatched_compiled_qn_source_before_planning(runner_module,tmp_path,monkeypatch):

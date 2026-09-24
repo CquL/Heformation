@@ -1,3 +1,12 @@
+## 2026-09-24 UTC — 实时可视化与最新任务状态同步；三类同次复跑PASS
+
+- 计划：答复“是否离线算完再可视化”：保留只读候选查询与真实执行的区别，核原RViz/中文面板是否从**同一ROS会话**的实际Odometry、Action、`MissionRunner.task_state`及`FiniteDelivery`收件更新。把新加入的复查、五成员有限状态回执和返回结果显示到原面板，避免最新代码只在metrics里、画面仍是旧任务。不开第二套可视化状态服务。
+- 修改：原runner精简`task_state`仅增加面板真实消费的`pending_retest/retest_completed/repair_source/repair_wall_s/return_completion`及状态请求/收件数量；原`mission_dashboard.py`将已选任务显示为“概览／水下样点／A/B/C区／复查…”，识别`RUNNING_RETEST`，在母船结果行显示有限状态回执x/y、在结项显示返回和复查，常见安全/收件失败改成短中文。初次规划阶段任务程序一次发布单调开始时刻和预算，面板按本机单调时钟绘制“已求解x/y秒、平台待命”，无需为UI增加规划心跳线程；该计时在下一次启动加载，此次已启动进程不追认。原RViz场景继续直接读五平台实际Odometry，视觉路径不是录包回放。
+- 同次实跑：`experiments/20260924-three-class-live-ui-sync-r1`在现有港口障碍和限定三类资格执行单元表、真实RViz＋中文面板下，180秒诊断规划后具体计划选AAV2 AIR、REMUS WATER、Otter两阶段支援；确认后五原生Goal/Result与终态通知、七有限下行命令/送达、两32KiB结果实收、规定返回、零锁，任务`PASS_GEOMETRIC_PROXY_QUALIFICATION`。同次独立五平台时间/场景/代理净距`passed=true,failures=[]`，3324个执行期对齐样本零缺，五平台代理最小净距0.593194m≥0.5m；同bag控制与产品因果`passed=true`。截图`rviz-live.png`、`dashboard-live.png`和收件中画面来自这次真正执行；终态截图抓取窗口时已经移动/关闭，未当证据引用。
+- 针对性验证：任务权威新增面板字段序列化的受影响测试通过，Python语法及`git diff --check`通过。该同次三类正例仍是**实验执行单元表排除AAV1水下备选**、180秒首轮诊断预算、几何观测代理；单AIR区域有限状态复查虽另有r4真正成功，不能把两个请求拼为最终全方法三类复查。四区域全方法实际区B有限回执/返程顺序断点仍在WORKLOG下一条，不能用最新画面掩盖它。
+- 排版复核：`experiments/20260924-dashboard-sync-render/{planning.png,repair-completed.png}`只用已保存任务权威和当前原面板源码离屏渲染，规划示例可见`45/180s`，复查结项可见`状态回执5/5`、两项业务与返回；它不是另一次真实Action。初次脚本未初始化rospy时调用`rospy.Time.now()`被ROS拒绝，改以仅用于渲染的宿主墙钟传参后成功，控制/任务源码未变；返回行原裸`drone_0`在面板内改为短中文`无人机1`。本轮三类真正实时截图仍是上一条列出的同次运行文件。
+- 代码/运行入口：`integration/qn_aav_simulator/scripts/{formation_mission_runner.py,mission_dashboard.py}`、`README.md`三类实时命令及本地实验目录；UI只读原任务权威和传输事实，不进入控制闭环。
+
 ## 2026-09-24 UTC — 四区域真实AAV2路线安全通过但区B有限回执晚到，完整请求仍FAIL
 
 - 计划：原A/B/C＋水下样点请求在预算内新选AAV2而非前次擦过待命AAV2的AAV1，保持完整方法表与原实体/机间安全阈值；实时RViz/中文面板实际执行，验证候选顺序不是只改变图表。

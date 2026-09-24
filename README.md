@@ -24,6 +24,10 @@ models/qn/qn.slx
 
 ## 五平台实时可视化仿真
 
+**当前可复现的效果（2026-09-24）**：推荐下面的“三类平台同次接线资格仿真”。RViz 在同一 ROS 会话实时显示三台 AAV、Otter USV、REMUS UUV、港口实体障碍和实际轨迹；中文面板同步显示选定活动、等待／运动阶段、母船收件和资源占用。已保存的同次运行中，AAV 完成 AIR 空中观测、UUV 完成 WATER 通过式样点观测、USV 预承诺等待后移动支援，两个 32 KiB 结果到母船，规定返回、Action 结果和独立时间／安全审计通过。**这是实际动力学和 Action 运行，不是先算完轨迹再播放。**在初次规划和终端确认之前，平台保持待命，所以画面会先静止约 180 秒。
+
+当前还有两条不同范围的证据：普通两区域请求可实际选择 AAV 入水并完成双结果，但 UUV 待命；单 AIR 区域可在真实缺测后根据五成员有限状态回执修复，UUV 也待命。把仓库原 A/B/C 空中区和水下样点并成四区域、保留 AAV 水下备选时，求解器已名义选择 UUV＋USV；**该完整请求实跑仍失败**：zone_B 的产品／终态因码头遮挡晚到，原分步返程必须先收到它们，zone_C 未开始。失败和下一步在 [当前状态](context/02_current_status.md) 与 [WORKLOG](docs/WORKLOG.md)，不能将几次不同请求的成功相加为最终通过。
+
 ### 三类平台同次接线资格仿真（AIR AAV＋REMUS＋移动 Otter）
 
 这条入口使用**原港口两区域请求**与原回收区。它只在本次资格配置中不提供 AAV 水下备选，用来验证三类平台的 Action、有限交付与实时画面；普通联合请求的完整能力和方法比较不受影响。在桌面终端运行，看到具体四活动计划后输入 `yes`：
@@ -34,7 +38,14 @@ bash scripts/docker_run_three_class_qualification.sh \
   "experiments/$(date -u +%Y%m%dT%H%M%SZ)-three-class-live"
 ```
 
-脚本使用当前主机的 CPU 核组和明确的 **180 秒诊断规划预算**，并只在本次运行期间暂停已证实会回拨 ROS 墙钟的宿主 `systemd-timesyncd`，正常退出或 Ctrl-C 时恢复原服务状态；需要本机非交互式 `sudo`。它不会修改 0.05 秒时间门槛或仿真模型。当前源码的[同次实时实跑](experiments/20260924-three-class-live-current-r1/metrics.json)已取得 AAV 空中、REMUS 原水下样点、移动 USV 支援、两份有限结果收件、规定返回、零锁以及独立五平台整场时间/安全和控制因果审计通过；[RViz 运行画面](experiments/20260924-three-class-live-current-r1/rviz-three-class-running.png)和[中文任务面板](experiments/20260924-three-class-live-current-r1/dashboard-three-class-running.png)来自同一次运行。边界见 [当前状态](context/02_current_status.md) 和 [WORKLOG](docs/WORKLOG.md)。本资格入口不证明普通完整能力请求会选 UUV、严格 10 秒首轮求解或该三类请求已触发复查。RViz 的 Views 面板可选“潜航器全程”查看远端长回环，默认“港口总览”保留码头细节。
+若本机还没有 `swarm-formation-qn:joint-wip` 镜像，先在仓库根目录构建一次：
+
+```bash
+docker build -t swarm-formation-upstream:noetic upstream/Swarm-Formation
+docker build -f docker/Dockerfile.qn -t swarm-formation-qn:joint-wip .
+```
+
+脚本使用当前主机的 CPU 核组和明确的 **180 秒诊断规划预算**，并只在本次运行期间暂停已证实会回拨 ROS 墙钟的宿主 `systemd-timesyncd`，正常退出或 Ctrl-C 时恢复原服务状态；需要本机非交互式 `sudo`。它不会修改 0.05 秒时间门槛或仿真模型。最近一次同次实时实跑由 AAV2 完成 AIR 概览、REMUS 完成原水下样点、移动 Otter 支援；两份有限结果收件、规定返回、零锁及独立五平台整场时间/安全和控制因果审计均通过（3324 个执行期对齐样本零缺）。本机证据位于 `experiments/20260924-three-class-live-ui-sync-r1/`，含任务结果、bag、审计、`rviz-live.png`和`dashboard-live.png`；大型实验产物不进入Git。面板现用短中文显示“概览／水下样点”、实际动作及收件；下次启动还会显示规划已用时间、复查与状态回执进度。边界见 [当前状态](context/02_current_status.md) 和 [WORKLOG](docs/WORKLOG.md)。本资格入口不证明普通完整能力请求会选 UUV、严格 10 秒首轮求解或该三类请求已触发复查。RViz 的 Views 面板可选“潜航器全程”查看远端长回环，默认“港口总览”保留码头细节。
 
 本机装有 NVIDIA Container Toolkit 时，可在上述命令前加 `JOINT_GPU_RENDER=true` 让 **RViz 图形渲染**使用 GPU；不加仍采用原软件渲染。它不把任务求解、qn 或 PVS 动力学迁移到 GPU。一次正式普通请求的180秒**仅预览**实验核对到 `nvidia-smi` 中 RViz 为图形进程且产生完整计划；随后同GPU入口准备实跑的一次规划却到期、零Goal。GPU开关不提供10秒或180秒求解成功保证，成败与边界见WORKLOG。
 

@@ -560,7 +560,15 @@ class MissionDashboard:
             parts=executor.split('_')
             if len(parts)>1 and parts[0]=='aav' and parts[1].isdigit():
                 return '无人机'+parts[1]
+            if len(parts)==2 and parts[0]=='drone' and parts[1].isdigit():
+                return '无人机'+str(int(parts[1])+1)
             return {'uuv':'潜航器','usv':'无人船'}.get(executor,executor)
+        def task_name(identifier):
+            key=identifier.split('::')[-1]
+            if key.startswith('retest-'):
+                return '复查'+task_name(key[len('retest-'):].rsplit('-',1)[0])
+            return {'overview':'概览','seabed_samples':'水下样点',
+                    'zone_A':'A区','zone_B':'B区','zone_C':'C区'}.get(key,key[:12])
         rows=(state.get('plan') or {}).get('items',[])
         selected_members={member for row in rows for member in row.get('coalition',())}
         standby=[name for member,name in (('drone_0','无人机1'),('drone_1','无人机2'),
@@ -575,6 +583,7 @@ class MissionDashboard:
         names={'PLANNING':'正在比较候选计划','PLANNING_DIAGNOSTIC':'隔离诊断：正在比较候选',
                'AWAITING_CONFIRMATION':'等待终端确认，尚未派发',
                'RUNNING':'协作执行中','RUNNING_DIAGNOSTIC':'同请求诊断执行中',
+               'RUNNING_RETEST':'缺测报告已收，复查执行中',
                'PASS_JOINT_NO_RETURN_DIAGNOSTIC':'空中／水下交付完成（无返回诊断）',
                'PASS_AAV_CROSS_MEDIUM_DIAGNOSTIC':'跨介质观测与返回完成（诊断）',
                'PASS_GEOMETRIC_PROXY_QUALIFICATION':'规定作业、收件与返回完成（几何代理）',
@@ -589,8 +598,13 @@ class MissionDashboard:
         line(1.,title,18)
         status=state.get('status','STANDBY')
         line(.93,names.get(status,'等待任务程序'),14)
-        age=now-state.get('updated_at_ros_s',now)
-        line(.875,'任务记录年龄 {:.1f}s · 当前计划 {} 项活动'.format(age,len(rows)),10)
+        if status in ('PLANNING','PLANNING_DIAGNOSTIC') and 'planning_started_monotonic' in state:
+            elapsed=max(0.,time.monotonic()-state['planning_started_monotonic'])
+            line(.875,'正在求解 {:.0f}/{:.0f}s · 平台按本地参考待命'.format(
+                elapsed,state['planning_budget_s']),10)
+        else:
+            age=now-state.get('updated_at_ros_s',now)
+            line(.875,'任务记录年龄 {:.1f}s · 当前计划 {} 项活动'.format(age,len(rows)),10)
         statuses={'PLANNED':'等待派发','RUNNING':'执行中','COMPLETED':'动作完成',
                   'UNKNOWN_LOCKED':'未知，保持锁定','FAILED':'失败'}
         phases={'PREPARING':'正在预装载','PREPARED':'等待共同启动','AIR_MOVE':'空中转场',
@@ -612,8 +626,9 @@ class MissionDashboard:
             native=steps[0].get('native_action') if steps else None
             wait=0. if native is None else native.get('terminal_wait_s',0.)
             detail=(' · 交付等待{:.1f}s'.format(wait) if wait else '')
-            line(.81-index*.06,'{} · {}  {}  {:.0f}–{:.0f}s{}'.format(
-                member,role,label,row['planned_start'],row['planned_finish'],detail),11)
+            line(.81-index*.06,'{} · {} / {}  {}  {:.0f}–{:.0f}s{}'.format(
+                member,task_name(row['task_id']),role,label,
+                row['planned_start'],row['planned_finish'],detail),11)
         if len(rows)>6:line(.45,'另有 {} 项活动；完整记录见任务结果'.format(len(rows)-6),10)
         if not rows:line(.79,'正在规划；确认前不派发',12)
         locks=state.get('resource_locks',[])
@@ -621,8 +636,12 @@ class MissionDashboard:
         commands=state.get('command_progress',{})
         command_status=(' · 指令已达 {}/{}'.format(commands['delivered'],commands['requested'])
                         if commands.get('requested') else '')
-        line(.38,'母船结果 {:.0%} · 业务 {} 项{}'.format(
-            state.get('delivered_fraction',0.),len(state.get('results_received',[])),command_status),12)
+        claims=state.get('state_claim_progress',{})
+        claim_status=(' · 状态回执 {}/{}'.format(claims['received'],claims['requested'])
+                      if claims.get('requested') else '')
+        line(.38,'母船结果 {:.0%} · 业务 {} 项{}{}'.format(
+            state.get('delivered_fraction',0.),len(state.get('results_received',[])),
+            command_status,claim_status),11)
         line(.32,'传输过程（独立仿真视图，不作为任务完成判定）',11)
         if not progress or now-progress.get('at_ros_s',0.)>2.:
             detail='传输状态缺失／过期，不能推断接收进度'
@@ -641,7 +660,12 @@ class MissionDashboard:
                 reason='协同作业启动早于支援启动，后续派发已阻断'
             for code,label in (('NATIVE_STATE_CHANGED_DURING_QUERY','运动预检期间本机状态改变'),
                                ('NATIVE_STATE_CHANGED_SINCE_PREPARATION','预装后本机状态改变'),
-                               ('NATIVE_PREPARATION_NOT_QUALIFIED','本机预装缺少运动资格')):
+                               ('NATIVE_PREPARATION_NOT_QUALIFIED','本机预装缺少运动资格'),
+                               ('fleet inter-agent clearance violated','实际机间净距越限，动作中止'),
+                               ('Action terminal notice not received through finite link; keep member reserved',
+                                '动作终态通知未按有限链路到母船，成员保持占用'),
+                               ('finite state claim missing before repair deadline; no new Goal',
+                                '复查状态回执逾期，未派新动作')):
                 reason=reason.replace(code,label)
             timing=re.fullmatch(
                 r'endpoint not ready: (\S+): time baseline not qualified: model/ROS drift ([0-9.]+) s exceeds ([0-9.]+) s',
@@ -659,7 +683,9 @@ class MissionDashboard:
         else:
             line(.16,'实际收件与 Action 结果分别判断。',10)
         if status=='PASS_GEOMETRIC_PROXY_QUALIFICATION':
-            conclusion='规定作业、实际收件与参与成员返回已完成；复查以任务记录为准。'
+            conclusion=('规定作业、实际收件与参与成员返回已完成；本轮复查完成。'
+                        if state.get('retest_completed') else
+                        '规定作业、实际收件与参与成员返回已完成；复查以任务记录为准。')
         elif status in ('FAILED','FAIL','UNKNOWN_LOCKED'):
             conclusion='本请求未完成；请查看失败原因与成员占用。'
         else:

@@ -708,10 +708,19 @@ class MissionRunner:
         state["current_action"] = self.metrics.get("current_action")
         state["current_actions"] = self.metrics.get("current_actions", {})
         state["safety_disposition"] = self.metrics.get("safety_disposition")
+        for key in ('pending_retest','retest_completed','repair_source','repair_wall_s','return_completion'):
+            if key in self.metrics:state[key]=self.metrics[key]
         if 'command_requests' in self.metrics:
             state['command_progress']={
                 'requested':len(self.metrics['command_requests']),
                 'delivered':len(self.metrics['command_deliveries'])}
+        if 'state_claim_requests' in self.metrics:
+            state['state_claim_progress']={
+                'requested':len(self.metrics['state_claim_requests']),
+                'received':len(self.metrics['received_state_claims'])}
+        if 'planning_started_monotonic' in self.metrics:
+            state['planning_started_monotonic']=self.metrics['planning_started_monotonic']
+            state['planning_budget_s']=self.metrics['planning_budget_s']
         import copy
         return copy.deepcopy(self.metrics),copy.deepcopy(state)
 
@@ -1656,9 +1665,10 @@ class MissionRunner:
                 {unit.executor_id:1. for unit in units},native_models=models,native_efforts=efforts)
             self.metrics['status']='PLANNING_DIAGNOSTIC'
             self.metrics['planning_budget_s']=float(rospy.get_param('~planning_budget_s',10.))
+            began=time.monotonic()
+            self.metrics['planning_started_monotonic']=began
             self.metrics['qualification_scope']='DECLARED_INITIAL_MODEL_AND_ACTUAL_POSITION_CHECK'
             self._save_executor()
-            began=time.monotonic()
             try:
                 self.plan,tasks=build_request_executor_plan(self.request,scene,units,provider,states,
                     budget_s=self.metrics['planning_budget_s'])
