@@ -65,3 +65,15 @@ def test_parallel_result_keeps_other_running_commitments_and_repairs_successor()
     assert plan.items[0].status=='RUNNING'
     duplicate,changed=process_executor_completion(updated,event,events)
     assert duplicate is updated and not changed
+
+
+def test_parallel_delay_does_not_shift_an_unrelated_unstarted_platform():
+    air=ExecutorPlanItem('air-work','air','aav',('drone_0',),0.,2.,0.,0.,2.,'RUNNING')
+    water=ExecutorPlanItem('water-work','water','uuv',('uuv',),0.,10.,0.,0.,10.)
+    follow=ExecutorPlanItem('air-follow','follow','aav',('drone_0',),2.,4.,0.,0.,2.)
+    plan=ExecutorPlan([air,water,follow],serial=False,precedence_edges=(('air','follow'),))
+    updated,changed=process_executor_completion(plan,
+        DelayEvent('air-goal','air-work','air',2.,3.),{})
+    assert changed
+    assert updated.items[1].planned_start==0. and updated.items[1].planned_finish==10.
+    assert updated.items[2].planned_start==3. and updated.items[2].planned_finish==5.

@@ -1,3 +1,11 @@
+## 2026-09-23 UTC — 并行计划收到Result后的无关资源不再被旧串行规则推迟
+
+- 计划：沿用户的统一模型查执行反馈是否真正保留异构平台并行；不能把“所有平台共享一条全局串行钟”冒充协同修复。只更正现有`process_executor_completion()`里已核实的先后关系错误，不扩大成新调度框架或宣称完整在线方法重选。机制依据为[APEX-MR论文](https://arxiv.org/html/2503.15836v2)的实际依赖/部分顺序执行关系及[Calvo动态任务分配论文](https://arxiv.org/html/2411.02062v3)的执行反馈修复；本项目的具体成员资源和Plan边仍以当前源码为准，不继承论文的机器人/最优性假设。
+- 实际：`integration/mrta_python/repair.py::process_executor_completion`原在`serial=False`分支对**每个**未派发活动都取`max(planned_start, event.actual_finish, member_availability, predecessors)`；这会让不共享成员、无前置的UUV任务等无条件等待迟到AAV Result。现仅删除这一处非串行的全局`event.actual_finish`，继续由现有物理成员可用时刻和`activity_predecessors()`的实际完成事实限制受影响后继；已接受/运行中活动与旧Result幂等/锁定语义不变。串行分支继续按原规则整体释放。新增一个AAV迟到而UUV独立待派、另有AAV后继的确定性反例：UUV保持0–10、AAV后继从2–4改为3–5。规划/候选/runner相关76项通过。
+- 结果：这修的是**时间传播错误**，有助于当前并行联合Plan保持真实独立性；它不重新查询改变后的运动状态、不改分配/方法、不重建在线qn/PVS控制器状态，因此仍不能称D-ITAGS式受影响方法重搜或完整反馈修复。现有已通过的AAV+USV请求本身无这类待派发独立UUV作业，本次没有为此重跑无关动力学回归。
+- 证据：上述两份源码/测试`test_planning_contracts.py::test_parallel_delay_does_not_shift_an_unrelated_unstarted_platform`；`docs/reviews/source-and-assumption-audit-20260923.md`此前记录的活动边、实际Result释放与在线状态缺口。
+- 未完成／下一步：从实际可接收的完整平台状态重新评价**未承诺**方法/支援和执行偏差，仍须建立真实运动资格与收件证据；UUV原港口回区方法、获准示范几何、缺测触发一次复查及10秒正式求解未完成。不能用本次确定性时序测试替代同次五平台三类业务实跑。
+
 ## 2026-09-23 UTC — 原港口REMUS样点与部署区的有限航向／回程只读核查
 
 - 计划：在未获准另建示范业务几何前，不移动原`water_sample=(0,8,-2)`、原REMUS部署/回区`(-5,8,-2)`或0.805621m半径。前一朝东路线约24s撞东栈桥；原Fossen/PVS构造器本来支持有限初始航向，故在原障碍/原控制器/500rpm下检查是否可仅调整部署航向及少量有几何依据的回程接近点，减少对新业务样点的依赖。

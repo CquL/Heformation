@@ -114,11 +114,12 @@ def process_completion(plan: Plan, event: DelayEvent,
 
 
 def process_executor_completion(plan, event, final_events):
-    """Apply a received result to the existing globally serial Executor plan.
+    """Apply one received Result without changing independent commitments.
 
-    Same result identity rules as the fixed-coalition path. Every later item,
-    including a disjoint unit, is released after this completion. Allocation is
-    unchanged; the caller may refresh travel estimates from actual member state.
+    Same result identity rules as the fixed-coalition path. A serial plan
+    releases later items in order; a parallel plan propagates only physical
+    member availability and declared predecessor completion. Allocation is
+    unchanged; the caller may re-query motion from actual member state.
     """
     from .executors import ExecutorPlan,activity_predecessors
     if not isinstance(plan, ExecutorPlan):
@@ -158,7 +159,7 @@ def process_executor_completion(plan, event, final_events):
                 continue
             if not predecessors[successor.execution_id]<=finishes.keys():
                 raise ValueError('repair input is not in valid predecessor order')
-            start=max(successor.planned_start,event.actual_finish,
+            start=max(successor.planned_start,
                       max((available.get(m,0.) for m in successor.coalition),default=0.),
                       max((finishes[p] for p in predecessors[successor.execution_id]),default=0.))
             finish=start+successor.travel_time+successor.wait_time+successor.service_time
