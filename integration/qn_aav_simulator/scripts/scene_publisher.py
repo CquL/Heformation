@@ -113,6 +113,11 @@ class SceneTransport:
                         ('task_completed','terminal_verified','resource_locked')) or
                     not isinstance(event['reason'],str)):
                 raise ValueError('invalid Action terminal notice')
+            digest=event.get('terminal_state_digest')
+            if action_terminal and digest is not None and (
+                    not isinstance(digest,str) or len(digest)!=64 or
+                    any(char not in '0123456789abcdef' for char in digest)):
+                raise ValueError('invalid native terminal state digest')
             if (not isinstance(ident,str) or not ident or event['producer']!=member or
                     event['request_id']!=self.request.request_id or
                     (not terminal and not action_terminal and (event['point_id'] not in points or

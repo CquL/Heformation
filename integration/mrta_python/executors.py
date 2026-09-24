@@ -14,6 +14,7 @@ completion/repair semantics ported for the fixed coalition (``process_completion
 from __future__ import annotations
 
 import math
+import hashlib
 import random
 import os
 import pickle
@@ -525,6 +526,8 @@ class ExecutorTravelTimeProvider:
                 alternatives.append(ExecutionCandidate(name,(),{},status=query['status'],reason=query['reason']))
                 continue
             summary={k:v for k,v in query.items() if k not in ('terminal_backend','trajectory','source_fingerprint','settled_model_time_s','terminal_wait_s')}
+            summary['terminal_state_digest']=hashlib.sha256(
+                query['terminal_backend'].execution_state_bytes()).hexdigest()
             summary['pre_execution_idle_s']=idle
             terminal=dict(position=query['terminal_position'],mode=query['terminal_mode'],native_backend=query['terminal_backend'])
             alternatives.append(ExecutionCandidate(name,
@@ -732,6 +735,8 @@ class ExecutorTravelTimeProvider:
                 if received['status']!='FEASIBLE':
                     yield ExecutionCandidate(name+'-no-receipt',(),{},status=received['status'],reason=received['reason']);continue
                 support_summary={k:v for k,v in support_query.items() if k not in ('terminal_backend','trajectory','source_fingerprint')}
+                support_summary['terminal_state_digest']=hashlib.sha256(
+                    support_query['terminal_backend'].execution_state_bytes()).hexdigest()
                 support_summary['pre_execution_idle_s']=0.
                 support_step=ExecutionStep(support.executor_id,support_duration,task.target_ref,
                     support_action,native_prediction=support_summary)
@@ -1112,6 +1117,8 @@ class ExecutorTravelTimeProvider:
             for executor,route,query in evaluated:
                 member=executor.physical_agent_ids[0];duration=query['duration_s']
                 summary={k:v for k,v in query.items() if k not in ('terminal_backend','trajectory','source_fingerprint','settled_model_time_s','terminal_wait_s')}
+                summary['terminal_state_digest']=hashlib.sha256(
+                    query['terminal_backend'].execution_state_bytes()).hexdigest()
                 summary['nominal_receipt_finish_s']=receipt['receipt_finish_s']
                 summary['receipt_prediction_basis']='provided model trace and nominal event identity'
                 summary['joint_participant_motion_checked']=True

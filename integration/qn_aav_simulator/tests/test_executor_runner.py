@@ -191,6 +191,8 @@ def test_native_success_waits_for_same_goal_product_after_result(runner_module,t
     runner,item,_,result=native_setup(runner_module,tmp_path)
     action=replace(item.native_action,observation_ids=('water_sample',),execution_timeout_s=.5)
     runner.metrics['received_products']={}
+    runner.metrics['received_terminal_reports']={result.goal_id:dict(
+        point_ids=['water_sample'],observed_ids=['water_sample'])}
     def deliver():
         time.sleep(.08)
         with runner.executor_mutex:
@@ -253,6 +255,102 @@ def test_air_report_and_product_follow_same_mother_receipt_gate(runner_module,tm
     runner._on_received_product(SimpleNamespace(data=json.dumps(event)))
     assert runner.coverage.delivered_fraction({'air_sample':1.})==1.
     assert unit.executor_id in runner.active_executor_ids
+
+
+def test_mother_rejects_product_report_contradictions_in_either_arrival_order(runner_module,tmp_path,monkeypatch):
+    from qn_aav_simulator.observation_coverage import CoverageResult
+    monkeypatch.setattr(runner_module.rospy,'logerr_throttle',lambda *args:None,raising=False)
+    def setup():
+        runner=make_runner(runner_module,tmp_path)
+        runner.request=load_request(Path(__file__).parents[1]/'config/monitoring_request_joint.yaml')
+        unit=runner.routing['aav_1']
+        item=ExecutorPlanItem('air-e','air-t',unit.executor_id,unit.physical_agent_ids,0.,6.,2.,0.,4.,
+            status='RUNNING',execution_steps=(ExecutionStep(unit.executor_id,6.,'overview',service_time_s=4.,
+                observation_ids=('air_sample',)),))
+        runner.plan=ExecutorPlan([item]);runner.condition=threading.Condition()
+        runner.goal_ids={item.execution_id:{'air-goal'}}
+        runner.coverage=CoverageResult()
+        runner.metrics.update(received_products={},received_terminal_reports={})
+        return runner
+    report=dict(event_type='OBSERVATION_TERMINAL',product_id='air-goal:terminal',
+        request_id='nearshore-joint-20260920',goal_id='air-goal',producer='drone_0',
+        point_ids=['air_sample'],observed_ids=[],generated_at=100.,received_at=101.)
+    product=dict(product_id='air-goal:air_sample',request_id=report['request_id'],
+        point_id='air_sample',producer='drone_0',goal_id='air-goal',observed=True,
+        required_bytes=32768,generated_at=100.,received_at=102.,
+        result=dict(model='GEOMETRIC_PROXY',dwell_s=1.))
+    first=setup()
+    first._on_received_notification(SimpleNamespace(data=json.dumps(report)))
+    first._on_received_product(SimpleNamespace(data=json.dumps(product)))
+    assert not first.metrics['received_products']
+    second=setup()
+    second._on_received_product(SimpleNamespace(data=json.dumps(product)))
+    second._on_received_notification(SimpleNamespace(data=json.dumps(report)))
+    assert not second.metrics['received_terminal_reports']
+
+
+def test_partial_terminal_waits_for_its_positive_product(runner_module,tmp_path,monkeypatch):
+    runner=make_runner(runner_module,tmp_path)
+    monkeypatch.setattr(runner_module.rospy,'is_shutdown',lambda:False,raising=False)
+    runner.metrics.update(received_products={},received_terminal_reports={
+        'goal':dict(point_ids=['a','b'],observed_ids=['a'])})
+    with pytest.raises(RuntimeError,match='observed products or terminal report not received'):
+        runner._wait_observation_receipt('goal',('a','b'),0.)
+    runner.metrics['received_products']['a']=dict(goal_id='goal',point_id='a',observed=True)
+    runner._wait_observation_receipt('goal',('a','b'),.1)
+    runner.metrics['received_products']['b']=dict(goal_id='goal',point_id='b',observed=True)
+    with pytest.raises(RuntimeError,match='conflicts with received products'):
+        runner._wait_observation_receipt('goal',('a','b'),.1)
+
+
+def test_air_missing_report_does_not_turn_geometric_opportunity_into_observation(runner_module,tmp_path,monkeypatch):
+    from qn_aav_simulator import observation_coverage as coverage_module
+    from qn_aav_simulator.observation_coverage import CoverageResult,PointObservation
+    runner=make_runner(runner_module,tmp_path)
+    runner.finite_delivery=True;runner.obstacles=[]
+    runner.points={'a':(-28.,4.,0.),'b':(-28.,4.,0.)}
+    runner.coverage=CoverageResult()
+    runner.observation_tasks={'task':SimpleNamespace(covers=('a','b'))}
+    runner.metrics.update(received_products={'a':dict(goal_id='goal',point_id='a',observed=True)},
+        received_terminal_reports={'goal':dict(point_ids=['a','b'],observed_ids=['a'])})
+    unit=runner.routing['aav_1']
+    item=ExecutorPlanItem('work','task',unit.executor_id,unit.physical_agent_ids,
+        0.,6.,2.,0.,4.,execution_steps=(ExecutionStep(unit.executor_id,6.,'area',
+            service_time_s=4.,observation_ids=('a','b')),))
+    monkeypatch.setattr(coverage_module,'evaluate_coverage',lambda *args,**kwargs:CoverageResult(points={
+        point:PointObservation(point,True,'drone_0',1.1,'geometry alone would suffice')
+        for point in ('a','b')}))
+    evidence=dict(goal_id='goal',successful_hold_window=dict(start=0.,end=1.),
+                  sample_timeout_s=.25,member_samples={})
+    runner._receive_observations(item,evidence)
+    assert runner.coverage.points['a'].observed
+    assert not runner.coverage.points['b'].observed
+    assert runner.coverage.observed_fraction({'a':1.,'b':1.})==.5
+    runner.metrics['received_terminal_reports']['goal']['observed_ids']=['a','b']
+    with pytest.raises(RuntimeError,match='conflicts with qn evidence'):
+        runner._receive_observations(item,evidence)
+
+
+def test_invalid_air_report_keeps_plan_item_uncommitted(runner_module,tmp_path):
+    runner=make_runner(runner_module,tmp_path)
+    unit=runner.routing['aav_1']
+    step=ExecutionStep(unit.executor_id,6.,'overview',service_time_s=4.,observation_ids=('air_sample',))
+    item=ExecutorPlanItem('air-e','air-t',unit.executor_id,unit.physical_agent_ids,
+        0.,6.,2.,0.,4.,status='RUNNING',execution_steps=(step,))
+    runner.plan=ExecutorPlan([item]);runner.active_executor_ids={unit.executor_id}
+    (tmp_path/'evidence.json').write_text(json.dumps(dict(goal_id='air-goal',
+        accepted_for_dispatch=True,resource_released=True)))
+    runner._release_result_ok=lambda *args:True
+    runner.native_result=lambda ident:('air-goal',SimpleNamespace(status=SimpleNamespace(status=3)))
+    def reject(*args):raise RuntimeError('local report conflicts with actual qn evidence')
+    runner._receive_observations=reject
+    result=SimpleNamespace(goal_id='air-goal',evidence_file='evidence.json',
+                           actual_finish_time=SimpleNamespace(to_sec=lambda:1.))
+    with pytest.raises(RuntimeError,match='local report conflicts'):
+        runner._commit_executor_result(item,unit,3,result)
+    assert runner.plan.item(item.execution_id).status=='RUNNING'
+    assert runner.active_executor_ids=={unit.executor_id}
+    assert not runner.metrics['results_received']
 
 
 def test_air_work_waits_for_usv_action_start_and_releases_group_together(runner_module,tmp_path):
@@ -475,6 +573,42 @@ def test_composite_negative_observation_report_continues_verified_return(runner_
     assert runner.metrics['results_received']==[item.task_id]
 
 
+def test_composite_air_missing_report_finishes_return_without_fake_delivery(runner_module,tmp_path):
+    runner=make_runner(runner_module,tmp_path)
+    runner.request=load_request(Path(__file__).parents[1]/'config/monitoring_request_joint.yaml')
+    runner.finite_delivery=True;runner.epoch=-200.
+    unit=runner.routing['aav_1']
+    observe=ExecutionStep(unit.executor_id,6.,'overview',service_time_s=4.,
+                          observation_ids=('air_sample',))
+    return_home=ExecutionStep(unit.executor_id,5.,'return:drone_0')
+    item=ExecutorPlanItem('air-e','air-t',unit.executor_id,unit.physical_agent_ids,
+        0.,11.,7.,0.,4.,status='RUNNING',execution_steps=(observe,return_home))
+    runner.plan=ExecutorPlan([item])
+    runner.observation_tasks={item.task_id:object()}
+    runner.server_nodes={unit.executor_id:'/aav_1_action_server'}
+    runner.metrics.update(received_products={},received_terminal_reports={})
+    runner._executor_goal=lambda view,selected:SimpleNamespace(task_id=view.execution_id,
+                                                               observation_ids=view.execution_steps[0].observation_ids)
+    runner._release_result_ok=lambda *args:True
+    runner._receive_observations=lambda *args:None
+    runner.native_result=lambda ident:(ident+'-goal',SimpleNamespace(status=SimpleNamespace(status=3)))
+    def send(view,selected,goal,action):
+        ident=view.execution_id+'-goal'
+        file_name=view.execution_id.replace(':','_')+'.json'
+        (tmp_path/file_name).write_text(json.dumps(dict(goal_id=ident,
+            accepted_for_dispatch=True,resource_released=True)))
+        if view.execution_steps[0].observation_ids:
+            runner.metrics['received_terminal_reports'][ident]=dict(
+                point_ids=['air_sample'],observed_ids=[])
+        return 3,SimpleNamespace(goal_id=ident,evidence_file=file_name)
+    runner._send_executor_goal=send
+    runner._dispatch_executor_item(item,reserved=True)
+    assert runner.metrics['executions'][-1]['result']=='OBSERVATION_MISSING'
+    assert runner.plan.item(item.execution_id).status=='COMPLETED'
+    assert not runner.active_executor_ids
+    assert not runner.metrics['received_products']
+
+
 def test_slow_dashboard_publication_does_not_hold_execution_lock(runner_module,tmp_path,monkeypatch):
     runner=make_runner(runner_module,tmp_path)
     runner.executor_write_mutex=threading.Lock()
@@ -503,11 +637,14 @@ def test_composite_observation_checks_receipt_for_each_native_goal_before_releas
     step=replace(step,native_action=replace(step.native_action,
         observation_ids=('water_sample',),execution_timeout_s=.05))
     item.execution_steps=(step,step);item.travel_time=130.;item.planned_finish=130.
-    runner.observation_tasks={item.task_id:object()};runner.metrics['received_products']={};runner.epoch=-200.
+    runner.observation_tasks={item.task_id:object()};runner.metrics['received_products']={}
+    runner.metrics['received_terminal_reports']={};runner.epoch=-200.
     runner._executor_goal=lambda view,unit:SimpleNamespace(task_id=view.execution_id)
     runner.native_result=lambda ident:(ident+'-goal',SimpleNamespace(status=SimpleNamespace(status=3)))
     def send(view,*args):
         native=SimpleNamespace(**dict(vars(result),task_id=view.execution_id,goal_id=view.execution_id+'-goal'))
+        runner.metrics['received_terminal_reports'][native.goal_id]=dict(
+            point_ids=['water_sample'],observed_ids=['water_sample'])
         if delivered:
             runner.metrics['received_products'][view.execution_id]=dict(goal_id=native.goal_id,point_id='water_sample',observed=True)
         return 3,native
@@ -516,7 +653,7 @@ def test_composite_observation_checks_receipt_for_each_native_goal_before_releas
         runner._dispatch_executor_item(item,reserved=True)
         assert not runner.active_executor_ids and runner.plan.items[0].status=='COMPLETED'
     else:
-        with pytest.raises(RuntimeError,match='required products or negative report not received'):
+        with pytest.raises(RuntimeError,match='observed products or terminal report not received'):
             runner._dispatch_executor_item(item,reserved=True)
         assert runner.active_executor_ids=={unit.executor_id} and item.status=='RUNNING'
 
@@ -657,6 +794,25 @@ def test_action_result_requires_matching_finite_terminal_notice(runner_module,tm
     runner._wait_action_terminal_receipt('actual-goal',(member,),3,1.)
     with pytest.raises(RuntimeError,match='disagrees'):
         runner._wait_action_terminal_receipt('actual-goal',(member,),4,1.)
+
+
+@pytest.mark.parametrize('reported,matched',[('a'*64,True),('b'*64,False)])
+def test_received_native_terminal_state_checks_selected_prediction(runner_module,tmp_path,reported,matched):
+    from qn_aav_simulator.observation_coverage import action_terminal_event
+    runner,item,unit,_=native_setup(runner_module,tmp_path)
+    item.execution_steps[0].native_prediction['terminal_state_digest']='a'*64
+    runner.plan.validation_scope='NOMINAL_COMPLETE_PLAN_MOTION_AND_CAPACITY'
+    runner.condition=threading.Condition()
+    runner.goal_ids={item.execution_id:{'native-goal'}}
+    runner.metrics['received_action_results']={}
+    event=action_terminal_event(runner.request,'native-goal','uuv',0.,
+        'SUCCEEDED',True,True,False,'native terminal')
+    event.update(received_at=.1,terminal_state_digest=reported)
+    runner._record_action_terminal(event)
+    saved=runner.metrics['received_action_results']['native-goal']['uuv']
+    assert saved['nominal_terminal_state_match'] is matched
+    assert runner.plan.validation_scope==('NOMINAL_COMPLETE_PLAN_MOTION_AND_CAPACITY' if matched
+        else 'EXECUTION_ENTRY_REQUALIFICATION_REQUIRED')
 
 
 def test_joint_readiness_failure_preserves_original_reason(runner_module,tmp_path):

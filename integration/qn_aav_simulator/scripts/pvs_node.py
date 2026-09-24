@@ -10,7 +10,7 @@ import threading
 import time
 import copy
 import json
-import pickle
+import hashlib
 import actionlib
 import rospy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
@@ -20,16 +20,6 @@ from qn_aav_simulator.msg import PlatformTaskAction, PlatformTaskFeedback, Platf
 from qn_aav_simulator.pvs_backend import PvsBackend,advance_path_target,NATIVE_START_TOLERANCE_M
 from qn_aav_simulator.experiment_verdict import StaticSceneGeometry
 from mrta_python.executors import ExecutorTravelTimeProvider,bounded_travel_query
-
-
-def _native_state_signature(backend):
-    """Controller/plant/actuator state used by a future native reference.
-
-    The native model clock and step count change during an otherwise exact
-    idle fixed point; all state that can affect the next motion stays here.
-    """
-    return pickle.dumps({key:value for key,value in vars(backend).items()
-                         if key not in ('time_s','steps')},protocol=4)
 
 
 class PvsNode:
@@ -160,7 +150,7 @@ class PvsNode:
                 token=dict(handle=handle,id=ident,task=goal.task_id,paths=paths,efforts=efforts,
                     durations=durations,timeout=timeout,
                     generation=self.generation,backend=backend_snapshot,
-                    state_signature=_native_state_signature(backend_snapshot),
+                    state_signature=backend_snapshot.execution_state_bytes(),
                     deadline=query_deadline,prepare_only=bool(getattr(goal,'prepare_only',False)),observations=observations,
                     terminal_wait_s=terminal_wait_s)
                 self.pending=token
@@ -187,7 +177,7 @@ class PvsNode:
             prediction=bounded_travel_query(ExecutorTravelTimeProvider.query_native_fragment,
                 (token['backend'],token['paths'],token['efforts'],self.scene,token['deadline'],
                  self.dt,self.speed_limit,self.hold_seconds+token['terminal_wait_s'],token['timeout'],
-                 False,0.,None,token['durations']),token['deadline'])
+                 True,0.,None,token['durations']),token['deadline'])
         except Exception as exc:
             prediction=dict(status='UNKNOWN',reason=str(exc))
         # Same order as actionlib goal/cancel callbacks; never model->actionlib.
@@ -196,11 +186,15 @@ class PvsNode:
             self.pending=None
             self.last_prediction={k:v for k,v in prediction.items() if k not in ('trajectory','terminal_backend','source_fingerprint','settled_model_time_s','terminal_wait_s')}
             self.last_prediction['goal_id']=token['id']
+            self.last_prediction['qualified_entry_state_digest']=hashlib.sha256(token['state_signature']).hexdigest()
+            if prediction.get('status')=='FEASIBLE' and prediction.get('terminal_backend') is not None:
+                self.last_prediction['predicted_terminal_state_digest']=hashlib.sha256(
+                    prediction['terminal_backend'].execution_state_bytes()).hexdigest()
             state=self.backend.snapshot()
             reason=''
             if self.locked or self.generation!=token['generation']:
                 reason='STATE_OR_COMMITMENT_CHANGED'
-            elif _native_state_signature(self.backend)!=token['state_signature']:
+            elif self.backend.execution_state_bytes()!=token['state_signature']:
                 reason='NATIVE_STATE_CHANGED_DURING_QUERY'
             elif (state['actual_mode']!=self.mode or
                   math.dist(state['position'],token['paths'][0][0])>NATIVE_START_TOLERANCE_M):
@@ -252,7 +246,7 @@ class PvsNode:
             qualified=work.get('qualified_state_signature')
             if self.scene is not None and qualified is None:
                 return StartPreparedActionResponse(False,'NATIVE_PREPARATION_NOT_QUALIFIED')
-            if qualified is not None and _native_state_signature(self.backend)!=qualified:
+            if qualified is not None and self.backend.execution_state_bytes()!=qualified:
                 return StartPreparedActionResponse(False,'NATIVE_STATE_CHANGED_SINCE_PREPARATION')
             if state['actual_mode']!=self.mode:return StartPreparedActionResponse(False,'ACTUAL_MODE_MISMATCH')
             if math.dist(work['paths'][0][0],state['position'])>NATIVE_START_TOLERANCE_M:
@@ -296,6 +290,8 @@ class PvsNode:
         if self.last_prediction.get('goal_id')==w['id']:
             self.last_prediction['actual_duration_s']=self.backend.time_s-w['model_start']
             self.last_prediction['actual_terminal_position']=self.backend.snapshot()['position']
+            self.last_prediction['actual_terminal_state_digest']=hashlib.sha256(
+                self.backend.execution_state_bytes()).hexdigest()
         result=PlatformTaskResult(task_id=w['task'],goal_id=w['id'],task_completed=normal,
             terminal_verified=verified,actual_mode=self.backend.snapshot()['actual_mode'],reason=reason,
             resource_locked=self.locked,model_time_s=self.backend.time_s)
@@ -306,10 +302,12 @@ class PvsNode:
         if self.observation_request is not None:
             from qn_aav_simulator.observation_coverage import action_terminal_event
             terminal='SUCCEEDED' if normal else 'CANCELED' if w['cause']=='CANCEL_REQUEST' and verified else 'ABORTED'
-            self.products.publish(String(data=json.dumps(action_terminal_event(
+            notice=action_terminal_event(
                 self.observation_request,w['id'],self.agent_id,rospy.Time.now().to_sec(),
                 terminal,result.task_completed,result.terminal_verified,result.resource_locked,
-                result.reason),allow_nan=False)))
+                result.reason)
+            notice['terminal_state_digest']=hashlib.sha256(self.backend.execution_state_bytes()).hexdigest()
+            self.products.publish(String(data=json.dumps(notice,allow_nan=False)))
 
     def step(self):
         with self.server.lock,self.lock:

@@ -273,6 +273,9 @@ class MissionRunner:
                                 event['producer'] in item.coalition and event['goal_id'] in goals.get(execution_id,())):
                             accepted=True
                 if not accepted:raise ValueError('receipt is not from this plan execution')
+                report=self.metrics.get('received_terminal_reports',{}).get(event['goal_id'])
+                if report is not None and key not in report['observed_ids']:
+                    raise ValueError('product contradicts the received local terminal report')
                 old=self.metrics['received_products'].get(ident)
                 if old is not None:
                     if old!=event:raise ValueError('conflicting duplicate receipt')
@@ -313,6 +316,10 @@ class MissionRunner:
                             matching.extend(step.observation_ids)
                 if sorted(matching)!=event['point_ids'] or not set(event['observed_ids'])<=set(matching):
                     raise ValueError('terminal report is not from this planned observation')
+                received={row['point_id'] for row in self.metrics['received_products'].values()
+                          if row.get('goal_id')==event['goal_id'] and row.get('observed') is True}
+                if not received<=set(event['observed_ids']):
+                    raise ValueError('terminal report contradicts already received products')
                 previous=self.metrics['received_terminal_reports'].get(event['goal_id'])
                 if previous is not None:
                     if previous!=event:raise ValueError('conflicting repeated terminal receipt')
@@ -333,14 +340,25 @@ class MissionRunner:
             raise ValueError('invalid received Action terminal notice')
         with self.condition:goals={key:set(value) for key,value in self.goal_ids.items()}
         with self.executor_mutex:
-            accepted=any(event['producer'] in item.coalition and
+            matches=[step for item in (self.plan.items if self.plan is not None else ())
+                if item.status in ('RUNNING','COMPLETED','UNKNOWN_LOCKED')
+                for index,step in enumerate(item.execution_steps)
+                if event['producer'] in item.coalition and
                 event['goal_id'] in goals.get(
                     item.execution_id if len(item.execution_steps)==1 else
-                    item.execution_id+':step:'+str(index),())
-                for item in (self.plan.items if self.plan is not None else ())
-                if item.status in ('RUNNING','COMPLETED','UNKNOWN_LOCKED')
-                for index,_ in enumerate(item.execution_steps))
-            if not accepted:raise ValueError('Action notice is not from this Plan GoalID')
+                    item.execution_id+':step:'+str(index),())]
+            if not matches:raise ValueError('Action notice is not from this Plan GoalID')
+            digest=event.get('terminal_state_digest')
+            if digest is not None and (not isinstance(digest,str) or len(digest)!=64 or
+                    any(char not in '0123456789abcdef' for char in digest)):
+                raise ValueError('invalid received native state digest')
+            expected={step.native_prediction.get('terminal_state_digest')
+                      for step in matches if step.native_prediction.get('terminal_state_digest')}
+            if len(expected)>1:raise ValueError('conflicting predicted native terminal states')
+            if expected:
+                event['nominal_terminal_state_match']=digest==next(iter(expected))
+                if not event['nominal_terminal_state_match']:
+                    self.plan.validation_scope='EXECUTION_ENTRY_REQUALIFICATION_REQUIRED'
             bucket=self.metrics['received_action_results'].setdefault(event['goal_id'],{})
             previous=bucket.get(event['producer'])
             if previous is not None:
@@ -794,28 +812,21 @@ class MissionRunner:
                         return True,'NATIVE_REENTRY_AND_COAST_RESULT'
         return False,'NATIVE_REENTRY_AND_COAST_RESULT_MISSING'
 
-    def _wait_observation_report(self,goal_id,timeout):
-        deadline=time.monotonic()+timeout
-        while not rospy.is_shutdown():
-            with self.executor_mutex:
-                if goal_id in self.metrics.get('received_terminal_reports',{}):return
-            if time.monotonic()>=deadline:
-                raise RuntimeError('observation terminal report not received; keep member reserved')
-            time.sleep(.05)
-        raise RuntimeError('shutdown before observation receipt; keep member reserved')
-
     def _wait_observation_receipt(self,goal_id,point_ids,timeout):
-        """Wait for this Goal's positive product or received negative report."""
+        """Wait for this Goal's report and every product it says was observed."""
         wanted=set(point_ids);deadline=time.monotonic()+timeout
         while not rospy.is_shutdown():
             with self.executor_mutex:
                 received={event['point_id'] for event in self.metrics.get('received_products',{}).values()
                           if event.get('goal_id')==goal_id and event.get('observed') is True}
                 report=self.metrics.get('received_terminal_reports',{}).get(goal_id)
-            if wanted<=received:return
-            if report is not None and set(report['observed_ids'])!=wanted:return
+            if report is not None:
+                observed=set(report['observed_ids'])
+                if not observed<=wanted or not received<=observed:
+                    raise RuntimeError('observation report conflicts with received products; keep member reserved')
+                if observed<=received:return
             if time.monotonic()>=deadline:
-                raise RuntimeError('AIR required products or negative report not received; keep member reserved')
+                raise RuntimeError('observed products or terminal report not received; keep member reserved')
             time.sleep(.05)
         raise RuntimeError('shutdown before AIR observation receipt; keep member reserved')
 
@@ -829,9 +840,10 @@ class MissionRunner:
                                            native.execution_timeout_s)
         elif (state==GoalStatus.ABORTED and result.reason=='OBSERVATION_NOT_SATISFIED'
                 and result.terminal_verified and not result.resource_locked):
-            # A missing observation is known to the mother only after its
-            # negative terminal report arrives. Never wait holding the mutex.
-            self._wait_observation_report(result.goal_id,native.execution_timeout_s)
+            # A partial negative report still names positively observed points.
+            # Keep this booking until those products and the report arrive.
+            self._wait_observation_receipt(result.goal_id,native.observation_ids,
+                                           native.execution_timeout_s)
 
     def _wait_action_terminal_receipt(self,goal_id,members,state,timeout):
         deadline=time.monotonic()+timeout
@@ -1204,7 +1216,11 @@ class MissionRunner:
                         not evidence.get('resource_released')):
                     raise RuntimeError('AIR step has no verified terminal evidence')
                 row['evidence_file']=result.evidence_file
-                if step.observation_ids:self._receive_observations(view,evidence)
+                if step.observation_ids:
+                    self._receive_observations(view,evidence)
+                    if getattr(self,'finite_delivery',False):
+                        report=self.metrics['received_terminal_reports'][result.goal_id]
+                        row['observation_missing']=set(report['observed_ids'])!=set(step.observation_ids)
             row.update(verified=True,result_received_at=rospy.Time.now().to_sec())
             rows.append(row)
             self._save_executor()
@@ -1274,6 +1290,9 @@ class MissionRunner:
         if (evidence.get("goal_id") != goal_id or not evidence.get("accepted_for_dispatch")
                 or not evidence.get("resource_released")):
             raise RuntimeError("server evidence does not authorize physical release")
+        # A received local report and its positive products must agree with
+        # the actual qn samples before this Result commits the PlanItem.
+        self._receive_observations(item, evidence)
         received = rospy.Time.now().to_sec()
         event = DelayEvent(goal_id, item.execution_id, item.task_id, item.planned_finish,
                            max(result.actual_finish_time.to_sec(), received) - self.epoch)
@@ -1284,7 +1303,11 @@ class MissionRunner:
             "formation_geometry": evidence.get("formation_geometry")})
         if all(i.status=='COMPLETED' for i in self.plan.items if i.task_id==item.task_id):
             self.metrics["results_received"].append(item.task_id)
-        self._receive_observations(item, evidence)
+        if (getattr(self,'finite_delivery',False) and len(item.execution_steps)==1 and
+                item.execution_steps[0].observation_ids):
+            report=self.metrics['received_terminal_reports'][goal_id]
+            self.metrics['executions'][-1]['observation_missing']=(
+                set(report['observed_ids'])!=set(item.execution_steps[0].observation_ids))
         # No finally-discard: every exceptional/unknown exit keeps the reservation.
         self._refresh_executor_timing(received - self.epoch)
         if not retain_booking:self.active_executor_ids.remove(unit.executor_id)
@@ -1398,10 +1421,14 @@ class MissionRunner:
             if rospy.is_shutdown():raise RuntimeError("runner shutdown with accepted commitments")
 
     def _receive_observations(self, item, evidence):
-        from qn_aav_simulator.observation_coverage import ObservationSample, evaluate_coverage, record_delivery
+        from qn_aav_simulator.observation_coverage import (ObservationSample,PointObservation,
+            evaluate_coverage,record_delivery)
         task = self.observation_tasks.get(item.task_id)
         if task is None:
             return
+        point_ids=(tuple(item.execution_steps[0].observation_ids)
+                   if len(item.execution_steps)==1 and item.execution_steps[0].observation_ids
+                   else task.covers)
         # Only this execution's actual successful holding interval is eligible;
         # no old trajectory, inferred target position or previous-task observation.
         hold = evidence.get("successful_hold_window") or {}
@@ -1418,13 +1445,22 @@ class MissionRunner:
                     continue
                 previous = stamp
                 samples.append(ObservationSample("drone_" + member, stamp, tuple(row["position"])))
-        coverage = evaluate_coverage(samples, {p: self.points[p] for p in task.covers},
+        coverage = evaluate_coverage(samples, {p: self.points[p] for p in point_ids},
             self.request.requirement, self.obstacles, sample_timeout_s=evidence["sample_timeout_s"])
         if getattr(self,'finite_delivery',False):
-            report=self.metrics.get('received_terminal_reports',{}).get(evidence['goal_id'])
-            if report is not None and set(report['observed_ids'])!={p for p,row in coverage.points.items() if row.observed}:
-                raise RuntimeError('AIR local report and accepted qn samples disagree; keep members reserved')
+            with self.executor_mutex:
+                report=self.metrics.get('received_terminal_reports',{}).get(evidence['goal_id'])
+                received={event['point_id'] for event in self.metrics.get('received_products',{}).values()
+                          if event.get('goal_id')==evidence['goal_id'] and event.get('observed') is True}
+            if report is None or set(report['point_ids'])!=set(point_ids):
+                raise RuntimeError('AIR local terminal report missing or names other points; keep members reserved')
+            observed=set(report['observed_ids'])
+            if observed!=received or not observed<={p for p,row in coverage.points.items() if row.observed}:
+                raise RuntimeError('AIR local observation or actual receipt conflicts with qn evidence; keep members reserved')
         for point_id, observation in coverage.points.items():
+            if getattr(self,'finite_delivery',False) and point_id not in observed:
+                observation=PointObservation(point_id,False,None,0.,
+                    'received local terminal report says this point was not observed')
             if observation.observed or point_id not in self.coverage.points:
                 self.coverage.points[point_id] = observation
         # The local Result carries access to the observation evidence. Receipt is

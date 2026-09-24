@@ -51,6 +51,11 @@ def test_late_support_shifts_only_selected_participants_and_propagates_idle():
     before=pickle.dumps(models)
     candidate=provider.execution_candidates(work,task,0.,states,time.monotonic()+10.)[0]
     assert candidate.status=='FEASIBLE'
+    import hashlib
+    for activity in candidate.activities:
+        member=activity.coalition[0]
+        expected=hashlib.sha256(candidate.terminal_states[member]['native_backend'].execution_state_bytes()).hexdigest()
+        assert activity.native_prediction['terminal_state_digest']==expected
     plan=ExecutorPlan(list(candidate.activities),serial=False)
     assert {i.planned_start for i in plan.items}=={8.}
     assert 8.<plan.makespan<1000.
@@ -144,6 +149,18 @@ def test_otter_fixed_wait_forecast_matches_every_explicit_native_step():
     assert predicted['terminal_backend'].steps==stepped['terminal_backend'].steps
     assert pickle.dumps(predicted['terminal_backend'].vehicle)==pickle.dumps(stepped['terminal_backend'].vehicle)
     assert fast.steps==explicit.steps==0
+
+
+def test_native_execution_state_signature_is_equal_for_independent_models():
+    first=PvsBackend('otter',(-10.,4.,0.),initialization_mode='STATIC_TRIM')
+    second=PvsBackend('otter',(-10.,4.,0.),initialization_mode='STATIC_TRIM')
+    for _ in range(800):
+        first.step(.01,None,0.)
+        second.step(.01,None,0.)
+    assert first.execution_state_bytes()==second.execution_state_bytes()
+    second.vehicle.ref+=1.
+    assert second.snapshot()['position']==first.snapshot()['position']
+    assert first.execution_state_bytes()!=second.execution_state_bytes()
 
 
 def test_clear_goal_segment_but_obstructed_coast_is_infeasible():

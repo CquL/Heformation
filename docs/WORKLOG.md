@@ -1,3 +1,44 @@
+## 2026-09-24 UTC — 修改后真实UUV收件：报告晚于产品仍不提前释放
+
+- 计划：上条修正使正向产品到达不再单独释放成员，还必须等该Goal本机终结报告。以未改的原港口UUV＋移动USV正式组件复跑，不重复控制/动力学参数扫描，只验证有限收件因果、Action终态和后续资源释放。
+- 实际：`experiments/20260924-water-report-regression-r1`在正式`joint_request`、原障碍/原水下样点/原部署区、20s显式组件诊断规划下输入`yes`，UUV与USV预承诺原生片段真实执行，控制器/任务源码是本轮终态提交顺序最终版本；两Goal/Result、4/4有限下行与2/2母船终态通知、32KiB水下产品、两成员规定返回/零锁均成立，任务权威`PASS_GEOMETRIC_PROXY_QUALIFICATION`。两项PVS实际终态与选定方法预测摘要仍在母船端分别`nominal_terminal_state_match=true`。
+- 最关键时间线：同一次实际产品`received_at=1790238738.7`，本机观测终结报告**较晚**在`1790238795.6`到母船，UUV活动只有随后`1790238795.987664`才提交COMPLETED；没有因数据先到提前释放。保存派生`receipt-order.json`并同bag控制因果审计`passed=true`（两Goal/Result/终态、四有限命令）。首次派生统计脚本误取`executions.executor_id`造成KeyError，未更改任务/原始bag；改按`execution_id`读取后PASS。相关runner/coverage61项通过。
+- 边界/下一步：这是UUV＋USV**正常观测**组件，无AIR Action，所以仍不能当最终三类同次总验收；真实AIR传感缺测请求已到`pending_retest`但尚未重选/派发，REMUS原终态现有低速/直达复查均因quay余量不合格。母船收到报告的验证条件已立，下一步只处理从已知真实状态到合格方法的受影响未承诺重搜；不把旧返回Result视为新作业资格。
+- 证据/来源：本机`experiments/20260924-water-report-regression-r1/{metrics.json,execution.bag,scene-once.bag,receipt-order.json,control-audit.json}`，现有`FiniteDelivery`与`CoverageResult.delivered_fraction`以及[APEX-MR实际事件释放](https://arxiv.org/html/2503.15836v2)。传输率/报告时间来自声明实验与该次运行，不由论文赋值。
+
+## 2026-09-24 UTC — 本机AIR缺测真实反馈到复查任务；当前方法仍无可派发重选
+
+- 计划：先证明“真实本机报告缺测→有限链路到母船→原Action终态/返回→任务层生成至多一轮复查”的已存在链，而不把确定性单测或几何轨迹改写为业务完成。故障只在独立实验镜像覆盖`LocalObservationWindow.sample`，让`drone_0`执行端这一次不产生观测事件；求解器和其余端点仍使用原规则，生产源码不增故障参数或第二感知框架。
+- 实际：本机`experiments/20260924-air-missing-feedback-r1/{observation_coverage.py,run_joint_with_fault.sh,request.yaml}`是从当前源码复制的**测试专用覆盖文件**，只在`/aav_1_action_server`进程阻断本机样点事件；正式`joint_request`仍在原港口AIR点/返回区按20s诊断预算生成AAV1＋USV合法计划，输入`yes`后原AIR观测动作与返回动作均获SUCCEEDED Result，USV支援成功。AIR本机终结报告`observed_ids=[]`经有限链路到母船，没有32KiB正向产品；worker未从实际几何轨迹伪造观测，父活动结果`OBSERVATION_MISSING`，母船交付0，收到负报告后`retest_tasks`只生成`retest-overview-0`。终态`FAIL`的确切原因仍是`received missing-observation report requires qualified joint retest plan`，零资源锁。该脚本预期非零退出，不能把它当“复查已通过”。
+- 进一步运动资格反例：从上一条真实匹配摘要的REMUS水下终态出发，原复查路径的500/300/200/100rpm以及已验证100s零推进后再直返样点，都在quay实体余量`0.1968–0.1995m<0.2m`被原生PVS拒绝；相同100s零推进闲置本身仍安全，见更新后的`experiments/20260924-retest-native-candidates/result.json`。这些是有限方法失败，不是全空间无解证明。不能为让复查通过放宽净距、替换原样点或从位置重置REMUS控制器。
+- 结果与下一步：本轮真实负例把缺口精确定位到**收到负报告后的联合方法重选与真实状态资格**，不是请求入口/消息因果或返回Result。当前相关native、runner、收件/覆盖合计84项通过，Python语法与`git diff --check`通过；这是模块/接口证据，不代替完整修复实跑。下一步先利用已收到且与预测匹配的PVS终态作必要状态证据，另为已完成AIR成员保留可验证的占用/状态，再比较未承诺的AAV备选或合格水下新路线；没有完整入口证据时保持UNKNOWN。用户对代表任务UUV独有结果与初次规划预算的两项选择仍待，普通业务规则不静默改动。参考[Calvo/Capitán的执行反馈后任务重算](https://arxiv.org/html/2411.02062v3)与[D-ITAGS受影响部分修复](https://arxiv.org/abs/2209.13092)，但它们不能提供本机入水或REMUS安全路线。
+
+## 2026-09-24 UTC — 部分观测报告的收件因果与AIR缺测提交修正
+
+- 计划：真实缺测复查必须由**本机观测终结报告已到母船**触发，且不能把同报告中已观测点仍在传输的产品算作已收件。源码原`_wait_observation_receipt`在任何负报告到达后立即返回；原`_receive_observations`又把可见几何轨迹中的点全写成observed，哪怕本机报告说该点未观测。现只在既有worker和CoverageResult关系里修这两个具体断点，不增加任务层或载荷评分。
+- 实际：原等待函数现在同时等匹配Goal的终结报告及**报告里每一个observed_id的正向产品**；本机报告和实际产品互相矛盾则保持预约并报错。正向产品/终结报告无论先后到达，母船回调都拒绝“报告称未观测却收到正向产品”的冲突。AIR提交对本步选定的观测点只允许“本机报告已观测＋几何证据支持＋母船产品已收”计入；报告缺测点保持未观测，不再由轨迹推断成功。观测合同先验证、再提交PlanItem终态，错误报告不能把计划项先标COMPLETED。复合AIR步骤若缺测，仍可完成后续已验证返回，但父任务结果标`OBSERVATION_MISSING`；单步AIR的Action运动成功与观测缺项分别记录。原生PVS负报告如有部分已观测点，也须先收齐那些正向产品。
+- 针对性验证：新增“部分报告先到、正向产品后到必须继续等待”“几何上可见但本机报告缺测不得升为已观测”“矛盾消息两种到达顺序均拒绝”“复合AIR缺测仍完成返回且不伪造交付”“报告错误时PlanItem保持RUNNING/资源锁不释放”的确定性反例。相关runner/coverage共61项通过。正式`joint_request`原空中概览＋USV支援组件先在`experiments/20260924-air-report-regression-r1`正常收件通过；终态提交顺序最后调整后又用相同业务/入口运行`r2`，实际两Action、AIR本机报告和正向产品均到母船、几何交付1.0、返回/零锁，状态PASS。这两次都是正常收件回归，**不是**人为缺测实跑，更不是已触发复查成功。
+- 来源/证据：本仓库`LocalObservationWindow`本机报告、`FiniteDelivery`实际收件、`CoverageResult.delivered_fraction`的`observed AND received`不变式；[APEX-MR实际事件释放](https://arxiv.org/html/2503.15836v2)支持不能按预测或源端行为提前释放，但不提供本项目几何代理阈值。源码`integration/qn_aav_simulator/scripts/formation_mission_runner.py`及`integration/qn_aav_simulator/tests/test_executor_runner.py`；本机`experiments/20260924-air-report-regression-r{1,2}/{request.yaml,metrics.json,nominal-plan.json,execution.bag}`。首次跑旧测试有3项因仅模拟产品而缺终结报告失败，已按真实端点消息合同补齐测试输入，未放宽新等待条件。
+- 未完成/下一步：`_run_joint_request`收到缺测后仍明确缺有效联合复查计划；原UUV终态的三条现有方法因新转向碰quay不可派，不能用本轮收件修正冒充完整复查。继续依据真实终态/本机资格寻找合法替代方法，必要时用测试专用传感失效注入做一次同运行反馈；不把未收到的结果或任意轨迹点视为完成。
+
+## 2026-09-24 UTC — 首次水下任务终态后的原生复查方法反例
+
+- 计划：母船收到缺测终结报告后不能简单从原部署状态再发一次REMUS任务；从上一轮实际核对的PVS完整终态（摘要`0bdd69de...`）出发，用原港口、原样点、原返回区与原500/300rpm方法的声明航点，验证“直接重去／回接原环路”是否有实际可执行复查候选。只读查询，不派Goal，不改场景、净距或观测规则。
+- 实际：本机`experiments/20260924-retest-native-candidates/probe.py`先从已实跑初态推到首轮合法终态，然后独立检查3条有限候选：当前→样点→回区、当前→原长环路起点再走原环路、当前→样点后接原长环路；每条均用原`path_violation`预检、同一Fossen/REMUS连续状态与场景全程查询。另以`predict_idle(100s)`区分“保持旧安全尾段”和“新转向作业”本身。
+- 结果：3条新复查路段几何直线预检均未拦，但原生控制从当前终态转向时约3.81模型秒全部在quay实体余量`0.196791m<0.2m`失败；不能因为航点连线清楚就派给REMUS。相同终态继续原零推进尾段100模型秒仍FEASIBLE，最小实体余量`0.649546m`，说明失败由新作业转向/控制状态触发，不是“原任务成功后闲置平台立刻撞障碍”。这仅否定当前三条有限方法，不证明所有可能复查路线不可行；后续需让搜索比较有实际来源的新方法或合格AAV备选，不能偷偷扩大净距或返回球。
+- 来源/证据：[Fossen/PVS原生动力学与控制](https://www.fossen.biz/pythonVehicleSim/)及[GRSTAPS运动可行性反馈](https://journals.sagepub.com/doi/full/10.1177/02783649211052066)支持以实际状态/方法查询作拒绝依据，但不提供本路线数值；原始配置/连续轨迹判定及失败原因在本机`experiments/20260924-retest-native-candidates/{probe.py,result.json}`。没有生产源码变更；完整复查仍未接线，不能把三类正常正例冒充负报告后的修复。
+
+## 2026-09-24 UTC — PVS 终态摘要：跨进程确定性编码、有限通知与实际对照
+
+- 计划：复查要重用已选方法的预测完整终态，必须先证明运行端当前终态与它**同一状态**；只传位置不够，直接传整个PVS模型又扩大数据接口。沿现有Action终态有限通知只增一个SHA-256摘要，计划侧为真正所选PVS方法留同规则摘要；不把摘要本身当状态或安全证书。
+- 实际失败与定位：最初对原对象pickle后取SHA，真实Otter静态Action SUCCEEDED但计划侧`a9bb...`与本机`4c8a...`不等。受控构造`experiments/20260924-pvs-digest-diagnosis/probe.py`证实同一PvsNode/直接PvsBackend的所有值逐项相等，然而pickle字节因对象别名/备忘语义而不同。第一版pickle固定字段/数组的聚合仍有同样问题；这些失败保留在`pvs-terminal-digest-r1/r2`，未将假不匹配当真实动力学差异。
+- 最小修正：在原`PvsBackend.execution_state_bytes()`把类、字段、列表/元组、NumPy数组dtype/shape/位值按确定性JSON顺序编码，排除仅计时的`time_s/steps`，本地预检的原状态等值检查亦复用它；无新消息。原`PvsNode`成功/失败的`ACTION_TERMINAL`有限通知附终态摘要，运输端验证64位十六进制且按实际编码字节占容量；原候选摘要仅留在`native_prediction`元数据，密集轨迹/模型仍不进入Goal。runner按同请求/GoalID/物理成员收到终态后比较所选摘要，若不匹配即撤回“后继无需重新资格”的范围，不追溯修改已完成Action。
+- 针对性证据：相同数值状态的独立PVS对象及PvsNode在0/1/759/900步的摘要逐一相同；同位置但控制器`ref`改变后摘要不同，原陈旧预检受控负例继续PASS。真实Noetic静态Otter Goal在`pvs-terminal-digest-r3/r4`成功，计划模型与本机终态摘要均`26b118...`；r4本机预检摘要、实际终态摘要及离线模型逐一相等。候选摘要/母船匹配和错配的4项针对性断言通过。
+- 长时同次实跑：`experiments/20260924-three-class-terminal-digest-live-r1`仍为AAV AIR＋REMUS WATER＋移动Otter的**测试资格配置**，180s诊断规划、实际5 Goal/Result、7/7有限指令与5/5终态、两32KiB产品收件、规定返回/零锁，任务权威几何代理PASS。同包独立安全时间审计PASS（3412位置对齐样本零缺，峰值模型/ROS偏差0.032778s，平台代理净距0.593211m，UUV最小实体余量0.680965m），控制因果审计PASS。该次运行在计划侧摘要字段接入前启动，故母船`nominal_terminal_state_match`当次为`None`；不能称在线比较已通过。随后用**同一已选原路线/原初态**离线重放并对照该次母船实际收到的摘要，第一USV、第二USV、UUV三段均逐一完全匹配，见`terminal-state-comparison.json`。
+- 正式组件在线比较：`experiments/20260924-water-component-digest-preview-r1`真实ROS20s预算、输入`no`的预览Plan已带UUV与USV预计摘要；随后`20260924-water-component-digest-action-r1`用同一组件请求实际发两Goal、母船收一份32KiB结果及两终态、四有限下行、两Result、双方返回/零锁，任务层PASS，**收到通知后的`nominal_terminal_state_match`对UUV与USV都为True**。同bag控制因果PASS；执行期五模型时间核`within_thresholds=true`（最大模型/ROS偏差0.012526s）。通用全三类审计整体FAIL只因本组件没有AIR规划器参考/动作，不能偷称全项PASS；其同bag3105对齐位置样本零缺、平台代理最小净距0.591133m、UUV实体最小余量0.681177m均按原阈值合格。63项受影响native/runner/有限通信检查通过。
+- 边界/下一步：摘要只在初态、模型版本、已选路径/环境及实际Result可对账的条件下给“预测状态可复用”的必要证据；它不能传回未预料的新状态，也不能证明通信断开时母船知道所有控制器变量。没有收到摘要或摘要不等时保留`UNKNOWN`并重新本机资格，不能用位置近似或经验容差宣布修复。在线匹配已在UUV/USV组件成立，**带AIR的三类同次运行尚未用最新比较字段重验**；完整缺测后一轮复查和普通完整能力请求仍未实现，见上述水下终态复查反例。
+- 代码与证据：`integration/qn_aav_simulator/src/qn_aav_simulator/pvs_backend.py`、`integration/qn_aav_simulator/scripts/{pvs_node.py,scene_publisher.py,formation_mission_runner.py}`、`integration/mrta_python/executors.py`和两处定向测试；本机`experiments/20260924-pvs-digest-diagnosis/result.json`、`20260924-pvs-terminal-digest-r{1,2,3,4}/`、`20260924-three-class-terminal-digest-live-r1/{metrics.json,execution.bag,scene-once.bag,safety-audit.json,control-audit.json,terminal-state-comparison.json,compare_terminals.py}`及`20260924-water-component-digest-action-r1/{metrics.json,execution.bag,scene-once.bag,execution-only-time.json,safety-audit.json,control-audit.json}`。数值是声明仿真条件，不称真实装备状态上行或鲁棒性证明。
+
 ## 2026-09-24 UTC — PVS 全状态预检提交守卫与三类实时同请求回归
 
 - 计划：真实反馈修复需要“所选方法从本机**当前完整状态**可执行”的条件；源码`pvs_node.py::_preflight`从`copy.deepcopy(self.backend)`查询后，原提交边界只比较位置/介质与代次，无法发现同位置但控制器/执行器内部状态在长查询中变化。依据本机Fossen/PVS完整状态递推及[D-ITAGS运动可行性反馈](https://arxiv.org/abs/2209.13092)、[GRSTAPS任务—运动交错](https://journals.sagepub.com/doi/full/10.1177/02783649211052066)，直接在现有Action端点守住这一入口；论文不给本机状态等值或时间数值。保留零Goal查询不改变物理执行的既有界限。

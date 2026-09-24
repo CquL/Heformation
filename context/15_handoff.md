@@ -1,5 +1,13 @@
 # 最新交接：分层监测需求基线与 AAV 本地停止保持
 
+> **2026-09-24 水下收件顺序交接**：`experiments/20260924-water-report-regression-r1`在最终runner代码下，UUV/USV真实Action和32KiB母船产品接收完成；产品在1790238738.7先到，终结报告在1790238795.6后到，UUV活动在1790238795.987664才提交。两Result/四下行/两有限终态、返回/零锁、两个PVS终态摘要匹配与同bag控制因果均通过。这只证明正常水下组件收件不提前释放，不证明AIR缺测复查或三类最终同运行。继续从下方真实AIR缺测`pending_retest`和已知REMUS复查碰quay反例推进，不再从消息是否到达重新排查。
+
+> **2026-09-24 复查继续点**：先读WORKLOG顶部的`20260924-air-missing-feedback-r1`真负例。测试专用本机传感失效使AIR两个原生Action/USV支援都完成，但母船只收缺测报告、不收产品，任务层生成一个`retest-overview-0`，并因缺合格重选Plan明确FAIL/零锁。消息因果与AIR本机负报告提交已接好；当前断点是真实终态与全部物理成员占用进入下一次联合求解。REMUS原水下终态按现有有限路线直接或低速重测碰quay；继续原零推进等待安全，但不等于可重测。下一步不能再把`retest_tasks`测试或旧三机重测当成五平台修复通过，要取得有效入口状态并派实际备选方法。普通业务资格与初次预算用户选择仍待。
+
+> **2026-09-24 缺测收件修正交接**：WORKLOG顶部/来源审计新节说明`formation_mission_runner.py`现在等本机终结报告与其全部正向产品实际到母船、双向拒绝矛盾消息，并且AIR几何可见不再覆盖本机负报告；错误报告在提交PlanItem终态之前拦下。复合AIR可返回而报告`OBSERVATION_MISSING`，正常AIR+USV正式组件`20260924-air-report-regression-r2`在最终源码下实际PASS，相关61项检查通过。**还没有触发缺测后的同请求联合重搜和Action实跑**；REMUS原终态直接/原环路复查候选不安全，保持未资格。不要把本轮收件因果修正写成最终复查完成。
+
+> **2026-09-24 终态摘要与复查反例交接**：先看WORKLOG顶部和`docs/reviews/source-and-assumption-audit-20260923.md`新节。原PVS按值状态字节与母船有限终态摘要已接到所选方法预测摘要；正式UUV/USV组件`experiments/20260924-water-component-digest-action-r1/metrics.json`实际母船两项`nominal_terminal_state_match=true`，双原生Result、有限收件、返回/零锁成立。旧三类长实时`three-class-terminal-digest-live-r1`任务/独立全场审计PASS，但启动于计划摘要字段接入前，只有同路线离线三段摘要对照成立；不能宣称三类新字段同次在线已验收。从匹配REMUS终态尝试三条现有路线衔接，均在quay实体余量0.196791m失败，原零推进尾段仍安全。下一步不能盲发同一水下任务作复查；要选择合格新方法或经验证AAV备选，并维持母船收件与实际入口资格。普通完整能力请求、10s初次规划与触发后一轮复查仍未通过。
+
 > **2026-09-24 最新三类实跑与状态边界**：先看WORKLOG顶部、`experiments/20260924-three-class-state-guard-live-r1/{metrics.json,safety-audit.json,control-audit.json,dashboard-terminal.png,rviz-terminal.png}`及`docs/reviews/source-and-assumption-audit-20260923.md`新节。原PVS预检已加完整内部状态签名提交/预装启动核对；三种陈旧/缺资格受控负例正确拒绝，Otter普通和预装实际Action成功。新同次三类实时运行两业务收件、四Result、六有限指令与返回/零锁，独立全场时间/安全及控制因果均PASS。仍只是一条原港口**测试资格配置**正例，180s诊断预算、几何代理、AAV水下备选未参与；普通完整请求仍选AAV替代、复查和未来运动状态查询未完成。`systemd-timesyncd`已恢复active。最后补的无签名拒绝支路只有受控负例，长运行不冒认覆盖。
 
 > **2026-09-24 面板交接**：从现有Plan的`coalition`计算短中文待命说明，不增第二状态源；普通预览录制状态由同面板函数静态重绘可读，`experiments/20260924-dashboard-standby-render/ordinary-preview-panel.png`。尚未随新ROS任务实时刷新核验。三类完整请求、复查及预算两项用户选择仍未由这项显示工作解决。

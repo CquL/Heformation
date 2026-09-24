@@ -1,5 +1,13 @@
 # 当前状态
 
+> **2026-09-24 水下收件顺序实跑**：最终收件代码下，`experiments/20260924-water-report-regression-r1`正式UUV＋USV组件实际两Goal/Result、4/4下行、两终态母船通知、32KiB水下产品、返回/零锁且任务层PASS。该次产品先于终结报告约57秒到母船，UUV PlanItem只在报告收到后提交；`receipt-order.json`与同bag控制因果审计PASS，实际两PVS终态摘要仍匹配。它是**正常水下组件**，不含AIR Action/真实缺测复查，不能替代下方三类实时总证据。见WORKLOG顶部。
+
+> **2026-09-24 真实AIR缺测反馈负例**：独立测试覆盖仅在AAV1本机观测代理阻断一次事件，正式`joint_request`原港口AIR+USV计划、AIR两个真实SUCCEEDED Action与USV Result仍执行；本机`observed_ids=[]`负报告经有限链路到母船，正向产品0、交付0，父任务`OBSERVATION_MISSING`，生成且仅生成`retest-overview-0`。由于尚无从实际终态出发的合格联合复查Plan，请求明确`FAIL`、资源锁空；不是复查成功。原REMUS水下终态的有限直接/低速/100s等待后复查也因quay净距小于0.2m不可派发，旧闲置尾段本身安全。证据见WORKLOG顶部及本机`experiments/20260924-air-missing-feedback-r1`、`20260924-retest-native-candidates/result.json`。普通业务/预算两项用户选择仍待，不能任意强制UUV或延长正式10s。
+
+> **2026-09-24 部分报告收件语义修正**：原worker在负报告到达时可能放行尚未收到的正向产品，并用几何轨迹覆盖本机缺测结论。现按同GoalID等待报告及其中全部已观测点的母船产品，冲突消息两种到达顺序均拒绝；AIR点须本机报告、几何证据和实际收件共同成立，错误报告不能先把PlanItem标为COMPLETED，复合缺测返回可继续但任务标`OBSERVATION_MISSING`。61项相关runner/coverage检查通过；`experiments/20260924-air-report-regression-r2`在最终提交顺序代码下正常AIR＋USV正式组件两Action/收件/返区仍PASS。这不是实际缺测复查正例；`joint_request`收到缺测后仍未有已资格的重选方法。见WORKLOG顶部。
+
+> **2026-09-24 终态信息边界新增证据**：PVS预测终态以按值确定性摘要留在选定方法中，本机实际终态摘要只随原有限Action通知到母船后比较；同位置控制器变化可分辨，原对象pickle假不匹配已定位/修正。`experiments/20260924-water-component-digest-action-r1`正式UUV＋USV同请求实跑两Result、必要结果收件/返区/零锁，母船在线记录两项`nominal_terminal_state_match=true`，控制因果与执行期时间合格；通用三类独立审计整体FAIL仅因本组件没有AIR动作/参考，不能扩大为全三类新回归。上一`three-class-terminal-digest-live-r1`三类实时任务/全场安全时间和因果PASS，但启动于计划比较字段接入前，只有离线同原方法三段终态摘要对照相同，**尚未三类同次在线比较**。从真实REMUS终态尝试三条复查候选均在quay净距0.196791m<0.2m失败，继续原零推进尾段100s安全；完整一轮复查及普通完整能力优化仍未完成。见WORKLOG顶部。
+
 > **2026-09-24 新PVS预检守卫与三类实时回归**：原PVS预检只核位置/介质，现对当前本机plant/控制器/执行器完整状态作同源等值核对，PREPARED启动也再核；同位置内部状态变化、预装后变化、无资格签名均受控拒绝。真实Otter普通与预装Action均SUCCEEDED。`experiments/20260924-three-class-state-guard-live-r1`在原港口测试配置的同次RViz/中文面板实际完成AAV AIR、REMUS WATER与移动Otter支援、两结果收件、四Result、六有限命令、规定返回及零锁；独立整场时间/安全审计PASS（3115对齐位置零缺、漂移峰0.02133s、平台代理最小净距0.59317m、UUV实体余量0.68107m），控制因果审计PASS。宿主NTP临停后恢复active。**范围仍为几何代理、排除AAV水下备选的资格测试配置、180s初次诊断规划；普通完整能力请求、严格10s、实际缺测复查/运动中状态再资格未通过。** 细节与旧失败见WORKLOG顶部。
 
 > **2026-09-24 实时面板解释增量**：`mission_dashboard.py`现直接从现有计划物理成员集合显示未选中平台的短中文“待命”说明，普通请求静态重绘已显示“无人机3、潜航器待命”；见`experiments/20260924-dashboard-standby-render/ordinary-preview-panel.png`。这是录制计划状态重绘，不是新ROS实时Action验收，更不代表UUV已参与普通请求。
