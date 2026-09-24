@@ -1,3 +1,11 @@
+## 2026-09-23 UTC — 用户选择保留原港口REMUS样点／回收区；继续原生路线资格核查
+
+- 计划：用户在此前两项选择的**第一项**明确选择方案2：只用原港口`water_sample=(0,8,-2)`与UUV部署/回区`(-5,8,-2)`，继续找可行路线；不另建示范样点/回收区，也不放宽原0.8056208786m回区半径、实体0.2m安全余量或观测判据。第二项初次完整规划预算尚未决定，不能把本答复当成长预算授权。本轮先做不依赖预算选择的只读PVS方法核查。
+- 实际：在本机忽略目录`experiments/20260923-remus-original-return-search/`用原`PvsBackend.predict_native_fragment()`、原`StaticSceneGeometry.path_violation/violation()`及`LocalObservationWindow`，分别检查南侧回环提前转向24个参考组合、150/250/350/500rpm直接/南侧路线8个组合、西侧绕行6个组合、转向局部15个组合、观测足迹提前切向9个组合，以及东西掠过交界的细化组合；最后补查400/450/550/600rpm西侧路线12个组合。保留同一原生PVS控制器和船体代理，没有派发ROS Goal或改生产配置；对每个实跑轨迹检查实际观测时间、观测后重进原回区和原场景碰撞。命令为`PYTHONPATH=integration/qn_aav_simulator/src:integration/mrta_python:upstream/Fossen/src python3 experiments/20260923-remus-original-return-search/{probe,effort_probe,west_probe,local_probe,footprint_probe,fine_probe}.py`，交界与西侧不同转速再用相同导入/判据的受控内联Python查询并分别保存`crossover-result.json`、`near-ball-result.json`、`heading-near-ball-result.json`、`rpm-west-result.json`。
+- 结果：无一组合同时满足观测、观测后重进原半径和全程静态安全。500rpm直接折返在东栈桥碰撞；150/250rpm南侧在有限500模型秒内未完成原生终态，350rpm南侧碰西侧pier。西侧回环的切换几何确实改变实际返程位置，但最靠近的一条原生轨迹在观测后距原回区中心**1.252803m**（航向−0.22rad、西绕行−18.8m、北向转点−4.6m），仍大于原**0.805621m**半径，并在约203.19模型秒碰quay的0.2m余量；这不是合格返回。成功保持场景安全并完成原生低速尾段的这些变体，观测后也未重进回区。上述是**有限方法集合的负例**，不是全空间不可行证明，不改业务目标也不宣称UUV在线三类协同通过。
+- 证据：`experiments/20260923-remus-original-return-search/{probe.py,result.json,effort_probe.py,effort-result.json,west_probe.py,west-result.json,local_probe.py,local-result.json,footprint_probe.py,footprint-result.json,fine_probe.py,fine-result.json,crossover-result.json,near-ball-result.json,heading-near-ball-result.json,rpm-west-result.json}`；原`five_scene_harbor.yaml`、`monitoring_request_joint.yaml`、`pvs_backend.py::advance_path_target/predict_native_fragment`及`pvs_node.py::_needs_return_entry`。此研究目录依仓库`.gitignore`仅保留在本机，Git交接通过本条和当前状态记录可追溯口径。
+- 未完成／下一步：继续只在原港口几何下定位PVS可用的安全接近方法或证明当前声明方法集合不合格；若方法成立，再做同源有限交付、USV会合及ROS Action实跑。原默认10秒完整计划仍失败，初次规划预算的**第二项**用户选择仍待答；真实缺测复查、在线完整状态修复和最终三类平台实时验收未完成。
+
 ## 2026-09-23 UTC — 旧Calvo排序不再因缺省模式成为runner入口
 
 - 计划：用户明确“只维护现有Heformation＋v2联合求解生产主链，不维护Calvo v9生产排序/自动回退”。删除前先按真实调用图核对旧文件是否仍被三机/七机运动回归调用，不能把公用Plan/Action与旧算法专属内容一起删。
