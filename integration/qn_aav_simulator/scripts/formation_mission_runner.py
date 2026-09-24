@@ -1129,13 +1129,29 @@ class MissionRunner:
                 item,unit,goal,action=items[index],units[index],goals[index],actions[index]
                 state,result=self._send_executor_goal(item,unit,goal,action,sent_deadline=deadline)
                 self._wait_native_observation_receipt(state,result,item.native_action)
-                with self.executor_mutex:self._commit_executor_result(item,unit,state,result)
+                # A cooperative member's Result is a fact, but the atomic
+                # booking belongs to the complete accepted method. A second
+                # task must not take one member while its support still runs.
+                with self.executor_mutex:self._commit_executor_result(item,unit,state,result,retain_booking=True)
                 self._save_executor()
             workers=ThreadPoolExecutor(max_workers=len(items))
             try:
                 futures=[workers.submit(observe,index) for index in range(len(items))]
                 for future in as_completed(futures,timeout=max(.001,deadline-time.monotonic())):future.result()
             finally:workers.shutdown(wait=False)
+            with self.executor_mutex:
+                if any(self.plan.item(item.execution_id).status!='COMPLETED' for item in items):
+                    raise RuntimeError('cooperative method lacks all matching terminal Results')
+                for unit in units:self.active_executor_ids.discard(unit.executor_id)
+                if any(item.status=='PLANNED' for item in self.plan.items):
+                    # Existing native endpoints requalify their actual entry;
+                    # no centre-distance scalar update may certify a new
+                    # multi-activity motion/communication plan.
+                    self.plan.validation_scope='EXECUTION_ENTRY_REQUALIFICATION_REQUIRED'
+                    self.plan_revision+=1
+                    self.metrics['plan_history'].append({'revision':self.plan_revision,
+                        'plan':asdict(self.plan)})
+            self._save_executor()
         except BaseException:
             # A cancel request does not prove physical termination. Accepted or
             # uncertain participants keep their reservations on this path.
@@ -1735,6 +1751,8 @@ class MissionRunner:
                         finally:
                             self.metrics['prepared_retest_wall_s']=time.monotonic()-began_future
             self.metrics['selected_plan']=asdict(self.plan)
+            self.metrics['predicted_receipts']=dict(getattr(self.plan,'_predicted_receipts',{}))
+            self.metrics['predicted_receipt_limits']=dict(getattr(self.plan,'_receipt_limits',{}))
             save_json(self.output/'nominal-plan.json',asdict(self.plan))
             self.metrics['status']='AWAITING_CONFIRMATION';self._save_executor()
             endpoints={unit.executor_id:unit.action_endpoint for unit in self.units}

@@ -1,3 +1,27 @@
+## 2026-09-24 UTC — 四区域真实AAV2路线安全通过但区B有限回执晚到，完整请求仍FAIL
+
+- 计划：原A/B/C＋水下样点请求在预算内新选AAV2而非前次擦过待命AAV2的AAV1，保持完整方法表与原实体/机间安全阈值；实时RViz/中文面板实际执行，验证候选顺序不是只改变图表。
+- `experiments/20260924-full-method-four-region-live-r2`：180秒隔离初次规划得到与只读r3相同的AAV2空中三区＋UUV水下＋USV支援计划，确认后zone_A原生两段Action成功，a1/a2正产品到母船；zone_B首段本机Action在`1790254624.161`给SUCCEEDED，b1/b2本机产品`1790254621.047`产生，但任务层在原有限观察期限内收不到终态/两正产品，锁定AAV2并阻断zone_C。UUV+USV已接受的合作片段继续执行、两者真实SUCCEEDED、water_sample到母船；四区域仅5/7点交付，整体`UNKNOWN_LOCKED`，不冒充任务完成。
+- 信息时序定位：同bag zone_B产品本机产生后，母船约`1790254838.952/4840.948`才收到b1/b2，Action/观测终态通知约`1790254841.048`到达，较原AAV2 Action成功晚约217秒。原USV先支援水下，zone_B与母船/USV受码头遮挡；只有USV后续运动后链路恢复。原名义整计划允许把产品算在**观察之后的AAV返程区间**，但真实复合worker必须先等该步产品/终态到母船才会派后续返程Goal，因而同一计划的信息与执行先后不一致。不得仅把180秒等待延长到240秒：那会掩盖计划中未预订的长驻留和后续任务/空间占用。
+- 独立安全审计：同bag3128执行期位置样本零缺、三AAV最小表面净距1.432946m、五平台代理最小净距0.593211m≥0.5m，场景/模型时间检查合格；旧通用审计整体FAIL只因其把drone0写死为空中规划者、此轮真正动作在drone1。原审计已改按实际AIR参考成员核证并在新录包加入drone1/2规划安全状态和轨迹；用r2旧bag复核只剩`missing planner status or trajectory evidence: 1`，不能把缺失录包补造PASS。以前drone0活动bag在新审计代码下仍PASS。
+- 合作原子预约修复得到同次实证：r1的UUV先Result触发标量刷新/提前解锁，r2在相同未完成AIR B/C存在时UUV与USV均完成并收到水下结果，未再发生该错误；原USV/UUV完整运动不需因AIR通信失败被追溯改为成功任务请求。下一步先把AIR候选生成时的正产品/本机终态收件期限与**需要先收件才允许返程Goal**的worker语义统一，或在已有本地Action端点实现真正预承诺的AIR返程；不能凭预测返程链路可达却不派返程。
+- 来源：本地`FiniteDelivery`的步首因果/共享容量、原Action步骤顺序及实测包；[Guo–Zavlanos T-RO 2018](https://arxiv.org/abs/1706.02092)间歇会合和[APEX-MR RSS 2025](https://arxiv.org/abs/2503.15836)实际依赖释放解释信息约束，论文不提供此处217秒或等待上限。
+
+## 2026-09-24 UTC — 有限候选顺序改由预测成员到任务点距离引导；预览选AAV2＋UUV/USV
+
+- 计划：四区域请求r1的AAV1首段在实际0.5m门槛下失败，原18x秒候选搜索只完成8个组合；仅对同工期已访问候选评分的r2仍选同一危险路线，故撤销该无效tie-break。需要让不同物理成员的原方法**进入有限搜索**，但不能把中心距离当真实运动可行性或最优下界。
+- 修改：在既有`_build_complete_candidate_plan.continuations`，先保留“少占用其它待办可能成员”的原排序，再以当前预测成员位置到**请求已有观测点**的欧氏距离作为同级候选遍历提示，最后按executor ID稳定排序。所有候选仍逐一过原Swarm/qn/PVS完整轨迹、静态场景、成员净距与有限交付检查；没有新接口、区域/阈值/奖励，也没有按距离剪枝。Calvo/Capitán原文按兼容资源预计任务队列完成时间组织选择，本轮只借“运动/资源预计代价引导先查谁”的原则，不声称实现其算法或距离就是作业时间。
+- 只读`experiments/20260924-resource-competition-preview-r3`：与r1/r2同一个原A/B/C＋原水下样点请求、完整执行单元表、180秒显式诊断预算，输入`no`零Goal。新顺序在预算内评估6个完整候选，选AAV2承担A/B/C（计划结束12.99/66.73/120.75s）、UUV＋USV从0并行处理原水下样点，名义总工期仍302.79s且`search_complete=false`。这**改变了任务分工**但未验证实际避碰/任务完成；AAV2/AAV3水下端点仍未逐机资格，不能说所有两栖平台方法已启用。
+- 下一步：相同请求同场景实时RViz/中文面板派Goal并做同bag全程安全、时间、命令/Result/状态收件审计；任一段实际失败仍报告FAIL，不放宽原0.5m机间和0.2m实体判据。候选顺序和UUV选择所依据的动作结果仍来自本地实验，不是文献给的数值最优证明。来源：[Calvo/Capitán T-RO 2025](https://arxiv.org/html/2411.02062v3)、[GRSTAPS IJRR 2022](https://journals.sagepub.com/doi/full/10.1177/02783649211052066)与原[Swarm-Formation](https://github.com/ZJU-FAST-Lab/Swarm-Formation)。
+
+## 2026-09-24 UTC — 原A/B/C空中区＋水下样点全方法请求：名义选UUV，但真实首段安全失败
+
+- 计划：不发明UUV专属载荷或“每台必须动”规则，仅复用仓库`monitoring_request_coastal.yaml`原A/B/C三监测区与`monitoring_request_joint.yaml`原`water_sample`，组成同一代表请求；保持完整`joint_request_executors.yaml`，让现有求解器比较AAV跨介质与UUV＋USV并行方法。先只读预览，再在相同原港口障碍、实时RViz/中文面板实际执行。
+- 只读预览`experiments/20260924-resource-competition-preview-r1`：180秒显式诊断预算找到完整名义Plan，UUV作业＋移动USV支援从0开始、三空中区由AAV1分段执行，总名义工期302.79s；输入`no`零Goal。搜索`evaluated_candidates=8,search_complete=false`，不能称全局最优。方法选择不固定UUV，但当前配置只有AAV1有已接通水下端点，AAV2/AAV3同型号水下资格尚未逐机取得。
+- 真实`experiments/20260924-full-method-four-region-live-r1`：同计划被用户级确认后，AAV1第一段`zone_A`原生Action在运行约数秒时报告`fleet inter-agent clearance violated`，其自身账本当时最小代理表面净距`0.493833699m<0.5m`，差约6.17mm；场景障碍/模型时间和新参考采用均合格，但**实际安全失败、AAV1锁定、后续B/C不可派**。同次独立bag进一步表明AAV1在非成功Result后仍惯性逼近待命AAV2，三AAV全场最小表面净距降到`0.173709m`，原安全审计`passed=false`；这说明“故障锁定/事后停止”没有预防已开始的净距违规，绝不能报告安全通过。UUV水下动作真实成功且结果到母船，USV合作后续因下一条提前释放错误被取消；请求最终`UNKNOWN_LOCKED`，不能据名义Plan或UUV产品报告四区域完成。原失败bag、Action诊断和安全审计保留，不改安全阈值/平台半径。
+- 同次暴露的另一断点：UUV与USV合作方法的某一成员先返回Result时，原`_dispatch_cooperative_items.observe`用默认参数把该成员提前解除原子预约并调用只适合单活动的标量`_refresh_executor_timing`；有未开始的AIR B/C时明确抛`coordinated activity timing requires method re-evaluation`，继而取消尚在运行的另一合作成员。现只在原worker把各参与者Result先作为事实提交、预约保留到整组匹配Result齐备，再共同释放并将待办计划降格为`EXECUTION_ENTRY_REQUALIFICATION_REQUIRED`；不伪造新的全运动验证。相关runner/完整候选/计划64项通过，下一次实跑还须证实。
+- 排除一次无效改法：尝试在同工期完整候选之间用原整计划检查的AIR同伴名义净距作次级选择，合成反例说明排序逻辑本身不覆盖主工期；但同原请求、同180秒预算的只读`resource-competition-preview-r2`依然只评价8个完整候选并选**同一个AAV1 zone_A**，没有触及另一成员的完整方法。这条tie-break不能解决当前实际净距越限，已从生产源码撤回，不留下无效的新排序参数/打分。下一步必须改进有限候选**覆盖/顺序**或选择真实有余量的原生路线并重新实跑；不能只在未遍历到的候选之间评分，更不能降0.5m门槛。该次实际失败仍说明名义余量不能替代严格实际安全界。依据[Swarm原生编队/避障](https://github.com/ZJU-FAST-Lab/Swarm-Formation)、[GRSTAPS运动反馈](https://journals.sagepub.com/doi/full/10.1177/02783649211052066)与[D-ITAGS计划修复](https://arxiv.org/abs/2209.13092)的机制关系，不声称论文给出本项目的路径/净距数值。
+
 ## 2026-09-24 UTC — 五成员有限状态收件后的真实反馈修复与实时审计PASS
 
 - 计划：修复旧r9母船直接读取qn摘要的信息旁路。首轮本机缺测的终结报告必须先到母船；母船对五名物理成员的状态请求在原有限传输模型中占下行容量，各平台本地状态回执按实际链路占上行容量。只有匹配请求、全数到达、旧承诺与运动条件重新校核后，才能派复查Goal；运行中继续监测已完成AAV的固定参考/0.5m保持球。

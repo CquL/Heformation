@@ -111,6 +111,8 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
       /drone_2_qn/odometry /drone_2_qn/diagnostics
       /usv/odometry /usv/diagnostics /uuv/odometry /uuv/diagnostics
       /drone_0_planning/safety_status /drone_0_planning/trajectory
+      /drone_1_planning/safety_status /drone_1_planning/trajectory
+      /drone_2_planning/safety_status /drone_2_planning/trajectory
       /mother/received_products /mother/received_notifications
       /mother/command_requests /mother/command_deliveries /mother/state_claim_requests
       /drone_0_qn_aav/local_products /drone_1_qn_aav/local_products

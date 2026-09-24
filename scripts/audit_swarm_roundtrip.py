@@ -40,7 +40,7 @@ def audit(path,include_marine=False,scene_file=None,scene_bag=None):
             radii['uuv']=PvsBackend('remus100',(0.,0.,-2.)).collision_radius_m
     odom={i:[] for i in members}
     diagnostics={i:[] for i in members}
-    timeline=[]
+    timeline={i:[] for i in range(3)}
     action_starts=[]
     result_goal_starts=[]
     action_finishes=[]
@@ -63,11 +63,13 @@ def audit(path,include_marine=False,scene_file=None,scene_bag=None):
                 i=topic.split('/')[1]
                 values={v.key:v.value for s in msg.status for v in s.values}
                 if 'model_time_s' in values:diagnostics[i].append((msg.header.stamp.to_sec(),values))
-            elif topic=='/drone_0_planning/safety_status':
+            elif topic in tuple('/drone_{}_planning/safety_status'.format(i) for i in range(3)):
+                i=int(topic.split('/')[1].split('_')[1])
                 values={v.key:v.value for s in msg.status for v in s.values}
-                timeline.append((received.to_sec(),'status',values))
-            elif topic=='/drone_0_planning/trajectory':
-                timeline.append((received.to_sec(),'trajectory',int(msg.traj_id)))
+                timeline[i].append((received.to_sec(),'status',values))
+            elif topic in tuple('/drone_{}_planning/trajectory'.format(i) for i in range(3)):
+                i=int(topic.split('/')[1].split('_')[1])
+                timeline[i].append((received.to_sec(),'trajectory',int(msg.traj_id)))
                 caller=connection.get('callerid','')
                 if isinstance(caller,bytes):caller=caller.decode('utf-8',errors='replace')
                 valid=(msg.order==5 and bool(msg.duration) and
@@ -172,22 +174,27 @@ def audit(path,include_marine=False,scene_file=None,scene_bag=None):
             failures.append('declared scene clearance failed')
         if fleet_clearance is None or fleet_clearance<.5:
             failures.append('declared fleet-proxy pair clearance failed')
-    paused=False
-    latched=False
     paused_publications=[]
     epochs=[]
-    for stamp,kind,value in sorted(timeline,key=lambda x:x[0]):
-        if kind=='status':
-            paused=value.get('ordinary_reference_paused')=='true'
-            latched=value.get('latched')=='true'
-            key=(value.get('reference_generation'),paused,latched)
-            if not epochs or tuple(epochs[-1]['context'])!=key:
-                epochs.append(dict(received=stamp,context=key,floor=value.get('reference_floor_id')))
-        elif paused and not latched:
-            paused_publications.append(dict(received=stamp,trajectory_id=value))
+    active_air={i for i in range(3) if any(v.get('reference_source')=='AIR_SWARM'
+                                          for _,v in diagnostics[i])}
+    for i in active_air:
+        paused=False;latched=False;member_epochs=[]
+        for stamp,kind,value in sorted(timeline[i],key=lambda x:x[0]):
+            if kind=='status':
+                paused=value.get('ordinary_reference_paused')=='true'
+                latched=value.get('latched')=='true'
+                key=(value.get('reference_generation'),paused,latched)
+                if not member_epochs or tuple(member_epochs[-1]['context'])!=key:
+                    member_epochs.append(dict(agent_id=i,received=stamp,context=key,
+                                              floor=value.get('reference_floor_id')))
+            elif paused and not latched:
+                paused_publications.append(dict(agent_id=i,received=stamp,trajectory_id=value))
+        epochs.extend(member_epochs)
+        if not member_epochs or not any(kind=='trajectory' for _,kind,_ in timeline[i]):
+            failures.append('missing planner status or trajectory evidence: '+str(i))
     if paused_publications:failures.append('ordinary trajectory published after pause ACK')
-    if not epochs or not any(kind=='trajectory' for _,kind,_ in timeline):
-        failures.append('missing planner status or trajectory evidence')
+    if not active_air:failures.append('missing AIR-scope reference/state interval')
     own=diagnostics[0]
     if not own or any(v.get('domain_violation')!='false' or v.get('air_domain_violation')!='false' for _,v in own):
         failures.append('missing domain evidence or recorded violation')
@@ -199,7 +206,8 @@ def audit(path,include_marine=False,scene_file=None,scene_bag=None):
         heights=[float(v['position_z'])-.25 for _,v in diagnostics[i]
                  if i!=0 or v.get('reference_source')=='AIR_SWARM']
         air_min_envelope[str(i)]=min(heights) if heights else None
-        if not heights:failures.append('missing AIR-scope reference/state interval: '+str(i))
+        if not heights:
+            if i in active_air:failures.append('missing AIR-scope reference/state interval: '+str(i))
         elif min(heights)<0.:failures.append('AIR body envelope below declared surface: '+str(i))
     if include_marine:
         for i,mode in [('usv','SURFACE'),('uuv','WATER')]:

@@ -1158,7 +1158,7 @@ class ExecutorTravelTimeProvider:
         def unknown(reason):return dict(status='UNKNOWN',reason=reason)
         if self.scene_geometry is None:return unknown('PLAN_SCENE_NOT_PROVIDED')
         horizon=plan.makespan;pieces={m:[] for m in initial_states};radii={};products=[];receipt_limits={}
-        intervals={m:[] for m in initial_states}
+        intervals={m:[] for m in initial_states};predicted_receipts={}
         for candidate,items in selected:
             if time.monotonic()>=deadline:return unknown('PLANNING_BUDGET_EXHAUSTED')
             members={m for item in items for m in item.coalition}
@@ -1241,6 +1241,7 @@ class ExecutorTravelTimeProvider:
             if receipt['status']!='FEASIBLE':return receipt
             if any(stamp>receipt_limits[key]+1e-6 for key,stamp in receipt['received_at'].items()):
                 return dict(status='INFEASIBLE',reason='PLAN_RECEIPT_AFTER_PRODUCER_TERMINAL')
+            predicted_receipts=dict(receipt['received_at'])
         traces={};boundaries={0.,horizon}|{stamp for windows in intervals.values() for window in windows for stamp in window}
         # Independent standby plants must all be propagated, but serially
         # repeating their qn ODE rollouts needlessly consumes the one shared
@@ -1399,7 +1400,8 @@ class ExecutorTravelTimeProvider:
         # trace and interval. Standby and post-terminal idle motion cannot
         # transmit, so replaying the identical active traces a second time
         # after the full-fleet safety check adds no receipt evidence.
-        return dict(status='FEASIBLE',reason=('NOMINAL_PLAN_WITH_MONITORED_OPAQUE_HOLD'
+        return dict(status='FEASIBLE',predicted_receipts=predicted_receipts,
+            receipt_limits=receipt_limits,reason=('NOMINAL_PLAN_WITH_MONITORED_OPAQUE_HOLD'
             if any(state.get('opaque_hold_radius_m') is not None for state in initial_states.values())
             else 'NOMINAL_COMPLETE_PLAN_MOTION_AND_CAPACITY'))
 
@@ -1811,7 +1813,20 @@ def _build_complete_candidate_plan(executors,tasks,provider,member_states,deadli
             units=eligible_executors(executors,task)
             # Search order only: keep members that can serve another remaining
             # task available while trying equally qualified current units.
-            for unit in sorted(units,key=lambda u:len(set(u.physical_agent_ids)&future_members)):
+            target=None
+            if isinstance(native_owner,ExecutorTravelTimeProvider) and native_owner.observation_request is not None:
+                region=next((r for r in native_owner.observation_request.regions
+                             if r.region_id==task.target_ref),None)
+                if region is not None and region.interest_points:
+                    target=region.interest_points[0].position
+            def unit_order(unit):
+                # Cheap ordering hint only. Every complete candidate still
+                # needs its native motion/receipt check; distance is never a
+                # feasibility assertion or a pruning lower bound.
+                distance=(max(math.dist(snapshot[member]['position'],target)
+                              for member in unit.physical_agent_ids) if target is not None else 0.)
+                return (len(set(unit.physical_agent_ids)&future_members),distance,unit.executor_id)
+            for unit in sorted(units,key=unit_order):
                 if any(snapshot[m].get('locked',False) for m in unit.physical_agent_ids):continue
                 start=max(max(snapshot[m]['available_from'] for m in unit.physical_agent_ids),
                     unit.available_from,
@@ -1945,6 +1960,8 @@ def _build_complete_candidate_plan(executors,tasks,provider,member_states,deadli
                     if check['status']!='FEASIBLE':
                         unknown |= check['status']=='UNKNOWN';last_check_reason=check['reason'];continue
                     candidate_plan.validation_scope=check['reason']
+                    candidate_plan._predicted_receipts=check.get('predicted_receipts',{})
+                    candidate_plan._receipt_limits=check.get('receipt_limits',{})
                 if best is None or candidate_plan.makespan<best.makespan:
                     # Keep only the selected terminal model witnesses in
                     # process memory. asdict(Plan) never publishes them in a
