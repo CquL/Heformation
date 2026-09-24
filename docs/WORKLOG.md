@@ -1,3 +1,11 @@
+## 2026-09-24 UTC — 原样点较短REMUS折返候选未通过；不替换已核准方法
+
+- 计划：最新三类资格正例的REMUS原生南侧回环约252模型秒，RViz远端航迹较长，且普通工期目标更可能选择较快AAV方法。只在原`water_sample=(0,8,-2)`、原`(-5,8,-2)`回区和原0.2m静态/0.5m平台间判据下，检查有限的较早折返与分航段原生推进选择，若完整观测、实际重进和尾段安全均合格才加入联合搜索。
+- 实际：用同一`PvsBackend.predict_native_fragment`与`LocalObservationWindow`，分别试初航向−0.22/−0.30、样点后100–400rpm直接折返12项；以及初航向−0.32至−0.40、样点或足迹前沿切向、300rpm较短南侧回环8项；另以较低首段250/350rpm和回程200rpm补查4项。逐样本检查场景余量、观测后回区重进和原生终端；结果写本机忽略目录`experiments/20260923-remus-original-return-search/{short-return-probe.json,short-south-loop-result.json,slow-short-loop-result.json}`。这些是有障碍/原生转向依据的有限诊断，不是任意全空间搜索或新控制算法。
+- 结果：12条直接折返在东栈桥/外礁实体余量失败或400模型秒仍UNKNOWN；较短南侧路在`reef_east`/rock余量失败或越过模型时域，没有一条同时满足观测、原回区重进和安全低速尾段。保留当前已实跑且全链合格的长回环，不把某条较短参考路的名义长度当成实际可执行的更优工期，也不改观测代理阈值/港口障碍凑结果。
+- 来源与边界：原生Fossen REMUS推进/航向控制和当前StaticSceneGeometry/LocalObservationWindow直接给资格；[GRSTAPS](https://journals.sagepub.com/doi/full/10.1177/02783649211052066)支持任务与运动可行性反向交错，但不提供这些路线、推进转速或本机安全保证。本轮没有生产代码修改，README只加已有RViz“潜航器全程”保存视角的使用说明。
+- 未完成／下一步：继续使用已核准长回环作为有限候选；普通业务为何需要UUV独有结果资格和正式初次规划预算仍待用户答复。若以后有实际作业/装备条件支持不同方法，再从同一原生模型比较，不以无依据奖励强迫优化器选UUV。
+
 ## 2026-09-24 UTC — 原港口三类平台同一请求首次实时执行与全项审计正例（限定接线资格）
 
 - 计划：两次三类负例分别定位到未开始协作活动的实际时序传播和宿主ROS墙钟回拨。保持原港口`monitoring_request_joint.yaml`两业务区域、原水下样点/回区与实体安全门槛，在**仅供接线验收**的执行单元表里暂不提供AAV水下替代方法（AAV AIR能力仍在），让原联合求解器产生AAV空中＋REMUS水下＋移动Otter支援完整Plan。同源Cython qn显式启用且源SHA/ABI校验，实验shell在记录`systemd-timesyncd`原active状态后临时停止服务，`EXIT/INT/TERM`恢复；不改ROS stamp、模型步长或0.05s门槛。180s初次规划仍明确为隔离诊断，不称正式10s性能。

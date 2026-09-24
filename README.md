@@ -34,7 +34,7 @@ bash scripts/docker_run_three_class_qualification.sh \
   "experiments/$(date -u +%Y%m%dT%H%M%SZ)-three-class-live"
 ```
 
-脚本使用当前主机的 CPU 核组和明确的 **180 秒诊断规划预算**，并只在本次运行期间暂停已证实会回拨 ROS 墙钟的宿主 `systemd-timesyncd`，正常退出或 Ctrl-C 时恢复原服务状态；需要本机非交互式 `sudo`。它不会修改 0.05 秒时间门槛或仿真模型。一次已保存的同次运行获得 AAV 空中、REMUS 原水下样点、移动 USV 支援、两份有限结果收件、规定返回、零锁以及独立五平台整场时间/安全和控制因果审计通过；边界见 [当前状态](context/02_current_status.md) 和 [WORKLOG](docs/WORKLOG.md)。本资格入口不证明普通完整能力请求会选 UUV、严格 10 秒求解或已触发复查。
+脚本使用当前主机的 CPU 核组和明确的 **180 秒诊断规划预算**，并只在本次运行期间暂停已证实会回拨 ROS 墙钟的宿主 `systemd-timesyncd`，正常退出或 Ctrl-C 时恢复原服务状态；需要本机非交互式 `sudo`。它不会修改 0.05 秒时间门槛或仿真模型。一次已保存的同次运行获得 AAV 空中、REMUS 原水下样点、移动 USV 支援、两份有限结果收件、规定返回、零锁以及独立五平台整场时间/安全和控制因果审计通过；边界见 [当前状态](context/02_current_status.md) 和 [WORKLOG](docs/WORKLOG.md)。本资格入口不证明普通完整能力请求会选 UUV、严格 10 秒求解或已触发复查。RViz 的 Views 面板可选“潜航器全程”查看远端长回环，默认“港口总览”保留码头细节。
 
 ### 两区域联合请求：AIR、USV支援与AAV跨介质（资格诊断）
 
