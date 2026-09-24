@@ -352,7 +352,11 @@ class QnPythonClosedLoopBackend:
         from .contracts import canonical_model_state_bytes
         if self._state is None:
             raise ValueError('qn model state is not initialized')
-        return canonical_model_state_bytes(vars(self))
+        # _idle_reference is a read-only query witness, never consumed by the
+        # running qn controller.  The live node has no such witness, so it must
+        # not make equal physical/controller states hash differently.
+        return canonical_model_state_bytes({key:value for key,value in vars(self).items()
+                                            if key!='_idle_reference'})
 
     def snapshot(self, timestamp_s=0.0):
         """Physical state of this exact plant; controller/actuator state stays here."""

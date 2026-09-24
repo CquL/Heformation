@@ -1,5 +1,19 @@
 # 最新交接：分层监测需求基线与 AAV 本地停止保持
 
+> **2026-09-24 最新有限状态修复交接**：先读WORKLOG首条和`experiments/20260924-air-retest-finite-state-r4/{metrics.json,nominal-plan.json,scene-once.bag,execution.bag,safety-audit.json,control-audit.json,state-claim-audit.json,rviz-finite-repair-running.png,dashboard-finite-repair-running.png}`。在原港口单AIR缺测请求、实时RViz/中文面板中，母船**实收**五成员有限状态回执后3.439秒内重验条件候选，AAV2＋USV复查Action、32KiB结果收件、返回/零锁和三类同场安全时间审计PASS。`r1`缺回执字段零Goal、`r2`30秒保持到期取消锁定、`r3`首次AIR旧参考`INITIAL_HOLD`漏认取消锁定均保留；r4修复不代表普通全方法双区域请求会选UUV，亦不代表三类与复查在同一个请求内已闭合。初次20秒隔离预算、条件备选11.023秒与在线3.439秒分开，用户关于最终业务UUV结果资格和初次规划预算的两项答复仍待。下方r9直读qn摘要说明是已被新有限状态链取代的历史口径。
+
+> **2026-09-24 三类最新交接**：先看WORKLOG首条与`experiments/20260924-three-class-live-current-r1/{metrics.json,nominal-plan.json,execution.bag,scene-once.bag,safety-audit.json,control-audit.json,rviz-three-class-running.png,dashboard-three-class-running.png}`。原港口双区域正式runner、原五物理实例、限定执行单元表下，AIR AAV＋WATER REMUS＋移动Otter同次真实Action/有限收件/返回/零锁、实时GUI和独立整场审计均PASS（3396对齐样本零缺，代理净距最小0.593100m）。本次仍是180秒隔离初次规划，实验表排除AAV水下备选，不称普通全方法自主选择UUV；另一单区域`air-retest-live-r9`虽已真实完成10秒内复查，但不能拼接成同一三类请求。后续解决普通业务UUV结果资格与初次预算政策，并将真实复查扩展到同次三类任务；下方更旧条目保留为历史。
+
+> **2026-09-24 AIR修复交接**：先看WORKLOG与`experiments/20260924-air-retest-live-r9/{metrics.json,nominal-plan.json,scene-once.bag,execution.bag,safety-audit.json,control-audit.json,visual-retest-running.png}`。同次真实AIR缺测负报告经有限链路到母船后，条件候选在线2.650秒重验、AAV2＋USV新Goal/Result、32KiB复查产品母船收件、返回/零锁，实时RViz＋中文面板与独立审计PASS。但**待命AAV完整状态摘要由runner直调同机qn服务**，还没经过有限链路；不能将此同机资格说成通信受限母船状态闭环。首轮20秒隔离诊断规划、事先只读备选11.407秒分开报告，默认10秒初次规划/全局最优未证。普通全方法两区域仍可选AAV水下、UUV待命；测试限定配置的三类实时正例见本文件最上条，两个不同请求不能拼成同次三类反馈修复。下方旧“复查尚未派发”为历史快照。
+
+> **2026-09-24 复查候选交接（本地未提交）**：原`build_request_executor_plan`现能只搜索`retest-overview-0`，保留首轮AAV1为锁定、有限30s条件资格的“opaque hold”物理占用并用原0.5m成员净距校核。`experiments/20260924-opaque-air-retest-plan`同真实AIR负报告/原场景只读：10s共享预算无可提交Plan，20s诊断得AAV2 AIR+USV支援18.04s完整名义方案；首个方法约9.781s、整计划完成约10.958s。尚未在正式runner收到负报告后自动重搜/派发、也未连续监测AAV1保持条件。此本地增量不能推送为最终修复通过；下一步接任务权威与已收到状态，且解决严格10s的约1s缺口或取得用户明确政策变更，不把20s冒充生产。
+
+> **2026-09-24 AIR复查下一步证据**：`experiments/20260924-air-retest-peer-margin/result.json`与`20260924-air-state-replay/result.json`说明当前AAV2空中方法与AAV1已声明0.5m保持球在采样轨迹下有约0.4998m条件余量，原qn固定参考离线续算30s最大偏离0.0411m/速度0.1222m/s。但这是离线/旧同运行证据，不是母船收到的完整执行后状态，更不是下一Plan已表示AAV1占用。下一步如做真实`retest-overview-0`，不得把AAV1从空间约束删除或用初始trim替换；必须在已验证有限时域保留其物理占用、在线监测并对AAV2/USV实际方法重校。超出范围保持UNKNOWN，不添加无依据阈值。
+
+> **2026-09-24 新镜像交接**：当前`joint-wip`镜像`sha256:63e0434c361958e91ee7753ca771925abc6d8e681fddf5b3a8d7ad7075efd003`含0.5m成员净距计划修正及现有状态摘要，私有qn SHA/ABI核对True；受影响177项检查通过。它在之前正式ROS水下组件**零Goal预览**之后重建，尚无新镜像的最终三类/普通完整请求Action全程审计，不能用镜像构建或测试数量声称交付。旧GPU真GUI普通请求180s预算失败零Goal与AIR负报告后`pending_retest`无合格重选仍是当前关键继续点。
+
+> **2026-09-24 成员净距继续点**：当前`executors.py`把原误用实体0.2m的两处成对检查改回仓库既有机体净距0.5m，实体/海底仍0.2m；合成0.3m表面间距反例在名义计划阶段拒绝，相关62项检查通过。正式ROS水下组件`20260924-water-fleet-clearance-preview-r1`20s诊断预算仍得并行完整计划，输入`no`零Goal。别为保留旧计划通过而降低它；三类旧实跑实际最小净距约0.593m仍支持那条实际执行正例，但普通完整能力请求/新计划结果应按新门重验。具体证据/边界见WORKLOG顶部。
+
 > **2026-09-24 镜像/诊断RPC交接**：当前`joint-wip`镜像`sha256:3c7a3729283c375768adb4e4c338bae62ca43a7cf8e091d1cf7385d3ca7b7722`从本轮源码重建、同源qn扩展校验True。单机AIR终态读取本机摘要只在原Odometry0.25s预算内等待，受控挂起RPC不会阻断Action Result；守护线程永久挂起时可能残留，暂不称通用长期回收。镜像构建晚于旧实跑，完整三类同次新源码/新镜像物理验收仍需重跑；GPU真GUI普通请求已有一次180s预算失败零Goal，任务层/安全证据不能凭镜像更新改写。
 
 > **2026-09-24 qn跨介质本机摘要交接**：`experiments/20260924-qn-native-digest-live-r1`原五实例固定资格在同一qn完成AIR/入水/水中/出水/AIR，`native-roundtrip`真实Action SUCCEEDED、终态有效且本机`ACTION_TERMINAL`已有对应GoalID状态摘要；不等于联合请求、母船收件或后继修复资格。普通完整能力GPU真GUI180s诊断规划另在`air-cross-gpu-live-r1`预算失败零Goal，GPU预览成功的旧证据不覆盖它。下步需选定跨介质完整方法在同次业务运行中对照名义/实际摘要；缺测修复、正式10s与用户业务资格仍未完成。

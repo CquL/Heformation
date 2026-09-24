@@ -564,7 +564,9 @@ class FormationActionServer:
         if trajectory is not None:
             tracker.note_position_command(agent_id, trajectory[0], trajectory[1], now_s)
         if (source is not None and source["source_trajectory_id"] >= 0
-                and source.get("reference_source", "AIR_SWARM")=="AIR_SWARM"):
+                and (source.get("reference_source", "AIR_SWARM")=="AIR_SWARM" or
+                     (tracker.dispatch_ros_time_s is None and
+                      source.get("reference_source")=="INITIAL_HOLD"))):
             tracker.note_qn_source(
                 agent_id, source["source_trajectory_id"], source["used_outer_step"],
                 source["ros_time_s"], source["source_command_stamp"])
@@ -1410,7 +1412,7 @@ class FormationActionServer:
                     adoption.note_position_command(agent_id, trajectory[0], trajectory[1],
                                                    rospy.Time.now().to_sec())
                 if (source is not None and source["source_trajectory_id"] >= 0 and
-                    source.get('reference_source','AIR_SWARM')=='AIR_SWARM'):
+                    source.get('reference_source','AIR_SWARM') in ('AIR_SWARM','INITIAL_HOLD')):
                     adoption.note_qn_source(
                         agent_id, source["source_trajectory_id"],
                         source["used_outer_step"], source["ros_time_s"],

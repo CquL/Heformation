@@ -60,6 +60,15 @@ def test_complete_plan_selection_avoids_greedy_first_task_trap():
     assert states==before
 
 
+def test_urgent_repair_can_submit_first_complete_plan_without_claiming_best():
+    units=[Executor('e',('x',),frozenset({'AIR'}))]
+    states={'x':state()}
+    first=plan(units,[task('A'),task('B')],states,CandidateOracle('order'),first_feasible=True)
+    assert [item.task_id for item in first.items]==['A','B']
+    assert first.makespan==101. and first.search_complete is False
+    assert plan(units,[task('A'),task('B')],states,CandidateOracle('order')).makespan==3.
+
+
 def test_successor_queries_see_updated_physical_mode_and_position():
     result=plan([Executor('e',('x',),frozenset({'AIR'}))],
         [task('A'),task('B',predecessors=('A',))],{'x':state()},CandidateOracle('mode'))

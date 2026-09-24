@@ -16,6 +16,7 @@ import json
 import hashlib
 import io
 import math
+import os
 import threading
 import time
 import queue
@@ -39,6 +40,11 @@ from qn_aav_simulator.executor_routing import (
 from qn_aav_simulator.msg import (
     FormationAction, FormationActionGoal, FormationActionResult, FormationGoal,
 )
+
+# Scenario qualification, not a general tracking-error bound: same-source qn
+# replay of the actual failed AIR run remained inside the existing 0.5 m
+# return ball for this finite continuation (WORKLOG/air-hold-45 evidence).
+_QUALIFIED_AIR_RETEST_HOLD_S = 45.0
 
 
 def json_default(value):
@@ -213,8 +219,11 @@ class MissionRunner:
                 self._on_received_notification,queue_size=100))
             if self.command_delivery_required:
                 self.command_requests=rospy.Publisher('/mother/command_requests',String,queue_size=100)
+                self.state_claim_requests=rospy.Publisher('/mother/state_claim_requests',String,queue_size=20)
                 self.metrics['command_requests']={}
                 self.metrics['command_deliveries']={}
+                self.metrics['state_claim_requests']={}
+                self.metrics['received_state_claims']={}
                 self.action_subs.append(rospy.Subscriber('/mother/command_deliveries',String,
                     self._on_command_delivery,queue_size=100))
         for unit in self.units:
@@ -295,6 +304,9 @@ class MissionRunner:
             if event.get('event_type')=='ACTION_TERMINAL':
                 if getattr(self,'command_delivery_required',False):self._record_action_terminal(event)
                 return
+            if event.get('event_type')=='STATE_CLAIM':
+                self._record_state_claim(event)
+                return
             if event.get('event_type')!='OBSERVATION_TERMINAL':return
             if (event['request_id']!=self.request.request_id or
                     event['product_id']!=event['goal_id']+':terminal' or
@@ -328,6 +340,55 @@ class MissionRunner:
             self._save_executor()
         except (ValueError,TypeError,KeyError) as error:
             rospy.logerr_throttle(2.,'Rejected terminal receipt: %s',str(error))
+
+    def _record_state_claim(self,event):
+        ident=event['claim_id'];member=event['producer']
+        with self.executor_mutex:
+            requested=self.metrics['state_claim_requests'].get(ident)
+            if requested is None or requested['receiver']!=member or (
+                    event['request_id']!=self.request.request_id or
+                    event['product_id']!=ident+':state' or
+                    event['generated_at']<requested['generated_at'] or
+                    event['received_at']<event['generated_at'] or
+                    not all(math.isfinite(event[key]) for key in
+                            ('generated_at','received_at','model_time_s')) or
+                    event['model_time_s']<0 or len(event['position'])!=3 or
+                    not all(math.isfinite(v) for v in event['position']) or
+                    event['actual_mode'] not in ('AIR','WATER','SURFACE','TRANSITION') or
+                    event.get('active_goal_id') or event.get('resource_locked')!='false'):
+                raise ValueError('state claim is not the requested idle physical member')
+            digest=event.get('terminal_state_digest')
+            if member.startswith('drone_') and (
+                    not isinstance(digest,str) or len(digest)!=64 or
+                    any(char not in '0123456789abcdef' for char in digest)):
+                raise ValueError('AIR state claim lacks a local full-state digest')
+            previous=self.metrics['received_state_claims'].get(ident)
+            if previous is not None:
+                if previous!=event:raise ValueError('conflicting repeated finite state claim')
+                return
+            self.metrics['received_state_claims'][ident]=event
+        self._save_executor()
+
+    def _await_state_claims(self,members,deadline):
+        """Request only the small state facts consumed by this repair."""
+        from std_msgs.msg import String
+        requested={}
+        for member in members:
+            ident=hashlib.sha256('|'.join((self.request.request_id,str(self.plan_revision),
+                'repair-state',member)).encode('utf-8')).hexdigest()
+            event=dict(request_id=self.request.request_id,claim_id=ident,
+                receiver=member,generated_at=rospy.Time.now().to_sec())
+            with self.executor_mutex:self.metrics['state_claim_requests'][ident]=event
+            requested[member]=ident
+            self.state_claim_requests.publish(String(data=json.dumps(event,allow_nan=False)))
+        self._save_executor()
+        while not rospy.is_shutdown() and time.monotonic()<deadline:
+            with self.executor_mutex:
+                claims={member:self.metrics['received_state_claims'].get(ident)
+                        for member,ident in requested.items()}
+            if all(claims.values()):return claims
+            time.sleep(.05)
+        raise RuntimeError('finite state claim missing before repair deadline; no new Goal')
 
     def _record_action_terminal(self,event):
         if (event['request_id']!=self.request.request_id or
@@ -435,6 +496,9 @@ class MissionRunner:
         with self.condition:
             self.actual[member] = sample
             self.condition.notify_all()
+        hold=getattr(self,'opaque_hold',None)
+        if hold is not None and member==hold['member'] and math.dist(sample.position,hold['position'])>hold['radius_m']:
+            hold['violation']='retained AIR member left its qualified return ball'
 
     def _wait_executor_ready(self, unit, timeout=120.0):
         import rosgraph
@@ -1374,6 +1438,13 @@ class MissionRunner:
         failure=None
         with ThreadPoolExecutor(max_workers=len(self.units)) as workers:
             while not rospy.is_shutdown():
+                if getattr(self,'opaque_hold',None) is not None:
+                    try:self._check_opaque_hold()
+                    except RuntimeError as error:
+                        failure=error
+                        for unit_id in tuple(self.active_executor_ids):
+                            client=self.clients.get(unit_id)
+                            if client is not None:client.cancel_goal()
                 dispatch=[]
                 for execution_id,(future,activity_ids) in list(running.items()):
                     if future.done():
@@ -1419,6 +1490,27 @@ class MissionRunner:
                 time.sleep(.05)
             if failure is not None:raise failure
             if rospy.is_shutdown():raise RuntimeError("runner shutdown with accepted commitments")
+
+    def _check_opaque_hold(self):
+        """Monitor a previously accepted AIR return while its model state is unknown."""
+        hold=self.opaque_hold
+        if hold.get('violation'):raise RuntimeError(hold['violation'])
+        if time.monotonic()-hold['started_monotonic']>hold['horizon_s']:
+            raise RuntimeError('retained AIR hold exceeded its experimentally qualified horizon')
+        now=rospy.Time.now().to_sec()
+        with self.condition:
+            sample=self.actual.get(hold['member'])
+            stamp,values=self.executor_diagnostics.get(hold['member'],(None,{}))
+        if sample is None or not sample.is_fresh(now,.25) or stamp is None or not 0<=now-stamp<=.25:
+            raise RuntimeError('retained AIR member state or reference is stale')
+        if (math.dist(sample.position,hold['position'])>hold['radius_m'] or
+                values.get('reference_source')!='AIR_SWARM' or
+                values.get('domain_failure')=='true' or values.get('platform_resource_locked')=='true' or
+                values.get('air_domain_violation')=='true'):
+            raise RuntimeError('retained AIR member left its safe hold/reference contract')
+        reference=tuple(float(values['reference_position_'+axis]) for axis in 'xyz')
+        if math.dist(reference,hold['position'])>hold['radius_m']:
+            raise RuntimeError('retained AIR member adopted a different reference')
 
     def _receive_observations(self, item, evidence):
         from qn_aav_simulator.observation_coverage import (ObservationSample,PointObservation,
@@ -1480,7 +1572,6 @@ class MissionRunner:
         from qn_aav_simulator.monitoring_request import ObservationTask
         from qn_aav_simulator.observation_coverage import ObstacleBox
         from qn_aav_simulator.pvs_backend import PvsBackend, NATIVE_START_TOLERANCE_M
-        from qn_aav_simulator.qn_python_backend import QnPythonClosedLoopBackend
         from qn_aav_simulator.task_line import build_request_executor_plan, retest_tasks
         timer=None
         self.points={point.point_id:point.position for region in self.request.regions
@@ -1488,6 +1579,11 @@ class MissionRunner:
         self.weights={point.point_id:point.weight for region in self.request.regions
                       for point in region.interest_points}
         try:
+            if os.environ.get('QN_SAME_SOURCE_ACCELERATION')=='true':
+                from mrta_python.query_worker import _enable_query_extensions
+                if not _enable_query_extensions():
+                    raise RuntimeError('planner qn source/ABI differs from the running compiled model')
+            from qn_aav_simulator.qn_python_backend import QnPythonClosedLoopBackend
             if self.executor_serial or not self.finite_delivery:
                 raise RuntimeError('joint request requires parallel executor and actual finite receipt inputs')
             if set(self.fleet)!={'drone_0','drone_1','drone_2','usv','uuv'}:
@@ -1552,6 +1648,31 @@ class MissionRunner:
                     budget_s=self.metrics['planning_budget_s'])
             finally:
                 self.metrics['planning_wall_s']=time.monotonic()-began
+            # Retain only the terminal backend of the method actually selected.
+            # A later repair may reuse it only when the matching finite Action
+            # notice confirms that the local terminal state was reached.
+            selected_terminals=dict(getattr(self.plan,'_selected_native_terminals',{}))
+            # Prepare read-only idle witnesses while the first plan is still
+            # awaiting confirmation. Exact qn fixed points and the UUV's
+            # declared no-command continuation otherwise consume the later
+            # 10 s feedback-repair budget for identical computations.
+            standby_fixed={};idle_anchors={}
+            for member in ('drone_0','drone_1','drone_2'):
+                idle=models[member].predict_idle(5.,geometry,time.monotonic()+10.)
+                if idle['status']=='FEASIBLE' and idle['reason']=='QN_EXACT_INITIAL_HOLD_FIXED_POINT':
+                    standby_fixed[member]=idle['terminal_backend']
+            with self.condition:
+                _,uuv_diagnostic=self.executor_diagnostics.get('uuv',(None,{}))
+            uuv_time=float(uuv_diagnostic.get('model_time_s','nan'))
+            if math.isfinite(uuv_time) and uuv_time>=models['uuv'].time_s:
+                idle=models['uuv'].predict_idle(uuv_time-models['uuv'].time_s,
+                    geometry,time.monotonic()+10.)
+                if idle['status']=='FEASIBLE':idle_anchors['uuv']=idle['terminal_backend']
+            for key,backend in selected_terminals.items():
+                if getattr(backend,'model',None)!='otter':continue
+                idle=backend.predict_idle(.1,geometry,time.monotonic()+2.)
+                if idle['status']=='FEASIBLE' and idle['terminal_backend'].execution_state_bytes()==backend.execution_state_bytes():
+                    standby_fixed[key]=backend
             self.tasks_by_id={task.task_id:task for task in tasks}
             regions={region.region_id:region for region in self.request.regions}
             def target(task):
@@ -1571,6 +1692,48 @@ class MissionRunner:
                 for member,site in scene['return_sites'].items()})
             self.obstacles=[ObstacleBox(center,size) for _,kind,center,size in geometry.objects
                             if kind=='SOLID']
+            conditional_retest=None
+            if len(tasks)==1 and regions[tasks[0].target_ref].kind in ('SURFACE','SHORELINE'):
+                selected_work=[item for item in self.plan.items if item.fulfills_task and
+                    item.task_id==tasks[0].task_id and len(item.coalition)==1 and
+                    item.coalition[0].startswith('drone_')]
+                possible=retest_tasks(self.request,(),self.coverage,self.weights,
+                    delivery_recorded=True,already_retested=False)
+                if len(selected_work)==len(possible)==1:
+                    held=selected_work[0].coalition[0]
+                    future_task=Task(possible[0].task_id,possible[0].required_capabilities,1,
+                        possible[0].service_time_s,possible[0].deadline_s,possible[0].region_id)
+                    future_models={m:standby_fixed[m] for m in ('drone_0','drone_1','drone_2')
+                                   if m!=held and m in standby_fixed}
+                    support_item=next((item for item in self.plan.items if 'usv' in item.coalition),None)
+                    if support_item is not None and (support_item.execution_id,'usv') in standby_fixed:
+                        support_model=selected_terminals.get((support_item.execution_id,'usv'))
+                        if support_model is not None:future_models['usv']=support_model
+                    if 'uuv' in idle_anchors:future_models['uuv']=idle_anchors['uuv']
+                    if len(future_models)==4 and scene['return_sites'][held]['radius_m']==.5:
+                        future_states={m:dict(position=(model.snapshot().position if m.startswith('drone_')
+                            else model.snapshot()['position']),mode=('AIR' if m.startswith('drone_')
+                            else model.snapshot()['actual_mode']),available_from=0.)
+                            for m,model in future_models.items()}
+                        future_states[held]=dict(position=tuple(scene['return_sites'][held]['position']),
+                            mode='AIR',available_from=0.,locked=True,collision_radius_m=.25,
+                            opaque_hold_radius_m=.5,opaque_hold_horizon_s=_QUALIFIED_AIR_RETEST_HOLD_S)
+                        future_units=[unit for unit in units if held not in unit.physical_agent_ids]
+                        future_provider=ExecutorTravelTimeProvider({'start':next(iter(future_states.values()))['position']},
+                            {unit.executor_id:1. for unit in future_units},native_models=future_models,
+                            native_efforts=efforts)
+                        began_future=time.monotonic()
+                        try:
+                            future_plan,_=build_request_executor_plan(self.request,scene,future_units,
+                                future_provider,future_states,budget_s=15.,
+                                tasks_override=(future_task,),first_feasible=True)
+                        except (ValueError,RuntimeError) as error:
+                            self.metrics['prepared_retest_status']='UNKNOWN: '+str(error)
+                        else:
+                            conditional_retest=(future_task,future_plan,held)
+                            self.metrics['prepared_retest_status']='CONDITIONAL_COMPLETE_CANDIDATE'
+                        finally:
+                            self.metrics['prepared_retest_wall_s']=time.monotonic()-began_future
             self.metrics['selected_plan']=asdict(self.plan)
             save_json(self.output/'nominal-plan.json',asdict(self.plan))
             self.metrics['status']='AWAITING_CONFIRMATION';self._save_executor()
@@ -1601,7 +1764,154 @@ class MissionRunner:
                 already_retested=False)
             if missing:
                 self.metrics['pending_retest']=[task.task_id for task in missing]
-                raise RuntimeError('received missing-observation report requires qualified joint retest plan')
+                if len(missing)!=1 or regions[missing[0].region_id].kind not in ('SURFACE','SHORELINE'):
+                    raise RuntimeError('no qualified one-round repair for the received missing-observation report')
+                failed_rows=[row for row in self.metrics['executions']
+                    if row.get('result')=='OBSERVATION_MISSING' and row.get('task_id') in self.tasks_by_id]
+                failed_items=[item for item in self.plan.items if item.fulfills_task and
+                    any(row['execution_id']==item.execution_id for row in failed_rows)]
+                if (len(failed_items)!=1 or len(failed_items[0].coalition)!=1 or
+                        not failed_items[0].coalition[0].startswith('drone_') or
+                        any(item.status!='COMPLETED' for item in self.plan.items) or self.active_executor_ids):
+                    raise RuntimeError('missing report has no safely retained single-AAV repair boundary')
+                failed_member=failed_items[0].coalition[0]
+                completed_row=next(row for row in failed_rows if row['execution_id']==failed_items[0].execution_id)
+                hold_site=scene['return_sites'][failed_member]
+                hold_position=tuple(hold_site['position'])
+                if hold_site['radius_m']!=.5:
+                    raise RuntimeError('AIR hold qualification belongs to the existing 0.5 m return contract')
+                self.opaque_hold=dict(member=failed_member,position=hold_position,radius_m=.5,
+                    horizon_s=_QUALIFIED_AIR_RETEST_HOLD_S,started_monotonic=time.monotonic()-max(0.,
+                        rospy.Time.now().to_sec()-completed_row['result_received_at']),violation='')
+                self._check_opaque_hold()
+                repair_started=time.monotonic();repair_deadline=repair_started+10.
+                claims=self._await_state_claims(self.fleet,repair_deadline)
+                held_claim=claims[failed_member]
+                if (held_claim['actual_mode']!='AIR' or
+                        held_claim['reference_source']!='AIR_SWARM' or
+                        math.dist(held_claim['position'],hold_position)>.5):
+                    raise RuntimeError('finite held-AAV claim does not cover its return contract')
+                repair_states={failed_member:dict(position=hold_position,mode='AIR',available_from=0.,
+                    locked=True,collision_radius_m=.25,opaque_hold_radius_m=.5,
+                    opaque_hold_horizon_s=max(.01,_QUALIFIED_AIR_RETEST_HOLD_S-
+                        (repair_started-self.opaque_hold['started_monotonic'])))}
+                repair_models={}
+                for member in self.fleet:
+                    if member==failed_member:continue
+                    claim=claims[member]
+                    with self.condition:
+                        stamp,diagnostic=self.executor_diagnostics.get(member,(None,{}))
+                        sample=self.actual.get(member)
+                    now=rospy.Time.now().to_sec()
+                    if (sample is None or not sample.is_fresh(now,.25) or stamp is None or
+                            not 0<=now-stamp<=.25 or diagnostic.get('resource_locked')=='true' or
+                            diagnostic.get('platform_resource_locked')=='true' or
+                            diagnostic.get('domain_failure')=='true' or diagnostic.get('scene_failure')):
+                        raise RuntimeError('repair member state unavailable or locked: '+member)
+                    if member.startswith('drone_'):
+                        backend=standby_fixed.get(member)
+                        if backend is None:
+                            raise RuntimeError('standby AAV has no exact initial-hold model: '+member)
+                        expected=hashlib.sha256(backend.execution_state_bytes()).hexdigest()
+                        if (claim['actual_mode']!='AIR' or
+                                claim['terminal_state_digest']!=expected or
+                                claim['reference_source']!='INITIAL_HOLD'):
+                            raise RuntimeError('finite standby AAV state differs: '+member)
+                        mode='AIR'
+                    else:
+                        prior=next((item for item in self.plan.items if member in item.coalition),None)
+                        if prior is None:
+                            backend=idle_anchors.get(member,models[member])
+                        else:
+                            backend=selected_terminals.get((prior.execution_id,member))
+                            row=next((row for row in self.metrics['executions']
+                                if row.get('execution_id')==prior.execution_id),None)
+                            notice=(self.metrics['received_action_results'].get(row['goal_id'],{}).get(member)
+                                    if row and row.get('goal_id') else None)
+                            if backend is None or notice is None or notice.get('nominal_terminal_state_match') is not True:
+                                raise RuntimeError('native support terminal state not confirmed: '+member)
+                        target_time=float(claim['model_time_s'])
+                        if not math.isfinite(target_time) or target_time+1e-6<backend.time_s:
+                            raise RuntimeError('native idle model time unavailable: '+member)
+                        if prior is None or (prior.execution_id,member) not in standby_fixed:
+                            idle=backend.predict_idle(max(0.,target_time-backend.time_s),geometry,repair_deadline)
+                            if idle['status']!='FEASIBLE':
+                                raise RuntimeError('native idle state cannot be carried into repair: '+member)
+                            backend=idle['terminal_backend']
+                        if math.dist(claim['position'],backend.snapshot()['position'])>NATIVE_START_TOLERANCE_M:
+                            raise RuntimeError('finite native claim differs from predicted full state: '+member)
+                        age=max(0.,rospy.Time.now().to_sec()-claim['generated_at'])
+                        if age>.001 and (prior is None or (prior.execution_id,member) not in standby_fixed):
+                            idle=backend.predict_idle(age,geometry,repair_deadline)
+                            if idle['status']!='FEASIBLE':
+                                raise RuntimeError('native claim cannot be advanced to repair adoption: '+member)
+                            backend=idle['terminal_backend']
+                        mode=backend.snapshot()['actual_mode']
+                    position=backend.snapshot().position if member.startswith('drone_') else backend.snapshot()['position']
+                    if (math.dist(claim['position'],position)>NATIVE_START_TOLERANCE_M
+                            if member.startswith('drone_') else
+                            math.dist(sample.position,position)>NATIVE_START_TOLERANCE_M):
+                        raise RuntimeError('finite repair claim/model or local safety position differs: '+member)
+                    repair_models[member]=backend
+                    repair_states[member]=dict(position=position,mode=mode,available_from=0.)
+                self._check_opaque_hold()
+                available=[unit for unit in units if failed_member not in unit.physical_agent_ids]
+                repair_task=Task(missing[0].task_id,missing[0].required_capabilities,1,
+                    missing[0].service_time_s,missing[0].deadline_s,missing[0].region_id)
+                repair_provider=ExecutorTravelTimeProvider({'start':next(iter(repair_states.values()))['position']},
+                    {unit.executor_id:1. for unit in available},native_models=repair_models,native_efforts=efforts)
+                self.metrics['repair_prepare_wall_s']=time.monotonic()-repair_started
+                search_started=time.monotonic()
+                try:
+                    repair_plan=None
+                    if (conditional_retest is not None and
+                            conditional_retest[0]==repair_task and conditional_retest[2]==failed_member):
+                        from mrta_python.executors import bounded_travel_query
+                        prepared=conditional_retest[1]
+                        checked_states={member:dict(state,native_backend=repair_models[member])
+                                        if member in repair_models else dict(state)
+                                        for member,state in repair_states.items()}
+                        check=bounded_travel_query(prepared._selected_provider._check_complete_plan,
+                            (prepared,prepared._selected_evidence,checked_states,repair_deadline),repair_deadline)
+                        self.metrics['prepared_retest_recheck']=check
+                        if check['status']=='FEASIBLE':
+                            repair_plan=prepared
+                            self.metrics['repair_source']='PREPARED_CONDITIONAL_REVALIDATED'
+                    if repair_plan is None:
+                        repair_plan,_=build_request_executor_plan(self.request,scene,available,repair_provider,
+                            repair_states,budget_s=max(0.,repair_deadline-time.monotonic()),
+                            tasks_override=(repair_task,),first_feasible=True)
+                        self.metrics['repair_source']='CURRENT_STATE_JOINT_SEARCH'
+                finally:
+                    self.metrics['repair_search_wall_s']=time.monotonic()-search_started
+                    self.metrics['repair_wall_s']=time.monotonic()-repair_started
+                self._check_opaque_hold()
+                if (time.monotonic()>repair_deadline or repair_plan.makespan>
+                        _QUALIFIED_AIR_RETEST_HOLD_S-
+                        (time.monotonic()-self.opaque_hold['started_monotonic'])):
+                    raise RuntimeError('complete repair exceeds its shared budget or retained hold horizon')
+                offset=rospy.Time.now().to_sec()-self.epoch
+                for item in repair_plan.items:
+                    item.planned_start+=offset;item.planned_finish+=offset
+                    if any(old.execution_id==item.execution_id for old in self.plan.items):
+                        raise RuntimeError('repair Action execution ID collides with prior commitment')
+                self.plan.items.extend(repair_plan.items)
+                self.plan.precedence_edges+=((failed_items[0].task_id,repair_task.task_id),)
+                self.plan.activity_edges+=repair_plan.activity_edges
+                self.plan.validation_scope=repair_plan.validation_scope
+                self.plan_revision+=1
+                self.metrics['repair_plan']=asdict(repair_plan)
+                self.metrics['plan_history'].append({'revision':self.plan_revision,'plan':asdict(self.plan)})
+                self.tasks_by_id[repair_task.task_id]=repair_task
+                self.observation_tasks[repair_task.task_id]=missing[0]
+                self.metrics['status']='RUNNING_RETEST';self._save_executor()
+                self._execute_parallel_pending()
+                if self.coverage.delivered_fraction(self.weights)!=1.:
+                    raise RuntimeError('one received retest did not complete required delivery')
+                self.metrics['pending_retest']=[]
+                self.metrics['retest_completed']=[repair_task.task_id]
+                self._save_executor()
+                delivered=self.coverage.delivered_fraction(self.weights)
             participants={member for item in self.plan.items for member in item.coalition}
             end=time.monotonic()+10.
             while True:
@@ -1619,7 +1929,7 @@ class MissionRunner:
                     member,distance,scene['return_sites'][member]),)}
             complete=(all(item.status=='COMPLETED' for item in self.plan.items) and
                 not self.active_executor_ids and delivered==1. and
-                set(self.metrics['results_received'])=={task.task_id for task in tasks} and
+                set(self.metrics['results_received'])==set(self.tasks_by_id) and
                 all(row['completed'] for row in self.metrics['return_completion'].values()))
             self.metrics['status']='PASS_GEOMETRIC_PROXY_QUALIFICATION' if complete else 'FAILED'
             if not complete:self.metrics['failure_reason']='actual work, receipt or return incomplete'

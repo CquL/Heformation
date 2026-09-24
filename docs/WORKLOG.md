@@ -1,3 +1,89 @@
+## 2026-09-24 UTC — 五成员有限状态收件后的真实反馈修复与实时审计PASS
+
+- 计划：修复旧r9母船直接读取qn摘要的信息旁路。首轮本机缺测的终结报告必须先到母船；母船对五名物理成员的状态请求在原有限传输模型中占下行容量，各平台本地状态回执按实际链路占上行容量。只有匹配请求、全数到达、旧承诺与运动条件重新校核后，才能派复查Goal；运行中继续监测已完成AAV的固定参考/0.5m保持球。
+- 失败与定位：`20260924-air-retest-finite-state-r1`五请求/回执到了母船，但待命qn诊断缺实际模式/参考来源，母船拒绝并在10秒到期零复查Goal；`r2`五回执接纳、在线2.887秒重验并派AAV2＋USV，但原30秒保持资格时域先到，取消/锁定；从该次真实AAV1逐参考同源重放残差0并只读延续45模型秒，保持球最大偏差`5.384e-7m`，才将**本实验**资格时域改为45秒。`r3`五回执/在线3.579秒重验仍因新诊断把待命`INITIAL_HOLD`准确显式写出后，原Action采用核对漏了这条合法“旧参考”基线而无法提交AAV2动作；Action未产观测，45秒到期安全取消/锁定。只在原采用核对的**派发前**允许`INITIAL_HOLD`作为旧轨迹ID0，派发后仍必须见新AIR轨迹ID、qn实际采用及GoalID；对应定向20项检查通过。
+- 通过证据：`experiments/20260924-air-retest-finite-state-r4`为同一港口单AIR业务请求、测试专用一次本机缺测、正式runner/scene transport/Action、**实时RViz＋中文面板**。首轮AAV1/USV动作后，`observed_ids=[]`报告经有限链路到母船；其后5个请求＋5个STATE_CLAIM有限回执覆盖三AAV/USV/UUV，同次bag因果审计确认最新回执在第一个复查Goal之前。条件Plan首轮确认前只读准备11.023s，负报告后在线准备＋整计划重新校核3.439s<原10s，复查AAV2＋USV三个新Goal实际成功、32KiB正产品母船收件、AAV1/AAV2/USV返区、零资源锁，任务`PASS_GEOMETRIC_PROXY_QUALIFICATION`；五成员状态回执不是评测bag真值补丁。
+- 独立同次审计：`scene-once.bag`＋`execution.bag`原五平台时间/场景/机间检查`passed=true,failures=[]`，530对齐执行期位置样本零缺、最小代理表面净距0.913436m≥0.5m；同bag六Goal/Result/有限终态通知、六命令请求/送达和一份正产品的对账`passed=true`；`state-claim-audit.json`为5/5请求/回执、一个先行负报告、三个复查Goal且回执先于Goal，亦`passed=true`。运行截图`rviz-finite-repair-running.png`与`dashboard-finite-repair-running.png`来自同一会话。脚本请求审计首次把`len(requests)!=len(claims)!=5`误写成Python链比较，立即改为两个独立数量条件重跑PASS，任务源码/原始bag未改。
+- 受影响回归：本轮改变的是qn已用参考诊断和AIR Action首次采用基线，因此只跑一条七机原入口`experiments/20260924-seven-adoption-regression-r1`单目标实际Action，原验证器`status=PASS`、185检查零失败，七机模型/ROS时间一致；没有重复全套旧调度对照。最终相关runner/有限传输/qn诊断/采用/原生候选等163项定向测试和Python、shell语法及`git diff --check`通过。
+- 范围/下一步：原请求初次规划20.014s仅为隔离诊断，备选准备11.023s与在线3.439s分开，不宣称默认10秒首轮或全局最优。该修复请求的UUV物理待命；另一实时三类正例`three-class-live-current-r1`是真AAV＋UUV＋USV，但没有同次缺测且实验表排除AAV水下备选。仍需普通全方法选择下有依据的UUV业务资格与初次规划政策的用户答复，以及最终同一三类请求真实反馈修复；不把两次运行拼接。源依据：[Guo–Zavlanos T-RO 2018](https://arxiv.org/abs/1706.02092)间歇信息交换、[D-ITAGS RA-L 2023](https://arxiv.org/abs/2209.13092)受影响部分修复、[APEX-MR RSS 2025](https://arxiv.org/abs/2503.15836)实际事件释放；本实验45秒和收件速率仅为本机条件性资格，不继承论文数值保证。
+
+## 2026-09-24 UTC — 有限状态回执真负例、来源字段修正与45秒保持资格（复跑待验）
+
+- 计划：真实缺测后母船只按有限到达的状态回执修复，不靠同机直接服务；沿原30秒背景AAV保持时域检查新链路时延，发现不足不延长时限制造PASS，先取得同源动力学证据。
+- `experiments/20260924-air-retest-finite-state-r1`：五个状态请求从母船发出并占用原`FiniteDelivery`下行，五个STATE_CLAIM回执也实际到母船。但待命`drone_1/2`原qn诊断没有`actual_mode/reference_source`，母船拒绝回执，在线期限到期无新Goal、FAIL。只把已冻结的`CommandSnapshot.reference_source/generation`传给`ReferenceUsage`并在原qn诊断标出**本步实际采用**来源及真实介质；待命为`INITIAL_HOLD`，AAV1首轮返区为`AIR_SWARM`。不更改控制参考、物理积分或业务门槛，相关69项定向检查通过。
+- `r2`：五状态请求/五有限回执均被母船接受，条件备选按收到的信息在2.887秒完成入口准备和全计划重验，AAV2＋USV复查Goal已真实派发。但增加消息与执行时差后，已完成AAV1自原Result起的**原30秒经验保持时域**先到期，监测器取消新Goal，AAV2本地停止保持锁存，任务`UNKNOWN_LOCKED`，未得到复查产品。该安全阻断和后续资源锁原样保留，不改写PASS。
+- 独立资格：只读脚本`experiments/20260924-air-hold-45-qualification/{replay.py,result.json}`从r2同次bag记录的AAV1逐步实际采用参考重放，录入期位置/速度残差最大均为0；随后延续相同终点固定参考45模型秒，距原0.5m返区中心最大`5.384e-7m`、速度最大`5.551e-7m/s`，未改变模式。原bag在首轮Result后自身还记录到超过30秒安全保持。故当前**同模型、同场景、同参考**的条件性背景资格时域改为45秒，仍以在线Odometry/参考连续监测；这不是任意扰动下的严格未来误差界。重复的45秒数值仅在runner一处常量维护，不新增用户参数。
+- 下一步：全链重启后同原故障请求复跑，核五状态请求/实收到达、10秒内完整复核、新Goal/Result、有限产品和本机保持时域；若失败继续定位，不放宽0.5m保持球、0.5m成员净距或0.2m实体余量。来源：[Guo–Zavlanos间歇通信](https://arxiv.org/abs/1706.02092)、[D-ITAGS受影响部分修复](https://arxiv.org/abs/2209.13092)仅提供信息/修复组织原则；45秒及姿态/速度均为本仓库模型实证，不是文献性能指标。
+
+## 2026-09-24 UTC — 修复状态信息不得绕过有限链路（实跑待验）
+
+- 计划：前条`air-retest-live-r9`虽有物理复查及产品/Result有限收件，但待命AAV完整状态摘要由母船runner直接调用同机qn Trigger，违反“母船只按收到的信息修复”的最终通信合同。保持qn本地只读服务与既有`FiniteDelivery`，让状态请求占用有限下行，平台本地采样后紧凑状态回执占用有限上行；未收到或旧回执不得派新Goal。原Odometry/诊断直订阅只作本机就绪/安全监控及独立审计，不作为母船获得状态的替代品。
+- 当前修改：仅在既有`SceneTransport`订阅一个`/mother/state_claim_requests`标准String话题；按同一链路/容量/步首因果交付请求后，本地调用已有qn `state_digest`（PVS从原诊断取模式、模型时刻与位置），将含请求ID/成员/产生时间/必要状态的`STATE_CLAIM`作为原`/mother/received_notifications`有限收件。原runner记录匹配请求和实际收件，收到首轮负报告才发五成员小请求，待命AAV比较完整摘要，USV/UUV按回执模型时间续算并与回执位置对账，首轮AAV仍保留有界物理占用；缺回执/信息不一致返回UNKNOWN，不从raw ROS状态补造。没有新控制服务、消息类型或协调层，只有该实际消费者需要的一条有限状态通知。
+- 初检：代码语法、shell语法和`git diff --check`通过；相关runner/有限传输/场景旧60项通过，新增“旧成员/倒序回执拒绝、匹配回执幂等”定向反例待运行。**尚未真实验证有限状态请求/回执**，因此r9先按同机资格保留，不升级为母船通信约束修复通过。
+- 来源/边界：[Guo–Zavlanos T-RO 2018](https://arxiv.org/abs/1706.02092)与[CoCoPlan RA-L 2026](https://arxiv.org/abs/2601.10116)支持断联/会合下信息到达是作业决策条件；[APEX-MR RSS 2025](https://arxiv.org/abs/2503.15836)支持按实际事件释放。它们不提供本实验消息格式、RF/水声速率或摘要正确性，后者须由同源码/同次bag核验。下一步原AIR缺测请求无GUI定点诊断，确认因果/期限/实际派发，再复验GUI。
+
+## 2026-09-24 UTC — 当前源码三类平台同请求实时港口资格实跑与独立审计PASS
+
+- 计划：在原港口静态实体/海底/禁区、原两区域请求、现有五实例和实时RViz/中文面板中，复验本轮状态摘要、成员净距及求解器增量未破坏三类真实执行。实验执行单元表只排除`aav_1_native`水下备选，让AAV AIR、REMUS WATER和移动Otter的原生Action及有限交付同时受检；**这不是普通全方法自主选择出UUV**。
+- 实际：`experiments/20260924-three-class-live-current-r1`，同源qn扩展SHA/ABI检查通过，初次完整规划使用明确180秒隔离诊断预算（实际180.021s），用户输入`yes`后AAV1执行空中`overview`，USV完成第一段AIR RF支援；UUV在原港口`water_sample`通过式水下作业，USV同请求先原生配平等待约200模型秒、再移动至约定通信机会和返区。UUV与USV的第二阶段预承诺片段并行；母船实际收到`air_sample`及`water_sample`两份32KiB结果。四活动COMPLETED、五原生Goal/Result与有限终态通知、七有限下行指令及送达、规定AAV/USV返回和REMUS原生重进＋安全尾段、零资源锁，任务权威`PASS_GEOMETRIC_PROXY_QUALIFICATION`。
+- 独立同次证据：`scene-once.bag`＋`execution.bag`原五平台时间/场景/代理净距审计`passed=true,failures=[]`，3396对齐执行期位置样本、零执行期缺失，五平台代理最小表面净距0.593100m≥既有0.5m；UUV最近quay声明实体余量0.680950m≥0.2m。同bag命令/Goal/Result/业务产品因果`passed=true`，5/5 Goal/Result/终态、7/7指令请求/送达、2/2结果。运行中图`rviz-three-class-running.png`、`dashboard-three-class-running.png`及会合/产品图保留，画面与实际信息来源分开。
+- 未完成：普通完整执行单元表仍可选AAV AIR→WATER并在当前同一几何代理任务中更快完成，因此其正常两区域请求合理让UUV待命；本次资格表没有证明求解器在全方法比较下选UUV。首轮默认10秒完整规划、同一三类请求中的真实缺测复查、真实载荷质量、通用通信/能源和严格安全保证也未完成。后续优先确定有依据的业务结果资格或构造真实资源竞争请求，在全方法表下自动选择UUV，再以实际反馈修复同一请求；不加“每台必须动”奖励或随意观测阈值。
+- 代码／证据：实验`qualification-executors.yaml`、两bag、`metrics.json`、`nominal-plan.json`、`safety-audit.json`、`control-audit.json`、运行截图、`workspace.patch`和镜像ID在同目录；复用正式`scripts/docker_run_joint_request.sh`，未改生产请求/动作端点。文献机制仍是[GRSTAPS任务/运动耦合](https://journals.sagepub.com/doi/full/10.1177/02783649211052066)、[Calvo/Capitán异构长航时调度与执行修复](https://arxiv.org/html/2411.02062v3)、[Swarm原生AIR编队运动](https://github.com/ZJU-FAST-Lab/Swarm-Formation)、[Fossen/PVS原生船/潜航器](https://www.fossen.biz/pythonVehicleSim/)；原港口数值和链路带宽是声明实验假设，非文献给出的装备性能。
+
+## 2026-09-24 UTC — 同次实时AIR缺测反馈修复完成；三类代表任务仍未总验收
+
+- 计划：用原港口单区域请求在AAV1本机一次性注入观测缺失，保留真实几何/运动/Action和有限链路，验证收到负报告后的条件候选重新核验、AAV2＋USV实际复查、结果收件、返回及资源状态；同时开启原RViz和中文面板，独立审计同次bag。
+- 过程失败保留：`r7`虽在确认前产生条件完整候选，但运行时保存了候选**函数**而非其运动提供者，复核在派Goal前拒绝；已修为提供者对象并用定向断言核对。`r8`真实复查AAV2＋USV的Action/32KiB产品/返回/零锁都成功，在线准备1.009s＋全计划复核1.088s；最终仍FAILED，定位`delivered`局部变量沿用复查前0。只在原runner结项处重新读取`observed AND received`交付率，未改业务门槛。
+- 最终同条件实跑：`experiments/20260924-air-retest-live-r9`在**同一次ROS会话、实时RViz与中文面板**，首轮AAV1几何运动/返回Action成功但本机报告`observed_ids=[]`实际送到母船；条件备选首轮确认前只读准备11.407s，负报告后用实际成员/场景/占用/交付再核2.650s（准备1.311s、校核1.339s）且未超过原在线10s。AAV2＋USV被派新Goal，六原生Goal/Result、六有限下行命令/六终态通知一一对应，母船只收到复查AAV2的32KiB正产品；`retest-overview-0`实际COMPLETED，覆盖交付1.0，AAV1/AAV2/USV原返回合同成立，资源锁空、`PASS_GEOMETRIC_PROXY_QUALIFICATION`。**状态资格仍有信息边界**：待命AAV完整摘要由runner直接访问同机qn标准服务，未沿有限链路传至母船；故这里是同机物理/Action复查资格，不是通信受限母船状态闭环完成。条件备选未在负报告前派发，未宣称最优。
+- 独立验证：同次`scene-once.bag`与`execution.bag`按原审计脚本得安全/时间`passed=true,failures=[]`，524个对齐位置样本零执行期缺失，三AAV最小代理净距0.913576m≥原0.5m；同bag控制/收件因果`passed=true`。画面见`visual-retest-running.png`；这是实时截图，不等于动态真值质量或业务载荷验证。
+- 代码／限制：改动集中`integration/mrta_python/executors.py`、`integration/qn_aav_simulator/scripts/formation_mission_runner.py`、`qn_python_backend.py`；无新管理节点或Action字段。曾试验静态盒签距的等价标量实现（10万随机点最大差`1.42e-14m`），只节约约0.13秒、未解决核心瓶颈，**最终已撤回**，保留原几何源码。此次只有**AAV＋USV修复**，UUV物理待命；首轮20s是显式隔离诊断预算，不是默认10s初次规划通过，条件备选另需11.407s。正常两区域r3仍是AAV＋USV，不能把二者拼成同次三类复查证明。下一步在原五平台场景让UUV参与所选方法的同次业务实跑，并明确普通全方法选择与代表性UUV结果资格的差别；用户尚未决定是否给代表业务加入UUV独有结果要求。方法关系依据[D-ITAGS针对性修复](https://arxiv.org/abs/2209.13092)、[GRSTAPS运动反馈](https://journals.sagepub.com/doi/full/10.1177/02783649211052066)、[APEX-MR实际结果释放](https://arxiv.org/abs/2503.15836)，本机阈值与时间数值均只来自本项目模型/实验。
+
+## 2026-09-24 UTC — 严格10秒真实复查瓶颈与条件候选再核验（实跑待确认）
+
+- 计划：真实AIR缺测后不能加长正式在线修复期限，也不能删已占用成员或放松净距。量出10秒的实际耗时，把首轮阶段就能只读计算且依赖条件明确的备用方法提前算好；缺测真正到达后仍在原10秒内按实际状态、场景、全成员轨迹和交付重新核验，再决定是否派发。
+- 实际负例：`experiments/20260924-air-retest-live-r4`在原单区域请求、同源编译qn、正式runner、首轮20秒隔离诊断计划下实际完成AAV1+USV首轮并收到本机`observed_ids=[]`负报告；修复状态检查通过，但共享10秒搜索耗尽，0个复查Goal，终态FAIL。`r5`仅增加内部耗时证据：状态准备5.264s、搜索4.748s；预先只读求qn精确静止固定点和UUV无命令锚点后`r6`准备降至0.762s，搜索9.251s仍未取得完整方案，继续FAIL。三次均未把已收结果伪造成成功。
+- 瓶颈证据：更新后的只读候选剖析`experiments/20260924-opaque-air-retest-plan/{candidate-profile.txt,candidate-timing.json}`首个AAV2+USV完整方法约9.085s，整计划复核约0.676s；两段原Swarm查询共约4.266s、qn整参考推进约4.489s。先前`json.dump`低效版本与旧剖析已另存`candidate-profile-before-json-optimization.txt`。静态盒公式的等价标量试验10万随机点差最大`1.42e-14m`、相关27项测试通过，但只改善约0.13秒且需碰安全几何公共源码，最终撤回；主耗时仍在原生运动查询。
+- 当前修改：只在单AIR区域、选定首轮工作成员和USV终态模型明确时，利用现有`build_request_executor_plan`只读准备一份**条件**复查完整候选；Plan仅在进程内保留它的原始方法轨迹/模型和提供者。实际负报告、匹配GoalID的终态摘要、待命完整状态及背景成员保持合同到齐后，调用原完整计划检查重新核验；若条件不符则用剩余10秒做现状态联合搜索。没有新增任务管理器、服务、Goal字段或提前派发。69项相关候选/runner/原生运动测试与语法通过，**此预备路径尚未实跑**。
+- 另一次正常请求：`experiments/20260924-air-retest-live-r3`脚本未覆写默认两区域请求，故成了正常AAV+USV（UUV待命）回归，180秒明确隔离初次规划后两份32KiB产品实际到母船，10个Goal/Result/有限命令及通知一致，返回/锁空、独立五平台时间/几何安全审计PASS。它不是缺测复查，也不是UUV参与的三类任务；实验脚本请求选择失误已在后续r4–r6显式设置`JOINT_REQUEST_FILE`。
+- 下一步：正式负报告r7核对条件候选是否准备及真实再核验、在线总耗时、复查Goal/Result与收件；不匹配时保留失败并定位，不能改成预测成功。来源：[D-ITAGS的受影响部分修复](https://arxiv.org/abs/2209.13092)、[GRSTAPS的运动反馈](https://journals.sagepub.com/doi/full/10.1177/02783649211052066)、[APEX-MR的实际事件释放](https://arxiv.org/abs/2503.15836)，这些工作不提供本机10秒或30秒的数值保证。
+
+## 2026-09-24 UTC — 真实负报告复查接入同一 runner（待实跑核验）
+
+- 计划：接续本机 AIR 缺测经有限链路到达母船后的 `retest-overview-0`，只重搜未承诺作业；已完成 AAV 不凭位置伪装为可再次派发的完整 qn 状态，仍作为物理占用参加全计划安全校核。使用原 10 秒在线预算和一次 `first_feasible` 完整候选，不把局部结果称为最优。
+- 实际修改：`formation_mission_runner.py` 在收到真实负报告后检查首轮 Result、终结报告、无活动预约和 AAV 返回合同；将该 AAV 保留为 30 秒、0.5 米实验性有界占用并监测实际 Odometry/已用参考。其它待命 AAV 要由同源 qn 固定点预测与本机完整状态摘要相等，USV 已完成终态须由有限 Action 通知与所选模型摘要相等，PVS 待命状态按原动力学推进且和实际位置核对。新复查任务沿 `build_request_executor_plan` 的现有入口只重搜一次，完整 Plan 与旧完成事实合并、递增版本，继续由原 worker 派发；接收新产品后才准报告交付。`qn_python_backend.py` 完整状态摘要排除仅用于只读查询、运行 qn 控制器不消费的 `_idle_reference`，避免同一实际状态因查询证明元数据而假不一致。保持监测失效则取消活动 Goal 并保留锁定。
+- 当前结果：Python 语法、`git diff --check`通过；相关运动、候选、runner、任务线 95 项定向测试通过。**还没有用此补丁完成真实复查或最终三类请求**，待下面实跑证实；任何入口状态、10 秒预算或物理保持不满足均应记录失败，不可改阈值补成功。
+- 代码／证据：`integration/qn_aav_simulator/scripts/formation_mission_runner.py`、`integration/qn_aav_simulator/src/qn_aav_simulator/qn_python_backend.py`、本轮未提交工作区；既有只读入口 `experiments/20260924-opaque-air-retest-plan/result-first-10s.json` 和负报告 `experiments/20260924-air-missing-feedback-r1/metrics.json`。机制依据为 [APEX-MR 的实际事件释放](https://arxiv.org/html/2503.15836v2)、[D-ITAGS 的受影响部分修复](https://arxiv.org/abs/2209.13092)；30 秒包络来自本场景同源 qn 重放，不由论文担保。
+- 下一步：用原故障覆盖文件只在独立实验注入一次缺测，运行同请求实时 RViz／中文面板，核 10 秒修复、新 Goal/Result、实际状态、有限接收、资源锁与安全。之后仍需把三类正常任务和复查在同一代表业务请求中贯通，不能拿 AIR＋USV 复查替代最终验收。
+
+## 2026-09-24 UTC — AIR复查已占用成员进入联合校核；10秒在线预算仍无可提交计划
+
+- 计划：真实`retest-overview-0`的AAV2备选不得把完成首轮的AAV1从物理空间里删掉，也不得把其执行后未知qn内部状态重置为初始trim。沿现有Plan/候选/全计划检查，只表达一个**已锁定不可再分配、在声明有限时域内保持既有AIR终点参考**的物理占用，不新增调度器、通用动态能力引擎或控制算法。占用球0.5m来自已有AIR Action终点容差，体半径0.25m与两机净距0.5m仍用现有判据；可用时域30s只由上一条同源qn有限续算和运行中监测作为实验资格，不称严格未来界。
+- 实际：`executors.py`允许`member_states`多一个不属于可选Executor的锁定成员，但必须有明确位置、AIR模式、体半径、有限保持半径/时域；AIR原Swarm只读查询仍把它作为静止peer，整计划校核按0.01s时网格将其身体半径加保持不确定半径，与**其它所有成员**继续用已修0.5m机间净距和原实体/海底0.2m检查。超过保持资格时域、无锁或无证据返回UNKNOWN/输入错误；通过时结果明确标`NOMINAL_PLAN_WITH_MONITORED_OPAQUE_HOLD`，不写成通常完整状态证书。原`request_native_methods/build_request_executor_plan`只补一个真实消费的`tasks_override`，使收到负报告后的唯一`retest-overview-0`可以沿同一联合求解入口搜索，不重新展开已完成区域。正式runner若显式启用同源qn编译，规划进程现在在加载qn类**之前**核源SHA/ABI，与在线qn节点保持同源；不匹配记录FAIL而不静默改用不同纯Python模型。
+- 针对性结果：合成“锁定背景成员远/近/保持时域过期”分别给条件计划、`PLAN_MEMBER_PATH_CONFLICT`和`PLAN_OPAQUE_HOLD_COMMITMENT_NOT_COVERED`；指定复查任务不会再把原水下必做任务偷带入新计划；相关完整计划/请求/原生候选/runner共110项通过。以真实AIR缺测请求确认时刻、原场景/五物理位置及同源模型构造的**只读实验**`experiments/20260924-opaque-air-retest-plan`：原严格共享10s返回`no complete feasible candidate within shared budget`，0 Goal；20s**隔离诊断**则给AAV2 AIR 0–18.04s、USV支援0–11.12s的完整名义复查Plan，已占用AAV1保留且18.04s<30s资格时域。运行剖析首个AAV2+USV完整方法约9.781s才出现，整计划校核在约10.958s结束，说明只改派发不足以守在线10s；不把20s预览冒充修复实跑/正式预算通过。
+- 范围/下一步：这项**生产源码仍为本地未提交增量**，只读Plan查询已验证，但正式`_run_joint_request`在收到真实负报告后还未调用新入口、没有监测背景AAV1的实际位置/参考来源，也未派AAV2新Goal。必须先把已收PVS摘要、AAV1终点保持合同与未承诺成员状态以同一计划版本送入runner并做连续守卫；若保留严格10s，须预先资格化候选或缩短真实运动/完整校核成本，不能悄悄将在线预算改为20s。用户关于代表业务UUV结果资格及初次规划政策的文本选择再次提出、尚未回答；该答复不改变本次在线10s负例。
+- 来源/证据：本机`experiments/20260924-opaque-air-retest-plan/{probe.py,run.sh,result-10s.json,probe20.py,result-20s.json,probe_profile.py,result-profile.json}`，源码`integration/mrta_python/executors.py`、`integration/qn_aav_simulator/src/qn_aav_simulator/task_line.py`与定向测试；[APEX-MR实际依赖释放](https://arxiv.org/html/2503.15836v2)及[D-ITAGS针对性修复](https://arxiv.org/abs/2209.13092)支持保留既有承诺、只重搜受影响待办，但不提供本机30s经验包络或10s求解保证。
+
+## 2026-09-24 UTC — AIR复查备选的已占用成员余量：条件性资格，不是静止保证
+
+- 计划：真实AIR缺测反馈已产生`retest-overview-0`，若用待命AAV2重观测，必须仍将先前AAV1作为**物理占用**考虑，而不能从整个计划中删去它或把同位置初始trim状态冒充执行后的内部状态。只读核对本港口同任务既有AAV2实际运动与AAV1保持位置的相对余量，并核同源qn第一任务完成后继续固定参考的有限运动包络。
+- 实际：`experiments/20260924-air-retest-peer-margin/probe.py`从原正式两区域同运行bag取AAV2空中两个Goal/Result之间1913个对齐实际双机位置，AAV1当时在其已声明返回中心附近；按原AAV机体代理各0.25m、平台间表面净距0.5m、AIR Action终点保持位置容差0.5m，得对“另一成员可在0.5m球内运动”的条件性中心距离要求1.5m。实际最小中心距离`1.999812m`，相对该条件仍余`0.499812m`。同源Cython qn离线重放另一条正式AIR+USV bag位置/速度残差均0，从已录Action末内部状态再按原最终位置参考**只读延续30模型秒**，最大距部署中心`0.041094m`、最大速度`0.122228m/s`，未离开原0.5m返回球；证据`experiments/20260924-air-state-replay/result.json`。
+- 边界：这给出**当前已测路线/固定参考/30秒**条件下的名义复查余量，并非AAV1任意未来时间的严格跟踪界；母船没有从bag收到其完整qn状态，不能把离线重放对象输入在线求解器。若下一步让AAV2承担真实一轮AIR复查，原计划必须保留AAV1的已接受静止参考占用并在线监测实际位置/参考来源，时域超出已验证30s或状态证据缺失就返回UNKNOWN/锁定。没有额外“所有平台必须出动”奖励、走廊或调低净距；1.5m只由仓库既有0.25+0.25+0.5+0.5合同相加得到。
+- 来源/下一步：[APEX-MR实际事件/占用释放](https://arxiv.org/html/2503.15836v2)、[D-ITAGS受影响部分修复](https://arxiv.org/abs/2209.13092)支持保留已执行承诺而只重选待办；两篇论文不提供本机30s包络或0.5m设备保证。此轮仅取得候选资格证据，**尚未**让新联合Plan把已占用AAV1表示为有界背景成员、也未派出复查Goal；必须保持这一区别。
+
+## 2026-09-24 UTC — 当前安全门与摘要源码统一镜像；阶段仍未晋级完整请求
+
+- 计划：成员净距0.5m修正后，先验证受影响的候选、原生运动、Action、收件/反馈边界，再从**同一当前源码**重建Noetic镜像；不能让运行时挂载代码与镜像私有qn扩展版本不一致。
+- 实际/结果：`test_complete_plan_validation.py`、`test_native_motion_query.py`、`test_task_line.py`、`mrta_python/test_executors.py`和相关Action/runner/有限交付/平台执行共177项通过；`bash -n`、Python语法、`git diff --check`通过。从当前源码重建`swarm-formation-qn:joint-wip@sha256:63e0434c361958e91ee7753ca771925abc6d8e681fddf5b3a8d7ad7075efd003`，镜像中私有同源qn扩展源SHA/ABI校验True。构建日志`/tmp/heformation-fleet-clearance-build.log`。
+- 证据边界：该镜像建于上述组件预览/旧五平台物理实跑之后；原港口UUV＋USV在新净距门下**只做正式ROS零Goal预览**并有完整名义Plan，尚未用此新镜像做全三类/普通请求的实际Action安全验收。普通两区域完整能力请求在GPU真GUI180s诊断预算下另有零Goal失败，缺测后真实联合重选仍未完成。测试数量和镜像成功不替代目标请求的同次执行证据。
+- 下一步：等待用户对代表业务结果资格与初次规划政策作选择时，独立推进已接受承诺/实际终态进入下一次候选搜索；不因新0.5m门更严格而加奖励、变更目标点或放松安全距离。
+
+## 2026-09-24 UTC — 联合计划成员净距误用了实体门槛；按既有0.5m规则统一
+
+- 计划：真实三类任务的静态实体余量要求0.2m，**两平台机体净距**要求0.5m。源码`executors.py`候选共同段与整份计划检查却用`scene_geometry.clearance`（场景实体0.2m）相加，可能接纳间距介于0.2与0.5m的计划，虽然运行端/独立审计会拒绝。直接复用已存在`experiment_verdict._MIN_INTER_AGENT_CLEARANCE_M=0.5`，不增加新的任务输入或自定安全阈值。
+- 实际：两处成员成对中心距离判据都改为`r_i+r_j+0.5m`；实体/海底仍用`scene_geometry.clearance=0.2m`。原完整计划检查的时间样本、运动状态、有限交付和运行端控制无变化。定向反例令两静止成员中心距0.5m、各半径0.1m：各自静态场景合法，旧0.1m场景门可放行，按原0.5m机体净距应由整计划阶段报`PLAN_MEMBER_PATH_CONFLICT`；新增测试通过。
+- 边界/证据：本机`integration/qn_aav_simulator/tests/test_complete_plan_validation.py::test_fleet_clearance_is_not_the_smaller_static_obstacle_clearance`与当前源`integration/mrta_python/executors.py`，受影响完整计划/原生候选/任务生成/执行单元62项通过。正式ROS水下组件`experiments/20260924-water-fleet-clearance-preview-r1`在原20s组件诊断预算下仍能给UUV/USV并行完整名义计划（约14.008s），输入`no`零Goal；它只复核该计划没有被新0.5m门误拒，不是新物理实跑。以前三类实跑实际代理最小净距约0.593m>0.5m，其证据仍为实际安全正例；但不能由它推所有旧名义候选已按0.5m筛过。后续完整请求须按新门接受/拒绝，不因计划更严格而放松实体/业务条件。
+- 来源：0.5m来自仓库既有`experiment_verdict`和Action配置/独立安全判据，不是从[GRSTAPS](https://journals.sagepub.com/doi/full/10.1177/02783649211052066)或[D-ITAGS](https://arxiv.org/abs/2209.13092)抄来的装备性能；文献只支持联合计划应把运动可行性反馈给任务层。
+
 ## 2026-09-24 UTC — qn摘要服务有界等待与同源码Noetic镜像收口
 
 - 计划：本机摘要只为后继资格提供附加证据，不能因为标准Trigger服务卡住而阻断已完成的物理Action Result；同时前次镜像构建后共享状态编码和本地PlatformTask终态源码又有增量，需使最终镜像与工作树一致。保持原0.25s Odometry新鲜度预算，不加同义超时参数。

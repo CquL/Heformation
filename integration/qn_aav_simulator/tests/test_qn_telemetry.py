@@ -83,6 +83,15 @@ def test_used_reference_velocity_uses_the_outer_step_not_the_sub_step():
     assert second.model_interval_end_s == pytest.approx(0.2)
 
 
+def test_used_reference_keeps_the_frozen_source_for_finite_state_claims():
+    from dataclasses import replace
+    tracker=ReferenceUsageTracker('drone_0')
+    tracker.reset((0.,0.,.8))
+    used=tracker.record(replace(snapshot(0,(0.,0.,.8)),
+        reference_source='INITIAL_HOLD',reference_generation=3),.01,0.)
+    assert (used.reference_source,used.reference_generation)==('INITIAL_HOLD',3)
+
+
 def test_zero_motion_reference_is_not_reported_as_directly_consumed():
     tracker = ReferenceUsageTracker("drone_0")
     tracker.reset((1.0, 2.0, 0.5))

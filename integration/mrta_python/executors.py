@@ -583,7 +583,8 @@ class ExecutorTravelTimeProvider:
         for other,value in sorted(states.items()):
             if other==member or not other.startswith('drone_'):continue
             if (not other[6:].isdigit() or value['mode']!='AIR' or
-                    value.get('available_from',0.)>start or value.get('locked',False)):
+                    value.get('available_from',0.)>start or
+                    (value.get('locked',False) and value.get('opaque_hold_radius_m') is None)):
                 yield ExecutionCandidate('air-peer',(),{},status='UNKNOWN',reason='AIR_PEER_REFERENCE_UNKNOWN');return
             peers.append(dict(id=int(other[6:]),stationary=True,position=list(value['position'])))
         if len(peers)!=2:
@@ -785,7 +786,8 @@ class ExecutorTravelTimeProvider:
         for other,value in sorted(states.items()):
             if other==member or not other.startswith('drone_'):continue
             if (not other[6:].isdigit() or value['mode']!='AIR' or
-                    value.get('available_from',0.)>start or value.get('locked',False)):
+                    value.get('available_from',0.)>start or
+                    (value.get('locked',False) and value.get('opaque_hold_radius_m') is None)):
                 yield ExecutionCandidate('cross-medium-peer',(),{},status='UNKNOWN',
                                          reason='AIR_PEER_REFERENCE_UNKNOWN');return
             peers.append(dict(id=int(other[6:]),stationary=True,position=list(value['position'])))
@@ -963,6 +965,7 @@ class ExecutorTravelTimeProvider:
         """
         from dataclasses import replace
         from qn_aav_simulator.observation_coverage import ObstacleBox,predict_received_products,predict_received_events
+        from qn_aav_simulator.experiment_verdict import _MIN_INTER_AGENT_CLEARANCE_M
         choices=self.cooperative_routes[(unit.executor_id,task.task_id)]
         if self.observation_request is None or self.scene_geometry is None or len(self.mother_position)!=3:
             yield ExecutionCandidate('joint-context-missing',(),{},status='UNKNOWN',reason='OBSERVATION_OR_SCENE_CONTEXT_MISSING')
@@ -1114,7 +1117,7 @@ class ExecutorTravelTimeProvider:
             for tick in range(int(horizon*100)+1):
                 if time.monotonic()>=deadline:failure=('UNKNOWN','PLANNING_BUDGET_EXHAUSTED');break
                 t=tick/100.;positions={m:rows[max(0,bisect_right(clocks[m],t)-1)][1] for m,rows in traces.items()}
-                if any(math.dist(positions[a],positions[b])<radii[a]+radii[b]+self.scene_geometry.clearance
+                if any(math.dist(positions[a],positions[b])<radii[a]+radii[b]+_MIN_INTER_AGENT_CLEARANCE_M
                        for a in positions for b in positions if a<b):
                     failure=('INFEASIBLE','JOINT_PARTICIPANT_PATH_CONFLICT');break
             if failure:
@@ -1151,6 +1154,7 @@ class ExecutorTravelTimeProvider:
         This is a sampled nominal-model check, not a tracking-error guarantee.
         """
         from qn_aav_simulator.observation_coverage import ObstacleBox,predict_received_events
+        from qn_aav_simulator.experiment_verdict import _MIN_INTER_AGENT_CLEARANCE_M
         def unknown(reason):return dict(status='UNKNOWN',reason=reason)
         if self.scene_geometry is None:return unknown('PLAN_SCENE_NOT_PROVIDED')
         horizon=plan.makespan;pieces={m:[] for m in initial_states};radii={};products=[];receipt_limits={}
@@ -1245,7 +1249,7 @@ class ExecutorTravelTimeProvider:
         standby_pool=ThreadPoolExecutor(max_workers=min(3,len(initial_states)))
         standby={}
         for member,state in initial_states.items():
-            if pieces[member] or state['available_from']>1e-6:continue
+            if pieces[member] or state['available_from']>1e-6 or state.get('opaque_hold_radius_m') is not None:continue
             backend=state.get('native_backend',self.native_models.get(member))
             if (getattr(backend,'backend_id',None)=='PYTHON_QN_CLOSED_LOOP' or
                     getattr(backend,'model',None) in ('otter','remus100')):
@@ -1254,6 +1258,16 @@ class ExecutorTravelTimeProvider:
         try:
           for member,state in initial_states.items():
             if time.monotonic()>=deadline:return unknown('PLANNING_BUDGET_EXHAUSTED')
+            if state.get('opaque_hold_radius_m') is not None:
+                if (pieces[member] or state['available_from']>1e-6 or
+                        horizon>state['opaque_hold_horizon_s']+1e-6):
+                    return unknown('PLAN_OPAQUE_HOLD_COMMITMENT_NOT_COVERED')
+                position=tuple(state['position']);mode=state['mode']
+                radii[member]=state['collision_radius_m']+state['opaque_hold_radius_m']
+                rows=[(tick/100.,position,mode) for tick in range(int(horizon*100)+1)]
+                if rows[-1][0]+1e-9<horizon:rows.append((horizon,position,mode))
+                traces[member]=tuple(rows)
+                continue
             # A future available state is a terminal forecast, not evidence of
             # where an already committed platform travels before that time.
             if state['available_from']>1e-6:return unknown('PLAN_COMMITTED_PREFIX_MISSING')
@@ -1355,7 +1369,7 @@ class ExecutorTravelTimeProvider:
                     break
         if scene_failures:
             return dict(status='INFEASIBLE',reason=min(scene_failures)[2])
-        pair_limits=tuple((a,b,radii[a]+radii[b]+self.scene_geometry.clearance)
+        pair_limits=tuple((a,b,radii[a]+radii[b]+_MIN_INTER_AGENT_CLEARANCE_M)
                           for a in traces for b in traces if a<b)
         for a,b,limit in pair_limits:
             if a in fixed and b in fixed and math.dist(fixed[a],fixed[b])<limit:
@@ -1385,7 +1399,9 @@ class ExecutorTravelTimeProvider:
         # trace and interval. Standby and post-terminal idle motion cannot
         # transmit, so replaying the identical active traces a second time
         # after the full-fleet safety check adds no receipt evidence.
-        return dict(status='FEASIBLE',reason='NOMINAL_COMPLETE_PLAN_MOTION_AND_CAPACITY')
+        return dict(status='FEASIBLE',reason=('NOMINAL_PLAN_WITH_MONITORED_OPAQUE_HOLD'
+            if any(state.get('opaque_hold_radius_m') is not None for state in initial_states.values())
+            else 'NOMINAL_COMPLETE_PLAN_MOTION_AND_CAPACITY'))
 
     @staticmethod
     def query_swarm_reference(parameter_namespace,request,deadline):
@@ -1400,7 +1416,9 @@ class ExecutorTravelTimeProvider:
         if shutil.which('rosrun') is None:return dict(status='UNKNOWN',reason='ROS_SWARM_QUERY_UNAVAILABLE')
         with tempfile.TemporaryDirectory(prefix='swarm-query-') as directory:
             source=os.path.join(directory,'request.json');destination=os.path.join(directory,'result.json')
-            with open(source,'w') as stream:json.dump(request,stream,allow_nan=False)
+            # dumps uses the same JSON representation with the C encoder;
+            # dump's Python chunk loop is costly for this declared point map.
+            with open(source,'w') as stream:stream.write(json.dumps(request,allow_nan=False))
             if time.monotonic()>=deadline:return dict(status='UNKNOWN',reason='QUERY_BUDGET_EXHAUSTED')
             with tempfile.TemporaryFile() as log:
                 process=subprocess.Popen(['rosrun','ego_planner','swarm_readonly_query',parameter_namespace,source,destination],
@@ -1579,7 +1597,8 @@ def build_executor_plan(executors: Sequence[Executor], tasks: Sequence,
                         serial_units: Optional[Iterable[str]] = None,
                         precedence_edges=(), budget_s=None,
                         hard_deadlines: bool = False,
-                        execution_candidates=None, member_states=None) -> ExecutorPlan:
+                        execution_candidates=None, member_states=None,
+                        first_feasible: bool = False) -> ExecutorPlan:
     """Allocate every task to one eligible unit with the v9 reward order.
 
     Generalization of the fixed-coalition port: each unit keeps its own queue
@@ -1606,10 +1625,11 @@ def build_executor_plan(executors: Sequence[Executor], tasks: Sequence,
     if budget_s is not None and (not math.isfinite(budget_s) or budget_s<=0):
         raise ValueError('planning budget must be finite and positive')
     deadline=None if budget_s is None else started+budget_s
+    if type(first_feasible) is not bool:raise ValueError('first_feasible must be boolean')
     if execution_candidates is not None:
         if deadline is None:raise ValueError('complete candidate search requires an invocation budget')
         return _build_complete_candidate_plan(executors,tasks,execution_candidates,
-            member_states,deadline,serial,serial_units,precedence_edges,hard_deadlines)
+            member_states,deadline,serial,serial_units,precedence_edges,hard_deadlines,first_feasible)
     validate_executor_inputs(executors, tasks)
     predecessors=checked_predecessors(tasks,precedence_edges)
     finishes={}
@@ -1727,7 +1747,7 @@ def build_executor_plan(executors: Sequence[Executor], tasks: Sequence,
 
 
 def _build_complete_candidate_plan(executors,tasks,provider,member_states,deadline,
-                                   serial,serial_units,precedence_edges,hard_deadlines):
+                                   serial,serial_units,precedence_edges,hard_deadlines,first_feasible):
     """Finite complete-plan enumeration inside the existing scheduler.
 
     The motion provider evaluates complete chains from a physical-member
@@ -1737,13 +1757,25 @@ def _build_complete_candidate_plan(executors,tasks,provider,member_states,deadli
     validate_executor_inputs(executors,tasks)
     predecessors=checked_predecessors(tasks,precedence_edges)
     members={m for e in executors for m in e.physical_agent_ids}
-    if member_states is None or set(member_states)!=members:
-        raise ValueError('candidate search requires every physical member state')
+    if member_states is None or not members<=set(member_states):
+        raise ValueError('candidate search requires every executable physical member state')
+    if any(not member_states[m].get('locked',False) or
+           member_states[m].get('opaque_hold_radius_m') is None
+           for m in set(member_states)-members):
+        raise ValueError('extra physical members require a locked finite hold commitment')
     states=copy.deepcopy(member_states)
     for member,value in states.items():
         if (len(value.get('position',()))!=3 or not all(math.isfinite(v) for v in value['position'])
                 or value.get('mode') not in ('AIR','WATER','SURFACE','TRANSITION')):
             raise ValueError('invalid physical predicted state: '+member)
+        if value.get('opaque_hold_radius_m') is not None and (
+                not value.get('locked',False) or value['mode']!='AIR' or
+                not math.isfinite(value['opaque_hold_radius_m']) or value['opaque_hold_radius_m']<0 or
+                not math.isfinite(value.get('opaque_hold_horizon_s',float('nan'))) or
+                value['opaque_hold_horizon_s']<=0 or
+                not math.isfinite(value.get('collision_radius_m',float('nan'))) or
+                value['collision_radius_m']<=0):
+            raise ValueError('opaque AIR hold requires a finite locked envelope and horizon')
         nonnegative(value.get('available_from',0.),'member availability')
         value['available_from']=value.get('available_from',0.)
     participants=set(serial_units) if serial_units is not None else {e.executor_id for e in executors}
@@ -1913,7 +1945,26 @@ def _build_complete_candidate_plan(executors,tasks,provider,member_states,deadli
                     if check['status']!='FEASIBLE':
                         unknown |= check['status']=='UNKNOWN';last_check_reason=check['reason'];continue
                     candidate_plan.validation_scope=check['reason']
-                if best is None or candidate_plan.makespan<best.makespan:best=candidate_plan
+                if best is None or candidate_plan.makespan<best.makespan:
+                    # Keep only the selected terminal model witnesses in
+                    # process memory. asdict(Plan) never publishes them in a
+                    # Goal or task-state message; a received same-state digest
+                    # must still qualify reuse after actual execution.
+                    candidate_plan._selected_native_terminals={
+                        (item.execution_id,member):candidate.terminal_states[member]['native_backend']
+                        for candidate,selected_items in evidence for item in selected_items
+                        for member in item.coalition
+                        if candidate.terminal_states.get(member,{}).get('native_backend') is not None}
+                    # A conditional feedback repair may re-check the exact
+                    # selected traces against newly received state before any
+                    # Goal is sent. Keep this only in process, never in Plan
+                    # serialization, ROS messages, or a second state store.
+                    candidate_plan._selected_evidence=tuple(evidence)
+                    candidate_plan._selected_provider=native_owner
+                    best=candidate_plan
+                    if first_feasible:
+                        complete=False
+                        break
     finally:
         for iterator in reversed(frontier):
             close=getattr(iterator,'close',None)

@@ -140,7 +140,7 @@ def to_plan_tasks(tasks: Sequence[ObservationTask]):
 
 
 def request_native_methods(request,scene,executors,member_states,native_models,deadline,
-                           return_sites=None):
+                           return_sites=None,tasks_override=None):
     """Generate finite regional work/support methods, not a preselected tour.
 
     Each region remains a mandatory business Task. Single-anchor passes and
@@ -153,7 +153,8 @@ def request_native_methods(request,scene,executors,member_states,native_models,d
     from mrta_python.models import NativeActionSpec,NativeSegmentSpec
     from mrta_python.executors import eligible_executors,PlanningBudgetExceeded
     from .monitoring_request import regional_requirements,UNDERWATER
-    tasks=regional_requirements(request)
+    tasks=tuple(tasks_override) if tasks_override is not None else regional_requirements(request)
+    if not tasks:raise ValueError('joint request needs at least one current business task')
     if not math.isfinite(deadline) or time.monotonic()>=deadline:
         raise PlanningBudgetExceeded('request method generation has no remaining budget')
     if request.return_required and not return_sites:
@@ -226,7 +227,8 @@ def request_native_methods(request,scene,executors,member_states,native_models,d
     return tasks,methods
 
 
-def build_request_executor_plan(request,scene,executors,provider,member_states,*,budget_s=10.,return_sites=None):
+def build_request_executor_plan(request,scene,executors,provider,member_states,*,budget_s=10.,return_sites=None,
+                                tasks_override=None,first_feasible=False):
     """Existing request/planner boundary with one budget including generation.
 
     The caller supplies the model snapshot. Unsupported regions stay mandatory;
@@ -250,7 +252,7 @@ def build_request_executor_plan(request,scene,executors,provider,member_states,*
                 raise ValueError('return site requires finite position and positive declared radius')
     deadline=time.monotonic()+budget_s
     tasks,methods=request_native_methods(request,scene,executors,member_states,provider.native_models,deadline,
-                                         return_sites=return_sites)
+                                         return_sites=return_sites,tasks_override=tasks_override)
     transition_sites=[];seen_sites=set()
     for site in scene.get('transition_sites',()):
         ident=str(site['id']);position=tuple(site['position'])
@@ -275,7 +277,8 @@ def build_request_executor_plan(request,scene,executors,provider,member_states,*
     remaining=deadline-time.monotonic()
     if remaining<=0:raise PlanningBudgetExceeded('request method generation exhausted planning budget')
     plan=build_executor_plan(executors,tasks,provider,initial_target_ref='start',budget_s=remaining,
-        member_states=member_states,execution_candidates=provider.execution_candidates,hard_deadlines=True)
+        member_states=member_states,execution_candidates=provider.execution_candidates,
+        hard_deadlines=True,first_feasible=first_feasible)
     return plan,tasks
 
 

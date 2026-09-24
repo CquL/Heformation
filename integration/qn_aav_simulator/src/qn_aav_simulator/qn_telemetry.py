@@ -77,6 +77,8 @@ class ReferenceUsage:
     position: Vector3
     velocity: Vector3
     velocity_was_derived: bool
+    reference_source: str = "AIR_SWARM"
+    reference_generation: int = 0
 
     @property
     def model_interval_s(self) -> float:
@@ -138,6 +140,8 @@ class ReferenceUsageTracker:
             position=position,
             velocity=velocity,
             velocity_was_derived=derived,
+            reference_source=snapshot.reference_source,
+            reference_generation=snapshot.reference_generation,
         )
         self._previous_position = position
         self._next_step += 1

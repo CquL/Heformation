@@ -237,7 +237,26 @@ def test_received_missing_water_report_keeps_underwater_retest_required():
     assert len(extra)==1 and extra[0].covers==('water_sample',)
     assert extra[0].required_capabilities==frozenset({'WATER'})
     assert retest_tasks(request,(),coverage,weights,
-                        delivery_recorded=True,already_retested=True)==()
+                       delivery_recorded=True,already_retested=True)==()
+
+
+def test_joint_method_generation_can_plan_only_the_received_retest_task():
+    import time,yaml
+    from mrta_python import Executor,Task
+    from qn_aav_simulator.task_line import request_native_methods
+    root=Path(__file__).parents[1]/'config'
+    request=load_request(root/'monitoring_request_joint.yaml')
+    scene=yaml.safe_load((root/'five_scene_harbor.yaml').read_text())['scene']
+    units=[Executor('aav_2',('drone_1',),frozenset({'AIR'})),
+           Executor('uuv',('uuv',),frozenset({'WATER'})),
+           Executor('usv',('usv',),frozenset({'SURFACE'}))]
+    states={'drone_1':dict(position=(-30.,4.,.8),mode='AIR'),
+            'uuv':dict(position=(-5.,8.,-2.),mode='WATER'),
+            'usv':dict(position=(-10.,4.,0.),mode='SURFACE')}
+    retest=Task('retest-overview-0',frozenset({'AIR'}),1,4.,None,'overview')
+    tasks,methods=request_native_methods(request,scene,units,states,{},time.monotonic()+1.,
+        return_sites=scene['return_sites'],tasks_override=(retest,))
+    assert tasks==(retest,) and methods=={}
 
 
 def test_source_metric_is_rotation_translation_scale_invariant():

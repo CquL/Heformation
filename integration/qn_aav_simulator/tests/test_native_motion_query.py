@@ -73,6 +73,10 @@ def test_late_support_shifts_only_selected_participants_and_propagates_idle():
     complete=build_executor_plan([work,support],[task],provider,initial_target_ref='start',
         member_states=complete_states,execution_candidates=provider.execution_candidates,budget_s=10.)
     assert len(complete.items)==2 and complete.search_complete
+    from dataclasses import asdict
+    assert {(item.execution_id,item.coalition[0]) for item in complete.items}==set(complete._selected_native_terminals)
+    assert complete._selected_provider is provider and len(complete._selected_evidence)==1
+    assert '_selected_native_terminals' not in str(asdict(complete))
     assert pickle.dumps(models)==before
 
 
@@ -248,6 +252,8 @@ def test_qn_native_state_signature_distinguishes_same_position_controller_memory
     second=QnPythonClosedLoopBackend(config)
     for backend in (first,second):
         backend.reset(AgentState('drone_0','AAV',0.,(-30.,6.,.8),(0.,0.,0.)))
+    assert first.execution_state_bytes()==second.execution_state_bytes()
+    second._idle_reference=('INITIAL_HOLD',second.snapshot().position,0.,second._state)
     assert first.execution_state_bytes()==second.execution_state_bytes()
     second._last_model_acceleration=(.1,0.,0.)
     assert first.snapshot().position==second.snapshot().position

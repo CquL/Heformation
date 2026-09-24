@@ -34,7 +34,7 @@ bash scripts/docker_run_three_class_qualification.sh \
   "experiments/$(date -u +%Y%m%dT%H%M%SZ)-three-class-live"
 ```
 
-脚本使用当前主机的 CPU 核组和明确的 **180 秒诊断规划预算**，并只在本次运行期间暂停已证实会回拨 ROS 墙钟的宿主 `systemd-timesyncd`，正常退出或 Ctrl-C 时恢复原服务状态；需要本机非交互式 `sudo`。它不会修改 0.05 秒时间门槛或仿真模型。一次已保存的同次运行获得 AAV 空中、REMUS 原水下样点、移动 USV 支援、两份有限结果收件、规定返回、零锁以及独立五平台整场时间/安全和控制因果审计通过；边界见 [当前状态](context/02_current_status.md) 和 [WORKLOG](docs/WORKLOG.md)。本资格入口不证明普通完整能力请求会选 UUV、严格 10 秒求解或已触发复查。RViz 的 Views 面板可选“潜航器全程”查看远端长回环，默认“港口总览”保留码头细节。
+脚本使用当前主机的 CPU 核组和明确的 **180 秒诊断规划预算**，并只在本次运行期间暂停已证实会回拨 ROS 墙钟的宿主 `systemd-timesyncd`，正常退出或 Ctrl-C 时恢复原服务状态；需要本机非交互式 `sudo`。它不会修改 0.05 秒时间门槛或仿真模型。当前源码的[同次实时实跑](experiments/20260924-three-class-live-current-r1/metrics.json)已取得 AAV 空中、REMUS 原水下样点、移动 USV 支援、两份有限结果收件、规定返回、零锁以及独立五平台整场时间/安全和控制因果审计通过；[RViz 运行画面](experiments/20260924-three-class-live-current-r1/rviz-three-class-running.png)和[中文任务面板](experiments/20260924-three-class-live-current-r1/dashboard-three-class-running.png)来自同一次运行。边界见 [当前状态](context/02_current_status.md) 和 [WORKLOG](docs/WORKLOG.md)。本资格入口不证明普通完整能力请求会选 UUV、严格 10 秒首轮求解或该三类请求已触发复查。RViz 的 Views 面板可选“潜航器全程”查看远端长回环，默认“港口总览”保留码头细节。
 
 本机装有 NVIDIA Container Toolkit 时，可在上述命令前加 `JOINT_GPU_RENDER=true` 让 **RViz 图形渲染**使用 GPU；不加仍采用原软件渲染。它不把任务求解、qn 或 PVS 动力学迁移到 GPU。一次正式普通请求的180秒**仅预览**实验核对到 `nvidia-smi` 中 RViz 为图形进程且产生完整计划；随后同GPU入口准备实跑的一次规划却到期、零Goal。GPU开关不提供10秒或180秒求解成功保证，成败与边界见WORKLOG。
 
@@ -50,7 +50,7 @@ JOINT_PLANNING_BUDGET_S=360 JOINT_SIM_CPUSET=0-11 JOINT_PLANNER_CPUSET=12-15 \
   "experiments/$(date -u +%Y%m%dT%H%M%SZ)-joint-live"
 ```
 
-这条命令在同一个现有 MissionRunner 中加载[两区域请求](integration/qn_aav_simulator/config/monitoring_request_joint.yaml)，自动选择AIR成员、USV支援和合格跨介质方法；RViz显示同源港口障碍与实际平台，中文任务面板显示所选活动、实际Action、命令送达、母船收件和资源占用。**规划和等待确认期间平台只按本地待命参考运行，不开始作业运动。**关闭显示窗口不作为任务取消。输出目录保存任务结果、单条真实静态云`scene-once.bag`和五平台动态`execution.bag`，供独立审计。`360`秒是当前原生完整状态查询的**隔离诊断预算**，正式默认仍为`10`秒；`0-11`、`12-15`和`24-31`分别是本机动力学/Action、规划与界面/录包进程的CPU核组，其他机器应按实际核组调整或省略；它们不是算法参数或时间保证。未找到完整候选时不派发。RViz 默认“港口总览”保留岸壁/码头细节，若查看REMUS长回环，可在 Views 面板选择“潜航器全程”；两者都只显示同一实时状态。最新`joint-result-uplink-live-r1`在本命令打开的同一RViz/中文面板下完成两区域、九Action、两份32KiB收件及返回，同次独立时间/安全审计和命令/Result有限通知对账均PASS；终态真窗口图保存在实验目录。旧`joint-command-gate-live-r2`虽任务层完成却独立时间审计FAIL，保留负例。REMUS在这些普通请求中待命，异常复查和最终三类平台验收尚未通过。当前已补精简任务状态的命令计数，但终态截图摄于补丁前，不能据旧图声称显示了“指令已达10/10”。项目原生模型内部状态目前未从运行节点重建，此入口明确为声明初态资格仿真；实跑证据边界见[当前状态](context/02_current_status.md)和WORKLOG。
+这条命令在同一个现有 MissionRunner 中加载[两区域请求](integration/qn_aav_simulator/config/monitoring_request_joint.yaml)，自动选择AIR成员、USV支援和合格跨介质方法；RViz显示同源港口障碍与实际平台，中文任务面板显示所选活动、实际Action、命令送达、母船收件和资源占用。**规划和等待确认期间平台只按本地待命参考运行，不开始作业运动。**关闭显示窗口不作为任务取消。输出目录保存任务结果、单条真实静态云`scene-once.bag`和五平台动态`execution.bag`，供独立审计。`360`秒是当前原生完整状态查询的**隔离诊断预算**，正式默认仍为`10`秒；`0-11`、`12-15`和`24-31`分别是本机动力学/Action、规划与界面/录包进程的CPU核组，其他机器应按实际核组调整或省略；它们不是算法参数或时间保证。未找到完整候选时不派发。RViz 默认“港口总览”保留岸壁/码头细节，若查看REMUS长回环，可在 Views 面板选择“潜航器全程”；两者都只显示同一实时状态。当前源码的`20260924-air-retest-live-r3`普通两区域请求在180秒隔离初次规划下两份32KiB收件及返回、同次独立审计和有限命令/Result对账均PASS；UUV在该普通请求中待命。另一个**单AIR区域**`20260924-air-retest-finite-state-r4`已在实时RViz/中文面板中完成首轮缺测、五成员有限状态回执后的10秒内反馈修复、新Action与32KiB复查产品接收；它不能与普通两区域或三类资格结果拼成同一次三类复查验收。项目原生模型内部状态尚不能从任意运动中状态重建，入口仍以声明初态和有证据的有限终态再资格为范围；细节见[当前状态](context/02_current_status.md)与WORKLOG。
 
 ### 水下协作历史入口：潜航器观测、无人船支援
 

@@ -289,6 +289,24 @@ def test_mother_rejects_product_report_contradictions_in_either_arrival_order(ru
     assert not second.metrics['received_terminal_reports']
 
 
+def test_repair_state_claim_requires_matching_finite_request_and_receipt(runner_module,tmp_path):
+    runner=make_runner(runner_module,tmp_path)
+    ident='a'*64
+    runner.metrics.update(state_claim_requests={ident:dict(request_id=runner.request.request_id,
+        claim_id=ident,receiver='drone_1',generated_at=100.)},received_state_claims={})
+    claim=dict(event_type='STATE_CLAIM',product_id=ident+':state',claim_id=ident,
+        request_id=runner.request.request_id,producer='drone_1',generated_at=101.,received_at=102.,
+        position=(-30.,4.,.8),actual_mode='AIR',model_time_s=12.,
+        terminal_state_digest='b'*64,reference_source='AIR_SWARM',
+        active_goal_id='',resource_locked='false')
+    with pytest.raises(ValueError):runner._record_state_claim(dict(claim,producer='drone_2'))
+    with pytest.raises(ValueError):runner._record_state_claim(dict(claim,received_at=99.))
+    assert not runner.metrics['received_state_claims']
+    runner._record_state_claim(claim)
+    runner._record_state_claim(claim)
+    assert runner.metrics['received_state_claims']=={ident:claim}
+
+
 def test_partial_terminal_waits_for_its_positive_product(runner_module,tmp_path,monkeypatch):
     runner=make_runner(runner_module,tmp_path)
     monkeypatch.setattr(runner_module.rospy,'is_shutdown',lambda:False,raising=False)
@@ -837,6 +855,22 @@ def test_joint_readiness_failure_preserves_original_reason(runner_module,tmp_pat
     runner.metrics['command_deliveries']={'one':{}}
     _,state=runner._save_executor_locked()
     assert state['command_progress']=={'requested':2,'delivered':1}
+
+
+def test_joint_runner_rejects_mismatched_compiled_qn_source_before_planning(runner_module,tmp_path,monkeypatch):
+    from qn_aav_simulator.observation_coverage import CoverageResult
+    from mrta_python import query_worker
+    runner=make_runner(runner_module,tmp_path)
+    runner.request=load_request(Path(__file__).parents[1]/'config/monitoring_request_joint.yaml')
+    runner.executor_serial=False;runner.finite_delivery=True
+    runner.coverage=CoverageResult();runner.plan=None
+    runner.metrics.update(status='STARTING',failure_reason='',resource_locks=[])
+    monkeypatch.setenv('QN_SAME_SOURCE_ACCELERATION','true')
+    monkeypatch.setattr(query_worker,'_enable_query_extensions',lambda:False)
+    runner._run_joint_request()
+    assert runner.metrics['status']=='FAIL'
+    assert runner.metrics['failure_reason']=='planner qn source/ABI differs from the running compiled model'
+    assert not runner.active_executor_ids
 
 
 def test_selected_client_and_successful_result_release_next_item(runner_module, tmp_path):

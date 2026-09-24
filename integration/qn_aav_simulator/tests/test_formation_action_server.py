@@ -20,6 +20,26 @@ from qn_aav_simulator.action_lifecycle import (
 from qn_aav_simulator.formation_monitor import DEFAULT_RELATIVE_SLOTS
 
 
+def test_first_air_goal_uses_initial_hold_as_prior_not_as_new_adoption(server_module):
+    from qn_aav_simulator.trajectory_adoption import TrajectoryAdoptionTracker
+    server=server_module.FormationActionServer.__new__(server_module.FormationActionServer)
+    server.lock=threading.RLock();server.command_trajectory={}
+    tracker=TrajectoryAdoptionTracker([1])
+    server.active_diagnostics={'adoption':tracker}
+    server.qn_source={1:dict(reference_source='INITIAL_HOLD',source_trajectory_id=0,
+        used_outer_step=100,ros_time_s=10.,source_command_stamp=10.)}
+    server._feed_adoption(1,10.)
+    assert tracker.evidence[1].pre_dispatch_qn_source_trajectory_id==0
+    tracker.begin_dispatch('air-first','goal',11.)
+    server._feed_adoption(1,11.1)
+    assert tracker.evidence[1].adopted_trajectory_id is None
+    server.qn_source[1].update(reference_source='AIR_SWARM',source_trajectory_id=1,
+                               used_outer_step=101,ros_time_s=11.2,source_command_stamp=11.2)
+    tracker.note_position_command(1,1,11.2,11.2)
+    server._feed_adoption(1,11.2)
+    assert tracker.evidence[1].adopted_trajectory_id==1
+
+
 def test_single_air_action_produces_local_product_and_distinct_terminal_report(server_module):
     from qn_aav_simulator.task_line import load_request
     from qn_aav_simulator.experiment_verdict import MemberSample

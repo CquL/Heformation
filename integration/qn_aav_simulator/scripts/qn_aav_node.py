@@ -47,7 +47,7 @@ from qn_aav_simulator.contracts import (
 )
 from qn_aav_simulator.qn_python_backend import QnPythonClosedLoopBackend
 from qn_aav_simulator.odometry import ros_odometry_fields
-from qn_aav_simulator.platform_execution import DomainHistory
+from qn_aav_simulator.platform_execution import DomainHistory,actual_mode
 from qn_aav_simulator.qn_telemetry import (
     CommandAdoptionBuffer,
     CommandSnapshot,
@@ -428,6 +428,9 @@ class QnAavNode:
         entries = [
             ("agent_id", self.agent_id),
             ("source_trajectory_id", str(usage.source_trajectory_id)),
+            ("reference_source", usage.reference_source),
+            ("reference_generation", str(usage.reference_generation)),
+            ("actual_mode", actual_mode(state.medium_flag)),
             ("source_command_stamp", repr(usage.source_command_stamp)),
             ("used_outer_step", str(usage.used_outer_step)),
             ("outer_dt_s", repr(usage.outer_dt_s)),

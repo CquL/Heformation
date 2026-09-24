@@ -38,9 +38,15 @@ class SampledProvider(ExecutorTravelTimeProvider):
             collision_radii={member:.1},generated_products=products)]
 
 
-def planned(case,members,require_return=False):
+def planned(case,members,require_return=False,opaque_position=None,opaque_horizon=2.):
     scene=StaticSceneGeometry('world',-10.,.1,())
-    states={m:dict(position=(-2. if m=='a' else 2.,0.,0.),mode='SURFACE',available_from=0.) for m in members}
+    states={m:dict(position=((-0.25 if m=='a' else 0.25) if case=='near' else
+                             (-2. if m=='a' else 2.),0.,0.),
+                   mode='SURFACE',available_from=0.) for m in members}
+    if opaque_position is not None:
+        states['held']=dict(position=opaque_position,mode='AIR',available_from=0.,locked=True,
+            opaque_hold_radius_m=.5,collision_radius_m=.25,
+            opaque_hold_horizon_s=opaque_horizon)
     units=[Executor(m,(m,),frozenset({'SURFACE'})) for m in members]
     tasks=[Task(m,frozenset({'SURFACE'}),1,0.,None,m,required_members=(m,)) for m in members]
     provider=SampledProvider({'start':(0.,0.,0.)},{m:1. for m in members},
@@ -59,6 +65,24 @@ def test_separately_clear_methods_collide_only_in_the_complete_plan():
         assert not any(key in str(asdict(result)) for key in ('motion_traces','terminal_backend'))
     with pytest.raises(ValueError,match='PLAN_MEMBER_PATH_CONFLICT'):
         planned('crossing',('a','b'))
+
+
+def test_fleet_clearance_is_not_the_smaller_static_obstacle_clearance():
+    # Each centre is .5 m apart, with .1 m hull radii. This clears the
+    # scene's .1 m static threshold, but misses the existing .5 m fleet rule.
+    for member in ('a','b'):
+        assert planned('near',(member,)).validation_scope=='NOMINAL_COMPLETE_PLAN_MOTION_AND_CAPACITY'
+    with pytest.raises(ValueError,match='PLAN_MEMBER_PATH_CONFLICT'):
+        planned('near',('a','b'))
+
+
+def test_accepted_opaque_hold_remains_in_whole_plan_space_and_time_checks():
+    plan=planned('near',('a',),opaque_position=(2.,0.,0.))
+    assert plan.validation_scope=='NOMINAL_PLAN_WITH_MONITORED_OPAQUE_HOLD'
+    with pytest.raises(ValueError,match='PLAN_MEMBER_PATH_CONFLICT'):
+        planned('near',('a',),opaque_position=(0.,0.,0.))
+    with pytest.raises(ValueError,match='PLAN_OPAQUE_HOLD_COMMITMENT_NOT_COVERED'):
+        planned('near',('a',),opaque_position=(2.,0.,0.),opaque_horizon=1.)
 
 
 def test_separately_deliverable_products_compete_for_one_plan_channel_budget():

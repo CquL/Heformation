@@ -112,7 +112,7 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
       /usv/odometry /usv/diagnostics /uuv/odometry /uuv/diagnostics
       /drone_0_planning/safety_status /drone_0_planning/trajectory
       /mother/received_products /mother/received_notifications
-      /mother/command_requests /mother/command_deliveries
+      /mother/command_requests /mother/command_deliveries /mother/state_claim_requests
       /drone_0_qn_aav/local_products /drone_1_qn_aav/local_products
       /usv/local_products /uuv/local_products)
     if [[ -n "$JOINT_VIEW_CPUSET" ]]; then record_cmd=(taskset -c "$JOINT_VIEW_CPUSET" "${record_cmd[@]}"); fi

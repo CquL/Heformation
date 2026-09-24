@@ -53,7 +53,7 @@ class SceneTransport:
         self.obstacles=tuple(ObstacleBox(tuple(o['center']),tuple(o['size'])) for o in scene['objects'] if o['kind']=='SOLID')
         if any(box.blocks(self.mother,self.mother) for box in self.obstacles):
             raise ValueError('declared mother receiver lies inside a solid; set its exterior attachment position')
-        self.lock=threading.Lock();self.states={};self.modes={};self.events={}
+        self.lock=threading.Lock();self.states={};self.modes={};self.local_diagnostics={};self.events={}
         self.last_time=math.floor(rospy.Time.now().to_sec()*10.)/10.;self.previous={}
         self.delivery=FiniteDelivery(self.last_time)
         self.receipts=rospy.Publisher('/mother/received_products',String,queue_size=100)
@@ -71,6 +71,8 @@ class SceneTransport:
                 rospy.Subscriber(prefix+'/diagnostics',DiagnosticArray,lambda m,k=member:self.mode(k,m),queue_size=5),
                 rospy.Subscriber(source+'/local_products',String,lambda m,k=member:self.produce(k,m),queue_size=100)))
         self.subs.append(rospy.Subscriber('/mother/command_requests',String,self.command,queue_size=100))
+        self.subs.append(rospy.Subscriber('/mother/state_claim_requests',String,
+            self.state_claim_request,queue_size=20))
         self.timer=rospy.Timer(rospy.Duration(.1),self.tick)
 
     def odom(self,key,msg):
@@ -90,7 +92,8 @@ class SceneTransport:
         with self.lock:
             rows=self.modes.setdefault(key,deque(maxlen=16))
             stamp=msg.header.stamp.to_sec()
-            if not rows or stamp>rows[-1][0]:rows.append((stamp,mode))
+            if not rows or stamp>rows[-1][0]:
+                rows.append((stamp,mode));self.local_diagnostics[key]=(stamp,values)
 
     def produce(self,member,msg):
         from qn_aav_simulator.observation_coverage import DeliveryProduct
@@ -167,9 +170,76 @@ class SceneTransport:
         except (ValueError,KeyError,TypeError) as error:
             rospy.logerr_throttle(2.,'Rejected mother command: %s',str(error))
 
+    def state_claim_request(self,msg):
+        """A mother request reaches the local platform only through finite delivery."""
+        from qn_aav_simulator.observation_coverage import DeliveryProduct
+        try:
+            event=json.loads(msg.data);member=event['receiver'];ident=event['claim_id']
+            generated=event['generated_at'];now=rospy.Time.now().to_sec()
+            if (event['request_id']!=self.request.request_id or
+                    member not in ('drone_0','drone_1','drone_2','usv','uuv') or
+                    not isinstance(ident,str) or len(ident)!=64 or
+                    any(char not in '0123456789abcdef' for char in ident) or
+                    type(generated) not in (int,float) or not math.isfinite(generated) or
+                    not self.delivery.start_time<=generated<=now):
+                raise ValueError('invalid finite state-claim request')
+            with self.lock:
+                key='claim-request:'+ident
+                if key in self.events:
+                    if self.events[key]!=event:raise ValueError('conflicting state-claim request')
+                    return
+                self.events[key]=event
+                self.delivery.produce(key,DeliveryProduct('mother',member,
+                    4+len(msg.data.encode('utf-8')),generated,True))
+        except (ValueError,KeyError,TypeError) as error:
+            rospy.logerr_throttle(2.,'Rejected state-claim request: %s',str(error))
+
+    def capture_state_claim(self,event):
+        """Read one local claim after its request arrives; uplink uses the same channel."""
+        from qn_aav_simulator.observation_coverage import DeliveryProduct
+        member=event['receiver'];digest=None;model_time=None;stamp=rospy.Time.now().to_sec()
+        if member.startswith('drone_'):
+            try:
+                from std_srvs.srv import Trigger
+                service='/'+member+'_qn_aav/state_digest'
+                rospy.wait_for_service(service,timeout=.25)
+                reply=rospy.ServiceProxy(service,Trigger)()
+                if not reply.success:return
+                local=json.loads(reply.message)
+                if local.get('agent_id')!=member:return
+                digest=local['digest'];model_time=float(local['model_time_s'])
+                stamp=float(local['ros_stamp_s'])
+                if len(digest)!=64 or any(char not in '0123456789abcdef' for char in digest):return
+            except (ValueError,KeyError,TypeError,rospy.ROSException,rospy.ServiceException):
+                return
+        with self.lock:
+            sample=next((row for row in reversed(self.states.get(member,()))
+                         if row[0]<=stamp),None)
+            diagnostic=self.local_diagnostics.get(member)
+            if (sample is None or diagnostic is None or
+                    not 0<=stamp-sample[0]<=.25 or
+                    not 0<=stamp-diagnostic[0]<=.25):return
+            values=diagnostic[1]
+            if model_time is None:
+                try:model_time=float(values['model_time_s'])
+                except (KeyError,TypeError,ValueError):return
+            if not math.isfinite(model_time):return
+            claim=dict(event_type='STATE_CLAIM',product_id=event['claim_id']+':state',
+                claim_id=event['claim_id'],request_id=event['request_id'],producer=member,
+                generated_at=stamp,position=sample[1],actual_mode=values.get('actual_mode'),
+                model_time_s=model_time,terminal_state_digest=digest,
+                reference_source=values.get('reference_source'),
+                active_goal_id=values.get('active_goal_id',''),
+                resource_locked=str(values.get('resource_locked',
+                    values.get('platform_resource_locked','false'))).lower())
+            ident=claim['product_id'];encoded=json.dumps(claim,allow_nan=False)
+            self.events[ident]=claim
+            self.delivery.produce('notice:'+ident,DeliveryProduct(member,'mother',
+                4+len(encoded.encode('utf-8')),stamp,True))
+
     def tick(self,_):
         from qn_aav_simulator.observation_coverage import declared_delivery_channels
-        now=math.floor(rospy.Time.now().to_sec()*10.)/10.;out=[];progress=None
+        now=math.floor(rospy.Time.now().to_sec()*10.)/10.;out=[];requests=[];progress=None
         with self.lock:
             if now<=self.last_time:return
             states={'mother':(self.mother,'SURFACE')}
@@ -183,7 +253,8 @@ class SceneTransport:
                 self.delivery.products,self.previous,states,self.obstacles,continuous))
             for ident in receipts:
                 kind,key=ident.split(':',1)
-                if kind=='command':out.append((self.command_deliveries,dict(self.events[ident],received_at=now)))
+                if kind=='claim-request':requests.append(self.events[ident])
+                elif kind=='command':out.append((self.command_deliveries,dict(self.events[ident],received_at=now)))
                 else:out.append((self.notifications if kind=='notice' else self.receipts,
                                  dict(self.events[key],received_at=now)))
             self.last_time=now;self.previous=states
@@ -200,6 +271,8 @@ class SceneTransport:
             self.progress.publish(self.String(data=json.dumps(progress,allow_nan=False)))
         for publisher,event in out:
             publisher.publish(self.String(data=json.dumps(event,allow_nan=False)))
+        for request in requests:
+            threading.Thread(target=self.capture_state_claim,args=(request,),daemon=True).start()
 
 
 class SceneView:
