@@ -51,6 +51,8 @@
     <param name="output_dir" value="$(arg output_dir)"/>
   </node>
   <param name="formation_mission_runner/output_dir" value="$(arg output_dir)"/>
+  <!-- This seven-member launch is only the historical motion/control regression. -->
+  <param name="formation_mission_runner/planning_mode" value="fixed_coalition"/>
   <param name="formation_mission_runner/mode" value="$(arg mode)"/>
   <param name="formation_mission_runner/repair_mode" value="$(arg repair_mode)" type="str"/>
   <param name="formation_mission_runner/planner_speed" value="$(arg planner_speed)" type="double"/>

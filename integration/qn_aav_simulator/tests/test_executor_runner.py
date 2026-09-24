@@ -62,6 +62,14 @@ def make_runner(module, tmp_path):
     return runner
 
 
+def test_runner_without_explicit_mode_cannot_enter_legacy_sorting(runner_module,tmp_path,monkeypatch):
+    monkeypatch.setattr(runner_module.rospy,'get_param',
+        lambda name,default=None:str(tmp_path) if name=='~output_dir' else default,
+        raising=False)
+    with pytest.raises(ValueError,match='planning_mode must be explicit'):
+        runner_module.MissionRunner()
+
+
 def native_setup(module,tmp_path):
     runner=make_runner(module,tmp_path)
     unit=load_routing([dict(executor_id='uuv_native',physical_agent_ids=['uuv'],

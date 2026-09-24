@@ -1,3 +1,11 @@
+## 2026-09-23 UTC — 旧Calvo排序不再因缺省模式成为runner入口
+
+- 计划：用户明确“只维护现有Heformation＋v2联合求解生产主链，不维护Calvo v9生产排序/自动回退”。删除前先按真实调用图核对旧文件是否仍被三机/七机运动回归调用，不能把公用Plan/Action与旧算法专属内容一起删。
+- 实际：源码检查确认正式`joint_request`进入`build_request_executor_plan`/完整候选路径，预算失败明示零派发，**没有**退回`build_plan`或v9排序；但`formation_mission_runner.py`的缺省`planning_mode=fixed_coalition`会让直接运行无意进入旧排序，且七机回归脚本`docker_test_qn_formation_action.sh`及`formation_air.launch(run_mission=true)`确实仍调用固定联盟路径。现将runner无模式视为错误，专用七机脚本与旧运动launch显式传`fixed_coalition`，保留它们作为控制回归工具；没有重写三机/七机运动链，也未删除仍有调用者的`schedule.py`/公共模型/原历史署名。新`joint_request`启动脚本本来就显式设模式，不改其逻辑。无模式拒绝定向反例与runner相关38项通过，脚本语法、launch XML检查通过。
+- 结果：无意的旧Calvo默认生产入口已封住；七机/三机若明确作为控制回归仍可使用历史排序，**不**作为五平台业务求解或自动回退。因仍有真实回归调用，当前删除`schedule.py`、旧算法配置/测试会破坏现有运动验证入口，暂不作这种无依据清理。最终目标的联合搜索方法与控制底层仍分开。
+- 证据：`formation_mission_runner.py::__init__`、`scripts/docker_test_qn_formation_action.sh`、`formation_air.launch`、`test_executor_runner.py::test_runner_without_explicit_mode_cannot_enter_legacy_sorting`；正式联合请求启动脚本`docker_run_joint_request.sh`及上轮同请求实际零回退/结果证据。
+- 未完成／下一步：后续只有在三机/七机控制回归迁离旧排序且无任何消费者后，才可删除旧专属排序文件与测试；本轮不维护或开展Calvo v9对照。最终UUV同次协同、复查、在线状态修复与预算政策仍按用户待答选择推进。
+
 ## 2026-09-23 UTC — 原双原生协作预接纳不得越过有限命令收件屏障
 
 - 计划：在原港口UUV返区方法尚未获资格、不能把旧水下组件冒充最终任务的前提下，独立核对现有`_dispatch_cooperative_items`的关键执行合同：水下作业与USV支援所需两条命令必须**先全部实际送达**，任何一方缺回执时不得向另一方抢先发送原生Goal。原则对应[Guo–Zavlanos间歇会合](https://arxiv.org/html/1706.02092)断联前协调参与者，以及本项目现有Plan原子资源占用/有限命令通道；不接入论文整套框架。

@@ -59,7 +59,9 @@ class MissionRunner:
         self.executor_mutex = threading.RLock()
         self.output = Path(rospy.get_param("~output_dir", "/experiments/current"))
         self.output.mkdir(parents=True, exist_ok=True)
-        self.planning_mode = rospy.get_param("~planning_mode", "fixed_coalition")
+        self.planning_mode = rospy.get_param("~planning_mode", "")
+        if not self.planning_mode:
+            raise ValueError("planning_mode must be explicit; fixed_coalition is a control regression entry")
         if self.planning_mode in ("executor", "joint_request"):
             self._init_executor()
             return

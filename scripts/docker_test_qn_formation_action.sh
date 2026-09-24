@@ -93,6 +93,7 @@ PYFAULT
     fi
     set +e
     timeout --signal=INT 700 rosrun qn_aav_simulator formation_mission_runner.py \
+      _planning_mode:=fixed_coalition \
       > /experiments/current/mission.log 2>&1
     result=$?
     set -e
