@@ -201,15 +201,17 @@ class PvsBackend:
         mode='SURFACE' if model.model=='otter' else 'WATER'
         segment,point=0,1
         segment_started=model.time_s
+        fixed_signature=None;fixed_position=None;fixed_segment=None
         coasting=resume is not None
         coast_start=resume['coast_start_s'] if resume is not None else None
         settled=resume['settled_model_time_s'] if resume is not None else None
-        samples=list(resume['trajectory']) if resume is not None else [(0.,model.snapshot()['position'])]
+        state=model.snapshot()
+        samples=list(resume['trajectory']) if resume is not None else [(0.,state['position'])]
         summary=dict(status='UNKNOWN',reason='MODEL_HORIZON_EXHAUSTED',snapshot_steps=self.steps,
                      snapshot_model_time_s=self.time_s,collision_radius_m=self.collision_radius_m,
                      geometry_checked=scene is not None)
-        initial_reason=scene.violation(model.snapshot()['position'],model.collision_radius_m) if scene else ''
-        if model.snapshot()['actual_mode']!=mode:initial_reason=initial_reason or 'NATIVE_DOMAIN_VIOLATION'
+        initial_reason=scene.violation(state['position'],model.collision_radius_m) if scene else ''
+        if state['actual_mode']!=mode:initial_reason=initial_reason or 'NATIVE_DOMAIN_VIOLATION'
         if initial_reason:summary.update(status='INFEASIBLE',reason=initial_reason)
         while not initial_reason and model.time_s-start<max_model_time:
             if time.monotonic()>=deadline:
@@ -229,7 +231,7 @@ class PvsBackend:
                         if segment==len(paths):coasting=True
                 if not waiting and not coasting:
                     previous_segment=segment
-                    segment,point,target,coasting=advance_path_target(paths,segment,point,model.snapshot()['position'])
+                    segment,point,target,coasting=advance_path_target(paths,segment,point,state['position'])
                     if segment!=previous_segment:
                         segment_started=model.time_s
                         if not coasting and paths[segment][0]==paths[segment][1] and durations[segment]:
@@ -241,6 +243,27 @@ class PvsBackend:
             reason=scene.violation(state['position'],model.collision_radius_m) if scene else ''
             if reason or state['actual_mode']!=mode:
                 summary.update(status='INFEASIBLE',reason=reason or 'NATIVE_DOMAIN_VIOLATION');break
+            if waiting and state['position']==fixed_position and segment==fixed_segment:
+                signature=pickle.dumps({key:value for key,value in vars(model).items()
+                    if key not in ('time_s','steps')},protocol=4)
+                if signature==fixed_signature:
+                    # Exact native Otter trim fixed point under zero effort:
+                    # F(x,constant input)=x, so every later stationary state is
+                    # x by induction. Only this read-only forecast advances
+                    # predicted counters; pvs_node still integrates each tick.
+                    while model.time_s-segment_started+1e-9<durations[segment]:
+                        if time.monotonic()>=deadline:
+                            summary['reason']='QUERY_BUDGET_EXHAUSTED';break
+                        model.time_s+=dt;model.steps+=1
+                        samples.append((model.time_s-start,state['position']))
+                    if summary['reason']=='QUERY_BUDGET_EXHAUSTED':break
+                fixed_signature=signature
+            elif waiting:
+                fixed_signature=pickle.dumps({key:value for key,value in vars(model).items()
+                    if key not in ('time_s','steps')},protocol=4)
+                fixed_position=state['position'];fixed_segment=segment
+            else:
+                fixed_signature=fixed_position=fixed_segment=None
             speed=math.sqrt(sum(v*v for v in state['world_velocity']))
             if coasting and speed<=terminal_speed:
                 if settled is None:settled=model.time_s

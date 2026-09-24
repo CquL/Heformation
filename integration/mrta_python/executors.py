@@ -26,6 +26,7 @@ import contextlib
 import select
 import struct
 import tempfile
+from functools import partial
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Callable, Dict, FrozenSet, List, Mapping, Sequence, Tuple
@@ -973,7 +974,7 @@ class ExecutorTravelTimeProvider:
             release=max([start]+[max(e.available_from,states[e.physical_agent_ids[0]].get('available_from',0.))
                                  for e in routes])
             offset=release-start
-            traces={};evaluated=[];failure=None
+            traces={};evaluated=[];failure=None;pending_queries={}
             for executor,route in routes.items():
                 member=executor.physical_agent_ids[0];state=states[member]
                 backend=state.get('native_backend',self.native_models.get(member))
@@ -1006,12 +1007,30 @@ class ExecutorTravelTimeProvider:
                     bound=replace(route,segments=(first,)+route.segments[1:])
                     prefix=cache.get((executor.executor_id,replace(route,terminal_wait_s=0.),release))
                     seed=prefix[1] if prefix is not None and prefix[1]['status']=='FEASIBLE' else None
-                    query=self.query_native_fragment(backend,[s.points for s in bound.segments],
-                        tuple(s.propulsion_effort or self.native_efforts[executor.executor_id] for s in bound.segments),
-                        self.scene_geometry,deadline,
-                        max_model_time=bound.execution_timeout_s,include_state=True,terminal_wait_s=bound.terminal_wait_s,resume=seed,
+                    call=partial(self.query_native_fragment,max_model_time=bound.execution_timeout_s,
+                        include_state=True,terminal_wait_s=bound.terminal_wait_s,resume=seed,
                         segment_durations=tuple(s.duration_s for s in bound.segments))
-                    cache[cache_key]=(bound,query,idle_trace,backend)
+                    arguments=(backend,[s.points for s in bound.segments],
+                        tuple(s.propulsion_effort or self.native_efforts[executor.executor_id]
+                              for s in bound.segments),self.scene_geometry,deadline)
+                    pending_queries[cache_key]=(bound,idle_trace,backend,call,arguments)
+            if failure:
+                yield ExecutionCandidate(name,(),{},status=failure[0],reason=failure[1]);continue
+            if len(pending_queries)==1:
+                key,(bound,idle_trace,backend,call,arguments)=next(iter(pending_queries.items()))
+                cache[key]=(bound,call(*arguments),idle_trace,backend)
+            elif pending_queries:
+                # Native participants have independent motion until the same
+                # finite-link replay below. Run their existing bounded query
+                # processes together, sharing this invocation's deadline.
+                with ThreadPoolExecutor(max_workers=min(2,len(pending_queries))) as workers:
+                    futures={key:workers.submit(bounded_travel_query,call,arguments,deadline)
+                        for key,(_,_,_,call,arguments) in pending_queries.items()}
+                    for key,(bound,idle_trace,backend,_,_) in pending_queries.items():
+                        cache[key]=(bound,futures[key].result(),idle_trace,backend)
+            for executor,route in routes.items():
+                member=executor.physical_agent_ids[0]
+                cache_key=(executor.executor_id,route,release)
                 bound,query,_,_=cache[cache_key]
                 if query['status']!='FEASIBLE':failure=(query['status'],query['reason']);break
                 traces[member]=tuple((t,p,query['terminal_mode']) for t,p in query['trajectory'])
@@ -1118,7 +1137,6 @@ class ExecutorTravelTimeProvider:
         final safety horizon; it never extends a communication commitment.
         This is a sampled nominal-model check, not a tracking-error guarantee.
         """
-        from bisect import bisect_right
         from qn_aav_simulator.observation_coverage import ObstacleBox,predict_received_events
         def unknown(reason):return dict(status='UNKNOWN',reason=reason)
         if self.scene_geometry is None:return unknown('PLAN_SCENE_NOT_PROVIDED')
@@ -1191,9 +1209,8 @@ class ExecutorTravelTimeProvider:
         if products:
             if len(self.mother_position)!=3:return unknown('PLAN_RECEIVER_NOT_PROVIDED')
             # Receipt over accepted activity intervals cannot be rescued by
-            # idle plants: they have no communication commitment. Check this
-            # necessary condition before expensive whole-fleet idle rollouts;
-            # keep the final replay below after physical safety checks.
+            # idle plants: they have no communication commitment. This replay
+            # is also the final receipt check if whole-fleet safety passes.
             active_traces={}
             for member,parts in pieces.items():
                 if not parts:continue
@@ -1292,28 +1309,69 @@ class ExecutorTravelTimeProvider:
         finally:
             standby_pool.shutdown(wait=True)
         clocks={member:[row[0] for row in rows] for member,rows in traces.items()}
+        # The accepted rollout may contain exact fixed-point standby members.
+        # Their scene and mutual-clearance predicates have identical inputs at
+        # every sample; evaluate those predicates once, while retaining every
+        # timestamp/gap check and all moving-member interactions below.
+        fixed={member:rows[0][1] for member,rows in traces.items()
+               if all(row[1]==rows[0][1] for row in rows[1:])}
+        for member,position in fixed.items():
+            reason=self.scene_geometry.violation(position,radii[member])
+            if reason:return dict(status='INFEASIBLE',reason=reason)
+        # Check every moving trajectory sample against the same static boxes
+        # in batches. The vector formula is box_signed_distance expressed over
+        # arrays; samples near a boundary go through the original scalar
+        # violation() so its exact threshold and reason remain authoritative.
+        import numpy as np
+        scene_failures=[]
+        for member,rows in traces.items():
+            if member in fixed:continue
+            positions_array=np.asarray([row[1] for row in rows],dtype=float)
+            if not np.isfinite(positions_array).all():return unknown('PLAN_NONFINITE_MOTION_SAMPLE')
+            radius=radii[member];margin=self.scene_geometry.clearance+1e-6
+            near=positions_array[:,2]-radius-self.scene_geometry.seabed_z<margin
+            for _,_,center,size in self.scene_geometry.objects:
+                delta=np.abs(positions_array-np.asarray(center))-np.asarray(size)*.5
+                outside=np.maximum(delta,0.)
+                distance=np.sqrt(np.sum(outside*outside,axis=1))+np.minimum(np.max(delta,axis=1),0.)
+                near |= distance-radius<margin
+            for index in np.flatnonzero(near):
+                reason=self.scene_geometry.violation(rows[int(index)][1],radius)
+                if reason:
+                    scene_failures.append((rows[int(index)][0],member,reason))
+                    break
+        if scene_failures:
+            return dict(status='INFEASIBLE',reason=min(scene_failures)[2])
+        pair_limits=tuple((a,b,radii[a]+radii[b]+self.scene_geometry.clearance)
+                          for a in traces for b in traces if a<b)
+        for a,b,limit in pair_limits:
+            if a in fixed and b in fixed and math.dist(fixed[a],fixed[b])<limit:
+                return dict(status='INFEASIBLE',reason='PLAN_MEMBER_PATH_CONFLICT')
+        moving_pairs=tuple((a,b,limit) for a,b,limit in pair_limits
+                           if a not in fixed or b not in fixed)
         # Include exact activity boundaries and the endpoint, even when they
         # are not an integer number of 10 ms samples.
-        times=sorted(boundaries|{tick/100. for tick in range(int(horizon*100)+1)})
-        for stamp in times:
+        times=np.asarray(sorted(boundaries|{tick/100. for tick in range(int(horizon*100)+1)}))
+        positions={}
+        for member,rows in traces.items():
             if time.monotonic()>=deadline:return unknown('PLANNING_BUDGET_EXHAUSTED')
-            positions={}
-            for member,rows in traces.items():
-                index=bisect_right(clocks[member],stamp+1e-8)-1
-                if index<0 or stamp-rows[index][0]>.010001:return unknown('PLAN_MOTION_SAMPLES_MISSING')
-                position=rows[index][1];positions[member]=position
-                reason=self.scene_geometry.violation(position,radii[member])
-                if reason:return dict(status='INFEASIBLE',reason=reason)
-            if any(math.dist(positions[a],positions[b])<radii[a]+radii[b]+self.scene_geometry.clearance
-                    for a in positions for b in positions if a<b):
+            clock=np.asarray(clocks[member])
+            indexes=np.searchsorted(clock,times+1e-8,side='right')-1
+            if np.any(indexes<0):return unknown('PLAN_MOTION_SAMPLES_MISSING')
+            if np.any(times-clock[indexes]>.010001):return unknown('PLAN_MOTION_SAMPLES_MISSING')
+            positions[member]=np.asarray([row[1] for row in rows])[indexes]
+        for a,b,limit in moving_pairs:
+            if time.monotonic()>=deadline:return unknown('PLANNING_BUDGET_EXHAUSTED')
+            delta=positions[a]-positions[b]
+            # Batch the necessary geometric screen, then use the original
+            # scalar distance at every possible threshold crossing.
+            near=np.flatnonzero(np.sum(delta*delta,axis=1)<(limit+1e-6)**2)
+            if any(math.dist(positions[a][index],positions[b][index])<limit for index in near):
                 return dict(status='INFEASIBLE',reason='PLAN_MEMBER_PATH_CONFLICT')
-        if products:
-            if len(self.mother_position)!=3:return unknown('PLAN_RECEIVER_NOT_PROVIDED')
-            obstacles=tuple(ObstacleBox(c,s) for _,kind,c,s in self.scene_geometry.objects if kind=='SOLID')
-            receipt=predict_received_events(products,traces,intervals,self.mother_position,obstacles,deadline)
-            if receipt['status']!='FEASIBLE':return receipt
-            if any(stamp>receipt_limits[key]+1e-6 for key,stamp in receipt['received_at'].items()):
-                return dict(status='INFEASIBLE',reason='PLAN_RECEIPT_AFTER_PRODUCER_TERMINAL')
+        # The finite-link replay above already used every accepted activity
+        # trace and interval. Standby and post-terminal idle motion cannot
+        # transmit, so replaying the identical active traces a second time
+        # after the full-fleet safety check adds no receipt evidence.
         return dict(status='FEASIBLE',reason='NOMINAL_COMPLETE_PLAN_MOTION_AND_CAPACITY')
 
     @staticmethod

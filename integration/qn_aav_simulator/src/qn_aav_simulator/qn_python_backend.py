@@ -296,11 +296,18 @@ class QnPythonClosedLoopBackend:
         violation = scene.violation(state.position, self.collision_radius_m)
         if violation or mode not in ('AIR', 'WATER'):
             status, reason = 'INFEASIBLE', violation or 'QN_IDLE_TERMINAL_MODE_NOT_STABLE'
+        # A compiled copy of the same source can approach a fixed point over
+        # several small controller steps. Never approximate that transient:
+        # integrate it normally, then recognize only an *exact* repeated full
+        # backend state under the constant INITIAL_HOLD input.
+        import pickle
+        fixed_signature=None;fixed_position=None
         for _ in range(0 if status != 'FEASIBLE' else math.ceil(duration / dt)):
             if time.monotonic() >= deadline:
                 status, reason = 'UNKNOWN', 'QUERY_BUDGET_EXHAUSTED'
                 break
             point = state.position if behavior == 'INITIAL_HOLD' else target
+            position_before=state.position
             command = ControlCmd('read-only-idle', state.agent_id, t, CommandMode.DESIRED_POSITION,
                                  (0., 0., 0.), desired_position=point, desired_yaw_rad=yaw)
             result = model.step(PlantStepInput(state, command, PlatformAdapterCmd(state.agent_id), dt, 2., 8.))
@@ -314,6 +321,24 @@ class QnPythonClosedLoopBackend:
                     break
             if status != 'FEASIBLE':
                 break
+            if (behavior=='INITIAL_HOLD' and state.position==position_before and
+                    all(position==state.position for position in result.diagnostics['model_positions'])):
+                signature=pickle.dumps(vars(model),protocol=4)
+                if signature==fixed_signature and state.position==fixed_position:
+                    # For deterministic F(x,u), exact F(x,u)=x and the same
+                    # constant input imply every later state is x by induction.
+                    # Only this read-only forecast skips repeated calculations;
+                    # qn_aav_node still integrates every physical model step.
+                    for _ in range(math.ceil(duration/dt)-(len(samples)-1)):
+                        if time.monotonic()>=deadline:
+                            status,reason='UNKNOWN','QUERY_BUDGET_EXHAUSTED'
+                            break
+                        t+=dt;samples.append((t,state.position))
+                    if status=='FEASIBLE':reason='QN_EXACT_INITIAL_HOLD_FIXED_POINT'
+                    break
+                fixed_signature,fixed_position=signature,state.position
+            else:
+                fixed_signature=fixed_position=None
         if time.monotonic() >= deadline and status == 'FEASIBLE':
             status, reason = 'UNKNOWN', 'QUERY_BUDGET_EXHAUSTED'
         model._idle_reference = (behavior, target, yaw, model._state)

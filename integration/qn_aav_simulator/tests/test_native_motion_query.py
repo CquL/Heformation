@@ -11,6 +11,17 @@ from qn_aav_simulator.experiment_verdict import StaticSceneGeometry
 from mrta_python.executors import ExecutorTravelTimeProvider
 
 
+class ExplicitOtter(PvsBackend):
+    def __init__(self,*args,**kwargs):
+        super().__init__(*args,**kwargs)
+        self.probe_count=0
+
+    def step(self,*args,**kwargs):
+        result=super().step(*args,**kwargs)
+        self.probe_count+=1  # changes the full-state signature; no extrapolation
+        return result
+
+
 def config():
     return yaml.safe_load((Path(__file__).parents[1]/'config/five_scene.yaml').read_text())['scene']
 
@@ -117,6 +128,24 @@ def test_original_harbor_usv_precommits_native_trim_then_moves_for_result_window
     assert backend.steps==0
 
 
+def test_otter_fixed_wait_forecast_matches_every_explicit_native_step():
+    scene=StaticSceneGeometry.from_mapping(yaml.safe_load((Path(__file__).parents[1]/
+        'config/five_scene_harbor.yaml').read_text())['scene'])
+    start=(-10.,4.,0.);site=(-4.,8.,0.)
+    paths=((start,start),(start,site,start))
+    query=dict(max_model_time=380.,segment_durations=(200.,0.),include_state=True)
+    fast=PvsBackend('otter',start,initialization_mode='STATIC_TRIM')
+    explicit=ExplicitOtter('otter',start,initialization_mode='STATIC_TRIM')
+    predicted=fast.predict_native_fragment(paths,(20.,20.),scene,time.monotonic()+10.,**query)
+    stepped=explicit.predict_native_fragment(paths,(20.,20.),scene,time.monotonic()+10.,**query)
+    assert predicted['status']==stepped['status']=='FEASIBLE'
+    assert predicted['trajectory']==stepped['trajectory']
+    assert predicted['terminal_position']==stepped['terminal_position']
+    assert predicted['terminal_backend'].steps==stepped['terminal_backend'].steps
+    assert pickle.dumps(predicted['terminal_backend'].vehicle)==pickle.dumps(stepped['terminal_backend'].vehicle)
+    assert fast.steps==explicit.steps==0
+
+
 def test_clear_goal_segment_but_obstructed_coast_is_infeasible():
     cfg=config();cfg['objects'].append(dict(id='coast_rock',kind='SOLID',center=[8.,8.,-2.],size=[1.,1.,1.]))
     scene=StaticSceneGeometry.from_mapping(cfg);backend=PvsBackend('remus100',(-5.,8.,-2.))
@@ -166,6 +195,31 @@ def test_post_result_wait_propagates_residual_coast_and_uses_remaining_budget():
             [[(-5.,8.,-2.),(0.,8.,-2.)]],600.,scene,time.monotonic()+10.,terminal_wait_s=20.,resume=result)
     exhausted=ExecutorTravelTimeProvider.query_native_idle(state,20.,scene,time.monotonic()-1.)
     assert exhausted['status']=='UNKNOWN' and exhausted['duration_s']==0
+
+
+def test_qn_initial_trim_fixed_point_matches_every_explicit_model_step():
+    import copy
+    from qn_aav_simulator.contracts import AgentState,ControlCmd,CommandMode,PlantStepInput,PlatformAdapterCmd
+    from qn_aav_simulator.qn_python_backend import QnPythonClosedLoopBackend
+    scene=StaticSceneGeometry.from_mapping(config())
+    backend=QnPythonClosedLoopBackend(dict(reference_mode='ROUTE_POSITION',initialization_mode='STATIC_TRIM',
+        water_guidance_mode='LOS_VELOCITY_REFERENCE',water_horizontal_controller_mode='LOS_SURGE_YAW'))
+    backend.reset(AgentState('drone_2','AAV',0.,(-30.,8.,.8),(0.,0.,0.)))
+    before=pickle.dumps(backend)
+    projected=backend.predict_idle(3.,scene,time.monotonic()+10.)
+    stepped=copy.deepcopy(backend);state=stepped.snapshot()
+    for tick in range(300):
+        command=ControlCmd('read-only-idle','drone_2',tick*.01,CommandMode.DESIRED_POSITION,
+            (0.,0.,0.),desired_position=state.position,desired_yaw_rad=0.)
+        stepped.step(PlantStepInput(state,command,PlatformAdapterCmd('drone_2'),.01,2.,8.))
+        state=stepped.snapshot((tick+1)*.01)
+    stepped._idle_reference=('INITIAL_HOLD',backend._idle_reference[1],
+                             backend._idle_reference[2],stepped._state)
+    assert projected['status']=='FEASIBLE' and projected['reason']=='QN_EXACT_INITIAL_HOLD_FIXED_POINT'
+    assert projected['duration_s']==pytest.approx(3.,abs=1e-12) and len(projected['trajectory'])==301
+    assert all(position==state.position for _,position in projected['trajectory'])
+    assert pickle.dumps(vars(projected['terminal_backend']))==pickle.dumps(vars(stepped))
+    assert pickle.dumps(backend)==before
 
 
 def test_qn_candidate_uses_full_state_without_reset_and_budget_exhaustion_is_unknown():
