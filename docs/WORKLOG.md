@@ -1,3 +1,43 @@
+## 2026-09-24 UTC — 长规划待命后的海洋平台内部状态边界核查
+
+- 计划：当前 `joint_request` 用声明初态模型规划，长诊断预算期间真实 PVS 节点仍按待命动作推进；仅靠位置重合不能推出内部控制器状态相同。对当前原港口 REMUS 与 Otter，用同一Fossen/PVS模型比较初始与180模型秒无任务待命后的全状态及**同一已配置方法**的预测轨迹，不改任务或控制。
+- 实际：在当前Noetic镜像只读调用 `PvsBackend.predict_idle(180,scene,deadline)`，完整内部对象除`time_s/steps`外用pickle逐字节比较；再分别从初始和待命后真实模型副本执行原 `seabed_samples` REMUS两航段500/300rpm，以及Otter 200秒配平等待＋移动支援/返回，逐采样位置比较。
+- 结果：REMUS待命180秒位置差0、末速度0，但内部对象不逐字相同；Otter位置差约`3.1e-16m`、内部对象亦不逐字相同。**仅对这两条路线**，初始与待命后完整只读方法都FEASIBLE，持续时长均约251.79s/302.79s，终端位置相同；REMUS逐样本位置最大差0，Otter约`3.75e-16m`。这说明当前两条声明资格的有限实验方法没有被这段待命改变名义运动，**不证明任意新方法、故障后或复查时可用位置重置替代完整状态**。
+- 来源/证据：本仓库 `pvs_backend.py::predict_idle/predict_native_fragment` 与[Fossen/PVS原生模型](https://www.fossen.biz/pythonVehicleSim/)；同镜像直接读取原 `five_scene_harbor.yaml` 的路线/场景，完整命令和原始数值在本机`experiments/20260924-native-idle-equivalence/{analyze_idle.py,result.json}`（本次只读诊断未派ROS Goal或生成独立bag）。下一步仍须在运行端取得足以验证修复入口的实际状态/条件，母船不得借仿真真值旁路知道水下失联平台的控制器状态。
+
+## 2026-09-24 UTC — 普通完整能力请求再次选 AAV 水下方法；三类业务资格仍待定
+
+- 计划：按用户的最终目标，核对**普通完整执行单元配置**在同一港口两区域业务请求下实际选择谁做水下作业；不排除AAV备选、不修改样点、返回、安全或容量条件，实验仅预览不派发。
+- 实际：使用正式 `scripts/docker_run_joint_request.sh`、原 `monitoring_request_joint.yaml` 和原 `joint_request_executors.yaml`，三qn＋Otter＋REMUS同ROS会话运行；同源编译qn、实验核组和明确的180秒**诊断**初次预算，终端输入 `no`。日志顺序也已纠正：上一轮三条2026-09-24记录由文件末尾移至此日志顶部，历史内容未删改。
+- 结果：正式入口在180.0308秒后输出三活动完整名义计划：`aav_2`空中概览0–18.04s，`usv`支援0–11.12s，`aav_1_native`经入水/水下/出水/返航18.04–273.04s；`UUV`与AAV3待命。`validation_scope=NOMINAL_COMPLETE_PLAN_MOTION_AND_CAPACITY`、评3候选、`search_complete=false`；用户输入`no`，状态`NOT_CONFIRMED`、零Goal、零锁。因此这次只证实**现有纯几何业务要求下**优化器仍会选择合格AAV水下替代，而不是三类平台实际同动，也不证明有限候选最优。它没有取代之前限定接线配置的三类实时实跑正例。
+- 证据/依据：`experiments/20260924-ordinary-full-preview-r1/{metrics.json,nominal-plan.json,runner.log,image-id.txt,base-commit.txt}`，默认配置是仓库 `integration/qn_aav_simulator/config/{monitoring_request_joint.yaml,joint_request_executors.yaml}`（运行脚本挂载当前源码，实际选择和输入`no`见metrics/runner）；[IEEE JOE 2022异构海洋实证](https://ieeexplore.ieee.org/document/9772063/)说明由不同结果类型产生UAV/UUV/USV真实分工，但不允许把本仓库几何代理冒充声呐。当前请求未声明仅UUV可产生的合格结果，故不加“每台必动”奖励或在求解器内排除AAV。
+- 未完成/下一步：等待用户对代表业务结果资格和初次规划预算的两项文本选择；同时沿现有worker准备复查/修复所需的真实内部状态依据。180秒诊断预览与此前10秒超时均保留，不把控制/可视化图代替请求实际执行。
+
+## 2026-09-24 UTC — 原生规划与同机仿真并行负载的 10 秒边界复核
+
+- 计划：隔离 `time_full.py` 在同一源码/镜像上以10秒得到完整 UUV＋USV 计划，而正式ROS仍多次超时；核对是否仅因规划CPU核组的超线程争用。保持业务、预算、模型、安全和传输代码不变，不再增加性能包装层。
+- 实际：直接读取本机 `/sys/devices/system/cpu/cpu*/topology/thread_siblings_list`，原规划核组12–15仅为两个物理核（12/13、14/15各互为超线程）；新隔离r8只将规划核组改成`12,14,16,18,20,22`，仿真仍0–11，显示/录包仍24–31，其他命令及10秒截止相同。另在无ROS仿真负载的同镜像/同请求运行 `experiments/20260924-water-component-10s-fast-qn-r4/time_full.py`，走完整 `build_request_executor_plan`，并用 `time_nested.py`测原有隔离候选与完整检查。
+- 结果：无ROS物理积分负载的完整规划10秒调用在约10.0140秒墙钟返回2活动完整可行候选、`search_complete=false`；20秒调用在约12.9933秒返回6候选。这里的10.0140**含到截止后的收尾**，也不能作为严格墙钟10秒通过。正式ROS r8 即使扩大到六个物理规划核心仍在原预算到期返回`no complete feasible candidate within shared budget`，零Goal。核组因素不足以单独解决，不能靠更改CPU说明自己满足正式10秒。与先前20秒正式预览同源，至少说明模型存在有限完整候选，当前失败是同机有界求解性能而非业务数学不可行证明。
+- 证据：本机 `experiments/20260924-water-component-10s-physical-cpus-r8/{metrics.json,runner.log,launch.log,image-id.txt,workspace.patch}`，以及 `experiments/20260924-water-component-10s-fast-qn-r4/{time_full.py,time_nested.py,profile.json}`；原场景配置/安全门槛/有限交付均未改。关联论文仍只支持任务—运动—通信交错关系，**没有**给本机10秒算力保证。
+- 未完成／下一步：待用户明确初次规划是否可在物理任务开始前采用单独较长预算；运行期修复10秒不变。若坚持初次也严格10秒，需针对真ROS负载下原生查询和搜索开销继续优化/换算力，不能把本机隔离结果或20秒预览当交付。普通请求的真实UUV业务资格与缺测后联合复查也仍待。
+
+## 2026-09-24 UTC — 原生 REMUS 查询重复快照消除；20 秒预览通过但 10 秒仍失败
+
+- 计划：沿 r4–r6 的剖析确认第一条水下协作候选大部分时间位于原 REMUS/PVS 真实模型积分，避免继续叠加模块或放松 10 秒。只消除同一个 PVS 步中可证明相同的重复快照转换，保留原动力学每步、实体/海底/净距与有限交付。
+- 实际：原 `PvsBackend.predict_native_fragment()` 在每步 `model.step()` 已返回完整当步 `state`，下一次航点推进却又调用 `model.snapshot()`，约 25,000 步 REMUS 查询产生约 45,569 次快照。现只在只读查询内复用上一积分步返回的 `state['position']`，开始时取一次完整快照；在线 PVS Action 与 `step()` 原语义不改。剖析证据在本机 `experiments/20260924-water-component-10s-fast-qn-r4/{profile_pvs.py,uuv-motion-profile.txt,candidate-profile.txt}`；没有增加接口、状态机或经验加速阈值。
+- 结果：受影响的原生方法、完整计划碰撞、共享容量/收件和任务搜索 **60 passed**。隔离首条协作候选约 5.49–5.66 秒、整份五成员检查约 2.30–3.02 秒，波动依宿主调度。正式 ROS 在 **20 秒**声明预算、确认输入 `no` 的 `experiments/20260924-water-component-20s-fast-qn-r1`生成原 UUV 0–251.79 秒、USV 0–302.79 秒并行完整计划，`validation_scope=NOMINAL_COMPLETE_PLAN_MOTION_AND_CAPACITY`、6 候选、`planning_wall_s=18.3091`、零 Goal/零锁；这是预览，不是物理任务实跑。原 **10 秒** r7 仍在 10.0183 秒失败、零 Goal，不能称默认预算达标。
+- 来源与边界：[Fossen PVS](https://www.fossen.biz/pythonVehicleSim/)的模型仍逐步积分，位置仅来自同一个 `step()` 的真实返回值；论文不提供本机实时性能。此前三类实时正例 r3 仍是 180 秒初次诊断预算的限定接线配置，不能把 20 秒组件预览当成新完整实跑。用户两项业务/预算选择已再次通过文本选择器提出，尚未收到答案。
+- 未完成／下一步：优先按用户答复确定普通代表业务与初次规划政策；在此之前不改正式 10 秒默认、不补造 UUV 独有载荷能力。`joint_request` 已收到缺测报告后的复查仍是明确未接通的工程断点，修复须取得本机真实内部状态或保持 UNKNOWN，不能从 Odometry 位置重置控制器后宣称有效。
+
+## 2026-09-24 UTC — 三类目标继续：只读预测去重与正式 10 秒规划负例
+
+- 计划：在原港口、原 10 秒共享预算及原安全/有限交付条件下，缩短三类请求首个完整候选的查询耗时；不改原生控制、在线积分、业务几何或门槛。用同一用户已选方案 2 的 REMUS 样点/部署区及只供接线的 UUV/USV 资格配置先测组件，再推进普通完整能力请求。
+- 实际：`qn_python_backend.py::predict_idle`仅在只读 `INITIAL_HOLD` 中逐步积分至**整个 qn 内部状态**在相同常输入下连续精确相等，再归纳生成剩余相同时间格点；同源编译 qn 的初始微小观察器残差也完整积分至约 3.56 模型秒后才触发。`pvs_backend.py::predict_native_fragment`仅对原生 Otter 静止配平等待用同样完整状态等值证明缩短只读循环，REMUS 和一切运动段仍逐步积分。原 `executors.py` 中两独立 PVS 运动资格查询经已有有界子进程并行，共用一次截止；完整计划对严格恒位待命者复用同输入静态谓词、对运动者逐样本批量筛静态盒并在边界回用原 `violation()`，对全部时间点校验缺样和运动成员净距，有限收件在活动区间内只重放一次。没有新增控制器、调度层、消息或接口。
+- 结果：300 步原 qn 显式积分与只读固定点终态完整 backend 状态及轨迹格点相同；Otter 200 秒等待＋移动的只读轨迹、终态 vehicle 状态及步号与禁用快速路径的显式积分相同。受影响的原生查询、完整计划、碰撞负例、共享容量与候选调度测试 **60 passed**；`git diff --check`通过。本机隔离首个 UUV/USV 候选约 5.74–6.37 秒，整份五成员检查约 2.38–2.80 秒，不含正式 ROS 启动/方法生成/搜索管理。正式 ROS 同组件预算为原 **10 s** 的 r4、r5、r6 仍均以 `no complete feasible candidate within shared budget` 退出，零 Goal；r4 记录 `planning_wall_s=10.01563`。这些是性能**负例**，不能据隔离用例宣布 10 秒主链通过。
+- 依据：精确固定点优化来自本机确定性 `qn`/Fossen-PVS 状态转移 `F(x,u)=x` 与逐步等值复核，不是论文给出的性能界。[Calvo/Capitán T-RO](https://arxiv.org/html/2411.02062v3)提供能力/时序/执行修复问题关系，[GRSTAPS IJRR](https://journals.sagepub.com/doi/full/10.1177/02783649211052066)与[D-ITAGS RA-L](https://arxiv.org/abs/2209.13092)支持运动反馈进入联合候选；它们均不提供本机 10 秒保证。保留用户冻结的安全、接收和预算语义，数值性能只归本机实验。
+- 代码／命令／证据：`integration/{mrta_python/executors.py,qn_aav_simulator/src/qn_aav_simulator/{qn_python_backend.py,pvs_backend.py}}`，定向等值测试在 `integration/qn_aav_simulator/tests/test_native_motion_query.py`；本机 `experiments/20260924-water-component-10s-fast-qn-r4/` 含 `metrics.json`、`time_first.py`、`candidate-profile.txt`，r5/r6 各含正式 ROS `metrics.json` 和日志；实验仍使用 `scripts/docker_run_joint_request.sh`、`JOINT_PLANNING_BUDGET_S=10` 且确认输入 `no`。原三类实时正例仍为 `experiments/20260924-three-class-live-stable-clock-r3`，不受本次零派发负例改写。
+- 未完成／下一步：正式 10 秒首个完整方案仍不稳定，普通完整能力配置仍可能按最短工期选 AAV 浅水方法而让 UUV 待命；已收到负向观测报告后的联合复查在 `formation_mission_runner.py::_run_joint_request` 明确仍报未资格。继续查首候选约 5.5 秒原生 PVS 查询的实际可削减重复和阶段边界；初次规划可否在物理任务时钟前离线长预算、代表业务是否需要 UUV 独有结果资格两项待用户答复，不能暗改期限或任务能力。
+
 ## 2026-09-24 UTC — 静态配平固定点减少只读完整计划重复计算，原10秒小例首次得完整候选
 
 - 计划：当前水下同请求组件的真实原生UUV/USV候选首个运动+收件约7s，完整五平台检查约2.3s；旧10s入口常在尚未提交全计划时用完预算。已核实三个待命AAV均是现有qn `STATIC_TRIM`/`INITIAL_HOLD`，不能用“位置看起来没动”代替完整内部状态，但可以检查同一确定性源码是否存在**精确固定点**。不改在线qn积分、ROS时钟/门槛、原Fossen模型或用户业务阈值。
@@ -2595,25 +2635,3 @@
 - 效果：确认必须补齐点云本地看门狗、所有共享端点的锁存接纳检查，以及有单调期限的处置观察。
 - 证据：已确认计划及本地任务书/文献对照；原生停止仅是固定位置参考，尚不能宣称 qn 停止保持通过。
 - 未完成/下一步：实施最小补丁与单机首个实跑；每阶段继续追加本日志，失败不删。
-## 2026-09-24 UTC — 三类目标继续：只读预测去重与正式 10 秒规划负例
-
-- 计划：在原港口、原 10 秒共享预算及原安全/有限交付条件下，缩短三类请求首个完整候选的查询耗时；不改原生控制、在线积分、业务几何或门槛。用同一用户已选方案 2 的 REMUS 样点/部署区及只供接线的 UUV/USV 资格配置先测组件，再推进普通完整能力请求。
-- 实际：`qn_python_backend.py::predict_idle`仅在只读 `INITIAL_HOLD` 中逐步积分至**整个 qn 内部状态**在相同常输入下连续精确相等，再归纳生成剩余相同时间格点；同源编译 qn 的初始微小观察器残差也完整积分至约 3.56 模型秒后才触发。`pvs_backend.py::predict_native_fragment`仅对原生 Otter 静止配平等待用同样完整状态等值证明缩短只读循环，REMUS 和一切运动段仍逐步积分。原 `executors.py` 中两独立 PVS 运动资格查询经已有有界子进程并行，共用一次截止；完整计划对严格恒位待命者复用同输入静态谓词、对运动者逐样本批量筛静态盒并在边界回用原 `violation()`，对全部时间点校验缺样和运动成员净距，有限收件在活动区间内只重放一次。没有新增控制器、调度层、消息或接口。
-- 结果：300 步原 qn 显式积分与只读固定点终态完整 backend 状态及轨迹格点相同；Otter 200 秒等待＋移动的只读轨迹、终态 vehicle 状态及步号与禁用快速路径的显式积分相同。受影响的原生查询、完整计划、碰撞负例、共享容量与候选调度测试 **60 passed**；`git diff --check`通过。本机隔离首个 UUV/USV 候选约 5.74–6.37 秒，整份五成员检查约 2.38–2.80 秒，不含正式 ROS 启动/方法生成/搜索管理。正式 ROS 同组件预算为原 **10 s** 的 r4、r5、r6 仍均以 `no complete feasible candidate within shared budget` 退出，零 Goal；r4 记录 `planning_wall_s=10.01563`。这些是性能**负例**，不能据隔离用例宣布 10 秒主链通过。
-- 依据：精确固定点优化来自本机确定性 `qn`/Fossen-PVS 状态转移 `F(x,u)=x` 与逐步等值复核，不是论文给出的性能界。[Calvo/Capitán T-RO](https://arxiv.org/html/2411.02062v3)提供能力/时序/执行修复问题关系，[GRSTAPS IJRR](https://journals.sagepub.com/doi/full/10.1177/02783649211052066)与[D-ITAGS RA-L](https://arxiv.org/abs/2209.13092)支持运动反馈进入联合候选；它们均不提供本机 10 秒保证。保留用户冻结的安全、接收和预算语义，数值性能只归本机实验。
-- 代码／命令／证据：`integration/{mrta_python/executors.py,qn_aav_simulator/src/qn_aav_simulator/{qn_python_backend.py,pvs_backend.py}}`，定向等值测试在 `integration/qn_aav_simulator/tests/test_native_motion_query.py`；本机 `experiments/20260924-water-component-10s-fast-qn-r4/` 含 `metrics.json`、`time_first.py`、`candidate-profile.txt`，r5/r6 各含正式 ROS `metrics.json` 和日志；实验仍使用 `scripts/docker_run_joint_request.sh`、`JOINT_PLANNING_BUDGET_S=10` 且确认输入 `no`。原三类实时正例仍为 `experiments/20260924-three-class-live-stable-clock-r3`，不受本次零派发负例改写。
-- 未完成／下一步：正式 10 秒首个完整方案仍不稳定，普通完整能力配置仍可能按最短工期选 AAV 浅水方法而让 UUV 待命；已收到负向观测报告后的联合复查在 `formation_mission_runner.py::_run_joint_request` 明确仍报未资格。继续查首候选约 5.5 秒原生 PVS 查询的实际可削减重复和阶段边界；初次规划可否在物理任务时钟前离线长预算、代表业务是否需要 UUV 独有结果资格两项待用户答复，不能暗改期限或任务能力。
-## 2026-09-24 UTC — 原生 REMUS 查询重复快照消除；20 秒预览通过但 10 秒仍失败
-
-- 计划：沿 r4–r6 的剖析确认第一条水下协作候选大部分时间位于原 REMUS/PVS 真实模型积分，避免继续叠加模块或放松 10 秒。只消除同一个 PVS 步中可证明相同的重复快照转换，保留原动力学每步、实体/海底/净距与有限交付。
-- 实际：原 `PvsBackend.predict_native_fragment()` 在每步 `model.step()` 已返回完整当步 `state`，下一次航点推进却又调用 `model.snapshot()`，约 25,000 步 REMUS 查询产生约 45,569 次快照。现只在只读查询内复用上一积分步返回的 `state['position']`，开始时取一次完整快照；在线 PVS Action 与 `step()` 原语义不改。剖析证据在本机 `experiments/20260924-water-component-10s-fast-qn-r4/{profile_pvs.py,uuv-motion-profile.txt,candidate-profile.txt}`；没有增加接口、状态机或经验加速阈值。
-- 结果：受影响的原生方法、完整计划碰撞、共享容量/收件和任务搜索 **60 passed**。隔离首条协作候选约 5.49–5.66 秒、整份五成员检查约 2.30–3.02 秒，波动依宿主调度。正式 ROS 在 **20 秒**声明预算、确认输入 `no` 的 `experiments/20260924-water-component-20s-fast-qn-r1`生成原 UUV 0–251.79 秒、USV 0–302.79 秒并行完整计划，`validation_scope=NOMINAL_COMPLETE_PLAN_MOTION_AND_CAPACITY`、6 候选、`planning_wall_s=18.3091`、零 Goal/零锁；这是预览，不是物理任务实跑。原 **10 秒** r7 仍在 10.0183 秒失败、零 Goal，不能称默认预算达标。
-- 来源与边界：[Fossen PVS](https://www.fossen.biz/pythonVehicleSim/)的模型仍逐步积分，位置仅来自同一个 `step()` 的真实返回值；论文不提供本机实时性能。此前三类实时正例 r3 仍是 180 秒初次诊断预算的限定接线配置，不能把 20 秒组件预览当成新完整实跑。用户两项业务/预算选择已再次通过文本选择器提出，尚未收到答案。
-- 未完成／下一步：优先按用户答复确定普通代表业务与初次规划政策；在此之前不改正式 10 秒默认、不补造 UUV 独有载荷能力。`joint_request` 已收到缺测报告后的复查仍是明确未接通的工程断点，修复须取得本机真实内部状态或保持 UNKNOWN，不能从 Odometry 位置重置控制器后宣称有效。
-## 2026-09-24 UTC — 原生规划与同机仿真并行负载的 10 秒边界复核
-
-- 计划：隔离 `time_full.py` 在同一源码/镜像上以10秒得到完整 UUV＋USV 计划，而正式ROS仍多次超时；核对是否仅因规划CPU核组的超线程争用。保持业务、预算、模型、安全和传输代码不变，不再增加性能包装层。
-- 实际：直接读取本机 `/sys/devices/system/cpu/cpu*/topology/thread_siblings_list`，原规划核组12–15仅为两个物理核（12/13、14/15各互为超线程）；新隔离r8只将规划核组改成`12,14,16,18,20,22`，仿真仍0–11，显示/录包仍24–31，其他命令及10秒截止相同。另在无ROS仿真负载的同镜像/同请求运行 `experiments/20260924-water-component-10s-fast-qn-r4/time_full.py`，走完整 `build_request_executor_plan`，并用 `time_nested.py`测原有隔离候选与完整检查。
-- 结果：无ROS物理积分负载的完整规划10秒调用在约10.0140秒墙钟返回2活动完整可行候选、`search_complete=false`；20秒调用在约12.9933秒返回6候选。这里的10.0140**含到截止后的收尾**，也不能作为严格墙钟10秒通过。正式ROS r8 即使扩大到六个物理规划核心仍在原预算到期返回`no complete feasible candidate within shared budget`，零Goal。核组因素不足以单独解决，不能靠更改CPU说明自己满足正式10秒。与先前20秒正式预览同源，至少说明模型存在有限完整候选，当前失败是同机有界求解性能而非业务数学不可行证明。
-- 证据：本机 `experiments/20260924-water-component-10s-physical-cpus-r8/{metrics.json,runner.log,launch.log,image-id.txt,workspace.patch}`，以及 `experiments/20260924-water-component-10s-fast-qn-r4/{time_full.py,time_nested.py,profile.json}`；原场景配置/安全门槛/有限交付均未改。关联论文仍只支持任务—运动—通信交错关系，**没有**给本机10秒算力保证。
-- 未完成／下一步：待用户明确初次规划是否可在物理任务开始前采用单独较长预算；运行期修复10秒不变。若坚持初次也严格10秒，需针对真ROS负载下原生查询和搜索开销继续优化/换算力，不能把本机隔离结果或20秒预览当交付。普通请求的真实UUV业务资格与缺测后联合复查也仍待。
