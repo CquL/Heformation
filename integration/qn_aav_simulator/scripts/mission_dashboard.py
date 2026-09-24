@@ -639,6 +639,10 @@ class MissionDashboard:
         if reason:
             if reason=='dependent work precedes its support launch':
                 reason='协同作业启动早于支援启动，后续派发已阻断'
+            for code,label in (('NATIVE_STATE_CHANGED_DURING_QUERY','运动预检期间本机状态改变'),
+                               ('NATIVE_STATE_CHANGED_SINCE_PREPARATION','预装后本机状态改变'),
+                               ('NATIVE_PREPARATION_NOT_QUALIFIED','本机预装缺少运动资格')):
+                reason=reason.replace(code,label)
             timing=re.fullmatch(
                 r'endpoint not ready: (\S+): time baseline not qualified: model/ROS drift ([0-9.]+) s exceeds ([0-9.]+) s',
                 reason)

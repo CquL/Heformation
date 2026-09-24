@@ -1,5 +1,7 @@
 # 最新交接：分层监测需求基线与 AAV 本地停止保持
 
+> **2026-09-24 最新三类实跑与状态边界**：先看WORKLOG顶部、`experiments/20260924-three-class-state-guard-live-r1/{metrics.json,safety-audit.json,control-audit.json,dashboard-terminal.png,rviz-terminal.png}`及`docs/reviews/source-and-assumption-audit-20260923.md`新节。原PVS预检已加完整内部状态签名提交/预装启动核对；三种陈旧/缺资格受控负例正确拒绝，Otter普通和预装实际Action成功。新同次三类实时运行两业务收件、四Result、六有限指令与返回/零锁，独立全场时间/安全及控制因果均PASS。仍只是一条原港口**测试资格配置**正例，180s诊断预算、几何代理、AAV水下备选未参与；普通完整请求仍选AAV替代、复查和未来运动状态查询未完成。`systemd-timesyncd`已恢复active。最后补的无签名拒绝支路只有受控负例，长运行不冒认覆盖。
+
 > **2026-09-24 面板交接**：从现有Plan的`coalition`计算短中文待命说明，不增第二状态源；普通预览录制状态由同面板函数静态重绘可读，`experiments/20260924-dashboard-standby-render/ordinary-preview-panel.png`。尚未随新ROS任务实时刷新核验。三类完整请求、复查及预算两项用户选择仍未由这项显示工作解决。
 
 > **2026-09-24 普通请求方法选择复核**：`experiments/20260924-ordinary-full-preview-r1`用正式ROS、原两区域与**完整**执行单元配置，在180秒诊断预算下选AAV2空中/USV支援＋AAV1跨介质水下/返回，UUV待命；输入`no`所以零Goal，不是最终三类实跑。此前限定接线三类实时正例仍有效，但不能替代普通请求的业务资格和最优方法选择。WORKLOG最新条目位于文件顶部，上一轮日志排序已纠正。两项用户业务/初次预算选择仍待，复查/实际在线状态修复未完成。

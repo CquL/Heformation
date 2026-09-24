@@ -10,6 +10,7 @@ import threading
 import time
 import copy
 import json
+import pickle
 import actionlib
 import rospy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
@@ -19,6 +20,16 @@ from qn_aav_simulator.msg import PlatformTaskAction, PlatformTaskFeedback, Platf
 from qn_aav_simulator.pvs_backend import PvsBackend,advance_path_target,NATIVE_START_TOLERANCE_M
 from qn_aav_simulator.experiment_verdict import StaticSceneGeometry
 from mrta_python.executors import ExecutorTravelTimeProvider,bounded_travel_query
+
+
+def _native_state_signature(backend):
+    """Controller/plant/actuator state used by a future native reference.
+
+    The native model clock and step count change during an otherwise exact
+    idle fixed point; all state that can affect the next motion stays here.
+    """
+    return pickle.dumps({key:value for key,value in vars(backend).items()
+                         if key not in ('time_s','steps')},protocol=4)
 
 
 class PvsNode:
@@ -145,9 +156,11 @@ class PvsNode:
                 return
             if self.native_preflight:
                 query_deadline=time.monotonic()+self.planning_budget_s
+                backend_snapshot=copy.deepcopy(self.backend)
                 token=dict(handle=handle,id=ident,task=goal.task_id,paths=paths,efforts=efforts,
                     durations=durations,timeout=timeout,
-                    generation=self.generation,backend=copy.deepcopy(self.backend),
+                    generation=self.generation,backend=backend_snapshot,
+                    state_signature=_native_state_signature(backend_snapshot),
                     deadline=query_deadline,prepare_only=bool(getattr(goal,'prepare_only',False)),observations=observations,
                     terminal_wait_s=terminal_wait_s)
                 self.pending=token
@@ -187,6 +200,8 @@ class PvsNode:
             reason=''
             if self.locked or self.generation!=token['generation']:
                 reason='STATE_OR_COMMITMENT_CHANGED'
+            elif _native_state_signature(self.backend)!=token['state_signature']:
+                reason='NATIVE_STATE_CHANGED_DURING_QUERY'
             elif (state['actual_mode']!=self.mode or
                   math.dist(state['position'],token['paths'][0][0])>NATIVE_START_TOLERANCE_M):
                 reason='STATE_CHANGED_DURING_QUERY'
@@ -207,8 +222,10 @@ class PvsNode:
                 token['handle'].set_rejected(PlatformTaskResult(task_id=token['task'],goal_id=token['id'],
                     actual_mode=state['actual_mode'],reason=reason,resource_locked=self.locked,
                     model_time_s=self.backend.time_s))
-            else:self._accept(token['handle'],token['id'],token['task'],token['paths'],token['efforts'],
-                token['durations'],token['timeout'],token['prepare_only'],token['observations'],token['terminal_wait_s'])
+            else:
+                self._accept(token['handle'],token['id'],token['task'],token['paths'],token['efforts'],
+                    token['durations'],token['timeout'],token['prepare_only'],token['observations'],token['terminal_wait_s'])
+                self.work['qualified_state_signature']=token['state_signature']
 
     def _returns_to_declared_site(self,paths):
         return (self.return_site is not None and
@@ -232,6 +249,11 @@ class PvsNode:
             if reason:return StartPreparedActionResponse(False,reason)
             if not work['waiting_commit']:return StartPreparedActionResponse(True,'ALREADY_STARTED')
             state=self.backend.snapshot()
+            qualified=work.get('qualified_state_signature')
+            if self.scene is not None and qualified is None:
+                return StartPreparedActionResponse(False,'NATIVE_PREPARATION_NOT_QUALIFIED')
+            if qualified is not None and _native_state_signature(self.backend)!=qualified:
+                return StartPreparedActionResponse(False,'NATIVE_STATE_CHANGED_SINCE_PREPARATION')
             if state['actual_mode']!=self.mode:return StartPreparedActionResponse(False,'ACTUAL_MODE_MISMATCH')
             if math.dist(work['paths'][0][0],state['position'])>NATIVE_START_TOLERANCE_M:
                 return StartPreparedActionResponse(False,'START_STATE_CHANGED')

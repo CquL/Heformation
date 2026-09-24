@@ -1,5 +1,7 @@
 # 当前状态
 
+> **2026-09-24 新PVS预检守卫与三类实时回归**：原PVS预检只核位置/介质，现对当前本机plant/控制器/执行器完整状态作同源等值核对，PREPARED启动也再核；同位置内部状态变化、预装后变化、无资格签名均受控拒绝。真实Otter普通与预装Action均SUCCEEDED。`experiments/20260924-three-class-state-guard-live-r1`在原港口测试配置的同次RViz/中文面板实际完成AAV AIR、REMUS WATER与移动Otter支援、两结果收件、四Result、六有限命令、规定返回及零锁；独立整场时间/安全审计PASS（3115对齐位置零缺、漂移峰0.02133s、平台代理最小净距0.59317m、UUV实体余量0.68107m），控制因果审计PASS。宿主NTP临停后恢复active。**范围仍为几何代理、排除AAV水下备选的资格测试配置、180s初次诊断规划；普通完整能力请求、严格10s、实际缺测复查/运动中状态再资格未通过。** 细节与旧失败见WORKLOG顶部。
+
 > **2026-09-24 实时面板解释增量**：`mission_dashboard.py`现直接从现有计划物理成员集合显示未选中平台的短中文“待命”说明，普通请求静态重绘已显示“无人机3、潜航器待命”；见`experiments/20260924-dashboard-standby-render/ordinary-preview-panel.png`。这是录制计划状态重绘，不是新ROS实时Action验收，更不代表UUV已参与普通请求。
 
 > **2026-09-24 普通完整能力请求最新预览**：当前原港口、原两区域业务请求和完整 `joint_request_executors.yaml`，正式同一ROS入口在180秒诊断预算下给出AAV2空中＋USV支援、AAV1跨介质水下/返回的三活动完整名义计划；UUV待命，评3候选但`search_complete=false`。终端输入`no`，零Goal/零锁；不能称新实跑。证据在`experiments/20260924-ordinary-full-preview-r1`及WORKLOG顶部。这复核了纯几何任务条件下UUV不一定被选中，最终代表请求若要求UUV特有结果需业务依据/用户决定，不能通过求解器奖励强迫出动。
