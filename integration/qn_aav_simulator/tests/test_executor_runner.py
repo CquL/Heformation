@@ -636,6 +636,10 @@ def test_joint_readiness_failure_preserves_original_reason(runner_module,tmp_pat
     assert runner.metrics['status']=='FAIL'
     assert runner.metrics['failure_reason']=='time baseline not qualified'
     assert set(runner.weights)=={'air_sample','water_sample'}
+    runner.metrics['command_requests']={'one':{},'two':{}}
+    runner.metrics['command_deliveries']={'one':{}}
+    _,state=runner._save_executor_locked()
+    assert state['command_progress']=={'requested':2,'delivered':1}
 
 
 def test_selected_client_and_successful_result_release_next_item(runner_module, tmp_path):

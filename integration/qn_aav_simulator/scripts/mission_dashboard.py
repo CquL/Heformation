@@ -612,9 +612,9 @@ class MissionDashboard:
         if not rows:line(.79,'正在规划；确认前不派发',12)
         locks=state.get('resource_locks',[])
         line(.44,'占用／锁定：'+('、'.join(member_name(k) for k in locks) or '无'),12)
-        commands=state.get('command_requests',{})
-        command_status=(' · 指令已达 {}/{}'.format(len(state.get('command_deliveries',{})),len(commands))
-                        if commands else '')
+        commands=state.get('command_progress',{})
+        command_status=(' · 指令已达 {}/{}'.format(commands['delivered'],commands['requested'])
+                        if commands.get('requested') else '')
         line(.38,'母船结果 {:.0%} · 业务 {} 项{}'.format(
             state.get('delivered_fraction',0.),len(state.get('results_received',[])),command_status),12)
         line(.32,'传输过程（独立仿真视图，不作为任务完成判定）',11)

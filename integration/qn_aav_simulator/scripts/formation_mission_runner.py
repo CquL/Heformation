@@ -624,6 +624,10 @@ class MissionRunner:
         state["current_action"] = self.metrics.get("current_action")
         state["current_actions"] = self.metrics.get("current_actions", {})
         state["safety_disposition"] = self.metrics.get("safety_disposition")
+        if 'command_requests' in self.metrics:
+            state['command_progress']={
+                'requested':len(self.metrics['command_requests']),
+                'delivered':len(self.metrics['command_deliveries'])}
         import copy
         return copy.deepcopy(self.metrics),copy.deepcopy(state)
 

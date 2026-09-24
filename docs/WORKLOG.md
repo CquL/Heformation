@@ -1,3 +1,12 @@
+## 2026-09-23 UTC — 新有限上下行版本在同次实时RViz／中文面板下取得全项资格正例
+
+- 计划：上一`joint-result-uplink-nogui-r2`已经在正式请求入口取得任务、有限控制事件与独立安全/时间全项正例，但用户最终要求是**实时可视化仿真**；必须让同一原生ROS执行过程同时驱动RViz和中文任务权威面板，不把无GUI bag回放当新验收。
+- 实际：从已推送`main@8f64291`用现有`docker_run_joint_request.sh`在同一五平台港口场景打开RViz与中文面板，规划仍采用明确360秒隔离诊断上限、规划线程限本机CPU12–15、显示/录包限24–31，操作者实验脚本对打印的具体三活动计划输入`yes`。实际AIR概览＋USV RF支援先行，AAV1七步南侧AIR→入水→水中几何观测→出水→AIR返回随后由同一qn和原生Action执行；UI从任务权威实时读取活动、阶段、实际收件和资源，RViz同源显示障碍/五平台实际状态与路线。保存真实规划、运行、水中及刷新后终态窗口帧。实验中前次0.54s监测空档的返程第4段`sample_ledger.alignment_failure_count=0`、`VALID`，没有改监测缺样规则。
+- 结果：`experiments/20260923-joint-result-uplink-live-r1`正式runner任务状态`PASS_GEOMETRIC_PROXY_QUALIFICATION`，九子Action均verified；10/10序列化Goal命令有限送达、10/10同GoalID本机终态有限收件；AIR/水中两份32KiB业务结果及观测终结报告到母船，交付1.0，三活动COMPLETED，AAV1/AAV2/USV返部署区误差0.09767m/约0/0.03771m，资源锁空。**同次**单条静态场景云bag＋动态执行bag独立五平台审计全项PASS：3262个执行期对齐位置样本零缺、五平台代理最小净距1.46390m、声明实体最小余量1.90108m、模型/ROS及跨平台峰值漂移0.02882/0.02871s，AIR返程采用证据合格。独立bag控制因果审计再次PASS，十条Goal的真实序列化SHA-256/字节数与先到的命令回执逐一匹配、十Result均有同GoalID/成员成功终态通知。中文终态真窗口显示两项业务、母船64.0KiB收件、无锁与返回完成；RViz真窗口含港口实体、水面、三AAV/USV/UUV和实际轨迹。
+- 显示漏接与小修：终态面板尚未显示“指令已达10/10”，尽管完整任务metrics与同次bag已有该证据；`_save_executor_locked`给UI的精简状态原未包含命令统计。只新增`command_progress={requested,delivered}`两个计数，不把Goal或命令历史传给UI，面板沿用短中文行读取；定向任务状态测试通过。此补丁**尚未在下一次实时窗口中复验**，不把旧终态截图称为显示了新计数。
+- 证据：`experiments/20260923-joint-result-uplink-live-r1/{metrics.json,nominal-plan.json,scene-once.bag,execution.bag,safety-audit.json,control-audit.json,dashboard-planning.png,dashboard-running.png,dashboard-water.png,dashboard-terminal.png,rviz-running.png,rviz-water.png,rviz-terminal.png}`；原`MissionRunner`/`scene_publisher`/Action源及本轮UI计数小修。任务与安全审计、真窗口展示各自独立，不拿外观证明业务结果。
+- 未完成／下一步：这仍是声明初态资格、**几何观测代理**和360秒诊断规划，不是真实相机/声呐质量、10秒生产求解或任意运行时内部状态重建。UUV在本普通请求待命；用户待答的示范几何、实际三类平台同请求协同、缺测触发至多一次复查与反馈重搜、必要返回/有限交付全链仍未完成。终态面板新命令计数只做了确定性状态检查，下一次live运行顺带复验，不为截图重复跑全链。
+
 ## 2026-09-23 UTC — Action终态通知走有限链路，原AIR监测写盘阻塞移除；同次无GUI正式请求与独立审计通过
 
 - 计划：当前下行Goal已受固定容量约束，但原生Action Result仍可从ROS直达母船；运动/支援即使断联也可能直接释放成员，违反“实际收到结果才释放依赖”。复用既有本机`local_products`和母船通知通道，传短终态事件而非建立新协调节点/协议层；随后定位前次返航监测0.54s缺口中已核实的同步日志I/O风险。组织原则参考[Guo–Zavlanos间歇会合](https://arxiv.org/html/1706.02092)、[APEX-MR实际执行事件释放](https://arxiv.org/html/2503.15836v2)，具体消息身份/容量/判据以本仓库代码及声明实验链路为准，不继承论文硬件保证。

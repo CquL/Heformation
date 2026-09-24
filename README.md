@@ -36,7 +36,7 @@ JOINT_PLANNING_BUDGET_S=360 JOINT_PLANNER_CPUSET=12-15 \
   "experiments/$(date -u +%Y%m%dT%H%M%SZ)-joint-live"
 ```
 
-这条命令在同一个现有 MissionRunner 中加载[两区域请求](integration/qn_aav_simulator/config/monitoring_request_joint.yaml)，自动选择AIR成员、USV支援和合格跨介质方法；RViz显示同源港口障碍与实际平台，中文任务面板显示所选活动、实际Action、命令送达、母船收件和资源占用。**规划和等待确认期间平台只按本地待命参考运行，不开始作业运动。**关闭显示窗口不作为任务取消。输出目录保存任务结果、单条真实静态云`scene-once.bag`和五平台动态`execution.bag`，供独立审计。`360`秒是当前原生完整状态查询的**隔离诊断预算**，正式默认仍为`10`秒；`12-15`和`24-31`分别是本机规划与界面/录包进程的CPU核组，其他机器应按实际核组调整或省略，不能当算法参数。`JOINT_SIM_CPUSET`可在隔离诊断中另设动力学/Action核组，但它不是算法参数或时间保证。未找到完整候选时不派发。`joint-result-uplink-nogui-r2`是目前新增有限上下行控制摘要版本的**无GUI**同请求正例：九Action、两份收件和返回完成，同次独立时间/安全审计与命令/Result有限通知对账均PASS；还需在本命令打开的实时RViz/中文面板下取得同范围新证据。旧`joint-command-gate-live-r2`虽任务层完成却独立时间审计FAIL，保留负例。REMUS在这些普通请求中待命，异常复查和最终三类平台验收尚未通过。项目原生模型内部状态目前未从运行节点重建，此入口明确为声明初态资格仿真；实跑证据边界见[当前状态](context/02_current_status.md)和WORKLOG。
+这条命令在同一个现有 MissionRunner 中加载[两区域请求](integration/qn_aav_simulator/config/monitoring_request_joint.yaml)，自动选择AIR成员、USV支援和合格跨介质方法；RViz显示同源港口障碍与实际平台，中文任务面板显示所选活动、实际Action、命令送达、母船收件和资源占用。**规划和等待确认期间平台只按本地待命参考运行，不开始作业运动。**关闭显示窗口不作为任务取消。输出目录保存任务结果、单条真实静态云`scene-once.bag`和五平台动态`execution.bag`，供独立审计。`360`秒是当前原生完整状态查询的**隔离诊断预算**，正式默认仍为`10`秒；`12-15`和`24-31`分别是本机规划与界面/录包进程的CPU核组，其他机器应按实际核组调整或省略，不能当算法参数。`JOINT_SIM_CPUSET`可在隔离诊断中另设动力学/Action核组，但它不是算法参数或时间保证。未找到完整候选时不派发。最新`joint-result-uplink-live-r1`在本命令打开的同一RViz/中文面板下完成两区域、九Action、两份32KiB收件及返回，同次独立时间/安全审计和命令/Result有限通知对账均PASS；终态真窗口图保存在实验目录。旧`joint-command-gate-live-r2`虽任务层完成却独立时间审计FAIL，保留负例。REMUS在这些普通请求中待命，异常复查和最终三类平台验收尚未通过。当前已补精简任务状态的命令计数，但终态截图摄于补丁前，不能据旧图声称显示了“指令已达10/10”。项目原生模型内部状态目前未从运行节点重建，此入口明确为声明初态资格仿真；实跑证据边界见[当前状态](context/02_current_status.md)和WORKLOG。
 
 ### 水下协作历史入口：潜航器观测、无人船支援
 

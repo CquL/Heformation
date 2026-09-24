@@ -1,6 +1,6 @@
 # Heformation 三类平台协同任务实施计划
 
-> 当前验收进度（2026-09-23）：既有`joint-runner-live-audited-r1`是原无有限控制消息版本同次静态云＋动态bag**全项独立审计PASS**的两区域资格基线，UUV待命。新增有限下行Goal及Action终态摘要上行后，`joint-result-uplink-nogui-r2`正式runner在同请求无GUI会话得到10/10命令送达、九段原生Action、10/10有限终态通知、双32KiB母船收件、AAV1/AAV2/USV返回与零锁；同次独立安全/时间审计和bag控制因果核对全项PASS。此前`joint-command-gate-live-r2`虽任务层PASS但全程时间审计FAIL，r3/r4亦因时间失效；`joint-result-uplink-nogui-r1`返程监测0.54s缺口而INVALID/锁定，旧负例仍保留。**新增结果上行版本尚缺同范围实时RViz/中文面板正例**，更未完成REMUS合格回区与实际参与、真实缺测联合重搜/Action、在线内部状态修复、正式10秒规划及最终三类平台共同任务。继续顺序和证据见`context/02_current_status.md`与WORKLOG顶部。
+> 当前验收进度（2026-09-23）：`joint-result-uplink-live-r1`已在正式runner同一ROS会话取得**实时RViz/中文面板＋AAV AIR/USV支援/AAV跨介质两区域请求**的资格正例：十条下行Goal与十条Action终态有限收件、九子Action、双32KiB母船结果、AAV1/AAV2/USV规定返回和锁释放，终态真窗口图保存；同次独立安全/时间与bag控制因果审计全项PASS。先前`joint-command-gate-live-r2`全程时间审计FAIL、`joint-result-uplink-nogui-r1`返程20Hz监测0.54s空档INVALID/锁定仍保留。当前正例是声明初态、**几何观测代理**与360秒隔离诊断规划，UUV仍待命；尚未完成REMUS合格回区与实际参与、真实缺测联合重搜/Action、在线内部状态修复、正式10秒规划及最终三类平台共同任务。继续顺序和证据见`context/02_current_status.md`与WORKLOG顶部。
 
 ## 1. 目标、依据与默认选择
 

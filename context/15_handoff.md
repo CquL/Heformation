@@ -1,5 +1,7 @@
 # 最新交接：分层监测需求基线与 AAV 本地停止保持
 
+> **2026-09-23 最新实时可视化交接**：先看WORKLOG顶部与`experiments/20260923-joint-result-uplink-live-r1/{dashboard-terminal.png,rviz-terminal.png,metrics.json,safety-audit.json,control-audit.json}`。正式MissionRunner`joint_request`同一Noetic/Docker港口场景中，RViz/中文面板实时显示选定AIR＋USV与AAV跨介质两区域任务；九子Action、10/10有限下行命令与10/10有限终态通知、两份32KiB收件、规定返回/零锁，任务权威PASS。同次单条静态云+动态bag的五平台时间/安全独立审计PASS（3262位置样本0缺，最小代理/实体余量1.46390/1.90108m，最大模型/ROS偏差0.02882s），Goal摘要/命令先送/Result通知独立对账PASS。UI终态真窗口显示完成与64KiB母船收件；“指令已达10/10”当时因精简任务状态漏传没显示，现只补两个计数，尚未下一次live截图复验。普通请求的UUV待命，几何代理/声明初态/360s诊断预算边界不变，**最终三类平台业务、实际复查及10s求解未完成**。继续依据用户待答的REMUS示范几何和预算策略推进，不重做已有AAV+USV正例。
+
 > **2026-09-23 最新交接（无GUI结果上行全链）**：先读WORKLOG顶部，查`experiments/20260923-joint-result-uplink-nogui-r2/{metrics.json,safety-audit.json,control-audit.json,execution.bag,scene-once.bag}`。现有MissionRunner在原两区域请求下，用360秒**隔离诊断**预算取得10/10有限下行命令、九段原生Action、10/10有限Action终态母船通知、双32KiB几何产品收件、AAV1/AAV2/USV规定返回与零锁；同次独立五平台安全/时间审计及bag控制因果核对均PASS。返程第4段先前0.54s Action监测空档的r1 INVALID/锁定保留；只将例行CSV flush移出20Hz监测循环后r2该段缺样0、VALID，不据一次正例声称任意负载保证。下一步必须在**同一实时RViz/中文面板**下复验同范围证据，然后继续UUV实际参与、真实缺测复查、在线内部状态修复和10秒预算问题；无GUI正例不能冒充最终五平台协同任务。
 
 > **2026-09-23 时间失效与早期失败交接**：r3新下行版首AIR Goal以0.07116s模型/ROS漂移INVALID/锁定，qn0/1当时固定逻辑0/1但它们是同物理核心超线程；r4把qn0/1/2改放不同物理核心0/2/4，仍在Goal前因AAV1基线0.0585s>0.05s拒绝。`joint_request`早期异常写状态因`weights`未初始化遮蔽原原因，已在代码把任务权重提前到就绪门前，针对性及相关49项检查通过；r4原现场不改写。纯qn模型热路径10模型秒约1.90s墙钟/P99外层步1.99ms，只证明孤立计算有余量，不证明ROS无调度抖动。下一步保留原时间判据找真实原因并复验全程审计；细节和证据路径见WORKLOG顶部。
