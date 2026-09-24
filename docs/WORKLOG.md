@@ -1,3 +1,48 @@
+## 2026-09-24 UTC — qn摘要服务有界等待与同源码Noetic镜像收口
+
+- 计划：本机摘要只为后继资格提供附加证据，不能因为标准Trigger服务卡住而阻断已完成的物理Action Result；同时前次镜像构建后共享状态编码和本地PlatformTask终态源码又有增量，需使最终镜像与工作树一致。保持原0.25s Odometry新鲜度预算，不加同义超时参数。
+- 实际：原`FormationActionServer._qn_state_digest`以守护线程加`join(self.odom_timeout)`限定终态读取，失联/错误时省略可选摘要而照常发布Result/原有限通知；对应受控挂起RPC负例在小于0.1s内返回None。单机AIR普通真ROS已得到实际摘要，固定qn跨介质Action已在本地产品话题带摘要；此前名义/实际AIR不匹配继续标重资格，不改成PASS。受影响native/ActionServer/runner/有限传输/平台执行128项通过，`bash -n`、Python语法与`git diff --check`通过。
+- 镜像：从当前源码重建`swarm-formation-qn:joint-wip@sha256:3c7a3729283c375768adb4e4c338bae62ca43a7cf8e091d1cf7385d3ca7b7722`，镜像内私有同源qn扩展源SHA/ABI校验True；构建日志`/tmp/heformation-qn-state-final-build.log`。本构建发生在前述真AIR/固定跨介质/GPU预览实跑之后，不能把它冒充新镜像已重跑这些场景。
+- 边界/下一步：守护线程确保**调用方观察期限有限**，但若底层RPC永不返回，残留守护线程会在该进程寿命内占资源；固定小规模请求中未出现此故障，不能称通用长航时RPC回收保证。缺测后的本机真实未来状态查询、普通请求稳定预算与三类最终任务仍未完成。没有论文给本机RPC耗时数值；这是既有Action终态不能被可选诊断拖死的执行合同。
+
+## 2026-09-24 UTC — 同一qn跨介质本地终态摘要随真实PlatformTask Result发布
+
+- 计划：上条`qn`本机摘要已覆盖单机AIR FormationAction，但最终代表任务还要求同一AAV真实入水/出水；`LocalPlatformAction._finish`新增摘要后，必须核本机跨介质动作仍获原生Result，且现有有限本机产品通道确实产生与GoalID对应的终态摘要。只跑受影响的原G2固定动作资格，不把它当任务分配或完整收件验收。
+- 实际：本机`experiments/20260924-qn-native-digest-live-r1/run_with_request.sh`是原`docker_probe_five_qualification.sh`的**测试副本**，仅对正常固定资格动作加载已有联合请求文件，镜像明确使用同源构建`joint-wip`，没有修改普通业务/控制配置。原五实例/场景完成AIR前段、同一qn入水→水中段→出水、AIR后段，以及USV/UUV原生片段；两个故意碰rock/exclusion入口正确拒绝、原生占用期间抢入AIR Goal正确拒绝。原`five-integration.json`报告`passed=true`，但其范围明确为固定动作资格、不含MRTA/观测交付/全场安全证书。
+- 结果：真实`/drone_0_qn_aav/platform_task`的`native-roundtrip`获Action状态SUCCEEDED、`terminal_verified=true`、`actual_mode=AIR`、锁空；同bag`/drone_0_qn_aav/local_products`有该GoalID的`ACTION_TERMINAL/SUCCEEDED`和64位状态摘要`1a57a130...`，相邻AIR before/after终态同样各带摘要。证明新增紧凑状态事实通过**现有本地事件话题**发布而未妨碍原qn跨介质动作；这轮没有母船有限收件与计划侧预计摘要，不能称跨介质后继重规划资格已核对。
+- 证据/下一步：本机`experiments/20260924-qn-native-digest-live-r1/{run_with_request.sh,five-integration.json,handover.bag,probe.log,source-hashes.txt,image-id.txt}`。继续在正式联合请求中用选定跨介质候选预计摘要与母船收到的实际摘要核对；普通完整能力带GPU图形/180s诊断规划另有零Goal负例，不能以本固定探针替代正式完整任务。依据是本仓库同一qn状态连续与[Swarm-Formation原编队/运动层](https://arxiv.org/html/2109.07682v2)的职责边界，不从论文推出本机摘要或真实载荷质量。
+
+## 2026-09-24 UTC — GPU真GUI普通请求仍可能180秒无解；图形可用不替代求解资格
+
+- 计划：上一GPU真窗口原两区域请求输入`no`时180s诊断规划有完整AAV跨介质Plan；现在按相同原场景/完整执行单元/GPU开关与NTP可恢复实验条件输入`yes`，看是否能真正进入AIR→WATER→AIR Action、有限收件/返回及全场审计。不改调度模型、任务点或安全阈值。
+- 实际：`experiments/20260924-air-cross-gpu-live-r1/run.sh`调用正式`docker_run_joint_request.sh`的`JOINT_GPU_RENDER=true`，RViz在`nvidia-smi`显示约104MiB图形显存，中文面板与RViz真窗口均打开并保存规划/失败图。原180s共享规划预算到期`no complete feasible candidate within shared budget`，正式runner记录`planning_wall_s=180.02284`、零Goal、零资源锁，故**没有任何新跨介质Action派发**。宿主`systemd-timesyncd`脚本前后均active；程序正常非零退出，未把Planner UNKNOWN改为数学无解或物理失败。
+- 判断：相同GPU图形入口一次仅预览有Plan、本次准备实跑无Plan，不能因一条正例说GPU保证解决预算，更不能通过软件/硬件视觉路径自动声称10s在线规划。GPU仅减轻RViz渲染，PVS/qn/Swarm联合搜索仍CPU；这一差异可能由同机负载/搜索耗时波动引起，但当前没有足够证据把原因单独定给RViz或NTP。本轮新增`qn`跨介质终态摘要仍未获得新实际Action验证，因为规划尚未完成；先保留失败。
+- 证据/下一步：本机`experiments/20260924-air-cross-gpu-live-r1/{run.sh,metrics.json,runner.log,image-id.txt,rviz.log,dashboard-planning.png,dashboard-failure.png,rviz-planning.png,gpu-planning.txt,clock-service-before.txt,clock-service-after.txt}`，与前条GPU仅预览成功`20260924-gpu-rviz-plan-r1`及无GUI成功`20260924-air-state-digest-plan-headless-r1`并列。用户关于初次规划是否可在物理启动前采用明确较长预算、以及代表请求UUV结果资格的答复仍待；不自行调高正式默认或强制平台分配。
+
+## 2026-09-24 UTC — RViz GPU渲染试接：同预算普通预览有解，不把它当求解器GPU化
+
+- 计划：当前普通完整能力请求在180s显式诊断预算下，一次带RViz软件渲染零Goal失败、同源码无界面零Goal得到完整AAV AIR＋AAV跨介质/USV计划。只隔离图形负载；不改任务/安全/链路/算法，也不因一次对照就声称原因唯一或10s预算通过。
+- 实际：`experiments/20260924-air-cross-state-digest-live-r1`用原正式软件渲染入口打开RViz/中文面板，原场景180s规划到期`no complete feasible candidate within shared budget`、零Goal/零锁，宿主timesyncd前后active，失败保留。`experiments/20260924-air-state-digest-plan-headless-r1`同源码/配置180s无界面预览得到AAV2 AIR+USV支援、AAV1七步跨介质完整名义Plan，输入`no`、零Goal。确认主机RTX5070和Docker`--gpus all`可用后，**实验脚本副本**`20260924-gpu-rviz-plan-r1/run_joint_gpu.sh`只把RViz的`LIBGL_ALWAYS_SOFTWARE=1`换为NVIDIA图形容器能力；`nvidia-smi`现场显示rviz图形进程约104MiB显存，RViz/中文面板真窗口规划帧保存，同样180s诊断预算也输出上述完整计划、输入`no`、零Goal。
+- 结果/范围：这组结果支持“软件渲染负载会影响同机接近预算边界的规划”这一工程推断，但仅一次GPU预览，不能证明确定的性能提升、正式10s或实任务运行通过；GPU仅绘图，Swarm查询、qn/PVS积分及联合候选仍在CPU。现有`docker_run_joint_request.sh`只加实际消费者需要的`JOINT_GPU_RENDER=true`可选开关，默认原软件路径不变，支持NVIDIA环境才传`--gpus all`；README说明其用途和边界，没有增加仿真器/协调层/算法参数。
+- 证据：本机`experiments/20260924-air-cross-state-digest-live-r1/{metrics.json,runner.log,rviz-planning.png,dashboard-planning.png,clock-service-before.txt,clock-service-after.txt}`、`20260924-air-state-digest-plan-headless-r1/{metrics.json,nominal-plan.json}`、`20260924-gpu-rviz-plan-r1/{run_joint_gpu.sh,metrics.json,nominal-plan.json,rviz-planning.png,dashboard-planning.png,rviz.log,image-id.txt}`；`scripts/docker_run_joint_request.sh`与README。GPU进程显存数是该次`nvidia-smi`现场输出，未在实验目录保存监测序列；不据此声明模型控制加速。
+- 未完成/下一步：以原用户业务资格和初次预算选择继续普通请求；GPU绘图能否让**完整带GUI Action执行与全场安全时间审计**稳定通过尚需实际同运行，不用无界面预览替代。UUV仍可能在普通几何任务中待命、缺测后一轮修复仍缺实际入口条件。
+
+## 2026-09-24 UTC — qn本机小量状态摘要接入；真实AIR偏差正确撤回旧计划资格
+
+- 计划：AIR缺测后的联合重选不能从同位置初始trim重置已执行AAV，也不能让母船在线读bag的100Hz参考。前条同源qn离线重放证明模型状态由实际采用参考决定；这次只让本机在动作终态给出可验证的小量摘要，并比较原联合搜索预测状态，差异仍应标UNKNOWN/重新资格。依据为本机qn闭环全状态依赖以及[Calvo/Capitán执行反馈修复](https://arxiv.org/html/2411.02062v3)、[D-ITAGS运动/时序重验](https://arxiv.org/abs/2209.13092)的问题关系；论文不给本机摘要协议或真实安全界。
+- 实际：PVS与qn两实际消费者共用现有`contracts.py`内一个按类、字段、容器类型和NumPy数组位值稳定编码的小函数，不新增模块；只有摘要进入消息。`QnAavNode`在原本机锁边界提供标准`std_srvs/Trigger ~state_digest`，返回成员、模型步、模型时间/ROS时刻与SHA-256；它不接收动作/目标，不是第二状态管理器。原单机AIR Action终态在既有`odom_timeout=0.25s`单调等待上限内查询该本机服务，成功才在原有限`ACTION_TERMINAL`通知附摘要，失败则无摘要且Result照常返回；三机组级不额外发三次无消费者的RPC。qn原生跨介质`PlatformTask`在同节点直接附终态摘要。AIR与跨介质的现有完整只读候选只在每个所选步骤的紧凑`native_prediction`留预计摘要，密集轨迹/模型仍不复制到Goal。母船沿原GoalID/成员/有限收件回调核对，不等则把旧计划范围标`EXECUTION_ENTRY_REQUALIFICATION_REQUIRED`，不篡改成功的真实Result。
+- 针对性证据：同源码重建Noetic镜像`swarm-formation-qn:joint-wip@sha256:67cc3640fa0fb08185590e524636a8fd170709f1b89b8a840c4387c15abbebc0`，私有qn扩展源SHA/ABI检查True。`experiments/20260924-qn-state-service/result.json`真ROS本机在qn模型步605与706返回相同摘要`d3832c...`，独立同源模型逐605步计算同值；表明静态持有状态跨进程摘要可一致。模拟本机RPC一直不返回时，单机AIR终态摘要调用在原0.25s预算内结束而不阻断Action终态的确定性反例通过；受影响native、ActionServer、runner、有限交付、平台执行共128项通过。
+- 真实AIR+USV结果：正式`joint_request`空中组件`experiments/20260924-air-state-digest-live-r1`仍两Action成功、母船正向产品/终结报告收齐、返回/零锁，任务几何代理PASS；两个AIR步骤预计摘要分别`81e0...`/`b857...`，本机实际有限通知分别`b0be...`/`b7ed...`，母船正确记录两个`nominal_terminal_state_match=false`并把Plan校核范围降为`EXECUTION_ENTRY_REQUALIFICATION_REQUIRED`。这不是物理失败，也**不能**拿名义qn模型作下一动作的精确入口。`experiments/20260924-air-digest-replay/result.json`同包已记录参考在第一AIR终态附近重放，模型位置残差0且实际摘要吻合模型第6763步；第二AIR动作期bag缺第7773步参考，不从相邻样点补造完整状态，母船同样不能读bag。
+- 边界/下一步：本轮解决“实际本机状态是否等于原预测”的小量信息对账，并**暴露**Swarm在线重规划后qn终态确实不同；它没有生成差异后的新完整运动状态或已资格复查Plan。qn原生跨介质终态摘要新增后仍须实际Action/有限收件复验；三类业务配置/正式10s/触发缺测后的重选仍未完成。下一步要让本地从当前状态回答未承诺新方法的可执行性，并在母船声明链路下传足够的结果，不能给哈希不等加任意容差或以几何到位替代控制器状态。
+- 代码/证据：`integration/qn_aav_simulator/src/qn_aav_simulator/{contracts.py,qn_python_backend.py,pvs_backend.py,platform_action.py}`、`integration/qn_aav_simulator/scripts/{qn_aav_node.py,formation_action_server.py}`及原`integration/mrta_python/executors.py`；本机`experiments/20260924-qn-state-service/{run.sh,client.py,result.json}`、`20260924-air-state-digest-live-r1/{metrics.json,execution.bag,nominal-plan.json}`、`20260924-air-digest-replay/{first_terminal.py,result.json}`、镜像构建输出`/tmp/heformation-qn-state-build.log`。
+
+## 2026-09-24 UTC — AIR执行后qn完整状态能离线重放，但母船不能读bag作在线修复
+
+- 计划：AIR缺测真负例已到`pending_retest`，其中原AAV1完成飞行并返部署区；不能把同位置的初始trim模型冒充实际控制器状态。核对现有qn记录是否足以从已用参考重建真实plant/控制器/执行器状态，作为后续最小本地状态证明的依据，而不新增服务或读仿真真值给母船。
+- 实际：只读`experiments/20260924-air-report-regression-r2/execution.bag`的`/drone_0_qn/diagnostics`已用参考与实际位置；同源Cython qn扩展源码哈希/ABI检查通过。`experiments/20260924-air-state-replay/replay.py`从原静态配平初态逐0.01s外层步重放到第8056步，在bag开始前的0–150步和录包缺失的277/517步仅按**记录证实的Action前`INITIAL_HOLD`**补静止参考。实际Action期没有缺参考格点，后续每条录入状态的位置/速度残差最大均为0；这是这一份日志、这一同源模型的离线重放，不是一般扰动下的跟踪误差界。
+- 结果/边界：完整qn状态在**拥有全部已用参考及原初态**的同机离线评测中可重建；`rosbag`属于独立评测，母船既未按有限链路收到这些100Hz参考，也不能在线读它来“补齐未知”。因此当前joint缺测后不能仅凭Odometry位置给已完成AIR成员建新方法的精确入口，亦不能把离线重放证明挪作母船状态已知。下一步若要在同一次请求重选AIR方法，须由本机既有执行端在可用通信机会提供足以核对预测状态的**小量有效证据**，或把该成员保留为未知/锁定并从其它已资格成员安排，同时完整校核其空间占用；不能给每个Goal塞整段高频历史。
+- 证据/来源：本机`experiments/20260924-air-state-replay/{replay.py,result.json}`、原bag与`qn_python_backend.py::step`。这里的确定性重放结论来自同一控制/动力学源码与逐样本相等；[Calvo/Capitán执行修复](https://arxiv.org/html/2411.02062v3)和[D-ITAGS状态变化后针对性修复](https://arxiv.org/abs/2209.13092)说明为什么需要实际状态，但不授予读取评测真值或丢包后补造状态的权限。
+
 ## 2026-09-24 UTC — 修改后真实UUV收件：报告晚于产品仍不提前释放
 
 - 计划：上条修正使正向产品到达不再单独释放成员，还必须等该Goal本机终结报告。以未改的原港口UUV＋移动USV正式组件复跑，不重复控制/动力学参数扫描，只验证有限收件因果、Action终态和后续资源释放。

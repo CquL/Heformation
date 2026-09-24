@@ -8,6 +8,7 @@ from pathlib import Path
 import queue
 import sys
 import threading
+import time
 from types import ModuleType, SimpleNamespace
 
 import pytest
@@ -770,6 +771,24 @@ def test_hung_hold_rpcs_share_one_monotonic_deadline(server_module, monkeypatch,
     assert all(p.killed for p in processes)
     server._observe_safety_hold(None, d, None, {})
     assert len(attempts) == 3  # duplicate disposition cannot reset the budget
+
+
+def test_optional_qn_state_digest_rpc_cannot_hold_action_terminal(server_module,monkeypatch):
+    import types
+    server=make_server(server_module,state=READY_IDLE)
+    server.odom_timeout=.02
+    package=types.ModuleType('std_srvs')
+    service=types.ModuleType('std_srvs.srv')
+    service.Trigger=object
+    monkeypatch.setitem(sys.modules,'std_srvs',package)
+    monkeypatch.setitem(sys.modules,'std_srvs.srv',service)
+    monkeypatch.setattr(server_module.rospy,'wait_for_service',lambda *a,**k:None,raising=False)
+    release=threading.Event()
+    monkeypatch.setattr(server_module.rospy,'ServiceProxy',lambda *a,**k:lambda:release.wait(.2),raising=False)
+    started=time.monotonic()
+    try:assert server._qn_state_digest('drone_0',0.) is None
+    finally:release.set()
+    assert time.monotonic()-started<.1
 
 
 def test_stop_monitor_uses_actual_height_and_starts_after_adoption(server_module):

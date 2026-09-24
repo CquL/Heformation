@@ -347,6 +347,13 @@ class QnPythonClosedLoopBackend:
                     initial_mode=mode, collision_radius_m=self.collision_radius_m,
                     trajectory=tuple(samples), terminal_backend=model)
 
+    def execution_state_bytes(self):
+        """Complete qn plant/controller/actuator state for local qualification."""
+        from .contracts import canonical_model_state_bytes
+        if self._state is None:
+            raise ValueError('qn model state is not initialized')
+        return canonical_model_state_bytes(vars(self))
+
     def snapshot(self, timestamp_s=0.0):
         """Physical state of this exact plant; controller/actuator state stays here."""
         if self._state is None:

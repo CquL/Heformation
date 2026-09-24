@@ -5,6 +5,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 JOINT_OUTPUT="${1:?usage: docker_run_joint_request.sh new-output-directory}"
 JOINT_IMAGE="${JOINT_IMAGE:-swarm-formation-qn:joint-wip}"
 JOINT_VISUALIZE="${JOINT_VISUALIZE:-true}"
+JOINT_GPU_RENDER="${JOINT_GPU_RENDER:-false}"
 JOINT_PLANNING_BUDGET_S="${JOINT_PLANNING_BUDGET_S:-10}"
 JOINT_SIM_CPUSET="${JOINT_SIM_CPUSET:-}"
 JOINT_PLANNER_CPUSET="${JOINT_PLANNER_CPUSET:-}"
@@ -14,6 +15,7 @@ JOINT_REQUEST_FILE="${JOINT_REQUEST_FILE:-/workspace/src/src/qn_aav_simulator/co
 JOINT_EXECUTORS_FILE="${JOINT_EXECUTORS_FILE:-/workspace/src/src/qn_aav_simulator/config/joint_request_executors.yaml}"
 QN_SAME_SOURCE_ACCELERATION="${QN_SAME_SOURCE_ACCELERATION:-false}"
 case "$JOINT_VISUALIZE" in true|false) ;; *) echo 'JOINT_VISUALIZE must be true or false' >&2; exit 2 ;; esac
+case "$JOINT_GPU_RENDER" in true|false) ;; *) echo 'JOINT_GPU_RENDER must be true or false' >&2; exit 2 ;; esac
 mkdir -p "$JOINT_OUTPUT"
 JOINT_OUTPUT="$(realpath "$JOINT_OUTPUT")"
 if [[ -e "$JOINT_OUTPUT/metrics.json" ]]; then
@@ -31,13 +33,18 @@ if [[ "$JOINT_VISUALIZE" == true ]]; then
   [[ -f "$JOINT_FONT" ]] || { echo 'Install fonts-noto-cjk before opening the Chinese RViz view' >&2; exit 2; }
   python3 "$PROJECT_ROOT/scripts/prepare_five_scene_assets.py" "$JOINT_OUTPUT/visual-assets"
   JOINT_GUI_ARGS+=(
-    --env DISPLAY --env HOME=/tmp --env QT_X11_NO_MITSHM=1 --env LIBGL_ALWAYS_SOFTWARE=1
+    --env DISPLAY --env HOME=/tmp --env QT_X11_NO_MITSHM=1
     --env MPLCONFIGDIR=/tmp/mpl --env XDG_CONFIG_HOME=/tmp/config
     --volume /tmp/.X11-unix:/tmp/.X11-unix:rw
     --volume /usr/share/fonts/opentype/noto:/usr/share/fonts/opentype/noto:ro
     --volume "$JOINT_FONT:/opt/ros/noetic/share/rviz/ogre_media/fonts/liberation-sans/HeformationCJK.ttc:ro"
     --volume "$PROJECT_ROOT/integration/qn_aav_simulator/config/five_view.fontdef:/opt/ros/noetic/share/rviz/ogre_media/fonts/ogre1.9.fontdef:ro"
     --volume "$JOINT_OUTPUT/visual-assets:/experiments/assets:ro")
+  if [[ "$JOINT_GPU_RENDER" == true ]]; then
+    JOINT_GUI_ARGS+=(--gpus all --env NVIDIA_DRIVER_CAPABILITIES=graphics,utility,display,compute)
+  else
+    JOINT_GUI_ARGS+=(--env LIBGL_ALWAYS_SOFTWARE=1)
+  fi
 fi
 
 docker run --rm --init -i --user "$(id -u):$(id -g)" \

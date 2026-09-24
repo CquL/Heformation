@@ -4,6 +4,7 @@ Opt-in qualification endpoint. It shares the existing qn node lock and never
 creates/resets a second plant. Production qualification is explicit configuration.
 """
 import math
+import hashlib
 import time
 import json
 import actionlib
@@ -341,10 +342,13 @@ class LocalPlatformAction:
             from std_msgs.msg import String
             from qn_aav_simulator.observation_coverage import action_terminal_event
             terminal='SUCCEEDED' if normal else 'CANCELED' if work['cause']=='CANCEL_REQUEST' and terminal_verified else 'ABORTED'
-            self.products.publish(String(data=json.dumps(action_terminal_event(
+            notice=action_terminal_event(
                 self.observation_request,work['id'],self.node.agent_id,rospy.Time.now().to_sec(),
                 terminal,result.task_completed,result.terminal_verified,result.resource_locked,
-                result.reason),allow_nan=False)))
+                result.reason)
+            try:notice['terminal_state_digest']=hashlib.sha256(self.node.backend.execution_state_bytes()).hexdigest()
+            except (TypeError,ValueError,OverflowError):pass  # terminal Result still travels; state remains unknown
+            self.products.publish(String(data=json.dumps(notice,allow_nan=False)))
 
     def tick(self):
         if self.owner.source=='AIR_SWARM' and self.air_adopted:

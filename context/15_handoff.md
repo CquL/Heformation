@@ -1,5 +1,17 @@
 # 最新交接：分层监测需求基线与 AAV 本地停止保持
 
+> **2026-09-24 镜像/诊断RPC交接**：当前`joint-wip`镜像`sha256:3c7a3729283c375768adb4e4c338bae62ca43a7cf8e091d1cf7385d3ca7b7722`从本轮源码重建、同源qn扩展校验True。单机AIR终态读取本机摘要只在原Odometry0.25s预算内等待，受控挂起RPC不会阻断Action Result；守护线程永久挂起时可能残留，暂不称通用长期回收。镜像构建晚于旧实跑，完整三类同次新源码/新镜像物理验收仍需重跑；GPU真GUI普通请求已有一次180s预算失败零Goal，任务层/安全证据不能凭镜像更新改写。
+
+> **2026-09-24 qn跨介质本机摘要交接**：`experiments/20260924-qn-native-digest-live-r1`原五实例固定资格在同一qn完成AIR/入水/水中/出水/AIR，`native-roundtrip`真实Action SUCCEEDED、终态有效且本机`ACTION_TERMINAL`已有对应GoalID状态摘要；不等于联合请求、母船收件或后继修复资格。普通完整能力GPU真GUI180s诊断规划另在`air-cross-gpu-live-r1`预算失败零Goal，GPU预览成功的旧证据不覆盖它。下步需选定跨介质完整方法在同次业务运行中对照名义/实际摘要；缺测修复、正式10s与用户业务资格仍未完成。
+
+> **2026-09-24 GPU显示不解决正式规划期限**：`experiments/20260924-air-cross-gpu-live-r1`真RViz/中文面板+NVIDIA图形进程下，原普通两区域/完整执行单元/180s诊断规划到期无完整候选，0 Goal、0锁，NTP脚本已恢复active。上一GPU仅预览有Plan和无GUI预览有Plan不能替代这次失败；不能称新增qn跨介质终态摘要通过实跑。正式GPU开关已加入脚本及README，仅改变渲染；继续从受限初次预算与业务资格两项用户答复、缺测后实际方法重选和运动中本机查询推进。
+
+> **2026-09-24 GPU渲染交接**：`scripts/docker_run_joint_request.sh`在可用NVIDIA容器环境增加`JOINT_GPU_RENDER=true`，只让RViz图形使用GPU；默认软件路径不变，qn/PVS和求解仍CPU。`experiments/20260924-gpu-rviz-plan-r1`同原普通两区域/180s诊断预算带真GUI得到完整名义Plan但输入`no`零派发；对应软件GUI一次预算失败、无GUI一次计划成功，三次结果均在WORKLOG顶部。当前只能说GPU图形入口可用且一次预览有解，不能称普通完整请求实时物理任务或10s规划通过。下一步实跑时需重核模型/ROS时间、净距、Action和有限收件，不拿预览替代。
+
+> **2026-09-24 qn状态交接**：先看WORKLOG顶部、`experiments/20260924-air-state-digest-live-r1/metrics.json`、`20260924-qn-state-service/result.json`。原qn节点新增只读Trigger返回小量实际完整状态摘要，单机AIR Action有界获取并经现有有限终态通知传到母船；原名义候选也有摘要。真AIR+USV业务仍PASS，但两AIR步骤真实摘要均不等于查询预测，runner正确撤回旧名义完整计划资格，不能据Action到位直接重搜复查。静态qn状态跨进程同值已验证，第一AIR终态离线bag重放吻合；第二AIR段缺一参考样本且母船不能用bag真值。新跨介质本机终态摘要尚未ROS Action复验，普通完整能力/10s初次规划/已触发复查仍未完成。
+
+> **2026-09-24 qn状态继续点**：先看WORKLOG顶部和`experiments/20260924-air-state-replay/result.json`。同源qn用已录采用参考离线完整重放正常AIR Action，记录位置/速度残差0；但高频参考只在bag/本机评测中，母船有限链路没有它。不要借此给真实AIR缺测后`retest-overview-0`分配一个由初始trim重置的AAV1状态。要么本机提供可传且可核的状态条件，要么保留该成员未知/锁定并验证其它成员与其空间占用；现有UUV复查路线仍碰quay，不能靠重派旧Goal完成总目标。
+
 > **2026-09-24 水下收件顺序交接**：`experiments/20260924-water-report-regression-r1`在最终runner代码下，UUV/USV真实Action和32KiB母船产品接收完成；产品在1790238738.7先到，终结报告在1790238795.6后到，UUV活动在1790238795.987664才提交。两Result/四下行/两有限终态、返回/零锁、两个PVS终态摘要匹配与同bag控制因果均通过。这只证明正常水下组件收件不提前释放，不证明AIR缺测复查或三类最终同运行。继续从下方真实AIR缺测`pending_retest`和已知REMUS复查碰quay反例推进，不再从消息是否到达重新排查。
 
 > **2026-09-24 复查继续点**：先读WORKLOG顶部的`20260924-air-missing-feedback-r1`真负例。测试专用本机传感失效使AIR两个原生Action/USV支援都完成，但母船只收缺测报告、不收产品，任务层生成一个`retest-overview-0`，并因缺合格重选Plan明确FAIL/零锁。消息因果与AIR本机负报告提交已接好；当前断点是真实终态与全部物理成员占用进入下一次联合求解。REMUS原水下终态按现有有限路线直接或低速重测碰quay；继续原零推进等待安全，但不等于可重测。下一步不能再把`retest_tasks`测试或旧三机重测当成五平台修复通过，要取得有效入口状态并派实际备选方法。普通业务资格与初次预算用户选择仍待。

@@ -1,5 +1,15 @@
 # 联合协作实现的依据与自定规则审计（2026-09-23）
 
+## 2026-09-24 qn本机摘要的必要性和不能继承的保证
+
+同源qn离线重放的完整参考历史只存在于bag/本机执行端，母船不能把它当收到的信息；且正常AIR Action中Swarm可重新生成参考，名义查询终态不必等于真实控制器终态。现用同一按值稳定编码函数给qn/PVS后端产生本地完整plant/控制器/执行器摘要：单机AIR Action最多在原`odom_timeout`有界地读取本机标准Trigger服务，原有限Action终态通知携带摘要；qn原生PlatformTask可在同节点直接取值。已有PlanItem只存预计摘要，母船必须等匹配GoalID/成员通知实际收件后比较。不等或缺失便撤回旧名义运动资格，成功Result仍按实际终态记账。服务不控制参考、不读评测真值、不传完整高频状态，也不是新的调度层。这项接口是解决**已经核实的预测/实际终态不可互换**，不是为“统一消息”增壳。
+
+真实`20260924-qn-state-service`在模型步605/706的静止持有摘要一致，离线同源模型第605步同值；但正式`20260924-air-state-digest-live-r1`两AIR动作任务/收件/返回仍成功时，两条实际摘要均与名义Swarm/qn候选预计摘要不同，runner正确标记`EXECUTION_ENTRY_REQUALIFICATION_REQUIRED`。离线从bag重放第一AIR终态可在第6763步匹配本机摘要且位置残差0；第二Action期丢一个已用参考格点，不能凭bag声称其全内部状态可精确重建，更不能让母船读bag。随后原五实例固定资格`20260924-qn-native-digest-live-r1`在同一qn实际完成AIR→入水/水中→出水→AIR，`native-roundtrip`真实Action SUCCEEDED且本机终态事件带对应摘要；该固定探针无联合Plan/母船有限收件，不可据它称跨介质方法反馈修复已通过。理论引用[Calvo/Capitán](https://arxiv.org/html/2411.02062v3)及[D-ITAGS](https://arxiv.org/abs/2209.13092)只支持执行反馈后重验/修复的关系，**不**保证这个SHA协议、实际跟踪界或通信可用性。缺测后一轮联合重选未完成。
+
+## 2026-09-24 qn离线重放与母船信息边界
+
+`experiments/20260924-air-state-replay`用已录`/drone_0_qn/diagnostics`的逐步采用参考，在同源编译qn控制/动力学中从原始静态配平初态重放；Action执行区间参考格点完整，记录前/两处缺失格点都属于Action前`INITIAL_HOLD`，可按已证实固定参考补齐。对7904个实际录入步的最大位置及速度残差均为0。它只证明**本机离线评测在具备完整参考记录时**可精确重建该次内部状态，不证明母船在有限RF链路中已收到100Hz历史，更不能让runner从bag或共享仿真变量旁路取得后继规划入口。若后续复查需要重用已完成AAV，应把可验证的小量本机状态条件通过声明信息路径交给任务层；不具备时保持UNKNOWN。依据是本仓库`QnPythonClosedLoopBackend.step`和实际同包记录，不是任何论文给出的通用状态估计保证。
+
 ## 2026-09-24 缺测实跑与重选边界
 
 `experiments/20260924-air-missing-feedback-r1`只用实验覆盖文件在AAV1本机观测代理注入一次失效，未把故障条件放进生产请求或求解器。原Action运动/返回仍成功、本机`observed_ids=[]`负报告实际到母船而无正向产品，任务层如实给`OBSERVATION_MISSING`、交付0、一个`retest-overview-0`待办；随后因没有合格联合复查Plan而明确FAIL、资源锁空。此证据只证明信息因果和缺测反馈，不是复查完成。复查若换成员，必须保留已经接受动作和实际物理占用，并从有效的终态/入口状态做运动查询，不能按理想初态重置。 [Calvo/Capitán](https://arxiv.org/html/2411.02062v3)与[D-ITAGS](https://arxiv.org/abs/2209.13092)支持该修复关系，不给本机的状态值或路线。

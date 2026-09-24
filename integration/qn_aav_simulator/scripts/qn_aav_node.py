@@ -16,6 +16,8 @@ and ``~diagnostics``.  No qn controller, actuator or 6DOF equation is changed.
 """
 
 import math
+import hashlib
+import json
 import os
 import threading
 import time
@@ -34,6 +36,7 @@ from nav_msgs.msg import Odometry
 from quadrotor_msgs.msg import PositionCommand
 import rospy
 from std_msgs.msg import Float64
+from std_srvs.srv import Trigger,TriggerResponse
 
 from qn_aav_simulator.contracts import (
     AgentState,
@@ -126,6 +129,7 @@ class QnAavNode:
         self.diagnostics_pub = rospy.Publisher(
             "~diagnostics", DiagnosticArray, queue_size=1)
         self.medium_pub = rospy.Publisher("~medium_flag", Float64, queue_size=1)
+        self.state_digest_service=rospy.Service('~state_digest',Trigger,self.state_digest)
         if rospy.get_param("~enable_platform_action", False):
             from qn_aav_simulator.platform_action import LocalPlatformAction
             self.platform_action = LocalPlatformAction(self)
@@ -137,6 +141,17 @@ class QnAavNode:
             "(standard odometry + Swarm compatibility input separated)",
             self.agent_id,
         )
+
+    def state_digest(self,_request):
+        """Return one local full-state claim, never a robot motion command."""
+        try:
+            with self.lock:
+                report=dict(agent_id=self.agent_id,model_time_s=self.clock.model_time_s,
+                    outer_step=self.step_index,ros_stamp_s=rospy.Time.now().to_sec(),
+                    digest=hashlib.sha256(self.backend.execution_state_bytes()).hexdigest())
+            return TriggerResponse(True,json.dumps(report,allow_nan=False))
+        except (TypeError,ValueError) as error:
+            return TriggerResponse(False,str(error))
 
     # -- command capture ---------------------------------------------------
     def command_callback(self, message):

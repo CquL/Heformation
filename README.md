@@ -36,6 +36,8 @@ bash scripts/docker_run_three_class_qualification.sh \
 
 脚本使用当前主机的 CPU 核组和明确的 **180 秒诊断规划预算**，并只在本次运行期间暂停已证实会回拨 ROS 墙钟的宿主 `systemd-timesyncd`，正常退出或 Ctrl-C 时恢复原服务状态；需要本机非交互式 `sudo`。它不会修改 0.05 秒时间门槛或仿真模型。一次已保存的同次运行获得 AAV 空中、REMUS 原水下样点、移动 USV 支援、两份有限结果收件、规定返回、零锁以及独立五平台整场时间/安全和控制因果审计通过；边界见 [当前状态](context/02_current_status.md) 和 [WORKLOG](docs/WORKLOG.md)。本资格入口不证明普通完整能力请求会选 UUV、严格 10 秒求解或已触发复查。RViz 的 Views 面板可选“潜航器全程”查看远端长回环，默认“港口总览”保留码头细节。
 
+本机装有 NVIDIA Container Toolkit 时，可在上述命令前加 `JOINT_GPU_RENDER=true` 让 **RViz 图形渲染**使用 GPU；不加仍采用原软件渲染。它不把任务求解、qn 或 PVS 动力学迁移到 GPU。一次正式普通请求的180秒**仅预览**实验核对到 `nvidia-smi` 中 RViz 为图形进程且产生完整计划；随后同GPU入口准备实跑的一次规划却到期、零Goal。GPU开关不提供10秒或180秒求解成功保证，成败与边界见WORKLOG。
+
 ### 两区域联合请求：AIR、USV支援与AAV跨介质（资格诊断）
 
 在有桌面 `DISPLAY` 的终端运行，查看具体计划后输入 `yes` 才派发：

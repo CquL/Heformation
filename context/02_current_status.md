@@ -1,5 +1,17 @@
 # 当前状态
 
+> **2026-09-24 镜像/有界调用收口**：qn本机摘要Trigger挂起的受控负例在原0.25s等待预算内不阻断Action终态，相关128项检查通过；当前完整Noetic镜像重建为`swarm-formation-qn:joint-wip@sha256:3c7a3729…`且私有qn扩展SHA/ABI校验True。构建在此前实跑之后，不能把旧实验证据归到新镜像。守护RPC线程若永久挂起仍可能残留，非通用长航时回收保证。详见WORKLOG顶部。
+
+> **2026-09-24 qn跨介质摘要原生实跑**：原五实例固定资格`experiments/20260924-qn-native-digest-live-r1`在同一qn完成AIR→入水/水中→出水→AIR；本地`native-roundtrip` Action成功Result、终态有效、AIR模式/锁空，同bag对应GoalID的原`local_products`终态通知带64位完整状态摘要。故新增本地摘要未破坏原跨介质动作；该探针**无任务联合选择/母船有限收件/完整三类业务审计**。普通完整能力带GPU真GUI准备执行的一次180s规划仍零Goal，上一GPU预览有计划，不能由固定资格动作填补正式请求。详见WORKLOG顶部。
+
+> **2026-09-24 GPU真GUI规划负例**：同一原港口普通完整能力请求在`JOINT_GPU_RENDER=true`下实际RViz/中文面板打开，`nvidia-smi`证实RViz图形进程，但`experiments/20260924-air-cross-gpu-live-r1`180s诊断预算到期仍无完整可提交候选、零Goal/零锁，NTP已恢复active。前一次GPU**仅预览**成功依旧保留；GPU只加速显示，不给Swarm/qn/PVS联合求解时间保证。新增qn跨介质终态摘要未因此得到新Action验收，普通请求跨介质本轮不称通过。见WORKLOG顶部。
+
+> **2026-09-24 GPU图形入口试验**：普通完整能力原请求在180s诊断预算下，RViz软件渲染一次无完整候选、无界面一次有完整名义候选；实验副本用Docker NVIDIA图形能力运行RViz，`nvidia-smi`现场显示rviz占GPU约104MiB，同预算带GUI预览也有完整候选，输入`no`零Goal。仅据这三次推断软件图形负载可能影响接近预算的同机规划，不宣称10s通过或模型/求解器GPU化。正式脚本现可选`JOINT_GPU_RENDER=true`，默认软件路径保留；尚未在此GPU模式做完整Action/全程审计。证据和负例见WORKLOG顶部。
+
+> **2026-09-24 qn AIR 实际状态对账**：新增原qn节点标准Trigger只读完整状态摘要，单机AIR终态仅在原0.25s新鲜度预算内取得时随已有有限通知到母船；原联合候选紧凑元数据含预计摘要，不传模型/高频轨迹。真实`experiments/20260924-air-state-digest-live-r1`空中＋USV组件动作/收件/返航仍PASS，但两AIR实际终态摘要均与原名义Swarm/qn查询不同，母船正确标`nominal_terminal_state_match=false`、Plan范围`EXECUTION_ENTRY_REQUALIFICATION_REQUIRED`；不能复用同位置trim或名义终态直接宣布复查可执行。真ROS静态qn服务在模型步605/706摘要一致并等于独立同源模型；同bag第一AIR终态离线重放能对应真实摘要，第2段Action期bag缺一参考格点，不补造状态。相关128项检查通过；qn原生跨介质本地摘要随后固定资格动作实跑通过，但正式联合Plan/母船比较仍待。详见WORKLOG顶部。
+
+> **2026-09-24 AIR状态修复依据边界**：`experiments/20260924-air-state-replay`离线从同一qn原初态和已用参考重放现有正式AIR组件bag，第0–8056步中只在录制开始前及两处Action前`INITIAL_HOLD`补固定参考；实际记录位置/速度残差最大0。此为评测侧同源确定性重放，母船没有经有限链路收到该高频历史，因此不能用bag把已完成AAV的完整内部状态悄悄赋给在线复查求解器。真实AIR缺测`pending_retest`仍缺有效新方法/入口，目标未完成。
+
 > **2026-09-24 水下收件顺序实跑**：最终收件代码下，`experiments/20260924-water-report-regression-r1`正式UUV＋USV组件实际两Goal/Result、4/4下行、两终态母船通知、32KiB水下产品、返回/零锁且任务层PASS。该次产品先于终结报告约57秒到母船，UUV PlanItem只在报告收到后提交；`receipt-order.json`与同bag控制因果审计PASS，实际两PVS终态摘要仍匹配。它是**正常水下组件**，不含AIR Action/真实缺测复查，不能替代下方三类实时总证据。见WORKLOG顶部。
 
 > **2026-09-24 真实AIR缺测反馈负例**：独立测试覆盖仅在AAV1本机观测代理阻断一次事件，正式`joint_request`原港口AIR+USV计划、AIR两个真实SUCCEEDED Action与USV Result仍执行；本机`observed_ids=[]`负报告经有限链路到母船，正向产品0、交付0，父任务`OBSERVATION_MISSING`，生成且仅生成`retest-overview-0`。由于尚无从实际终态出发的合格联合复查Plan，请求明确`FAIL`、资源锁空；不是复查成功。原REMUS水下终态的有限直接/低速/100s等待后复查也因quay净距小于0.2m不可派发，旧闲置尾段本身安全。证据见WORKLOG顶部及本机`experiments/20260924-air-missing-feedback-r1`、`20260924-retest-native-candidates/result.json`。普通业务/预算两项用户选择仍待，不能任意强制UUV或延长正式10s。

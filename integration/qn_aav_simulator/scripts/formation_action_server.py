@@ -1839,6 +1839,32 @@ class FormationActionServer:
         return window.sample(when,tuple(row.position),'AIR',stamp)
 
     # ------------------------------------------------------------ finalize
+    def _qn_state_digest(self,member,finished_at):
+        """Bounded local state claim; missing evidence never blocks Result."""
+        replies=[]
+        service='/{}_qn_aav/state_digest'.format(member)
+        def query():
+            try:
+                from std_srvs.srv import Trigger
+                rospy.wait_for_service(service,timeout=self.odom_timeout)
+                response=rospy.ServiceProxy(service,Trigger)()
+                if response.success:replies.append(json.loads(response.message))
+            except Exception:
+                # The digest is optional evidence. Never block a physical
+                # Action Result if the local query is absent or fails.
+                pass
+        worker=threading.Thread(target=query,daemon=True)
+        worker.start();worker.join(self.odom_timeout)
+        if not replies:return None
+        row=replies[0];digest=row.get('digest')
+        stamp=row.get('ros_stamp_s')
+        if (row.get('agent_id')!=member or not isinstance(digest,str) or len(digest)!=64 or
+                any(char not in '0123456789abcdef' for char in digest) or
+                type(stamp) not in (int,float) or not math.isfinite(stamp) or
+                stamp<finished_at):
+            return None
+        return digest
+
     def _finalize(self, diagnostics, work, monitor, adoption, alignment,
                   member_samples, obstacle_clearances, reference_missing,
                   start, finish, counts_start, group_goal_start,observation_window=None):
@@ -2073,11 +2099,13 @@ class FormationActionServer:
                       'CANCELED' if hold.get('reason')=='CANCEL_REQUEST' and hold.get('verified') else 'ABORTED')
             for agent_id in self.agent_ids:
                 member='drone_{}'.format(agent_id)
-                self.local_product_publishers[agent_id].publish(String(data=json.dumps(
-                    action_terminal_event(self.observation_request,diagnostics['goal_id'],member,
-                        finish.to_sec(),terminal,accepted,
-                        accepted or bool(hold.get('verified')),not diagnostics['resource_released'],
-                        str(reason)),allow_nan=False)))
+                notice=action_terminal_event(self.observation_request,diagnostics['goal_id'],member,
+                    finish.to_sec(),terminal,accepted,
+                    accepted or bool(hold.get('verified')),not diagnostics['resource_released'],str(reason))
+                digest=(self._qn_state_digest(member,finish.to_sec())
+                        if len(self.agent_ids)==1 else None)
+                if digest is not None:notice['terminal_state_digest']=digest
+                self.local_product_publishers[agent_id].publish(String(data=json.dumps(notice,allow_nan=False)))
         if accepted and observation_window is not None:
             self.local_product_publishers[self.agent_ids[0]].publish(String(data=json.dumps(
                 observation_window.terminal_report(finish.to_sec()),allow_nan=False)))

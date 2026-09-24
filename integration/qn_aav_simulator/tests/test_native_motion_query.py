@@ -239,6 +239,21 @@ def test_qn_initial_trim_fixed_point_matches_every_explicit_model_step():
     assert pickle.dumps(backend)==before
 
 
+def test_qn_native_state_signature_distinguishes_same_position_controller_memory():
+    from qn_aav_simulator.qn_python_backend import QnPythonClosedLoopBackend
+    from qn_aav_simulator.contracts import AgentState
+    config=dict(reference_mode='ROUTE_POSITION',initialization_mode='STATIC_TRIM',
+        water_guidance_mode='LOS_VELOCITY_REFERENCE',water_horizontal_controller_mode='LOS_SURGE_YAW')
+    first=QnPythonClosedLoopBackend(config)
+    second=QnPythonClosedLoopBackend(config)
+    for backend in (first,second):
+        backend.reset(AgentState('drone_0','AAV',0.,(-30.,6.,.8),(0.,0.,0.)))
+    assert first.execution_state_bytes()==second.execution_state_bytes()
+    second._last_model_acceleration=(.1,0.,0.)
+    assert first.snapshot().position==second.snapshot().position
+    assert first.execution_state_bytes()!=second.execution_state_bytes()
+
+
 def test_qn_candidate_uses_full_state_without_reset_and_budget_exhaustion_is_unknown():
     from qn_aav_simulator.qn_python_backend import QnPythonClosedLoopBackend
     from qn_aav_simulator.contracts import AgentState

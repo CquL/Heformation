@@ -644,6 +644,8 @@ class ExecutorTravelTimeProvider:
             if window.emitted!=required:
                 yield ExecutionCandidate(name,(),{},status='INFEASIBLE',reason='AIR_REQUIRED_OBSERVATION_NOT_COVERED');continue
             summary={k:v for k,v in query.items() if k not in ('terminal_backend','trajectory')}
+            summary['terminal_state_digest']=hashlib.sha256(
+                query['terminal_backend'].execution_state_bytes()).hexdigest()
             summary['pre_execution_idle_s']=idle
             air_step=ExecutionStep(unit.executor_id,query['duration_s'],task.target_ref,
                 service_time_s=service,native_prediction=summary,observation_ids=tuple(sorted(required)))
@@ -684,6 +686,8 @@ class ExecutorTravelTimeProvider:
                             reason='AIR_RETURN_SITE_NOT_REACHED')
                         continue
                     home_summary={k:v for k,v in home_query.items() if k not in ('terminal_backend','trajectory')}
+                    home_summary['terminal_state_digest']=hashlib.sha256(
+                        home_query['terminal_backend'].execution_state_bytes()).hexdigest()
                     air_steps+=(ExecutionStep(unit.executor_id,home_query['duration_s'],'return:'+member,
                         service_time_s=0.,native_prediction=home_summary),)
                     full_trace=trace+tuple((start+query['duration_s']+t,p,mode)
@@ -838,6 +842,12 @@ class ExecutorTravelTimeProvider:
             return self.query_air_reference(model,reference,self.scene_geometry,deadline,
                                             hold_duration=hold,include_state=True)
 
+        def compact_prediction(query):
+            summary={k:v for k,v in query.items() if k not in ('terminal_backend','trajectory')}
+            summary['terminal_state_digest']=hashlib.sha256(
+                query['terminal_backend'].execution_state_bytes()).hexdigest()
+            return summary
+
         # A short original qn water segment is the only qualified underwater
         # AAV method here. An entry too far from all requested points cannot
         # cover them, even at the full declared footprint radius.
@@ -858,8 +868,7 @@ class ExecutorTravelTimeProvider:
                     failed_stage=staged;break
                 air_steps.append(ExecutionStep(air.executor_id,staged['duration_s'],
                     'transition-stage:'+site_id+':'+str(index),service_time_s=handover_hold_s,
-                    native_prediction={k:v for k,v in staged.items()
-                        if k not in ('terminal_backend','trajectory')}))
+                    native_prediction=compact_prediction(staged)))
                 air_trace+=tuple((start+air_duration+t,p,mode) for t,p,mode in
                                  staged['trajectory'][1 if index else 0:])
                 air_duration+=staged['duration_s'];entry_backend=staged['terminal_backend']
@@ -873,8 +882,7 @@ class ExecutorTravelTimeProvider:
                                          reason=transfer.get('reason','AIR_TRANSFER_UNKNOWN'));continue
             air_steps.append(ExecutionStep(air.executor_id,transfer['duration_s'],
                 'transition:'+site_id,service_time_s=handover_hold_s,
-                native_prediction={k:v for k,v in transfer.items()
-                    if k not in ('terminal_backend','trajectory')}))
+                native_prediction=compact_prediction(transfer)))
             air_trace+=tuple((start+air_duration+t,p,mode) for t,p,mode in
                              transfer['trajectory'][1 if air_steps else 0:])
             air_duration+=transfer['duration_s']
@@ -900,7 +908,7 @@ class ExecutorTravelTimeProvider:
                                          reason='REQUIRED_OBSERVATION_NOT_COVERED');continue
             steps=list(air_steps)
             steps.append(ExecutionStep(unit.executor_id,native['duration_s'],task.target_ref,route,
-                native_prediction={k:v for k,v in native.items() if k not in ('terminal_backend','trajectory')}))
+                native_prediction=compact_prediction(native)))
             duration=air_duration+native['duration_s']
             trace=air_trace+tuple(
                 (start+air_duration+t,p,
@@ -922,8 +930,7 @@ class ExecutorTravelTimeProvider:
                     steps.append(ExecutionStep(air.executor_id,staged['duration_s'],
                         'transition-stage:'+site_id+':'+str(index),
                         service_time_s=handover_hold_s,
-                        native_prediction={k:v for k,v in staged.items()
-                            if k not in ('terminal_backend','trajectory')}))
+                        native_prediction=compact_prediction(staged)))
                     trace+=tuple((start+duration+t,p,mode) for t,p,mode in staged['trajectory'][1:])
                     duration+=staged['duration_s'];terminal=staged
                 if return_stage_failure is not None:
@@ -939,8 +946,7 @@ class ExecutorTravelTimeProvider:
                     yield ExecutionCandidate(name+'-return',(),{},status='INFEASIBLE',
                                              reason='AAV_RETURN_SITE_NOT_REACHED');continue
                 steps.append(ExecutionStep(air.executor_id,returned['duration_s'],'return:'+member,
-                    service_time_s=0.,native_prediction={k:v for k,v in returned.items()
-                        if k not in ('terminal_backend','trajectory')}))
+                    service_time_s=0.,native_prediction=compact_prediction(returned)))
                 trace+=tuple((start+duration+t,p,mode) for t,p,mode in returned['trajectory'][1:])
                 duration+=returned['duration_s'];terminal=returned
             yield ExecutionCandidate(name,tuple(steps),{member:dict(

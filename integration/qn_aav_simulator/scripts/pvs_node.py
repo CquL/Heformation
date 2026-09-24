@@ -290,8 +290,9 @@ class PvsNode:
         if self.last_prediction.get('goal_id')==w['id']:
             self.last_prediction['actual_duration_s']=self.backend.time_s-w['model_start']
             self.last_prediction['actual_terminal_position']=self.backend.snapshot()['position']
-            self.last_prediction['actual_terminal_state_digest']=hashlib.sha256(
+            try:self.last_prediction['actual_terminal_state_digest']=hashlib.sha256(
                 self.backend.execution_state_bytes()).hexdigest()
+            except (TypeError,ValueError,OverflowError):pass
         result=PlatformTaskResult(task_id=w['task'],goal_id=w['id'],task_completed=normal,
             terminal_verified=verified,actual_mode=self.backend.snapshot()['actual_mode'],reason=reason,
             resource_locked=self.locked,model_time_s=self.backend.time_s)
@@ -306,7 +307,8 @@ class PvsNode:
                 self.observation_request,w['id'],self.agent_id,rospy.Time.now().to_sec(),
                 terminal,result.task_completed,result.terminal_verified,result.resource_locked,
                 result.reason)
-            notice['terminal_state_digest']=hashlib.sha256(self.backend.execution_state_bytes()).hexdigest()
+            try:notice['terminal_state_digest']=hashlib.sha256(self.backend.execution_state_bytes()).hexdigest()
+            except (TypeError,ValueError,OverflowError):pass  # preserve Result; no reusable state claim
             self.products.publish(String(data=json.dumps(notice,allow_nan=False)))
 
     def step(self):

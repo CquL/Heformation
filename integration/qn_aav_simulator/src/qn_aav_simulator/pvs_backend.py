@@ -319,27 +319,9 @@ class PvsBackend:
         in stable key order so a local prediction and the running node can
         compare the same state across processes.
         """
-        import json
-        def stable(value):
-            if isinstance(value,np.ndarray):
-                return ['ndarray',value.dtype.str,list(value.shape),value.tobytes(order='C').hex()]
-            if isinstance(value,np.generic):
-                return ['numpy_scalar',value.dtype.str,value.tobytes().hex()]
-            if isinstance(value,dict):
-                return ['dict',[[stable(key),stable(value[key])] for key in sorted(value)]]
-            if isinstance(value,tuple):
-                return ['tuple',[stable(entry) for entry in value]]
-            if isinstance(value,list):
-                return ['list',[stable(entry) for entry in value]]
-            if isinstance(value,bytes):
-                return ['bytes',value.hex()]
-            if isinstance(value,(str,int,float,bool,type(None))):
-                return value
-            if hasattr(value,'__dict__'):
-                return ['object',value.__class__.__module__,value.__class__.__qualname__,stable(vars(value))]
-            raise TypeError('native state contains an unsupported value: '+type(value).__name__)
+        from .contracts import canonical_model_state_bytes
         state={key:value for key,value in vars(self).items() if key not in ('time_s','steps')}
-        return json.dumps(stable(state),sort_keys=True,separators=(',',':'),allow_nan=False).encode('utf-8')
+        return canonical_model_state_bytes(state)
 
     def snapshot(self):
         from python_vehicle_simulator.lib.gnc import Rzyx

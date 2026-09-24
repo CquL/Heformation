@@ -6,6 +6,32 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Mapping, Tuple
 
+
+def canonical_model_state_bytes(value):
+    """Stable value encoding for trusted native-state equality, not a wire API.
+
+    Object pickle memoization depends on aliasing, so two equal model states
+    can have different pickle bytes. Preserve every array bit and container
+    type while removing that aliasing difference before hashing a local state.
+    """
+    import json
+    import numpy as np
+    def stable(item):
+        if isinstance(item,np.ndarray):
+            return ['ndarray',item.dtype.str,list(item.shape),item.tobytes(order='C').hex()]
+        if isinstance(item,np.generic):
+            return ['numpy_scalar',item.dtype.str,item.tobytes().hex()]
+        if isinstance(item,dict):
+            return ['dict',[[stable(key),stable(item[key])] for key in sorted(item)]]
+        if isinstance(item,tuple):return ['tuple',[stable(entry) for entry in item]]
+        if isinstance(item,list):return ['list',[stable(entry) for entry in item]]
+        if isinstance(item,bytes):return ['bytes',item.hex()]
+        if isinstance(item,(str,int,float,bool,type(None))):return item
+        if hasattr(item,'__dict__'):
+            return ['object',item.__class__.__module__,item.__class__.__qualname__,stable(vars(item))]
+        raise TypeError('native state contains an unsupported value: '+type(item).__name__)
+    return json.dumps(stable(value),sort_keys=True,separators=(',',':'),allow_nan=False).encode('utf-8')
+
 Vector3 = Tuple[float, float, float]
 Quaternion = Tuple[float, float, float, float]
 
