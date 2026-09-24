@@ -1,6 +1,6 @@
 # 最新交接：分层监测需求基线与 AAV 本地停止保持
 
-> **2026-09-24 最新继续点**：WORKLOG 顶部记录只读 qn/Otter 精确固定点、独立 PVS 查询并发、REMUS 同步重复快照消除及完整计划同输入谓词/收件重放去重；没有改变在线动力学或任务条件。相关 60 项检查通过，但正式原 10 秒 ROS UUV/USV 组件四次 r4–r7 仍预算耗尽、零派发；20 秒预算预览 r1 虽得并行完整计划（18.3091 秒），输入 `no`，不是实跑/默认预算通过。原限定配置三类同请求实时 RViz/中文面板正例依旧是 `20260924-three-class-live-stable-clock-r3`，其 180 秒隔离规划、UUV 水下替代资格排除、几何代理与未触发复查边界不变。下一步先处理普通完整能力请求中真实 UUV 业务依据与初次规划预算政策（两项异步用户答复仍待），同时只沿现有 worker 补缺测复查与有效未承诺修复；不要从零重建场景或新增层。
+> **2026-09-24 最新继续点**：WORKLOG 顶部记录只读 qn/Otter 精确固定点、独立 PVS 查询并发、REMUS 同步重复快照消除及完整计划同输入谓词/收件重放去重；没有改变在线动力学或任务条件。相关 60 项检查通过，但正式原 10 秒 ROS UUV/USV 组件 r4–r8 仍预算耗尽、零派发；r8 增到六个独立物理规划核心也未解决。20 秒预算预览 r1 虽得并行完整计划（18.3091 秒），输入 `no`，不是实跑/默认预算通过；隔离10秒约10.0140秒返回亦超严格墙钟。原限定配置三类同请求实时 RViz/中文面板正例依旧是 `20260924-three-class-live-stable-clock-r3`，其 180 秒隔离规划、UUV 水下替代资格排除、几何代理与未触发复查边界不变。下一步先处理普通完整能力请求中真实 UUV 业务依据与初次规划预算政策（两项异步用户答复仍待），同时只沿现有 worker 补缺测复查与有效未承诺修复；不要从零重建场景或新增层。
 
 > **2026-09-24 最新三类实跑交接**：优先看WORKLOG顶部与`experiments/20260924-three-class-live-stable-clock-r3/{dashboard-terminal.png,rviz-terminal.png,metrics.json,nominal-plan.json,safety-audit.json,control-audit.json,execution.bag,scene-once.bag,clock-service-before.txt,clock-service-after.txt}`。测试配置只暂不提供AAV水下备选，原港口两区域请求/原样点/回区不改；正式`joint_request`同次真实完成AAV AIR＋REMUS WATER＋移动Otter支援、两32KiB有限收件/5成功Result/三方返回/零锁，实时中文面板/RViz及独立整场五平台时间安全/控制因果均PASS。宿主NTP曾造成同刻ROS墙钟回拨负例，这次有界实验临停并恢复原active；同源Cython qn显式启用且源码哈希/ABI核对。**不要**把此接线正例说成普通完整能力优化器选择UUV、10s生产初次规划、真实载荷质量、已触发复查或完整在线修复。前两次时间和协作时序失败记录仍在，下一步取决于用户两项业务/预算选择以及缺测复查实现。
 

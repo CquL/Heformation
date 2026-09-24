@@ -2610,3 +2610,10 @@
 - 结果：受影响的原生方法、完整计划碰撞、共享容量/收件和任务搜索 **60 passed**。隔离首条协作候选约 5.49–5.66 秒、整份五成员检查约 2.30–3.02 秒，波动依宿主调度。正式 ROS 在 **20 秒**声明预算、确认输入 `no` 的 `experiments/20260924-water-component-20s-fast-qn-r1`生成原 UUV 0–251.79 秒、USV 0–302.79 秒并行完整计划，`validation_scope=NOMINAL_COMPLETE_PLAN_MOTION_AND_CAPACITY`、6 候选、`planning_wall_s=18.3091`、零 Goal/零锁；这是预览，不是物理任务实跑。原 **10 秒** r7 仍在 10.0183 秒失败、零 Goal，不能称默认预算达标。
 - 来源与边界：[Fossen PVS](https://www.fossen.biz/pythonVehicleSim/)的模型仍逐步积分，位置仅来自同一个 `step()` 的真实返回值；论文不提供本机实时性能。此前三类实时正例 r3 仍是 180 秒初次诊断预算的限定接线配置，不能把 20 秒组件预览当成新完整实跑。用户两项业务/预算选择已再次通过文本选择器提出，尚未收到答案。
 - 未完成／下一步：优先按用户答复确定普通代表业务与初次规划政策；在此之前不改正式 10 秒默认、不补造 UUV 独有载荷能力。`joint_request` 已收到缺测报告后的复查仍是明确未接通的工程断点，修复须取得本机真实内部状态或保持 UNKNOWN，不能从 Odometry 位置重置控制器后宣称有效。
+## 2026-09-24 UTC — 原生规划与同机仿真并行负载的 10 秒边界复核
+
+- 计划：隔离 `time_full.py` 在同一源码/镜像上以10秒得到完整 UUV＋USV 计划，而正式ROS仍多次超时；核对是否仅因规划CPU核组的超线程争用。保持业务、预算、模型、安全和传输代码不变，不再增加性能包装层。
+- 实际：直接读取本机 `/sys/devices/system/cpu/cpu*/topology/thread_siblings_list`，原规划核组12–15仅为两个物理核（12/13、14/15各互为超线程）；新隔离r8只将规划核组改成`12,14,16,18,20,22`，仿真仍0–11，显示/录包仍24–31，其他命令及10秒截止相同。另在无ROS仿真负载的同镜像/同请求运行 `experiments/20260924-water-component-10s-fast-qn-r4/time_full.py`，走完整 `build_request_executor_plan`，并用 `time_nested.py`测原有隔离候选与完整检查。
+- 结果：无ROS物理积分负载的完整规划10秒调用在约10.0140秒墙钟返回2活动完整可行候选、`search_complete=false`；20秒调用在约12.9933秒返回6候选。这里的10.0140**含到截止后的收尾**，也不能作为严格墙钟10秒通过。正式ROS r8 即使扩大到六个物理规划核心仍在原预算到期返回`no complete feasible candidate within shared budget`，零Goal。核组因素不足以单独解决，不能靠更改CPU说明自己满足正式10秒。与先前20秒正式预览同源，至少说明模型存在有限完整候选，当前失败是同机有界求解性能而非业务数学不可行证明。
+- 证据：本机 `experiments/20260924-water-component-10s-physical-cpus-r8/{metrics.json,runner.log,launch.log,image-id.txt,workspace.patch}`，以及 `experiments/20260924-water-component-10s-fast-qn-r4/{time_full.py,time_nested.py,profile.json}`；原场景配置/安全门槛/有限交付均未改。关联论文仍只支持任务—运动—通信交错关系，**没有**给本机10秒算力保证。
+- 未完成／下一步：待用户明确初次规划是否可在物理任务开始前采用单独较长预算；运行期修复10秒不变。若坚持初次也严格10秒，需针对真ROS负载下原生查询和搜索开销继续优化/换算力，不能把本机隔离结果或20秒预览当交付。普通请求的真实UUV业务资格与缺测后联合复查也仍待。
