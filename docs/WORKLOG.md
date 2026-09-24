@@ -1,3 +1,12 @@
+## 2026-09-23 UTC — 原港口REMUS样点与部署区的有限航向／回程只读核查
+
+- 计划：在未获准另建示范业务几何前，不移动原`water_sample=(0,8,-2)`、原REMUS部署/回区`(-5,8,-2)`或0.805621m半径。前一朝东路线约24s撞东栈桥；原Fossen/PVS构造器本来支持有限初始航向，故在原障碍/原控制器/500rpm下检查是否可仅调整部署航向及少量有几何依据的回程接近点，减少对新业务样点的依赖。
+- 实际：`remus-heading-study/probe.py`对东、东南、南、西南、西五种声明航向与3条有限路线用原`PvsBackend.predict_native_fragment`/场景碰撞和`LocalObservationWindow`连续驻留检查；15组均被实际实体/禁入区否决。根据起点到样点5m距离、2.5m观测足迹和东栈桥位置，进一步只试理论上可同时近样点与南偏避栈桥的航向−0.15/−0.22/−0.30/−0.38/−0.45rad：−0.22/−0.30两种能生成原点`water_sample`几何摘要且原生终端/静态场景返回FEASIBLE，分别约253.32/253.10模型秒；但观测后距原回区最近仍约4.865/5.430m，未重进。其余在东栈桥、reef_east或rock处失败。所有候选均先做本机真实`geometry.path_violation`预检，避免运动轨迹虽侥幸绕开实体但Action原入口会拒绝的路径。
+- 回程定位：`advance_path_target`依投影跨航点平面，不是靠近航点；−0.22rad候选直到约188.93模型秒，实际在`(-6.29,2)`才切向回区目标，约193.22秒仅到`(-3.10,3.52)`，晚转弯使其从部署区南侧掠过。对更早接近点`(-12或-15,4/6/8/10)`、北向lead点y=9–12.8及`(-12/-10/-9,2/4/6/7.5)`的有限补测，合法参考要么仍距回区约4.85m以上，要么因quay、reef_west、exclusion实际/路径余量不足被拒绝；没有降低0.2m实体余量或扩大返回球。另用保持原业务点的两组假设南侧部署`(-10,-10)`/`(-5,-10)`及四种NE航向只读试验，前者参考路穿reef_west，后者实际在reef_east、rock或quay余量不足；均未形成合格替代。
+- 结果：**已检查的有限方法集合**没有使原港口UUV同时满足观测、观测后重进与安全尾段。朝向−0.22/−0.30的“场景安全＋原生尾段”不能被误报为“返回完成”；修改初始航向虽是原PVS配置能力，也须在ROS端声明并实跑才能算物理资格。该结果不是全路径空间不可行证明，不据此改变业务请求或暗自给UUV定点驻停控制。
+- 证据：`experiments/20260923-remus-heading-study/{probe.py,result.json,focused.py,focused-result.json,approach.py,approach-result.json,lead.py,lead-result.json,approach2.py,approach2-result.json,alternate_deployment.py,alternate-deployment-result.json}`（本机忽略目录）；原`pvs_backend.py::advance_path_target/PvsBackend.__init__`、`five_scene_harbor.yaml`和`monitoring_request_joint.yaml`。
+- 未完成／下一步：等待用户此前对“保留原失败、另列可执行REMUS示范样点与部署区”的异步选择；获准后才能把已找到的开阔区域只读双会合候选转成同源可视场景、正式联合计划和长Goal实跑。原港口仍不可称UUV在线业务完成；默认10秒规划、实际缺测复查与在线状态修复仍待做。
+
 ## 2026-09-23 UTC — Agent入口纠正过时USV/UUV及交付状态
 
 - 计划：防止项目入口仍把USV/UUV写成没有在线后端、把交付写成零延迟，误导后续按旧AAV阶段重做接口或把实际收件判据删回理想假设；只更新当前事实指引，不删除9月19日历史失败与来源。

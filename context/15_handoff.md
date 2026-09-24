@@ -1,5 +1,7 @@
 # 最新交接：分层监测需求基线与 AAV 本地停止保持
 
+> **2026-09-23 原水下任务UUV方法交接**：本机`experiments/20260923-remus-heading-study`保持原港口业务样点和返回球，只用已有PVS初态航向＋少量场景预检路线查REMUS通过式观测/返回。−0.22/−0.30rad两条真实模型轨迹已满足几何观测和静态障碍/原生尾段，但实际未重进0.805621m部署球（最近4.865/5.430m）；其余有限路线在声明实体/禁区失败。`advance_path_target`投影式切航点使回区目标生效过晚。没有修改配置或派ROS Goal，不能称全空间无解或UUV已参与完整请求。等用户此前对另建示范几何的异步决定，再衔接已有开阔水域双会合只读候选；详情与负例见WORKLOG顶部。
+
 > **2026-09-23 最新实时可视化交接**：先看WORKLOG顶部与`experiments/20260923-joint-result-uplink-live-r1/{dashboard-terminal.png,rviz-terminal.png,metrics.json,safety-audit.json,control-audit.json}`。正式MissionRunner`joint_request`同一Noetic/Docker港口场景中，RViz/中文面板实时显示选定AIR＋USV与AAV跨介质两区域任务；九子Action、10/10有限下行命令与10/10有限终态通知、两份32KiB收件、规定返回/零锁，任务权威PASS。同次单条静态云+动态bag的五平台时间/安全独立审计PASS（3262位置样本0缺，最小代理/实体余量1.46390/1.90108m，最大模型/ROS偏差0.02882s），Goal摘要/命令先送/Result通知独立对账PASS。UI终态真窗口显示完成与64KiB母船收件；“指令已达10/10”当时因精简任务状态漏传没显示，现只补两个计数，尚未下一次live截图复验。普通请求的UUV待命，几何代理/声明初态/360s诊断预算边界不变，**最终三类平台业务、实际复查及10s求解未完成**。继续依据用户待答的REMUS示范几何和预算策略推进，不重做已有AAV+USV正例。
 
 > **2026-09-23 最新交接（无GUI结果上行全链）**：先读WORKLOG顶部，查`experiments/20260923-joint-result-uplink-nogui-r2/{metrics.json,safety-audit.json,control-audit.json,execution.bag,scene-once.bag}`。现有MissionRunner在原两区域请求下，用360秒**隔离诊断**预算取得10/10有限下行命令、九段原生Action、10/10有限Action终态母船通知、双32KiB几何产品收件、AAV1/AAV2/USV规定返回与零锁；同次独立五平台安全/时间审计及bag控制因果核对均PASS。返程第4段先前0.54s Action监测空档的r1 INVALID/锁定保留；只将例行CSV flush移出20Hz监测循环后r2该段缺样0、VALID，不据一次正例声称任意负载保证。下一步必须在**同一实时RViz/中文面板**下复验同范围证据，然后继续UUV实际参与、真实缺测复查、在线内部状态修复和10秒预算问题；无GUI正例不能冒充最终五平台协同任务。
