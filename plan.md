@@ -1,6 +1,6 @@
 # Heformation 三类平台协同任务实施计划
 
-> 当前验收进度（2026-09-23）：`joint-result-uplink-live-r1`已在正式runner同一ROS会话取得**实时RViz/中文面板＋AAV AIR/USV支援/AAV跨介质两区域请求**的资格正例：十条下行Goal与十条Action终态有限收件、九子Action、双32KiB母船结果、AAV1/AAV2/USV规定返回和锁释放，终态真窗口图保存；同次独立安全/时间与bag控制因果审计全项PASS。先前`joint-command-gate-live-r2`全程时间审计FAIL、`joint-result-uplink-nogui-r1`返程20Hz监测0.54s空档INVALID/锁定仍保留。当前正例是声明初态、**几何观测代理**与360秒隔离诊断规划，UUV仍待命；尚未完成REMUS合格回区与实际参与、真实缺测联合重搜/Action、在线内部状态修复、正式10秒规划及最终三类平台共同任务。继续顺序和证据见`context/02_current_status.md`与WORKLOG顶部。
+> 当前最新验收进度（2026-09-23）：原港口`water_sample`与回区未改，REMUS分航段推进原生Action已实际观测、重进回区并完成低速尾段；Otter预承诺等待→移动→返回Action也通过。两者在**同一正式`joint_request`组件请求**中取得32KiB水下结果、匹配有限命令/双Action终态收件、双方返回和零锁，且RViz/中文任务面板同次实时显示。独立全场五平台时间0.0149s/跨平台0.0151s、零执行期位置缺样、代理净距0.5930m及静态场景云合格；通用审计只因该组件无AIR Goal报告AIR专属证据缺失。普通原两区域请求按当前几何代理和工期仍选AAV、UUV待命，不能把组件称最终三类同请求；已向用户异步确认最终代表作业需要的UUV独有业务资格。缺测后真实复查/在线修复、正式10s完整规划及三类同次最终实时验收仍待，证据和失败口径见WORKLOG顶部。
 
 ## 1. 目标、依据与默认选择
 

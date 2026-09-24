@@ -162,9 +162,12 @@ def request_native_methods(request,scene,executors,member_states,native_models,d
     sites=[]
     for site in scene.get('communication_sites',()):
         position=tuple(site['position'])
-        if len(position)!=3 or not all(math.isfinite(v) for v in position) or position[2]!=scene['surface_z_m']:
+        wait=float(site.get('wait_before_s',0.))
+        if (len(position)!=3 or not all(math.isfinite(v) for v in position) or
+                position[2]!=scene['surface_z_m'] or not math.isfinite(wait) or wait<0):
             raise ValueError('communication site must be a finite surface position')
-        if position not in sites:sites.append(position)
+        entry=(position,wait)
+        if entry not in sites:sites.append(entry)
     regions={r.region_id:r for r in request.regions};methods={}
     for task in tasks:
         region=regions[task.target_ref]
@@ -176,19 +179,31 @@ def request_native_methods(request,scene,executors,member_states,native_models,d
             backend=member_states[member].get('native_backend',native_models.get(member))
             if getattr(backend,'model',None)!='remus100':continue
             start=tuple(member_states[member]['position'])
-            paths=[]
+            home=tuple(return_sites[member]['position']) if request.return_required else start
+            work_specs=[]
             point_positions=tuple(p.position for p in region.interest_points)
             routes=[(p,) for p in point_positions]
             if len(point_positions)>1:routes.extend((point_positions,tuple(reversed(point_positions))))
+            for candidate in scene.get('water_route_candidates',{}).get(region.region_id,()):
+                segments=tuple(NativeSegmentSpec('WATER_PATH',tuple(tuple(p) for p in raw['points']),
+                    propulsion_effort=float(raw.get('propulsion_effort',0.)))
+                    for raw in candidate['segments'])
+                if (segments[0].points[0]!=start or
+                        (request.return_required and segments[-1].points[-1]!=home)):
+                    continue  # This declared route is not qualified from this member state.
+                work_specs.append(NativeActionSpec(segments,backend.terminal_behavior,
+                    execution_timeout_s=float(candidate['execution_timeout_s']),
+                    observation_ids=tuple(p.point_id for p in region.interest_points)))
             for route in routes:
                 points=[start]
                 for p in route:
                     if p!=points[-1]:points.append(p)
                 if len(points)==1:points.append(points[0])  # qualified native coast/idle at an existing sample
-                home=tuple(return_sites[member]['position']) if request.return_required else start
                 if request.return_required and points[-1]!=home:points.append(home)
                 path=tuple(points)
-                if path not in paths:paths.append(path)
+                spec=NativeActionSpec((NativeSegmentSpec('WATER_PATH',path),),backend.terminal_behavior,
+                    observation_ids=tuple(p.point_id for p in region.interest_points))
+                if spec not in work_specs:work_specs.append(spec)
             choices=[]
             for support in executors:
                 if len(support.physical_agent_ids)!=1 or member in support.physical_agent_ids:continue
@@ -197,14 +212,15 @@ def request_native_methods(request,scene,executors,member_states,native_models,d
                 boat=member_states[other].get('native_backend',native_models.get(other))
                 if getattr(boat,'model',None)!='otter' or 'SURFACE' not in support.capabilities:continue
                 p=member_states[other]['position'];boat_start=(p[0],p[1],scene['surface_z_m'])
-                for path in paths:
-                    work_spec=NativeActionSpec((NativeSegmentSpec('WATER_PATH',path),),backend.terminal_behavior,
-                        observation_ids=tuple(p.point_id for p in region.interest_points))
-                    for site in sites:
+                for work_spec in work_specs:
+                    for site,wait in sites:
                         if time.monotonic()>=deadline:raise PlanningBudgetExceeded('request method generation exceeded shared budget')
                         support_home=tuple(return_sites[other]['position']) if request.return_required else boat_start
                         support_path=(boat_start,site,support_home) if request.return_required else (boat_start,site)
-                        support_spec=NativeActionSpec((NativeSegmentSpec('SURFACE_PATH',support_path),),boat.terminal_behavior)
+                        support_segments=((NativeSegmentSpec('SURFACE_PATH',(boat_start,boat_start),duration_s=wait),)
+                                          if wait else ())+(NativeSegmentSpec('SURFACE_PATH',support_path),)
+                        support_spec=NativeActionSpec(support_segments,boat.terminal_behavior,
+                            execution_timeout_s=180.+wait)
                         choices.append({work:work_spec,support:support_spec})
             if choices:methods[(work.executor_id,task.task_id)]=tuple(choices)
     return tasks,methods

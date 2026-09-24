@@ -71,6 +71,52 @@ def test_native_query_includes_coast_and_does_not_mutate_live_controller():
     assert pickle.dumps(backend)==before
 
 
+def test_original_harbor_remus_segment_efforts_allow_observed_return_and_safe_tail():
+    """The exact scene route must qualify through the native model, not a hand loop."""
+    import math
+    from qn_aav_simulator.observation_coverage import LocalObservationWindow,ObstacleBox
+    from qn_aav_simulator.task_line import load_request
+    root=Path(__file__).parents[1]/'config'
+    scene_config=yaml.safe_load((root/'five_scene_harbor.yaml').read_text())['scene']
+    scene=StaticSceneGeometry.from_mapping(scene_config)
+    candidate=scene_config['water_route_candidates']['seabed_samples'][0]
+    paths=tuple(tuple(tuple(point) for point in segment['points']) for segment in candidate['segments'])
+    backend=PvsBackend('remus100',(-5.,8.,-2.),heading_rad=-.22)
+    efforts=(500.,candidate['segments'][1]['propulsion_effort'])
+    result=backend.predict_native_fragment(paths,efforts,scene,time.monotonic()+10.,
+        max_model_time=candidate['execution_timeout_s'])
+    request=load_request(root/'monitoring_request_joint.yaml')
+    obstacles=tuple(ObstacleBox(center,size) for _,kind,center,size in scene.objects if kind=='SOLID')
+    window=LocalObservationWindow(request,('water_sample',),'uuv','native-segmented',obstacles)
+    home=tuple(scene_config['return_sites']['uuv']['position'])
+    radius=scene_config['return_sites']['uuv']['radius_m']
+    observed=None;outside=False;reentered=False
+    for stamp,position in result['trajectory']:
+        if math.dist(position,home)>radius:outside=True
+        for event in window.sample(stamp,position,'WATER',stamp):
+            if event.get('point_id')=='water_sample':observed=event['generated_at']
+        if outside and observed is not None and stamp>=observed and math.dist(position,home)<=radius:
+            reentered=True
+    assert result['status']=='FEASIBLE' and observed is not None and reentered
+    assert result['duration_s']<candidate['execution_timeout_s'] and backend.steps==0
+
+
+def test_original_harbor_usv_precommits_native_trim_then_moves_for_result_window():
+    root=Path(__file__).parents[1]/'config'
+    cfg=yaml.safe_load((root/'five_scene_harbor.yaml').read_text())['scene']
+    scene=StaticSceneGeometry.from_mapping(cfg)
+    site=next(site for site in cfg['communication_sites'] if site['id']=='return_support')
+    start=(-10.,4.,0.);target=tuple(site['position']);wait=site['wait_before_s']
+    backend=PvsBackend('otter',start,initialization_mode='STATIC_TRIM')
+    result=backend.predict_native_fragment(((start,start),(start,target,start)),(20.,20.),scene,
+        time.monotonic()+10.,max_model_time=180.+wait,segment_durations=(wait,0.))
+    before=next(position for stamp,position in result['trajectory'] if stamp>=wait-.01)
+    after=next(position for stamp,position in result['trajectory'] if stamp>=wait+20.)
+    assert result['status']=='FEASIBLE' and result['duration_s']>wait
+    assert abs(before[0]-start[0])<.1 and after[0]>start[0]+1.
+    assert backend.steps==0
+
+
 def test_clear_goal_segment_but_obstructed_coast_is_infeasible():
     cfg=config();cfg['objects'].append(dict(id='coast_rock',kind='SOLID',center=[8.,8.,-2.],size=[1.,1.,1.]))
     scene=StaticSceneGeometry.from_mapping(cfg);backend=PvsBackend('remus100',(-5.,8.,-2.))

@@ -56,8 +56,25 @@ scene:
       position: [0.0, 8.0, 0.0]
       air_stages: [[-15.0, 3.0, 0.8], [-10.0, 0.0, 0.8]]
   communication_sites:
+    # Precommitted Otter trim, then a native move through the REMUS terminal
+    # communication window. The 200 s is a finite scene candidate from the
+    # same PVS/FiniteDelivery replay, not a modem or travel-time constant.
+    - {id: return_support, position: [-4.0, 8.0, 0.0], wait_before_s: 200.0}
     - {id: sample_support_west, position: [4.0, 8.0, 0.0]}
     - {id: sample_support_east, position: [6.0, 8.0, 0.0]}
+  # Finite REMUS method at the unchanged business sample/return site. Both
+  # segments use the original Fossen depth/heading autopilot; the second uses
+  # its native propeller command at 300 rpm so the measured pass re-enters
+  # (-5,8,-2) before the safe COAST_STOP tail. Read-only qualification:
+  # experiments/20260923-remus-original-return-search/segmented-native-result.json
+  # This is a scene candidate, not a motion/safety guarantee or a new GNC law.
+  water_route_candidates:
+    seabed_samples:
+      - execution_timeout_s: 320.0
+        segments:
+          - points: [[-5.0, 8.0, -2.0], [0.0, 8.0, -2.0], [0.0, -12.0, -2.0], [-18.8, -12.0, -2.0], [-18.8, -4.6, -2.0]]
+          - points: [[-18.8, -4.6, -2.0], [-14.0, -4.6, -2.0], [-9.8, 8.0, -2.0], [-5.0, 8.0, -2.0]]
+            propulsion_effort: 300.0
   observation_targets:
     - {id: air_overview, position: [-28.0, 4.0, 0.8], domain: AIR}
     - {id: underwater_sample, position: [0.0, 8.0, -2.0], domain: WATER}

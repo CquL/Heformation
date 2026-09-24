@@ -154,7 +154,8 @@ class PvsBackend:
         return self.snapshot()
 
     def predict_native_fragment(self,paths,effort,scene,deadline,dt=.01,
-                                terminal_speed=.03,hold_duration=4.,max_model_time=180.,include_state=False,terminal_wait_s=0.,resume=None):
+                                terminal_speed=.03,hold_duration=4.,max_model_time=180.,include_state=False,terminal_wait_s=0.,resume=None,
+                                segment_durations=None):
         """Read-only rollout, including native actuator lag and terminal coast.
 
         Copy all controller/actuator state; never reset or step the live model.
@@ -168,17 +169,29 @@ class PvsBackend:
             raise ValueError('terminal wait must fit the finite model horizon')
         paths=tuple(tuple(tuple(p) for p in path) for path in paths)
         if not paths or any(len(path)<2 for path in paths):raise ValueError('finite path fragment required')
-        for path in paths:
+        durations=(tuple(segment_durations) if segment_durations is not None else (0.,)*len(paths))
+        if len(durations)!=len(paths) or any(not math.isfinite(value) or value<0 for value in durations):
+            raise ValueError('invalid native segment durations')
+        for index,path in enumerate(paths):
             if any(len(p)!=3 or not all(math.isfinite(v) for v in p) for p in path):
                 raise ValueError('finite three-dimensional path required')
-            stationary=len(paths)==1 and len(path)==2 and path[0]==path[1]
+            stationary=len(path)==2 and path[0]==path[1]
+            if stationary and durations[index] and (self.model!='otter' or
+                    self.terminal_behavior!='TRIM_PROPULSION'):
+                raise ValueError('bounded intermediate wait requires stationary Otter trim')
+            if stationary and len(paths)>1 and durations[index]==0:
+                raise ValueError('intermediate stationary path requires finite duration')
             if not stationary and any(math.dist(a,b)==0 for a,b in zip(path,path[1:])):raise ValueError('zero-length path leg')
         if any(math.dist(a[-1],b[0])>1e-9 for a,b in zip(paths,paths[1:])):
             raise ValueError('fragment paths are disconnected')
+        efforts=(tuple(effort) if isinstance(effort,(tuple,list)) else (effort,)*len(paths))
+        if (len(efforts)!=len(paths) or any(not math.isfinite(value) or value<0 for value in efforts) or
+                (self.model=='remus100' and any(value>self.vehicle.nMax for value in efforts))):
+            raise ValueError('invalid native segment propulsion efforts')
         if math.dist(paths[0][0],self.snapshot()['position'])>NATIVE_START_TOLERANCE_M:
             raise ValueError('prediction path start differs from supplied state')
         import hashlib,pickle
-        fingerprint=hashlib.sha256(pickle.dumps((self,paths,effort,scene,dt,terminal_speed,hold_duration,max_model_time))).hexdigest()
+        fingerprint=hashlib.sha256(pickle.dumps((self,paths,efforts,durations,scene,dt,terminal_speed,hold_duration,max_model_time))).hexdigest()
         if resume is not None and (resume.get('status')!='FEASIBLE' or
                 resume.get('source_fingerprint')!=fingerprint or 'terminal_backend' not in resume or
                 resume.get('terminal_wait_s',0.)>terminal_wait_s):
@@ -187,6 +200,7 @@ class PvsBackend:
         start=self.time_s
         mode='SURFACE' if model.model=='otter' else 'WATER'
         segment,point=0,1
+        segment_started=model.time_s
         coasting=resume is not None
         coast_start=resume['coast_start_s'] if resume is not None else None
         settled=resume['settled_model_time_s'] if resume is not None else None
@@ -205,10 +219,23 @@ class PvsBackend:
                     reason='NATIVE_TERMINAL_VERIFIED_IN_ROLLOUT' if scene is not None else 'SCENE_GEOMETRY_NOT_PROVIDED')
                 break
             target=None
+            waiting=False
             if not coasting:
-                segment,point,target,coasting=advance_path_target(paths,segment,point,model.snapshot()['position'])
+                if paths[segment][0]==paths[segment][1] and durations[segment]:
+                    if model.time_s-segment_started+1e-9<durations[segment]:
+                        waiting=True
+                    else:
+                        segment+=1;point=1;segment_started=model.time_s
+                        if segment==len(paths):coasting=True
+                if not waiting and not coasting:
+                    previous_segment=segment
+                    segment,point,target,coasting=advance_path_target(paths,segment,point,model.snapshot()['position'])
+                    if segment!=previous_segment:
+                        segment_started=model.time_s
+                        if not coasting and paths[segment][0]==paths[segment][1] and durations[segment]:
+                            waiting=True;target=None
                 if coasting:coast_start=model.time_s-start
-            state=model.step(dt,target,0. if coasting else effort)
+            state=model.step(dt,target,0. if coasting or waiting else efforts[segment])
             elapsed=model.time_s-start
             samples.append((elapsed,state['position']))
             reason=scene.violation(state['position'],model.collision_radius_m) if scene else ''

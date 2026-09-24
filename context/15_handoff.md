@@ -1,5 +1,9 @@
 # 最新交接：分层监测需求基线与 AAV 本地停止保持
 
+> **2026-09-23 水下实时组件最新交接**：先看WORKLOG顶部和`experiments/20260923-uuv-usv-joint-live-r1/{dashboard-running.png,dashboard-delivered.png,rviz-running.png,rviz-meeting.png,metrics.json,safety-audit.json,control-audit.json}`。同一正式`joint_request`的原样点UUV工作＋预承诺移动USV支援、有限32KiB产品与双终态通知收件、双方返回和锁空任务PASS；RViz/中文面板确由同ROS会话实时驱动。独立五平台**全程**时间0.0149/0.0151s、执行期位置零缺、代理净距0.5930m和场景云合格；通用审计只因本组件未执行AIR而报两条AIR证据缺失，文件不改。普通请求仍因现有任务条件选择AAV替代而让UUV待命；最终同一请求三类协同/复查/在线10秒规划仍未完成，用户对UUV特有业务资格的异步选择待答，不能强迫普通请求多平台出动。
+
+> **2026-09-23 原港口UUV方法新资格与同请求组件实跑**：先读WORKLOG顶部、`experiments/20260923-remus-segmented-action-r1/result.json`、`20260923-usv-precommitted-action-r1/result.json`及`20260923-uuv-usv-joint-component-r1/{metrics.json,safety-audit.json,execution-only-time.json,control-audit.json}`。用户方案2原样点/回区未改：REMUS一条本机原生分航段500/300rpm方法实际重进0.805621m区并安全低速终结；Otter本机预承诺200s配平等待后移动/返区实际SUCCEEDED。正式runner组件请求在同次ROS下UUV+USV两活动、有限产品/终态母船收件和返回PASS，资源锁空。**全程**bag时间审计因规划期0.7575s漂移FAIL，执行区间原判据PASS、代理/实体净距PASS；AIR缺证据是组件无AIR作业。普通原请求仍会选AAV跨介质、UUV待命，不得把组件当最终三类同请求/实时可视化验收。业务差异异步待用户答；初次规划预算另一项仍未答，默认10s继续失败。
+
 > **2026-09-23 用户已选原港口几何方案2**：不要再等待“能否另建REMUS示范点”答复或改原业务点。只用原`water_sample=(0,8,-2)`和REMUS回区`(-5,8,-2)`继续找原生可行方法；原半径0.805621m及静态安全不放宽。`experiments/20260923-remus-original-return-search`有限PVS路径/转速/航向核查仍无观测＋重进＋安全全满足：最接近轨迹1.252803m且后撞quay。详见WORKLOG顶部。这不证明全空间无解，也不构成ROS UUV实跑。初次规划预算的**第二个**异步选择仍待用户回答；下方旧条目凡写“示范几何待答”均已过时。
 
 > **2026-09-23 旧排序入口交接**：`MissionRunner`缺省模式曾静默进入Calvo v9固定联盟排序；现无模式即报错，`docker_test_qn_formation_action.sh`和七机旧launch显式指明`fixed_coalition`作为控制回归。正式`joint_request`完整候选入口和无回退语义不变。`schedule.py`仍有真实回归调用，不能因清理旧算法目标而连带删除；详见WORKLOG顶部与源/假设审计。

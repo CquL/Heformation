@@ -80,14 +80,14 @@ def test_return_requirement_is_loaded_and_native_methods_have_checked_return_tai
     for choice in next(iter(methods.values())):
         for unit,fragment in choice.items():
             member=unit.physical_agent_ids[0]
-            assert fragment.segments[0].points[-1]==states[member]['position']
+            assert fragment.segments[-1].points[-1]==states[member]['position']
     original={'uuv':dict(position=(-6.,8.,-2.),radius_m=.2),
               'usv':dict(position=(-6.,-8.,0.),radius_m=.2)}
     _,repaired=request_native_methods(request,scene,units,states,models,time.monotonic()+1.,
                                       return_sites=original)
     for choice in next(iter(repaired.values())):
         for unit,fragment in choice.items():
-            assert fragment.segments[0].points[-1]==original[unit.physical_agent_ids[0]]['position']
+                assert fragment.segments[-1].points[-1]==original[unit.physical_agent_ids[0]]['position']
     from mrta_python.executors import ExecutorTravelTimeProvider
     from qn_aav_simulator.task_line import build_request_executor_plan
     changed={key:dict(value,available_from=1.) for key,value in states.items()}

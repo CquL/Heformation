@@ -515,8 +515,10 @@ class ExecutorTravelTimeProvider:
             first=replace(route.segments[0],points=(position,)+route.segments[0].points[1:])
             bound=replace(route,segments=(first,)+route.segments[1:])
             query=self.query_native_fragment(backend,[s.points for s in bound.segments],
-                self.native_efforts[unit.executor_id],self.scene_geometry,deadline,
-                max_model_time=bound.execution_timeout_s,include_state=True,terminal_wait_s=bound.terminal_wait_s)
+                tuple(s.propulsion_effort or self.native_efforts[unit.executor_id] for s in bound.segments),
+                self.scene_geometry,deadline,
+                max_model_time=bound.execution_timeout_s,include_state=True,terminal_wait_s=bound.terminal_wait_s,
+                segment_durations=tuple(s.duration_s for s in bound.segments))
             name=unit.executor_id+'-'+task.task_id+'-'+str(index)
             if query['status']!='FEASIBLE':
                 alternatives.append(ExecutionCandidate(name,(),{},status=query['status'],reason=query['reason']))
@@ -1005,8 +1007,10 @@ class ExecutorTravelTimeProvider:
                     prefix=cache.get((executor.executor_id,replace(route,terminal_wait_s=0.),release))
                     seed=prefix[1] if prefix is not None and prefix[1]['status']=='FEASIBLE' else None
                     query=self.query_native_fragment(backend,[s.points for s in bound.segments],
-                        self.native_efforts[executor.executor_id],self.scene_geometry,deadline,
-                        max_model_time=bound.execution_timeout_s,include_state=True,terminal_wait_s=bound.terminal_wait_s,resume=seed)
+                        tuple(s.propulsion_effort or self.native_efforts[executor.executor_id] for s in bound.segments),
+                        self.scene_geometry,deadline,
+                        max_model_time=bound.execution_timeout_s,include_state=True,terminal_wait_s=bound.terminal_wait_s,resume=seed,
+                        segment_durations=tuple(s.duration_s for s in bound.segments))
                     cache[cache_key]=(bound,query,idle_trace,backend)
                 bound,query,_,_=cache[cache_key]
                 if query['status']!='FEASIBLE':failure=(query['status'],query['reason']);break
@@ -1050,9 +1054,12 @@ class ExecutorTravelTimeProvider:
                             wait=tenth/10.
                             extended=replace(bound,terminal_wait_s=wait)
                             continuation=self.query_native_fragment(source_backend,
-                                [s.points for s in extended.segments],self.native_efforts[work_executor.executor_id],
+                                [s.points for s in extended.segments],
+                                tuple(s.propulsion_effort or self.native_efforts[work_executor.executor_id]
+                                      for s in extended.segments),
                                 self.scene_geometry,deadline,max_model_time=extended.execution_timeout_s,
-                                include_state=True,terminal_wait_s=wait,resume=seed)
+                                include_state=True,terminal_wait_s=wait,resume=seed,
+                                segment_durations=tuple(s.duration_s for s in extended.segments))
                             if continuation['status']!='FEASIBLE':
                                 receipt=dict(status=continuation['status'],reason=continuation['reason']);break
                             seed=continuation
@@ -1424,14 +1431,15 @@ class ExecutorTravelTimeProvider:
 
     @staticmethod
     def query_native_fragment(backend,paths,effort,scene,deadline,dt=.01,
-                              terminal_speed=.03,hold_duration=4.,max_model_time=180.,include_state=False,terminal_wait_s=0.,resume=None):
+                              terminal_speed=.03,hold_duration=4.,max_model_time=180.,include_state=False,terminal_wait_s=0.,resume=None,
+                              segment_durations=None):
         """Motion query using a supplied native state snapshot, including coast.
 
         No endpoint or controller factory is introduced. Unknown/horizon/budget
         outcomes remain distinct from a witnessed geometric infeasibility.
         """
         return backend.predict_native_fragment(paths,effort,scene,deadline,dt,
-            terminal_speed,hold_duration,max_model_time,include_state,terminal_wait_s,resume)
+            terminal_speed,hold_duration,max_model_time,include_state,terminal_wait_s,resume,segment_durations)
 
     @staticmethod
     def query_native_idle(backend,duration,scene,deadline,dt=.01):

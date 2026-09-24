@@ -10,6 +10,8 @@ JOINT_SIM_CPUSET="${JOINT_SIM_CPUSET:-}"
 JOINT_PLANNER_CPUSET="${JOINT_PLANNER_CPUSET:-}"
 JOINT_VIEW_CPUSET="${JOINT_VIEW_CPUSET:-}"
 JOINT_VIEW_HOLD_S="${JOINT_VIEW_HOLD_S:-5}"
+JOINT_REQUEST_FILE="${JOINT_REQUEST_FILE:-/workspace/src/src/qn_aav_simulator/config/monitoring_request_joint.yaml}"
+JOINT_EXECUTORS_FILE="${JOINT_EXECUTORS_FILE:-/workspace/src/src/qn_aav_simulator/config/joint_request_executors.yaml}"
 case "$JOINT_VISUALIZE" in true|false) ;; *) echo 'JOINT_VISUALIZE must be true or false' >&2; exit 2 ;; esac
 mkdir -p "$JOINT_OUTPUT"
 JOINT_OUTPUT="$(realpath "$JOINT_OUTPUT")"
@@ -45,6 +47,8 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
   --env JOINT_PLANNER_CPUSET="$JOINT_PLANNER_CPUSET" \
   --env JOINT_VIEW_CPUSET="$JOINT_VIEW_CPUSET" \
   --env JOINT_VIEW_HOLD_S="$JOINT_VIEW_HOLD_S" \
+  --env JOINT_REQUEST_FILE="$JOINT_REQUEST_FILE" \
+  --env JOINT_EXECUTORS_FILE="$JOINT_EXECUTORS_FILE" \
   "${JOINT_GUI_ARGS[@]}" \
   --volume "$PROJECT_ROOT/integration/qn_aav_simulator:/workspace/src/src/qn_aav_simulator:ro" \
   --volume "$PROJECT_ROOT/integration/mrta_python:/workspace/integration/mrta_python:ro" \
@@ -54,12 +58,16 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
     set -eo pipefail
     source /opt/ros/noetic/setup.bash
     source /workspace/devel/setup.bash
+    [[ -f "$JOINT_REQUEST_FILE" && -f "$JOINT_EXECUTORS_FILE" ]] || {
+      echo "Declared request/executor file missing" >&2; exit 2;
+    }
     sim_prefix=()
     if [[ -n "$JOINT_SIM_CPUSET" ]]; then sim_prefix=(taskset -c "$JOINT_SIM_CPUSET"); fi
     "${sim_prefix[@]}" roslaunch qn_aav_simulator five_qualification.launch record:=false \
-      request_file:=/workspace/src/src/qn_aav_simulator/config/monitoring_request_joint.yaml \
+      request_file:="$JOINT_REQUEST_FILE" \
       scene_file:=/experiments/scene.yaml visualize:="$JOINT_VISUALIZE" \
-      usv_initial_position:="[-10.0, 4.0, 0.0]" > /experiments/current/launch.log 2>&1 &
+      usv_initial_position:="[-10.0, 4.0, 0.0]" uuv_initial_heading_rad:=-0.22 \
+      > /experiments/current/launch.log 2>&1 &
     launch_pid=$!
     rviz_pid="";dashboard_pid="";recorder_pid=""
     cleanup() {
@@ -74,10 +82,10 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
       kill -0 "$launch_pid"
       sleep .25
     done
-    rosparam load /workspace/src/src/qn_aav_simulator/config/joint_request_executors.yaml /formation_mission_runner
+    rosparam load "$JOINT_EXECUTORS_FILE" /formation_mission_runner
     rosparam set /formation_mission_runner/planning_mode joint_request
     rosparam set /formation_mission_runner/executor_serial false
-    rosparam set /formation_mission_runner/request_file /workspace/src/src/qn_aav_simulator/config/monitoring_request_joint.yaml
+    rosparam set /formation_mission_runner/request_file "$JOINT_REQUEST_FILE"
     rosparam set /formation_mission_runner/output_dir /experiments/current
     rosparam set /formation_mission_runner/planning_budget_s "$JOINT_PLANNING_BUDGET_S"
     timeout 15 rosbag record --lz4 -l 1 -O /experiments/current/scene-once.bag \

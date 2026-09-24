@@ -759,7 +759,8 @@ class MissionRunner:
             for xyz in segment.points:
                 point=PoseStamped();point.header.frame_id='world';point.pose.orientation.w=1.
                 point.pose.position.x,point.pose.position.y,point.pose.position.z=xyz;path.poses.append(point)
-            goal.segments.append(PlatformSegment(operation=segment.operation,path=path,duration=rospy.Duration(segment.duration_s)))
+            goal.segments.append(PlatformSegment(operation=segment.operation,path=path,
+                duration=rospy.Duration(segment.duration_s),propulsion_effort=segment.propulsion_effort))
         return goal
 
     @staticmethod
@@ -1008,7 +1009,8 @@ class MissionRunner:
                     return (self._native_motion_result_ok(3,result,items[index].execution_id,items[index].native_action)
                             and result.goal_id==identities[index][0])
                 return (a.get('reference_generation')==generations[index] and
-                        a.get('phase') in set(units[index].operations)|{items[index].native_action.terminal_behavior} and
+                        a.get('phase') in set(units[index].operations)|{
+                            items[index].native_action.terminal_behavior,'PRECOMMITTED_WAIT'} and
                         prepared_times[index] is not None and a.get('model_time_s') is not None and
                         a['model_time_s']>prepared_times[index])
             while pending or waiting:
@@ -1090,7 +1092,8 @@ class MissionRunner:
                     phase=self.metrics.get('current_actions',{}).get(support.execution_id,{}).get('phase')
                 with self.condition:
                     ids=tuple(self.goal_ids.get(support.execution_id,()))
-                if len(ids)==1 and phase in set(support_unit.operations)|{support.native_action.terminal_behavior}:
+                if len(ids)==1 and phase in set(support_unit.operations)|{
+                        support.native_action.terminal_behavior,'PRECOMMITTED_WAIT'}:
                     break
                 if time.monotonic()>=deadline:
                     raise RuntimeError('AIR support start not confirmed; all members remain reserved')
@@ -1477,6 +1480,7 @@ class MissionRunner:
                     raise RuntimeError('native marine model differs from declared executor: '+member)
                 position=tuple(float(v) for v in rospy.get_param(node+'/initial_position'))
                 backend=PvsBackend(model_name,position,
+                    heading_rad=float(rospy.get_param(node+'/initial_heading_rad',0.)),
                     initialization_mode=rospy.get_param(node+'/initialization_mode','NATIVE_ZERO'))
                 positions[member]=backend.snapshot()['position'];models[member]=backend
                 efforts[member]=float(rospy.get_param(node+'/propulsion_effort'))

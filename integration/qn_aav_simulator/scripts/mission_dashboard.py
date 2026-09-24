@@ -592,6 +592,7 @@ class MissionDashboard:
                 'ENTER_WATER':'入水中','EXIT_WATER':'出水中',
                 'MOVING':'空中转场','HOLDING':'稳定确认',
                 'WATER_PATH':'水下航行／观测','SURFACE_PATH':'驶往支援区',
+                'PRECOMMITTED_WAIT':'等待预定会合',
                 'COAST_STOP':'滑行终端','TRIM_PROPULSION':'配平保持',
                 'UNKNOWN_LOCKED':'未知，保持锁定'}
         for index,row in enumerate(rows[:6]):

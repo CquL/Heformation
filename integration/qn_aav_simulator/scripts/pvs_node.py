@@ -35,6 +35,7 @@ class PvsNode:
         self.effort=float(rospy.get_param('~propulsion_effort'))
         initialization=rospy.get_param('~initialization_mode','NATIVE_ZERO')
         self.backend=PvsBackend(self.model,tuple(rospy.get_param('~initial_position')),
+                                heading_rad=float(rospy.get_param('~initial_heading_rad',0.)),
                                 initialization_mode=initialization)
         self.terminal_behavior=self.backend.terminal_behavior
         declared_scene=rospy.get_param('/scene',{})
@@ -90,7 +91,7 @@ class PvsNode:
                     raise ValueError('ACTUAL_STATE_OUTSIDE_NATIVE_DOMAIN')
                 if goal.terminal_behavior!=self.terminal_behavior:
                     raise ValueError('terminal behavior differs from the configured native trim/coast experiment')
-                paths=[]
+                paths=[];efforts=[];durations=[]
                 for segment in goal.segments:
                     if segment.operation!=self.mode+'_PATH' or segment.path.header.frame_id!=self.world_frame:
                         raise ValueError('operation/frame incompatible with native model')
@@ -101,13 +102,27 @@ class PvsNode:
                         raise ValueError('path outside native medium')
                     if paths and math.dist(paths[-1][-1],points[0])>1e-9:
                         raise ValueError('fragment paths are disconnected')
-                    stationary=len(goal.segments)==1 and len(points)==2 and points[0]==points[1]
+                    duration=segment.duration.to_sec()
+                    if not math.isfinite(duration) or duration<0:
+                        raise ValueError('invalid native segment duration')
+                    stationary=len(points)==2 and points[0]==points[1]
+                    if stationary and duration and (self.model!='otter' or
+                            self.terminal_behavior!='TRIM_PROPULSION'):
+                        raise ValueError('bounded intermediate wait requires stationary Otter trim')
+                    if stationary and len(goal.segments)>1 and duration==0:
+                        raise ValueError('intermediate stationary path requires finite duration')
                     if not stationary and any(math.dist(a,b)==0 for a,b in zip(points,points[1:])):
                         raise ValueError('zero-length path leg')
                     if self.scene:
                         reason=self.scene.path_violation(points,self.backend.collision_radius_m)
                         if reason:raise ValueError(reason)
                     paths.append(points)
+                    durations.append(duration)
+                    selected=float(getattr(segment,'propulsion_effort',0.) or self.effort)
+                    if not math.isfinite(selected) or selected<=0 or (self.model=='remus100' and
+                            selected>self.backend.vehicle.nMax):
+                        raise ValueError('invalid native segment propulsion effort')
+                    efforts.append(selected)
                 if not 1<=len(paths)<=16:
                     raise ValueError('fragment requires 1..16 segments')
                 if math.dist(paths[0][0],self.backend.snapshot()['position'])>NATIVE_START_TOLERANCE_M:
@@ -130,7 +145,8 @@ class PvsNode:
                 return
             if self.native_preflight:
                 query_deadline=time.monotonic()+self.planning_budget_s
-                token=dict(handle=handle,id=ident,task=goal.task_id,paths=paths,timeout=timeout,
+                token=dict(handle=handle,id=ident,task=goal.task_id,paths=paths,efforts=efforts,
+                    durations=durations,timeout=timeout,
                     generation=self.generation,backend=copy.deepcopy(self.backend),
                     deadline=query_deadline,prepare_only=bool(getattr(goal,'prepare_only',False)),observations=observations,
                     terminal_wait_s=terminal_wait_s)
@@ -139,11 +155,13 @@ class PvsNode:
                 # query must run outside BOTH locks so cancel and integration
                 # remain live. A token prevents a late query committing a new goal.
                 threading.Thread(target=self._preflight,args=(token,),daemon=True).start()
-            else:self._accept(handle,ident,goal.task_id,paths,timeout,bool(getattr(goal,'prepare_only',False)),observations,terminal_wait_s)
+            else:self._accept(handle,ident,goal.task_id,paths,efforts,durations,timeout,
+                bool(getattr(goal,'prepare_only',False)),observations,terminal_wait_s)
 
-    def _accept(self,handle,ident,task,paths,timeout,prepare_only=False,observations=None,terminal_wait_s=0.):
+    def _accept(self,handle,ident,task,paths,efforts,durations,timeout,prepare_only=False,observations=None,terminal_wait_s=0.):
         self.generation+=1
-        self.work=dict(handle=handle,id=ident,task=task,paths=paths,segment=0,point=1,
+        self.work=dict(handle=handle,id=ident,task=task,paths=paths,efforts=efforts,durations=durations,
+                       segment=0,point=1,segment_started=self.backend.time_s,
                        coast=False,settled=None,cause='',model_start=self.backend.time_s,waiting_commit=prepare_only,
                        deadline=time.monotonic()+timeout,observations=observations,ros_start=rospy.Time.now().to_sec(),
                        terminal_wait_s=terminal_wait_s,return_left=False,return_reentered=False)
@@ -154,8 +172,9 @@ class PvsNode:
     def _preflight(self,token):
         try:
             prediction=bounded_travel_query(ExecutorTravelTimeProvider.query_native_fragment,
-                (token['backend'],token['paths'],self.effort,self.scene,token['deadline'],
-                 self.dt,self.speed_limit,self.hold_seconds+token['terminal_wait_s'],token['timeout']),token['deadline'])
+                (token['backend'],token['paths'],token['efforts'],self.scene,token['deadline'],
+                 self.dt,self.speed_limit,self.hold_seconds+token['terminal_wait_s'],token['timeout'],
+                 False,0.,None,token['durations']),token['deadline'])
         except Exception as exc:
             prediction=dict(status='UNKNOWN',reason=str(exc))
         # Same order as actionlib goal/cancel callbacks; never model->actionlib.
@@ -188,7 +207,8 @@ class PvsNode:
                 token['handle'].set_rejected(PlatformTaskResult(task_id=token['task'],goal_id=token['id'],
                     actual_mode=state['actual_mode'],reason=reason,resource_locked=self.locked,
                     model_time_s=self.backend.time_s))
-            else:self._accept(token['handle'],token['id'],token['task'],token['paths'],token['timeout'],token['prepare_only'],token['observations'],token['terminal_wait_s'])
+            else:self._accept(token['handle'],token['id'],token['task'],token['paths'],token['efforts'],
+                token['durations'],token['timeout'],token['prepare_only'],token['observations'],token['terminal_wait_s'])
 
     def _returns_to_declared_site(self,paths):
         return (self.return_site is not None and
@@ -217,6 +237,7 @@ class PvsNode:
                 return StartPreparedActionResponse(False,'START_STATE_CHANGED')
             work['waiting_commit']=False
             work['model_start']=self.backend.time_s
+            work['segment_started']=self.backend.time_s
             work['ros_start']=rospy.Time.now().to_sec()
             return StartPreparedActionResponse(True,'START_ACCEPTED')
 
@@ -273,12 +294,22 @@ class PvsNode:
             w=self.work
             target=None
             effort=0.
+            waiting=False
             if w and not w['coast'] and not w['waiting_commit']:
-                w['segment'],w['point'],target,w['coast']=advance_path_target(
-                    w['paths'],w['segment'],w['point'],self.backend.snapshot()['position'])
-                effort=0. if w['coast'] else self.effort
-                if w['coast']:
-                    target=None
+                segment=w['segment'];path=w['paths'][segment]
+                waiting=(path[0]==path[1] and w['durations'][segment]>0)
+                if waiting and self.backend.time_s-w['segment_started']+1e-9>=w['durations'][segment]:
+                    segment+=1;w['segment']=segment;w['point']=1;w['segment_started']=self.backend.time_s
+                    w['coast']=segment==len(w['paths']);waiting=False
+                if not waiting and not w['coast']:
+                    previous=w['segment']
+                    w['segment'],w['point'],target,w['coast']=advance_path_target(
+                        w['paths'],w['segment'],w['point'],self.backend.snapshot()['position'])
+                    if w['segment']!=previous:w['segment_started']=self.backend.time_s
+                    segment=w['segment'];path=w['paths'][segment]
+                    waiting=(path[0]==path[1] and w['durations'][segment]>0)
+                effort=0. if w['coast'] or waiting else w['efforts'][w['segment']]
+                if w['coast'] or waiting:target=None
             state=self.backend.step(self.dt,target,effort)
             if self.scene:
                 reason=self.scene.violation(state['position'],self.backend.collision_radius_m)
@@ -320,7 +351,8 @@ class PvsNode:
                     self.finish(False,'OBSERVATION_TIMEOUT_UNVERIFIED')
                 elif self.backend.steps%10==0:
                     w['handle'].publish_feedback(PlatformTaskFeedback(segment_index=w['segment'],
-                    operation='PREPARED' if w['waiting_commit'] else self.terminal_behavior if w['coast'] else self.mode+'_PATH',
+                    operation='PREPARED' if w['waiting_commit'] else 'PRECOMMITTED_WAIT' if waiting else
+                              self.terminal_behavior if w['coast'] else self.mode+'_PATH',
                         reference_source='PVS_NATIVE',actual_mode=self.mode,
                         reference_generation=self.generation,model_time_s=self.backend.time_s))
             stamp=rospy.Time.now()

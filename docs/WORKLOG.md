@@ -1,3 +1,46 @@
+## 2026-09-23 UTC — 原港口UUV＋移动USV实时组件同次通过，全程时间/几何证据与范围分开
+
+- 计划：前次UUV＋USV正式组件虽任务/执行期有效，但规划期0.7575s漂移且无实时窗口。用相同原业务水下样点与原回区，显式将仿真/Action CPU0–11、规划12–15、显示/录包24–31隔离，再在同一Noetic会话打开RViz与中文任务权威面板，确认预承诺等待、UUV航行、USV移动、结果接收和安全全程能同时成立。普通请求不增加“每台必须动”限制。
+- 实际：`experiments/20260923-uuv-usv-joint-live-r1`复用前次仅供组件边界测试的`REMUS_NATIVE_PASS`请求/执行单元文件（原样点/原回区/原障碍未改），正式`joint_request`用180s隔离诊断预算经127.03s初次规划取得USV0–302.79/UUV0–251.79两活动；实验确认后4/4有限下行、两原生Action及一份32KiB水下产品和2/2同GoalID终态通知实际完成，交付1.0、双方规定返回、锁空。实时窗口保存`dashboard-planning/running/delivered.png`和`rviz-planning/running/meeting.png`：运行帧显示UUV航行、USV“等待预定会合”、指令4/4；收件帧显示母船32KiB/交付100%但USV尚运动，未提前结项。最终窗口在脚本结束后关闭前未捕获，不把运行帧冒充终态图；终态以同次`metrics.json`/bag为据。
+- 审计：通用`audit_swarm_roundtrip.py --include-marine`读取同次单静态云bag＋执行bag：五平台**全程**模型/ROS峰值0.014863s、跨平台0.015125s，原0.05s门槛内；执行区间对齐位置样本3,118个零缺，平台代理最小净距0.592976m>0.5m，声明实体最小余量UUV约0.681m、USV约1.116m>0.2m；静态点云发布者、frame与声明SOLID哈希一致。该**通用AIR审计总值仍FAIL**，仅余“缺AIR规划器状态/轨迹”“缺drone_0 AIR参考区间”两项，因为此组件没有AIR Goal；保留原`safety-audit.json`，只报告组件适用的时间、位置、净距与场景项通过。同bag独立控制因果对账2 Goal/2 Result/4命令收件/2终态通知PASS。
+- 证据：本机`experiments/20260923-uuv-usv-joint-live-r1/{metrics.json,nominal-plan.json,scene-once.bag,execution.bag,safety-audit.json,control-audit.json,dashboard-planning.png,dashboard-running.png,dashboard-delivered.png,rviz-planning.png,rviz-running.png,rviz-meeting.png}`；现有任务面板只补`PRECOMMITTED_WAIT`短中文标签及runner支持状态，不加新消息/协调层。RViz配置新增“潜航器全程”保存视角，默认仍是港口细节视角，便于看远端长回环；未在这次已完成的窗口中切换验证保存视角。
+- 收口：用当前源码重建Noetic镜像`swarm-formation-qn:joint-wip@sha256:b06348269c17613d125a716038129e28c334d58361faa7c13db75ba7a1174017`；83项受影响runner/任务/PVS/完整候选检查、Python语法、shell/launch/RViz配置和`git diff --check`通过。该镜像重建在上述实时实跑之后；实跑自身的准确镜像ID保留在该目录`image-id.txt`，不能误写为本重建镜像已再跑一次。
+- 未完成／下一步：普通原请求按其现有几何代理和名义工期仍选AAV替代、UUV待命；最终**同一业务请求中AAV＋UUV＋移动USV**、已触发复查、反馈修复及正式10s初次规划未验收。业务水下观测是否需要UUV独有资格已异步询问用户；未答前不暗加任务或平台奖励。全时钟物理证据仅适用于这次水下组件，不宣称最终三类系统已完成。
+
+## 2026-09-23 UTC — 原港口UUV＋USV同一正式请求实跑通过；全时钟审计保留负例
+
+- 计划：用原港口同一水下样点/回区验证新增REMUS分航段推进与Otter预承诺等待在**正式`joint_request`**中能否共同执行、实际交付并返回；只在本组件请求中声明`REMUS_NATIVE_PASS`资格，避免AAV已知替代法遮蔽组件断点，不把标签写入普通生产请求或声称真实载荷。运行仍启动三qn＋Otter＋REMUS五个动力学实例，命令/Result/产品必须走既有有限链路。
+- 实际：对现有`docker_run_joint_request.sh`只加请求/执行单元文件路径覆盖，默认入口完全不变；组件请求保留原`water_sample=(0,8,-2)`及全部原港口静态几何/回收区，实验执行单元表仅给原`uuv`增加该方法资格。正式runner在180秒**隔离诊断预算**内以125.21秒墙钟找出UUV0–251.79与USV0–302.79两活动名义完整计划，`search_complete=false`。实验输入`yes`确认该具体计划后，4/4有限下行控制命令先到；两个预装原生Goal分别启动，USV在本地先配平等待后移动。`water_sample`本机产生后约195秒才按有限水声/RF容量到母船，随后UUV/USV Action均SUCCEEDED、匹配GoalID终态通知2/2到母船、双方返回证据成立，两个活动COMPLETED、交付1.0、锁空，任务权威`PASS_GEOMETRIC_PROXY_QUALIFICATION`。同bag独立控制因果审计2 Goal/2 Result/4命令请求与送达/2终态通知全PASS。
+- 独立安全/时间边界：通用五平台bag审计读取同次单条静态云与动态bag，执行区间3,112个对齐位置样本零缺；五平台代理最小净距0.593095m>0.5m，实体最小余量UUV约0.680921m、USV约1.115910m，云发布者/frame/hash一致。但其**全程**时间项FAIL：规划期五平台模型/ROS累计峰值0.757476s>原0.05s；另两项“缺AIR规划器状态/轨迹”是这次没有AIR Action的组件范围而非漏执行的业务。对同bag只取两个原生Goal开始至末Result的311秒执行区间重新用原`TimeAlignmentMonitor`核，五平台样本均>31,100，模型/ROS峰值0.024904s、跨平台0.024242s，原门槛内。**因此本轮是任务＋执行区间的UUV/USV组件正例，不是全时钟有效的最终五平台验收**。下次组件/最终命令显式隔离仿真CPU0–11并重跑全程审计，不能删掉0.757s负例或降门槛。
+- 证据：本机`experiments/20260923-uuv-usv-joint-component-r1/{request.yaml,executors.yaml,nominal-plan.json,metrics.json,scene-once.bag,execution.bag,safety-audit.json,execution-only-time.json,control-audit.json,runner.log,run.sh}`；原查询/Action/传输代码。组件额外`REMUS_NATIVE_PASS`仅是本次边界测试标签，不证明普通最短工期请求必选UUV；普通原请求在360秒诊断预算内仍选择AAV2 AIR＋静止USV支援、AAV1跨介质（名义273.04秒），`search_complete=false`，预览输入`no`零派发，见`experiments/20260923-joint-original-method-preview-r1`。
+- 未完成／下一步：最终要在同一正式请求实际产生**有业务依据**的AAV、UUV和移动USV角色，并在RViz/中文面板同次显示。当前普通水下几何代理允许AAV浅水方法且名义较快，不能用人为奖励强制UUV；已异步向用户确认代表性业务是否需要UUV具备的水下结果资格。之后仍须一次真实缺测复查/有效在线修复、默认10秒完整规划性能或明确初次离线预算政策；上述组件正例不能冒充最终三类平台任务。
+
+## 2026-09-23 UTC — USV预承诺本地等待与移动Action通过；同源UUV＋USV联合候选成立
+
+- 计划：原港口REMUS已实际观测并通过式回区，但旧同刻USV路线无法在承诺区间收件。沿[Guo–Zavlanos预先约定会合](https://arxiv.org/html/1706.02092)的组织原则和现有PVS Otter `STATIC_TRIM`资格，把“先有界等待、再按预定时间前往通信区并返回”直接放进同一个已存在的`PlatformTask`航段序列；不新建协调器、行为树或求解服务。具体200秒来自同一原生模型与有限链路的名义时窗，只是一条会被求解器比较/拒绝的场景候选。
+- 实际：在PVS现有`predict_native_fragment`和同一`pvs_node.py`执行循环中，给**静止Otter trim航段**使用已有`duration_s`作有界中途等待；移动海洋航段原有`duration_s`仍为名义时长，qn转换维持原语义。预检和执行都用同一分段时长；首段200模型秒配平，第二段原Otter从(-10,4)经(-4,8)返(-10,4)。`request_native_methods`直接读取场景中这条支持候选，原其它站点和UUV/AAV方法仍保留比较。纯同源PVS预测USV302.79秒终态安全；原联合`execution_candidates`现在返回UUV0–251.79和USV0–302.79双活动`FEASIBLE`，不是两个单独可行就冒充联合可行。关联45项task/PVS/完整候选检查通过。
+- 原生实跑：`experiments/20260923-usv-precommitted-action-r1`单Otter ROS Action终态SUCCEEDED、`task_completed/terminal_verified=true`、未锁资源。真实状态在等待末仍位于(-10,4)配平区域，约20秒后已实际向通信区移动，最后距原部署中心0.246364m，小于原1.189159m区域；30,822状态样本的最小声明实体余量1.115908m>0.2m，约308.59秒墙钟。此轮录包正确封包并含原生Result（61,804条总消息）。这是**本机动作资格**，还没有同一ROS运行的UUV产品/终态受限收件。
+- 依据与范围：Fossen[Python Vehicle Simulator](https://www.fossen.biz/pythonVehicleSim/)原生Otter控制/模型和用户已确认的断联前有限动作片段；[APEX-MR](https://arxiv.org/html/2503.15836v2)提示后继以实际事件释放，不能用预测时刻直接释放。等待时长、站点和通信速率是当前场景/实验模型，非文献通用参数；新等待语义是为解决“USV必须在UUV结果可达时仍有运动承诺”的已核断点，不是通用工作流封装。
+- 证据：本机`experiments/20260923-usv-precommitted-action-r1/{result.json,execution.bag,client.py,run.sh}`与`experiments/20260923-remus-original-return-search/{otter-precommitted-result.json,precommitted-cooperation-candidates.json,uuv-usv-joint-check.json}`；生产代码`pvs_backend.py`/`pvs_node.py`/`executors.py`/`task_line.py`/场景配置，定向`test_native_motion_query.py`。
+- 未完成／下一步：正式五平台`joint_request`同次执行前先看求解器最终选AAV还是UUV；三类验收实例需要真实业务/平台资格产生UUV角色，不能把普通请求强行规定每台出动。随后跑UUV＋USV同会话有限产品和终态、AAV空中/跨介质协同、独立时间安全审计与实时中文画面；缺测复查/在线重搜、默认10秒初始规划仍未完成。
+
+## 2026-09-23 UTC — 原港口REMUS双航段Action实际通过；USV晚会合名义窗口定位
+
+- 计划：把上一条原生只读候选以同一两航段`PlatformTask`发给REMUS，核实际观测、回区重进、低速尾段和场景余量；然后用同一`FiniteDelivery`求UUV摘要/终态通知与USV运动会合的时间，不用“任务完成通知必须先到母船才派USV”的循环释放。
+- 实际：重建`swarm-formation-qn:joint-wip` Noetic镜像（新`PlatformSegment`消息），本机单独启动原港口`/scene`、原PVS节点、原请求与一个两航段UUV Goal；第一段继承500rpm、回程段300rpm，初航向−0.22rad，Goal期限320s。实际Action在约257.17s墙钟返回SUCCEEDED，Result `task_completed=true,terminal_verified=true,actual_mode=WATER,resource_locked=false`；`water_sample`本机产品`observed=true`、32KiB，实际Odometry观测后重进原0.805621m球，最近0.681951m；25,717条实际状态样本最小声明实体余量0.854981m。录包脚本退出时过快，bag原为`.active`且未包含末2s终态，已用ROS `rosbag reindex`恢复可读的50,998条消息；本次**Action终态以客户端记录/本机事件为证据**，不把不完整bag说成全程独立Result审计。实验脚本已补等待录包结束供下轮使用。
+- 联合只读定位：现有生成方法对UUV/USV给出4组；原同刻支援点(4,8)虽使REMUS运动合格，但产品`RECEIPT_NOT_COMPLETED_WITHIN_CHECKED_COMMITMENTS`。使用原Otter静态配平和相同UUV轨迹，让USV在已接纳片段中先于原部署点等待、约200模型秒后走`(-10,4)→(-4,8)→(-10,4)`，Otter原生路线约102.79秒并安全返回。有限步首传输模型在约195.2秒收到UUV32KiB产品；UUV终态约251.79秒时USV实际相距3.34m，340字节同GoalID终态通知于约252.09秒可到母船；两船最小采样机体净距0.600769m>0.5m。这是**名义双平台候选**，并未发USV Goal、未在同一请求接收Result；200秒为当前轨迹通信窗口的候选，而非设备或论文时间常数。
+- 依据：Fossen原REMUS `ref_n`/深度航向控制、Otter原生静态配平与现有场景/PVS轨迹；[Guo–Zavlanos T-RO间歇会合](https://arxiv.org/html/1706.02092)支持断联前约定通信机会的组织原则，[APEX-MR RSS](https://arxiv.org/html/2503.15836v2)支持实际事件释放。上述文献**不给**本实验转速、200秒或链路设备性能；它们来自已声明模型并须同次实跑核验。
+- 证据：本机`experiments/20260923-remus-segmented-action-r1/{result.json,execution.bag.active,client.py,run.sh}`，以及`experiments/20260923-remus-original-return-search/{segmented-native-result.json,uuv-usv-candidates.json,usv-sites-result.json,staggered-support-result.json,staggered-support-late-result.json,uuv-usv-joint-check.json}`。旧港口原路线失败仍保留。
+- 未完成／下一步：在原PVS Action内用现有分段`duration`表达有限中途静态配平等待，确保查询/预检/执行同源；将这一条USV时序方法接入原联合候选，保留方法竞争，完成UUV+USV同次收件与安全审计，再做AAV五平台同请求/实时显示和缺测复查。默认10秒完整规划尚未通过，长预算只能标诊断。
+
+## 2026-09-23 UTC — 原港口REMUS通过式返回的分航段原生推进资格与最小接线
+
+- 计划：用户重启最终三类平台实时协同目标，要求在原港口业务几何内工程化，并强调不加无依据框架。源码确认`request_native_methods()`此前只生成UUV“起点→样点→回区”直达线，联合搜索从未见到多航点的原港口方法；`PvsBackend.step()`与Fossen REMUS源码已有逐步`ref_n`推进命令，但本地`PlatformTask`及只读查询只支持整片段同一`propulsion_effort`。依据为[Fossen原PVS原生控制接口](https://www.fossen.biz/pythonVehicleSim/)及本仓库`remus100.py::depthHeadingAutopilot`，不是新控制器；候选只有经同一PVS与场景全程校核才能进入计划。
+- 实际：在本机忽略目录`experiments/20260923-remus-original-return-search/`继续原样点/原回区的有限路径核查。固定单一500rpm时，含西侧绕行与原生安全尾段的路线最近0.885m仍在0.805621m球外，后续可能撞quay。保留相同几何路线，把南侧回程航段开始时的原生推进命令降到有限候选250–350rpm；300rpm在**同一连续PVS模型**中于205.58模型秒重进原区、251.79秒完成原生低速尾段、观测约7.42秒产生，最小全程声明实体余量0.85498m>0.2m，路径每段预检无交集。数值只是在当前Fossen模型/已知场景的资格候选，不是论文/设备性能保证。
+- 最小代码接线：`PlatformSegment.msg`与已有`NativeSegmentSpec`只加一个实际所需的可选`propulsion_effort`字段（0用端点既有配置），PVS查询与本地Action预检/执行从同一航段读它；Fossen模型、原深度/航向控制、参考所有权、安全判据不改。场景只加一条原样点/原回区的有限双航段候选，`task_line.py`在现有请求方法生成中直接读取；原直达方法与其它平台保留比较。联合启动显式声明REMUS初始航向−0.22rad，默认资格launch仍0rad。原`PvsBackend.predict_native_fragment`带(500,300)的两段只读结果`FEASIBLE`且原业务观测与回区重进成立；36项受影响task/PVS/完整候选检查通过。
+- 证据：本机`experiments/20260923-remus-original-return-search/{rpm-schedule-result.json,rpm-fine-result.json,segmented-native-result.json,pass-through-tail-result.json}`，生产改动见`pvs_backend.py`、`pvs_node.py`、`task_line.py`、`models.py`、`executors.py`、`PlatformSegment.msg`、`five_scene_harbor.yaml`、`five_qualification.launch`及启动脚本。数值来源是同一原生模型实算，不继承[Fossen模型说明](https://www.fossen.biz/html/marineCraftModel.html)以外的未验证实船保证。
+- 未完成／下一步：当前只是源码/只读资格；必须重建ROS消息镜像，实跑UUV原生Action、同请求USV有限会合与五平台审计，检查时间/静态安全及真实Result；修正初次规划10秒内无完整方案的运行性能，实际缺测复查/修复与实时三类平台终态仍待。若ROS结果与只读轨迹不符，保留失败而不放宽半径或净距。
+
 ## 2026-09-23 UTC — REMUS观测后回区统计补核：分析窗口不得冒充业务判据
 
 - 计划：复核上一条西绕行细化脚本的`observed+30s`统计筛选是否可能遗漏观测后立即重进原回区；业务要求只有“离区→有效观测→重进→原生安全尾段”，没有30秒等待门槛。

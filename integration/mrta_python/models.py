@@ -13,6 +13,7 @@ class NativeSegmentSpec:
     operation: str
     points: Tuple[Tuple[float,float,float], ...]
     duration_s: float = 0.0
+    propulsion_effort: float = 0.0
 
     def __post_init__(self):
         object.__setattr__(self,'points',tuple(tuple(p) for p in self.points))
@@ -22,6 +23,10 @@ class NativeSegmentSpec:
             raise ValueError('native segment needs finite path points')
         if not math.isfinite(self.duration_s) or self.duration_s<0:
             raise ValueError('invalid native reference duration')
+        if not math.isfinite(self.propulsion_effort) or self.propulsion_effort<0:
+            raise ValueError('invalid native segment propulsion effort')
+        if self.operation in ('ENTER_WATER','EXIT_WATER') and self.propulsion_effort:
+            raise ValueError('qn transition does not use marine propulsion effort')
         if self.operation in ('ENTER_WATER','EXIT_WATER') and self.duration_s<=0:
             raise ValueError('qn transitions need positive reference duration')
 
