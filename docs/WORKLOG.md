@@ -1,3 +1,11 @@
+## 2026-09-23 UTC — 原双原生协作预接纳不得越过有限命令收件屏障
+
+- 计划：在原港口UUV返区方法尚未获资格、不能把旧水下组件冒充最终任务的前提下，独立核对现有`_dispatch_cooperative_items`的关键执行合同：水下作业与USV支援所需两条命令必须**先全部实际送达**，任何一方缺回执时不得向另一方抢先发送原生Goal。原则对应[Guo–Zavlanos间歇会合](https://arxiv.org/html/1706.02092)断联前协调参与者，以及本项目现有Plan原子资源占用/有限命令通道；不接入论文整套框架。
+- 实际：读现有`MissionRunner._dispatch_cooperative_items`，确认在`joint_request`已先为全部原生参与者执行`_announce_command`并共同`_await_command_delivery`，之后才进入任何`client.send_goal`；启动阶段另按GoalID/代次送有限控制请求。只补一个真实worker边界的确定性负例：使其中一项有限命令不可达，确认两个Action客户端均零Goal、两个物理成员持续占用。未重写消息、未增状态服务或改变动作先后。相关Action/有限通信/安全边界93项通过。
+- 结果：预接纳前的“全员下行命令已送达”条件现在有针对性回归证据；它不证明断联期间的实际会合能完成，也不证明当前原港口REMUS具有可派发返回方法。真实UUV＋USV协作仍需合格场景、两端原生Action Result、容量收件和五平台同次安全审计。
+- 证据：`integration/qn_aav_simulator/tests/test_executor_runner.py::test_cooperative_goals_wait_for_all_finite_commands_before_any_send`，`formation_mission_runner.py::_dispatch_cooperative_items`，`scene_publisher.py`与`observation_coverage.py`既有有限下行实现；旧水下组件不作为本轮正例重复实跑。
+- 未完成／下一步：等待用户此前对另建REMUS示范几何和初次规划预算的选择，再在同一正式请求里验证实际预承诺会合、必要交付、一次复查与返回。确定性负例不代替原生动力学实跑。
+
 ## 2026-09-23 UTC — 并行计划收到Result后的无关资源不再被旧串行规则推迟
 
 - 计划：沿用户的统一模型查执行反馈是否真正保留异构平台并行；不能把“所有平台共享一条全局串行钟”冒充协同修复。只更正现有`process_executor_completion()`里已核实的先后关系错误，不扩大成新调度框架或宣称完整在线方法重选。机制依据为[APEX-MR论文](https://arxiv.org/html/2503.15836v2)的实际依赖/部分顺序执行关系及[Calvo动态任务分配论文](https://arxiv.org/html/2411.02062v3)的执行反馈修复；本项目的具体成员资源和Plan边仍以当前源码为准，不继承论文的机器人/最优性假设。

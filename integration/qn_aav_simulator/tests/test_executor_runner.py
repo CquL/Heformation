@@ -359,6 +359,39 @@ def test_cooperative_missing_acceptance_or_hung_start_keeps_all_bookings(runner_
     else:assert started==['/usv/start_prepared']  # unknown support start cannot launch the work fragment
 
 
+def test_cooperative_goals_wait_for_all_finite_commands_before_any_send(runner_module,tmp_path,monkeypatch):
+    from dataclasses import replace
+    from types import ModuleType
+    runner,item,unit,_=native_setup(runner_module,tmp_path)
+    support=load_routing([dict(executor_id='usv_native',physical_agent_ids=['usv'],
+        capabilities=['SURFACE'],action_endpoint='/usv/platform_task',
+        action_type='PlatformTaskAction',operations=['SURFACE_PATH'],
+        odometry_topics={'usv':'/usv/odometry'})],
+        default_members=(),default_initial_target_ref='start')['usv_native']
+    runner.routing[support.executor_id]=support
+    action=NativeActionSpec((NativeSegmentSpec('SURFACE_PATH',((0.,0.,0.),(1.,0.,0.))),),
+                            'TRIM_PROPULSION')
+    other=replace(item,execution_id='support-e',executor_id=support.executor_id,
+        coalition=('usv',),fulfills_task=False,
+        execution_steps=(ExecutionStep(support.executor_id,65.,'surface',action),))
+    runner.plan=ExecutorPlan([item,other],serial=False)
+    runner.active_executor_ids={unit.executor_id,support.executor_id}
+    runner.command_delivery_required=True
+    runner._executor_goal=lambda *a:SimpleNamespace(prepare_only=False)
+    runner._announce_command=lambda item,*a:(item.execution_id,)
+    def unavailable(*a):raise RuntimeError('finite command not delivered')
+    runner._await_command_delivery=unavailable
+    sent=[]
+    runner.clients={key:SimpleNamespace(send_goal=lambda *a,**k:sent.append(key),
+        cancel_goal=lambda:None) for key in (unit.executor_id,support.executor_id)}
+    srv=ModuleType('qn_aav_simulator.srv');srv.StartPreparedAction=object
+    monkeypatch.setitem(sys.modules,'qn_aav_simulator.srv',srv)
+    with pytest.raises(RuntimeError,match='finite command not delivered'):
+        runner._dispatch_cooperative_items([item,other])
+    assert not sent
+    assert runner.active_executor_ids=={unit.executor_id,support.executor_id}
+
+
 @pytest.mark.parametrize('fail_first',[False,True])
 def test_composite_retains_booking_between_steps_and_failure_blocks_successor(runner_module,tmp_path,fail_first):
     runner,item,unit,result=native_setup(runner_module,tmp_path)
