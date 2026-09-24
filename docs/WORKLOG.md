@@ -1,3 +1,26 @@
+## 2026-09-24 UTC — 180秒仍不能让三类同请求规划期时间合格；失败面板中文化
+
+- 计划：上轮360秒三类同请求虽得完整名义计划，却在重规划期间使AAV就绪时间基线累计漂移1.7186s而零AIR Goal。用完全相同原请求、原障碍及测试执行单元配置只把**隔离诊断**规划上限缩到180秒，输入`no`仅打印计划不派发；检查是否既能得到完整候选又不损害原0.05s全程时间门槛。
+- 实际：`experiments/20260923-three-class-plan-180-r1`在180.01s规划后确实给出另一完整三类候选：AAV1 AIR0–23.84、USV AIR结果支援0–14.02，然后同一USV水下支援14.02–316.81、UUV14.02–265.81；`search_complete=false`，确认输入`no`，0 Goal和0占用。对这一未派发bag沿用原`TimeAlignmentMonitor`的全场审计，规划期模型/ROS峰值1.71911s、跨平台1.71896s，仍远大于0.05s；未派发导致通用脚本同时报无Action区间/AIR证据，不是额外物理碰撞。**缩短长规划到180秒并不能解决**本机场景的启动时间失效。前次失败bag的逐成员核查显示三qn规划期峰值1.72–1.74s、USV/UUV约0.15s；首PVS Goal时偏差已追回，但Action就绪根据全程历史正确拒绝，不能清除旧漂移凑通过。
+- 界面小修：失败真窗口原把`time baseline not qualified`直接显示英文。只在既有中文任务面板对这条已核实的原生就绪错误做短中文翻译，保留`metrics.json`原始原因和原锁定状态；没有改Action判定、门槛或状态机。Python语法、实际失败字符串匹配与diff检查已通过；未为纯显示改动重跑无关物理仿真。
+- 证据：本机`experiments/20260923-three-class-plan-180-r1/{metrics.json,nominal-plan.json,execution.bag,scene-once.bag,safety-audit.json,runner.log}`、前轮`three-class-integration-r1/{dashboard-failure.png,drift-probe.json,safety-audit.json}`；源码`qn_aav_node.py`固定步积分及`time_alignment.py`全程历史门槛，面板`mission_dashboard.py`。文献只指导交错计划/实际依赖，不给本机ROS实时性保证。
+- 未完成／下一步：高成本完整规划应在物理任务时间基线开始前完成，或必须把实际完整求解降至不会破坏10秒生产期限的范围；初次离线长预算政策已向用户提出但尚未答复。不能用180/360秒规划期后的AAV就绪失败请求冒充三类实跑通过。用户对最终UUV独有业务资格的另一项异步选择仍待答；期间可继续只读定位与不依赖这两项决定的实现。
+
+## 2026-09-24 UTC — 10秒求解/长规划时钟断点的同源qn加速核查
+
+- 计划：三类集成全场因长规划期qn时钟峰值约1.73s失效，不能凭猜测迁移仿真器或跳模型步。先核已有私有Cython查询扩展能否显著降低同一qn模型积分成本，且至少保留静态配平终态一致；不直接改在线qn控制链。
+- 实际：在同一新建Noetic镜像、本次原港口场景与同一AAV初态(-30,4,0.8)下，两独立进程分别从源码和通过source SHA/ABI校验的已有私有Cython扩展执行20模型秒完整qn idle rollout。源码墙钟5.003s、扩展3.441s；两者均`FEASIBLE`、20模型秒、末位置(-30,4,0.8)、速度0、AIR模式相同。扩展在隔离查询进程正确启用，但只是约1.45倍孤立算速改善，未验证所有运动轨迹逐样本等价，也不能保证消除ROS运行时0.09s单步峰值或1.73s累计漂移。
+- 证据：本机`experiments/20260923-qn-online-compiled-probe/{probe.py,pure.json,compiled.json}`、既有`integration/mrta_python/query_worker.py::_enable_query_extensions`和同次失败`three-class-integration-r1/{drift-probe.json,safety-audit.json}`。这些是原源代码与编译副本核查，不是新的控制论文或安全保证。
+- 未完成／下一步：**不**把Cython扩展直接接进在线qn或宣称解决时钟；继续查长规划期后台运动与CPU/ROS调度的实因，或按用户尚待答的初次规划策略把高成本查询安排在物理任务时钟开始前。默认10秒完整规划和最终三类同次有效实跑仍未完成。
+
+## 2026-09-23 UTC — 三类同请求集成第一次实时失败：长规划期AIR时钟漂移阻断派发
+
+- 计划：在**仅供接线的测试执行单元配置**中暂时不提供AAV水下方法，保留原两区域普通业务请求/原港口样点与回区，让同一联合求解选择AAV AIR＋REMUS WATER＋移动Otter支持并在RViz/中文面板同次执行。该测试限制不进入普通生产配置，不能冒称完整方法集合下自主选UUV。
+- 实际：`experiments/20260923-three-class-integration-r1`正式`joint_request`在360秒诊断规划上限用满后取得三活动完整名义候选：AAV1 AIR0–23.84s、USV0–302.79s、UUV0–251.79s；实验确认派发后两本机PVS端点预接纳、UUV＋USV按有限命令启动，UUV32KiB产品实际到母船、两PVS Action完成。AAV1入口在`_wait_executor_ready`持续拒绝，120秒就绪观察到期报`time baseline not qualified: model/ROS drift 1.7186 s exceeds 0.0500 s`，因此**AIR Goal零派发**；runner终态`UNKNOWN_LOCKED`，空中结果未知，`delivered_fraction=0.5`、`aav_1`预约继续锁定，未宣称请求成功。保存真窗口规划、运行与失败帧，失败面板正确写“结果未知，成员保持锁定”。
+- 独立核查：同次静态云＋执行bag的全程审计明确FAIL，五平台最大模型/ROS峰值1.73027s、跨平台1.72018s>原0.05s，执行位置零缺、代理最小净距0.59337m、静态场景几何合格；另有缺AIR规划器/参考两项正是未派AIR Goal的后果。只读drift-probe显示三qn约1.72–1.74s及PVS约0.15s峰值都在**首Goal以前的规划期**，到首PVS Goal时偏差已追回近零；AAV Action就绪保留全程峰值而拒绝，不能只取执行期样本清除早期无效历史。没有改时间戳、清锁或放宽门槛。本次空中物理失败原因是运行时规划与仿真并发的时间可靠性，不是UUV/USV业务观测失败。
+- 依据/证据：本机`experiments/20260923-three-class-integration-r1/{metrics.json,nominal-plan.json,execution.bag,scene-once.bag,safety-audit.json,drift-probe.json,dashboard-planning.png,dashboard-running.png,dashboard-failure.png,rviz-running.png,rviz-failure.png}`，AAV原生`ready/readiness_reason`与`TimeAlignmentMonitor`既有0.05s门槛；本轮未把诊断360秒改成正式政策。文献[D-ITAGS](https://arxiv.org/abs/2209.13092)的交错运动查询不保证该机ROS持续实时，故不能引用它掩盖时钟负例。
+- 未完成／下一步：先核180秒隔离初次规划能否取得完整候选并保持全场时间有效；若不行，必须按用户尚待答的初次长规划政策决定是否把重查询移到物理启动之前，或继续优化10秒生产求解。未得到完整时间/Action证据前不能重报三类同请求通过；业务UUV独有需求、实际复查和反馈修复仍待。
+
 ## 2026-09-23 UTC — 原港口UUV＋移动USV实时组件同次通过，全程时间/几何证据与范围分开
 
 - 计划：前次UUV＋USV正式组件虽任务/执行期有效，但规划期0.7575s漂移且无实时窗口。用相同原业务水下样点与原回区，显式将仿真/Action CPU0–11、规划12–15、显示/录包24–31隔离，再在同一Noetic会话打开RViz与中文任务权威面板，确认预承诺等待、UUV航行、USV移动、结果接收和安全全程能同时成立。普通请求不增加“每台必须动”限制。

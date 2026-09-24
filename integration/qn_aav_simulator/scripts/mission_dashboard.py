@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import math
 import json
+import re
 import sys
 import threading
 import textwrap
@@ -632,6 +633,11 @@ class MissionDashboard:
         line(.21,'声明链路：水下 8 m / 2 KiB/s；射频 30 m / 32 KiB/s',10)
         reason=state.get('failure_reason','')
         if reason:
+            timing=re.fullmatch(
+                r'endpoint not ready: (\S+): time baseline not qualified: model/ROS drift ([0-9.]+) s exceeds ([0-9.]+) s',
+                reason)
+            if timing:
+                reason='空中执行端 {} 未就绪：模型/ROS时间偏差 {} 秒超过 {} 秒'.format(*timing.groups())
             line(.16,'失败：'+textwrap.fill(reason,62),10,'#b71c1c')
         elif state.get('return_completion'):
             parts=[]
