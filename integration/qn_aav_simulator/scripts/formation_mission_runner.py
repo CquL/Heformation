@@ -969,7 +969,8 @@ class MissionRunner:
         self._save_executor()
         return outcome
 
-    def _send_executor_goal(self,item,unit,goal,action,sent_deadline=None):
+    def _send_executor_goal(self,item,unit,goal,action,sent_deadline=None,
+                            defer_terminal_receipt=False):
         native=item.native_action
         client = self.clients[unit.executor_id]
         node=self.server_nodes[unit.executor_id]
@@ -1001,7 +1002,8 @@ class MissionRunner:
                     unit.action_endpoint, client.get_state(), rospy.get_param(node + "/run_state", "unknown")))
         result = client.get_result()
         state = client.get_state()
-        if getattr(self,'command_delivery_required',False) and result is not None and result.goal_id:
+        if (getattr(self,'command_delivery_required',False) and not defer_terminal_receipt and
+                result is not None and result.goal_id):
             self._wait_action_terminal_receipt(result.goal_id,unit.physical_agent_ids,state,
                 native.execution_timeout_s if native else float(rospy.get_param(node+'/execution_timeout',180.)))
         return state,result
@@ -1257,7 +1259,7 @@ class MissionRunner:
             self.metrics.setdefault('current_actions',{})[item.execution_id]=action
             if self.executor_serial:self.metrics['current_action']=action
         self._save_executor()
-        rows=[]
+        rows=[];deferred=[]
         for index,(step,unit) in enumerate(zip(item.execution_steps,units)):
             view=replace(item,execution_id='{}:step:{}'.format(item.execution_id,index),
                          executor_id=step.executor_id,travel_time=step.duration_s-step.service_time_s,
@@ -1267,10 +1269,17 @@ class MissionRunner:
             with self.executor_mutex:
                 action.update(endpoint=unit.action_endpoint,step=index,step_count=len(units),
                               step_execution_id=view.execution_id,phase='DISPATCHING')
-            state,result=self._send_executor_goal(view,unit,goal,action)
-            if step.native_action is not None:
+            continuing=index+1<len(units)
+            if continuing:
+                state,result=self._send_executor_goal(view,unit,goal,action,
+                    defer_terminal_receipt=True)
+            else:
+                state,result=self._send_executor_goal(view,unit,goal,action)
+            if step.native_action is not None and not continuing:
                 self._wait_native_observation_receipt(state,result,step.native_action)
-            if step.native_action is None and getattr(goal,'observation_ids',()) and self._release_result_ok(state,result,view.execution_id):
+            if (step.native_action is None and not continuing and
+                    getattr(goal,'observation_ids',()) and
+                    self._release_result_ok(state,result,view.execution_id)):
                 node=self.server_nodes[unit.executor_id]
                 self._wait_observation_receipt(result.goal_id,goal.observation_ids,
                     float(rospy.get_param(node+'/execution_timeout',180.)))
@@ -1279,7 +1288,7 @@ class MissionRunner:
                 result.reason=='OBSERVATION_NOT_SATISFIED' and result.terminal_verified and
                 not result.resource_locked and result.actual_mode==step.native_action.final_mode and
                 bool(step.native_action.observation_ids))
-            if missing:
+            if missing and not continuing:
                 report=self.metrics.get('received_terminal_reports',{}).get(result.goal_id)
                 if (report is None or report['point_ids']!=sorted(step.native_action.observation_ids) or
                         set(report['observed_ids'])==set(step.native_action.observation_ids)):
@@ -1305,14 +1314,42 @@ class MissionRunner:
                         not evidence.get('resource_released')):
                     raise RuntimeError('AIR step has no verified terminal evidence')
                 row['evidence_file']=result.evidence_file
-                if step.observation_ids:
+                if step.observation_ids and not continuing:
                     self._receive_observations(view,evidence)
                     if getattr(self,'finite_delivery',False):
                         report=self.metrics['received_terminal_reports'][result.goal_id]
                         row['observation_missing']=set(report['observed_ids'])!=set(step.observation_ids)
             row.update(verified=True,result_received_at=rospy.Time.now().to_sec())
             rows.append(row)
+            if continuing:
+                deferred.append((view,unit,step,state,result,evidence if not step.native_action else None))
             self._save_executor()
+        # A local successful step may lead into an already selected return
+        # while its notice/product is still travelling. Keep one reservation
+        # for the whole chain; receive and verify every deferred result before
+        # committing the parent activity or freeing its member.
+        for view,unit,step,state,result,evidence in deferred:
+            if getattr(self,'command_delivery_required',False):
+                node=self.server_nodes[unit.executor_id]
+                timeout=(step.native_action.execution_timeout_s if step.native_action else
+                    float(rospy.get_param(node+'/execution_timeout',180.)))
+                self._wait_action_terminal_receipt(result.goal_id,unit.physical_agent_ids,state,timeout)
+            if step.native_action is not None:
+                self._wait_native_observation_receipt(state,result,step.native_action)
+                if state==GoalStatus.ABORTED and result.reason=='OBSERVATION_NOT_SATISFIED':
+                    report=self.metrics.get('received_terminal_reports',{}).get(result.goal_id)
+                    if (report is None or report['point_ids']!=sorted(step.native_action.observation_ids) or
+                            set(report['observed_ids'])==set(step.native_action.observation_ids)):
+                        raise RuntimeError('matching negative observation report absent; parent remains occupied')
+            elif step.observation_ids:
+                node=self.server_nodes[unit.executor_id]
+                self._wait_observation_receipt(result.goal_id,step.observation_ids,
+                    float(rospy.get_param(node+'/execution_timeout',180.)))
+                self._receive_observations(view,evidence)
+                if getattr(self,'finite_delivery',False):
+                    report=self.metrics['received_terminal_reports'][result.goal_id]
+                    next(row for row in rows if row['execution_id']==view.execution_id)['observation_missing']=(
+                        set(report['observed_ids'])!=set(step.observation_ids))
         with self.executor_mutex:
             if has_products and self.request.delivery_required:
                 received_products=self.metrics.get('received_products',{}).values()
@@ -1671,7 +1708,7 @@ class MissionRunner:
             self._save_executor()
             try:
                 self.plan,tasks=build_request_executor_plan(self.request,scene,units,provider,states,
-                    budget_s=self.metrics['planning_budget_s'])
+                    budget_s=self.metrics['planning_budget_s'],first_feasible=True)
             finally:
                 self.metrics['planning_wall_s']=time.monotonic()-began
             # Retain only the terminal backend of the method actually selected.

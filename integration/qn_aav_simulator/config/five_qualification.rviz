@@ -53,38 +53,38 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Name: 港口总览
+      Name: 岸边部署与远端作业
       Target Frame: <Fixed Frame>
-      Distance: 65.0
-      Focal Point: {X: -9.0, Y: 0.0, Z: -1.0}
+      Distance: 72.0
+      Focal Point: {X: -13.0, Y: 4.0, Z: -1.0}
       Pitch: 1.05
       Yaw: 4.71
       Near Clip Distance: 0.01
       Field of View: 0.785398
     Saved:
     - Class: rviz/Orbit
-      Name: 潜航器全程
+      Name: 出发与作业全程
       Target Frame: <Fixed Frame>
-      Distance: 120.0
-      Focal Point: {X: 2.0, Y: -16.0, Z: -2.0}
+      Distance: 88.0
+      Focal Point: {X: -13.0, Y: 4.0, Z: -2.0}
       Pitch: 1.05
       Yaw: 4.71
       Near Clip Distance: 0.01
       Field of View: 0.785398
     - Class: rviz/Orbit
-      Name: 母船近景
+      Name: 岸边部署
       Target Frame: <Fixed Frame>
       Distance: 16.0
-      Focal Point: {X: 14.4, Y: -8.0, Z: 0.4}
+      Focal Point: {X: -28.0, Y: 8.0, Z: 0.4}
       Pitch: 0.55
       Yaw: 0.8
       Near Clip Distance: 0.01
       Field of View: 0.785398
     - Class: rviz/Orbit
-      Name: 跨介质作业区
+      Name: 远端协同作业区
       Target Frame: <Fixed Frame>
       Distance: 18.0
-      Focal Point: {X: -27.0, Y: 6.0, Z: 0.0}
+      Focal Point: {X: 0.0, Y: 4.0, Z: 0.0}
       Pitch: 0.65
       Yaw: 4.71
       Near Clip Distance: 0.01

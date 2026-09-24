@@ -1,179 +1,41 @@
 # Heformation
 
-海上异构无人集群项目的上游复现与平台集成工作区。
+空中两栖无人机（AAV）、无人船（USV）与潜航器（UUV）的协同任务研究工程。现有执行链使用 Swarm-Formation 空中规划、qn AAV 动力学、PVS 水面／水下后端、ROS 1 Noetic、Docker 和 RViz；任务层在 `integration/mrta_python`，执行与场景在 `integration/qn_aav_simulator`。
 
-当前目录采用以下边界：
+## 当前远域场景
 
-```text
-upstream/Swarm-Formation
-    官方 Swarm-Formation 源码与原始 ROS 1 catkin 包
+[场景配置](integration/qn_aav_simulator/config/five_scene_offshore.yaml)把三台 AAV、USV、UUV 和母船放在同一岸边部署区；[任务请求](integration/qn_aav_simulator/config/monitoring_request_offshore.yaml)声明障碍通道另一侧的空中与水下观测、必要结果接收及返回。RViz 显示同一 ROS 会话中的实际平台状态。坐标以米计，是现有模型的缩比任务场景，不能解释为真实数公里航程或设备通信性能。
 
-integration/qn_aav_simulator
-    qn.slx 对应的 Python 控制器、六自由度动力学和 ROS 适配器
+**当前状态：场景布局已实时显示，完整远域协同任务尚未通过。** 原生联合规划在 180 秒诊断预算内没有产生可派发的完整计划，暴露了运动净距、候选时域和轨迹采样连续性问题；因此新场景没有“三类平台一起完成任务”的实跑证据。规划期间平台待命，画面不动属于当前状态，不能把初始布局截图当作完成效果。详见[当前状态](context/02_current_status.md)和[工作日志](docs/WORKLOG.md)。
 
-integration/swarm_qn_bridge
-    将官方 fake drone 替换为 qn 节点的 launch overlay
-
-models/qn/qn.slx
-    原始 qn Simulink 模型
-```
-
-当前上游运动基线来自 [ZJU-FAST-Lab/Swarm-Formation](https://github.com/ZJU-FAST-Lab/Swarm-Formation)，
-当前集成 Swarm AIR 规划、qn AAV 动力学、PVS 水面/水下执行端与任务调度。
-五平台完整协同任务仍在实施，当前事实与未完成项见 [当前状态](context/02_current_status.md)。
-
-## 五平台实时可视化仿真
-
-**当前可复现的效果（2026-09-24）**：推荐下面的“三类平台同次接线资格仿真”。RViz 在同一 ROS 会话实时显示三台 AAV、Otter USV、REMUS UUV、港口实体障碍和实际轨迹；中文面板同步显示选定活动、等待／运动阶段、母船收件和资源占用。已保存的同次运行中，AAV 完成 AIR 空中观测、UUV 完成 WATER 通过式样点观测、USV 预承诺等待后移动支援，两个 32 KiB 结果到母船，规定返回、Action 结果和独立时间／安全审计通过。**这是实际动力学和 Action 运行，不是先算完轨迹再播放。**在初次规划和终端确认之前，平台保持待命，所以画面会先静止约 180 秒。
-
-当前还有两条不同范围的证据：普通两区域请求可实际选择 AAV 入水并完成双结果，但 UUV 待命；单 AIR 区域可在真实缺测后根据五成员有限状态回执修复，UUV 也待命。把仓库原 A/B/C 空中区和水下样点并成四区域、保留 AAV 水下备选时，求解器已名义选择 UUV＋USV；**该完整请求实跑仍失败**：zone_B 的产品／终态因码头遮挡晚到，原分步返程必须先收到它们，zone_C 未开始。失败和下一步在 [当前状态](context/02_current_status.md) 与 [WORKLOG](docs/WORKLOG.md)，不能将几次不同请求的成功相加为最终通过。
-
-### 三类平台同次接线资格仿真（AIR AAV＋REMUS＋移动 Otter）
-
-这条入口使用**原港口两区域请求**与原回收区。它只在本次资格配置中不提供 AAV 水下备选，用来验证三类平台的 Action、有限交付与实时画面；普通联合请求的完整能力和方法比较不受影响。在桌面终端运行，看到具体四活动计划后输入 `yes`：
+在桌面终端打开实时场景与任务入口：
 
 ```bash
 cd /home/lhj/Swarm-Formation
-bash scripts/docker_run_three_class_qualification.sh \
-  "experiments/$(date -u +%Y%m%dT%H%M%SZ)-three-class-live"
+JOINT_GPU_RENDER=true bash scripts/docker_run_three_class_qualification.sh \
+  "experiments/$(date -u +%Y%m%dT%H%M%SZ)-offshore-live"
 ```
 
-若本机还没有 `swarm-formation-qn:joint-wip` 镜像，先在仓库根目录构建一次：
+脚本打印完整可行计划后才会询问 `yes`；没有完整计划就不会派发 Goal。GPU 开关仅影响 RViz 渲染，不加速联合求解或动力学。该脚本使用本机 CPU 核组，并临时处理已知宿主时间回拨；需要 Docker、Noto CJK 字体和本机非交互式 `sudo`。其他机器可直接使用 `scripts/docker_run_joint_request.sh` 并按自身环境设置核组。
+
+缺少当前镜像时构建：
 
 ```bash
 docker build -t swarm-formation-upstream:noetic upstream/Swarm-Formation
 docker build -f docker/Dockerfile.qn -t swarm-formation-qn:joint-wip .
 ```
 
-脚本使用当前主机的 CPU 核组和明确的 **180 秒诊断规划预算**，并只在本次运行期间暂停已证实会回拨 ROS 墙钟的宿主 `systemd-timesyncd`，正常退出或 Ctrl-C 时恢复原服务状态；需要本机非交互式 `sudo`。它不会修改 0.05 秒时间门槛或仿真模型。最近一次同次实时实跑由 AAV2 完成 AIR 概览、REMUS 完成原水下样点、移动 Otter 支援；两份有限结果收件、规定返回、零锁及独立五平台整场时间/安全和控制因果审计均通过（3324 个执行期对齐样本零缺）。本机证据位于 `experiments/20260924-three-class-live-ui-sync-r1/`，含任务结果、bag、审计、`rviz-live.png`和`dashboard-live.png`；大型实验产物不进入Git。面板现用短中文显示“概览／水下样点”、实际动作及收件；下次启动还会显示规划已用时间、复查与状态回执进度。边界见 [当前状态](context/02_current_status.md) 和 [WORKLOG](docs/WORKLOG.md)。本资格入口不证明普通完整能力请求会选 UUV、严格 10 秒首轮求解或该三类请求已触发复查。RViz 的 Views 面板可选“潜航器全程”查看远端长回环，默认“港口总览”保留码头细节。
-
-本机装有 NVIDIA Container Toolkit 时，可在上述命令前加 `JOINT_GPU_RENDER=true` 让 **RViz 图形渲染**使用 GPU；不加仍采用原软件渲染。它不把任务求解、qn 或 PVS 动力学迁移到 GPU。一次正式普通请求的180秒**仅预览**实验核对到 `nvidia-smi` 中 RViz 为图形进程且产生完整计划；随后同GPU入口准备实跑的一次规划却到期、零Goal。GPU开关不提供10秒或180秒求解成功保证，成败与边界见WORKLOG。
-
-### 两区域联合请求：AIR、USV支援与AAV跨介质（资格诊断）
-
-在有桌面 `DISPLAY` 的终端运行，查看具体计划后输入 `yes` 才派发：
-
-```bash
-cd /home/lhj/Swarm-Formation
-JOINT_PLANNING_BUDGET_S=360 JOINT_SIM_CPUSET=0-11 JOINT_PLANNER_CPUSET=12-15 \
-  JOINT_VIEW_CPUSET=24-31 JOINT_VISUALIZE=true \
-  bash scripts/docker_run_joint_request.sh \
-  "experiments/$(date -u +%Y%m%dT%H%M%SZ)-joint-live"
-```
-
-这条命令在同一个现有 MissionRunner 中加载[两区域请求](integration/qn_aav_simulator/config/monitoring_request_joint.yaml)，自动选择AIR成员、USV支援和合格跨介质方法；RViz显示同源港口障碍与实际平台，中文任务面板显示所选活动、实际Action、命令送达、母船收件和资源占用。**规划和等待确认期间平台只按本地待命参考运行，不开始作业运动。**关闭显示窗口不作为任务取消。输出目录保存任务结果、单条真实静态云`scene-once.bag`和五平台动态`execution.bag`，供独立审计。`360`秒是当前原生完整状态查询的**隔离诊断预算**，正式默认仍为`10`秒；`0-11`、`12-15`和`24-31`分别是本机动力学/Action、规划与界面/录包进程的CPU核组，其他机器应按实际核组调整或省略；它们不是算法参数或时间保证。未找到完整候选时不派发。RViz 默认“港口总览”保留岸壁/码头细节，若查看REMUS长回环，可在 Views 面板选择“潜航器全程”；两者都只显示同一实时状态。当前源码的`20260924-air-retest-live-r3`普通两区域请求在180秒隔离初次规划下两份32KiB收件及返回、同次独立审计和有限命令/Result对账均PASS；UUV在该普通请求中待命。另一个**单AIR区域**`20260924-air-retest-finite-state-r4`已在实时RViz/中文面板中完成首轮缺测、五成员有限状态回执后的10秒内反馈修复、新Action与32KiB复查产品接收；它不能与普通两区域或三类资格结果拼成同一次三类复查验收。项目原生模型内部状态尚不能从任意运动中状态重建，入口仍以声明初态和有证据的有限终态再资格为范围；细节见[当前状态](context/02_current_status.md)与WORKLOG。
-
-### 水下协作历史入口：潜航器观测、无人船支援
-
-```bash
-cd /home/lhj/Swarm-Formation
-VISUALIZE=true bash scripts/docker_probe_five_qualification.sh \
-  "experiments/$(date -u +%Y%m%dT%H%M%SZ)-water-live" cooperative
-```
-
-沿用现有 `swarm-formation-qn:cooperation` 消息镜像，挂载当前 Python 实现。
-场景使用港口障碍配置；启动后自动比较有限候选，终端和中文面板展示所选计划。
-**看到具体计划后，在启动终端输入 `yes` 才派发；其他输入不执行。**
-本轮潜航器执行水下样点观测，无人船按选定路线支援，三台 AAV 待命。
-母船是固定接收端：结果受距离、遮挡和有限链路容量影响，实际接收后才增加任务交付覆盖。
-母船没有自主航行动力学，也未参与位置优化。
-
-中文面板分别显示任务权威状态和独立传输过程（无人船／母船接收 KiB），RViz 母船标签随接收事件更新。
-该入口验证当前**水下协作阶段**，不是完整三类平台任务；空中任务、跨介质选择、复查及规定返回仍未全部接通。
-关闭 RViz 或面板不会结束执行；启动终端 `Ctrl+C` 结束整链并归档。
-运行结束后画面保留，不会自动开始新一批任务。录包只覆盖确认后的执行区间，
-待命和结果展示期间不持续录入静态点云。实跑结果与边界见
-[水下协作可视化记录](docs/reviews/water-cooperation-live-20260921.md)。
-
-
-### 新增：VRX官方海面环境试接
-
-本机NVIDIA GPU环境下，首次构建后运行官方场景：
-
-```bash
-cd /home/lhj/Swarm-Formation
-bash scripts/docker_build_vrx.sh
-bash scripts/docker_run_vrx.sh native
-```
-
-尝试将现有五平台实际状态显示到VRX：
-
-```bash
-bash scripts/docker_run_vrx.sh five-view
-```
-
-`five-view`需要终端输入`yes`才运行固定动作，Ctrl+C结束。该试接保持qn/PVS动力学，
-GPU负责Gazebo渲染；**VRX地形/海况尚未接入现有任务安全判定，也不是完整协同任务**。
-依赖与实跑边界见[VRX试接记录](docs/reviews/vrx-integration-20260920.md)。
-
-### 原RViz资格实验入口
-
-在有桌面 `DISPLAY` 的终端运行（需要 Docker、`fonts-noto-cjk` 中文字体，以及
-`swarm-formation-qn:cooperation` 镜像）：
-
-```bash
-cd /home/lhj/Swarm-Formation
-VISUALIZE=true bash scripts/docker_probe_five_qualification.sh \
-  "experiments/$(date -u +%Y%m%dT%H%M%SZ)-five-live"
-```
-
-1. RViz 和中文动作面板打开后，先查看终端打印的实验内容。
-2. 在启动终端输入 `yes` 才派发本批动作；未确认时保持待命。
-3. 在 RViz 用鼠标查看场景；Views 中可选“母船近景”或“跨介质作业区”。
-4. 关闭显示窗口不会停止已启动的执行。在启动终端按 `Ctrl+C` 结束整链并归档记录。
-
-默认显示三台 AAV、无人船和潜航器，以及岸壁、栈桥、礁石、母船模型和实际轨迹。
-“安全几何（体素）”可显示实际使用的障碍地图。船模与岩石资源复用仓库内已有素材，启动时自动转换。
-
-**当前运行的是固定动作资格实验**：空中转场、单台 AAV 垂直入水/水下短程/出水、USV/UUV 航行与终端验证。
-它尚不包含完整协同监测、有限通信交付和条件复查。节拍修正后的港口无GUI运行
-7项动作及独立全程时间审计通过（最大偏差约0.0257秒，门槛仍为0.05秒）；
-此前带显示的时间失败记录保留，新的带显示全链验证尚待完成。
-详见 [实时入口与实验记录](docs/reviews/five-live-view-20260920.md)。
-
-首次使用、缺少上述镜像时，在仓库根目录构建：
-
-```bash
-docker build -t swarm-formation-upstream:noetic upstream/Swarm-Formation
-docker build -f docker/Dockerfile.qn -t swarm-formation-qn:cooperation .
-```
-
-`PlatformTask` 已增加预装载、选定观测点ID字段与幂等启动服务；当前开发中的
-AIR 有限交付还为 `Formation.action` Goal 增加本次观测点 ID。使用这些路径时，
-客户端和 Action 服务端必须来自同一次 Noetic 消息构建，不要混用旧镜像。
-已有水下协作命令仍是单阶段入口，不能将 AIR 探针或其新镜像当作完整联合任务验收。
-
-## 七机兼容与回归入口
-
-官方工程使用 ROS 1 Noetic。Ubuntu 24.04 主机通过 Docker 运行：
-
-```bash
-cd ~/Swarm-Formation
-./scripts/docker_build_qn.sh
-./scripts/docker_test_qn_single.sh
-./scripts/docker_test_qn_swarm.sh
-./scripts/docker_run_qn_demo.sh
-```
-
-七机入口保留为历史兼容与回归，不代表最终的三 AAV＋一 USV＋一 UUV 编成。
+旧港口实验的大型本地产物和独立 VRX/Gazebo 试接已按用户要求删除。现有 Swarm、qn、PVS、任务求解与七机控制回归源码仍保留；旧港口结论不作为新远域任务验收。
 
 ## 目录
 
 ```text
-AGENT/       AI项目规则与协作入口
-context/     项目背景、架构、接口、文献、计划和交接
-prompt/      常用工作提示词
-upstream/    按项目分开的上游源码
-integration/ 我们的薄适配与平台接入
-models/      qn.slx等模型文件
-scenarios/   空中、水下、跨介质和任务场景
-config/      平台、任务、编队、规划器和RViz配置
-scripts/     固化环境、Docker、运行和测试脚本
-tests/       可重复测试与实验入口
-data/        原始数据、处理数据、轨迹和结果
-experiments/ 实验配置与结果索引
-docs/        技术接入与复现说明
+AGENT/       项目规则
+context/     当前状态、架构与交接
+upstream/    仍在使用或研究参考的上游源码
+integration/ 任务层、运动后端与 ROS 接入
+models/      qn 原始模型
+scripts/     Docker 构建及运行入口
+docs/        实施记录与说明
+experiments/ 当前场景的本地运行结果（不提交大型 bag）
 ```
-
-完整背景和下一步工作见 [AGENT/AGENT.md](AGENT/AGENT.md)、[context/README.md](context/README.md)
-和 [docs/QN_INTEGRATION.md](docs/QN_INTEGRATION.md)。

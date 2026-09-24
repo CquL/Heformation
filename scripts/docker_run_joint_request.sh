@@ -11,8 +11,11 @@ JOINT_SIM_CPUSET="${JOINT_SIM_CPUSET:-}"
 JOINT_PLANNER_CPUSET="${JOINT_PLANNER_CPUSET:-}"
 JOINT_VIEW_CPUSET="${JOINT_VIEW_CPUSET:-}"
 JOINT_VIEW_HOLD_S="${JOINT_VIEW_HOLD_S:-5}"
-JOINT_REQUEST_FILE="${JOINT_REQUEST_FILE:-/workspace/src/src/qn_aav_simulator/config/monitoring_request_joint.yaml}"
+JOINT_REQUEST_FILE="${JOINT_REQUEST_FILE:-/workspace/src/src/qn_aav_simulator/config/monitoring_request_offshore.yaml}"
 JOINT_EXECUTORS_FILE="${JOINT_EXECUTORS_FILE:-/workspace/src/src/qn_aav_simulator/config/joint_request_executors.yaml}"
+JOINT_SCENE_FILE="${JOINT_SCENE_FILE:-$PROJECT_ROOT/integration/qn_aav_simulator/config/five_scene_offshore.yaml}"
+JOINT_USV_INITIAL_POSITION="${JOINT_USV_INITIAL_POSITION:-[-25.0, 4.0, 0.0]}"
+JOINT_UUV_INITIAL_POSITION="${JOINT_UUV_INITIAL_POSITION:-[-27.0, 4.0, -2.0]}"
 QN_SAME_SOURCE_ACCELERATION="${QN_SAME_SOURCE_ACCELERATION:-false}"
 case "$JOINT_VISUALIZE" in true|false) ;; *) echo 'JOINT_VISUALIZE must be true or false' >&2; exit 2 ;; esac
 case "$JOINT_GPU_RENDER" in true|false) ;; *) echo 'JOINT_GPU_RENDER must be true or false' >&2; exit 2 ;; esac
@@ -57,12 +60,14 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
   --env JOINT_VIEW_HOLD_S="$JOINT_VIEW_HOLD_S" \
   --env JOINT_REQUEST_FILE="$JOINT_REQUEST_FILE" \
   --env JOINT_EXECUTORS_FILE="$JOINT_EXECUTORS_FILE" \
+  --env JOINT_USV_INITIAL_POSITION="$JOINT_USV_INITIAL_POSITION" \
+  --env JOINT_UUV_INITIAL_POSITION="$JOINT_UUV_INITIAL_POSITION" \
   --env QN_SAME_SOURCE_ACCELERATION="$QN_SAME_SOURCE_ACCELERATION" \
   "${JOINT_GUI_ARGS[@]}" \
   --volume "$PROJECT_ROOT/integration/qn_aav_simulator:/workspace/src/src/qn_aav_simulator:ro" \
   --volume "$PROJECT_ROOT/integration/mrta_python:/workspace/integration/mrta_python:ro" \
   --volume "$JOINT_OUTPUT:/experiments/current" \
-  --volume "$PROJECT_ROOT/integration/qn_aav_simulator/config/five_scene_harbor.yaml:/experiments/scene.yaml:ro" \
+  --volume "$JOINT_SCENE_FILE:/experiments/scene.yaml:ro" \
   "$JOINT_IMAGE" bash -lc '
     set -eo pipefail
     source /opt/ros/noetic/setup.bash
@@ -75,7 +80,8 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
     "${sim_prefix[@]}" roslaunch qn_aav_simulator five_qualification.launch record:=false \
       request_file:="$JOINT_REQUEST_FILE" \
       scene_file:=/experiments/scene.yaml visualize:="$JOINT_VISUALIZE" \
-      usv_initial_position:="[-10.0, 4.0, 0.0]" uuv_initial_heading_rad:=-0.22 \
+      usv_initial_position:="$JOINT_USV_INITIAL_POSITION" \
+      uuv_initial_position:="$JOINT_UUV_INITIAL_POSITION" uuv_initial_heading_rad:=-0.22 \
       > /experiments/current/launch.log 2>&1 &
     launch_pid=$!
     rviz_pid="";dashboard_pid="";recorder_pid=""

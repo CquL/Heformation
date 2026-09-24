@@ -269,6 +269,7 @@ def build_request_executor_plan(request,scene,executors,provider,member_states,*
         air_support_units=tuple(unit for unit in executors if len(unit.physical_agent_ids)==1 and
             'SURFACE' in unit.capabilities and getattr(member_states[unit.physical_agent_ids[0]].get(
                 'native_backend',provider.native_models.get(unit.physical_agent_ids[0])),'model',None)=='otter'),
+        air_support_sites=tuple(tuple(site['position']) for site in scene.get('communication_sites',())),
         mother_position=tuple(scene.get('mother_ship_receiver_position',scene['mother_ship_position'])),
         return_sites=dict(return_sites) if request.return_required else {},
         air_units=tuple(unit for unit in executors if len(unit.physical_agent_ids)==1 and

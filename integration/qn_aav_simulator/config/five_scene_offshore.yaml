@@ -1,0 +1,58 @@
+# Model-scale offshore mission, not a kilometre-scale vehicle performance claim.
+# All five physical platforms start by the shore command vessel. The declared
+# corridor between the pier and west jetty constrains outbound motion.
+scene:
+  geometry_enabled: true
+  topic: /scene/global_cloud
+  frame_id: world
+  surface_z_m: 0.0
+  seabed_z_m: -6.0
+  required_clearance_m: 0.2
+  resolution: 0.2
+  obstacle_present: true
+  obstacle_center: [-17.0, -2.0, -1.0]
+  obstacle_size: [2.0, 2.0, 4.0]
+  objects:
+    - {id: pier, kind: SOLID, center: [-17.0, -2.0, -1.0], size: [2.0, 2.0, 4.0], appearance: jetty}
+    - {id: rock, kind: SOLID, center: [6.0, 1.0, -3.0], size: [2.0, 2.0, 2.0], appearance: rock}
+    - {id: exclusion, kind: FORBIDDEN, center: [-12.0, 10.0, -2.0], size: [2.0, 2.0, 8.0]}
+    - {id: shore, kind: SOLID, center: [-38.0, 0.0, -1.5], size: [3.0, 30.0, 9.0], appearance: quay}
+    - {id: breakwater, kind: SOLID, center: [-17.0, 10.0, -2.5], size: [2.0, 8.0, 7.0], appearance: jetty}
+    - {id: reef_west, kind: SOLID, center: [-8.0, -3.0, -4.5], size: [3.0, 3.0, 3.0], appearance: rock}
+    - {id: reef_east, kind: SOLID, center: [10.0, 2.0, -4.5], size: [3.0, 2.0, 3.0], appearance: rock}
+    - {id: reef_outer, kind: SOLID, center: [19.0, 6.0, -4.5], size: [3.0, 3.0, 3.0], appearance: rock}
+    # Encloses all original visual vertices after (x,y,z)->(x,-y,-z).
+    - {id: mother_ship_hull, kind: SOLID, center: [-28.596904, 11.0, 0.285414], size: [7.891588, 2.186304, 1.731388], appearance: mother_ship}
+  mother_ship_position: [-28.0, 11.0, 0.0]
+  # Declared radio attachment above the rendered solid hull (top ~1.15m).
+  # The hull centre is not a valid LOS receiver; this is geometry, not an
+  # experimentally calibrated antenna specification.
+  mother_ship_receiver_position: [-28.0, 11.0, 2.0]
+  scenario_label: 远域联合观测 · 岸边部署→海上作业
+  # Operator-confirmed return policy: each participating platform comes back
+  # to its declared deployment footprint. Marine radii are native hull proxies;
+  # AAV uses the existing AIR Action terminal position tolerance (0.5 m),
+  # so a successful return Goal can imply arrival in this business region.
+  # These are not the unrelated Action entry tolerance. Every return ball is
+  # inside the declared static free space. REMUS may pass through its return
+  # ball after observation, then complete a verified safe terminal tail; AAV
+  # and Otter must finish inside theirs. A declared ball alone proves no route.
+  return_sites:
+    drone_0: {position: [-30.0, 6.0, 0.8], radius_m: 0.5}
+    drone_1: {position: [-30.0, 4.0, 0.8], radius_m: 0.5}
+    drone_2: {position: [-30.0, 8.0, 0.8], radius_m: 0.5}
+    usv: {position: [-25.0, 4.0, 0.0], radius_m: 1.1891593669479295}
+    uuv: {position: [-27.0, 4.0, -2.0], radius_m: 0.8056208785775105}
+  transition_sites:
+    # Candidate only. Cross-medium execution remains unavailable until its
+    # actual entry/exit and fault behavior pass native qualification here.
+    - {id: offshore_entry, position: [0.0, 4.0, 0.0]}
+  communication_sites:
+    # Only this site can bridge both the mother receiver (RF 30 m model) and
+    # the far UUV sample (acoustic 8 m model). This is geometry, not a modem
+    # performance claim; actual Otter movement and delivery must still pass.
+    - {id: offshore_support, position: [-4.0, 4.0, 0.0]}
+  observation_targets:
+    - {id: offshore_air, position: [3.0, 4.0, 0.8], domain: AIR}
+    - {id: offshore_water, position: [0.0, 4.0, -2.0], domain: WATER}
+  visual_assets: /experiments/assets

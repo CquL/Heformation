@@ -1,0 +1,26 @@
+# One offshore observation job. The solver chooses the AIR observer and the
+# qualified underwater method; USV support is selected only if delivery needs it.
+# Coordinates are metres in the model scene, not a real-sea distance claim.
+request_id: offshore-joint-observation
+service_time_s: 4.0
+deadline_s: null
+delivery_required: true
+return_required: true
+requirement:
+  footprint_radius_m: 2.5
+  min_dwell_s: 1.0
+  cruise_altitude_m: 0.8
+  max_distance_from_altitude_m: 3.0
+regions:
+  - region_id: offshore_air
+    kind: SURFACE
+    corner_a: [2.0, 3.0, 0.0]
+    corner_b: [4.0, 5.0, 0.0]
+    interest_points:
+      - {point_id: air_sample, position: [3.0, 4.0, 0.0], weight: 1.0}
+  - region_id: offshore_water
+    kind: UNDERWATER
+    corner_a: [-1.0, 3.0, -2.0]
+    corner_b: [1.0, 5.0, -2.0]
+    interest_points:
+      - {point_id: water_sample, position: [0.0, 4.0, -2.0], weight: 1.0}

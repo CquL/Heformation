@@ -529,7 +529,7 @@ def test_composite_retains_booking_between_steps_and_failure_blocks_successor(ru
     runner._executor_goal=lambda view,unit:SimpleNamespace(task_id=view.execution_id)
     runner.native_result=lambda _:('native-goal',SimpleNamespace(status=SimpleNamespace(status=3)))
     calls=[]
-    def send(view,selected,goal,action):
+    def send(view,selected,goal,action,**kwargs):
         assert runner.active_executor_ids=={item.executor_id}
         assert runner.plan.item(item.execution_id).status=='RUNNING'
         assert not runner.metrics['results_received']
@@ -568,7 +568,7 @@ def test_composite_negative_observation_report_continues_verified_return(runner_
     runner._executor_goal=lambda view,selected:SimpleNamespace(task_id=view.execution_id)
     runner.epoch=-200.
     calls=[]
-    def send(view,selected,goal,action):
+    def send(view,selected,goal,action,**kwargs):
         calls.append(view.execution_id)
         missing=view.execution_id.endswith(':step:0')
         terminal=SimpleNamespace(**dict(vars(result),task_id=view.execution_id,
@@ -610,7 +610,7 @@ def test_composite_air_missing_report_finishes_return_without_fake_delivery(runn
     runner._release_result_ok=lambda *args:True
     runner._receive_observations=lambda *args:None
     runner.native_result=lambda ident:(ident+'-goal',SimpleNamespace(status=SimpleNamespace(status=3)))
-    def send(view,selected,goal,action):
+    def send(view,selected,goal,action,**kwargs):
         ident=view.execution_id+'-goal'
         file_name=view.execution_id.replace(':','_')+'.json'
         (tmp_path/file_name).write_text(json.dumps(dict(goal_id=ident,
@@ -659,7 +659,7 @@ def test_composite_observation_checks_receipt_for_each_native_goal_before_releas
     runner.metrics['received_terminal_reports']={};runner.epoch=-200.
     runner._executor_goal=lambda view,unit:SimpleNamespace(task_id=view.execution_id)
     runner.native_result=lambda ident:(ident+'-goal',SimpleNamespace(status=SimpleNamespace(status=3)))
-    def send(view,*args):
+    def send(view,*args,**kwargs):
         native=SimpleNamespace(**dict(vars(result),task_id=view.execution_id,goal_id=view.execution_id+'-goal'))
         runner.metrics['received_terminal_reports'][native.goal_id]=dict(
             point_ids=['water_sample'],observed_ids=['water_sample'])

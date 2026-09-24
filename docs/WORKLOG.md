@@ -2857,3 +2857,15 @@
 - 效果：确认必须补齐点云本地看门狗、所有共享端点的锁存接纳检查，以及有单调期限的处置观察。
 - 证据：已确认计划及本地任务书/文献对照；原生停止仅是固定位置参考，尚不能宣称 qn 停止保持通过。
 - 未完成/下一步：实施最小补丁与单机首个实跑；每阶段继续追加本日志，失败不删。
+## 2026-09-24 UTC — 按用户要求清理旧产物并停止本轮工作
+
+- 计划：停止沿用港口资格画面；用户明确要求删除旧实验产物及不用的 VRX/Gazebo 试接，并在清理后停下。保留现有 Swarm、qn、PVS、联合求解与 ROS/RViz 源码。
+- 实际：删除 `experiments/` 中旧日期的本地产物，保留本轮新远域场景的三个目录和仓库说明；移除忽略的 `upstream/VRX` 克隆（清理前约 513 MB）、`heformation-vrx:noetic` 镜像标签及 VRX 专用 Dockerfile/构建/运行脚本。旧产物中容器所有权文件用已授权的 `sudo -n` 完成删除。停止本轮启动的 Docker 仿真容器。
+- 结果与失败：仓库当前约 2.7 GB，`upstream/VRX` 和 VRX 镜像均不存在；核心源码目录仍在。新远域场景已建立岸边集结与远端目标的真实坐标布局并在实时 RViz 显示，但完整新请求的原生规划在 180 s 诊断预算内未找到可派发方案，拒绝原因包含采样连续性、原生时域和运动净距；本轮**没有**取得新远域三类协同执行通过证据。旧实验 bag 已按用户要求删除，早期日志文字只作为历史记录。
+- 代码／配置／证据：`integration/qn_aav_simulator/config/{five_scene_offshore.yaml,monitoring_request_offshore.yaml}`、`scripts/docker_run_joint_request.sh`；保留的新场景截图在 `experiments/20260924-offshore-layout-live-r2/rviz-initial.png`。本轮源码和文档尚未提交或推送。
+- 未完成／下一步：遵用户要求停下。远域场景的原生路线资格、完整分配执行、并行运动和返回仍未验收；恢复工作需从当前未提交工作树继续，不能把布局截图当成协同成功。
+## 2026-09-24 UTC — 清理后入口与交接文字同步
+
+- 计划／实际：按“清理好就停下”补齐清理尾项：移除 README 的旧港口成功命令和 VRX 死链接、删除过时 VRX 试接评审页、更新上游目录说明，并在当前状态和交接首部标明旧实验路径已删除；停止本轮实时容器。
+- 结果：当前仓库约 2.7 GB；旧 `experiments/` 目录仅剩本轮三个 `offshore` 输出，`upstream/VRX` 与 `heformation-vrx:noetic` 均不存在。Swarm、qn、PVS、任务求解源码目录仍在。新远域布局截图可看，但其完整协同请求未通过规划，零 Goal。
+- 证据／未完成：`README.md`、`upstream/README.md`、`context/{02_current_status,15_handoff}.md`；未提交或推送。按用户要求停下，不继续调参、补路线或运行试验。

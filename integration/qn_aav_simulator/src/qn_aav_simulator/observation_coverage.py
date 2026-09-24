@@ -125,6 +125,15 @@ class FiniteDelivery:
         return tuple(receipts)
 
 
+def radio_link_available(samples, source, destination, obstacles=()):
+    """Use the same declared RF geometry for command feasibility and delivery."""
+    if source not in samples or destination not in samples:
+        return False
+    a,ma=samples[source];b,mb=samples[destination]
+    return (ma in ('AIR','SURFACE') and mb in ('AIR','SURFACE') and
+            math.dist(a,b)<=30. and not any(o.blocks(a,b) for o in obstacles))
+
+
 def declared_delivery_channels(products,previous,states,obstacles=(),continuous=True):
     """The frozen sampled link model, shared by prediction and live transport.
 
@@ -136,8 +145,9 @@ def declared_delivery_channels(products,previous,states,obstacles=(),continuous=
         a,ma=samples[source];b,mb=samples[destination]
         if water:
             if {ma,mb}!={'WATER','SURFACE'}:return False
-        elif ma not in ('AIR','SURFACE') or mb not in ('AIR','SURFACE'):return False
-        return math.dist(a,b)<=(8. if water else 30.) and not any(o.blocks(a,b) for o in obstacles)
+        else:
+            return radio_link_available(samples,source,destination,obstacles)
+        return math.dist(a,b)<=8. and not any(o.blocks(a,b) for o in obstacles)
     acoustic=[];radio=[]
     for ident,product in products.items():
         if product.received_at is not None:continue

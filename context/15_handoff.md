@@ -1,5 +1,7 @@
 # 最新交接：分层监测需求基线与 AAV 本地停止保持
 
+> **2026-09-24 清理后交接**：用户要求停止，已停止本轮 Docker 仿真。旧港口实验 bag/截图等本地产物及 VRX 独立克隆、专用脚本/镜像已删除；下方历史条目中的实验路径不再可读取。当前新远域场景与请求在 `integration/qn_aav_simulator/config/`，初始岸边五平台布局在实时 RViz 可见，完整三类任务仍因原生计划查询失败未派发。新场景、联合搜索和清理改动都在**未提交**工作树。恢复时先读 README 和 WORKLOG 首条，不得把初始截图写成协同运行完成。
+
 > **2026-09-24 可视化最新交接**：用户当前要看实时协同效果，优先运行README顶部`bash scripts/docker_run_three_class_qualification.sh <新目录>`并在具体Plan打印后输入`yes`。最近`experiments/20260924-three-class-live-ui-sync-r1`同一ROS/RViz/中文面板中真实AAV2 AIR＋REMUS WATER＋Otter支援、两结果母船收件、五Goal/Result、七有限命令、返回/零锁与独立时间/安全审计PASS；截图在该目录`rviz-live.png`/`dashboard-live.png`。规划前约180秒平台待命，不是离线回放；下一次启动原面板还显示规划已用时间、复查、状态回执与返回进度。该入口只为三类执行资格临时不提供AAV1水下备选；普通全方法四区域的区B通信/返程顺序仍FAIL，不能冒充最终验收。WORKLOG最新条目与README为准。
 
 > **2026-09-24 四区域全方法继续点**：WORKLOG首条和`experiments/20260924-full-method-four-region-live-r{1,2}`为当前证据。原A/B/C＋水下样点同请求在保留AAV1水下备选时可名义选UUV＋USV；r1真实AAV1 AIR轨迹侵入待命AAV2原0.5m门，最终独立净距最低0.173709m，安全FAIL。排序只作为候选遍历提示后r2改选AAV2、zone_A和UUV/USV实际成功且平台代理安全，但zone_B正产品/终态在USV返程附近才晚约217秒抵母船，而原AIR复合worker在收件前不发返回Goal，zone_C未启动，请求UNKNOWN_LOCKED。仅延长等待没有解决未预订的保持/通信窗口；必须使整计划有限收件预测与执行片段顺序同一语义，或在既有本地Action端点实现真正已接纳返程。原合作组Result提前释放/错误标量刷新已修，审计已动态按实际AIR成员；r2旧bag缺drone1规划话题，整体独立审计不能说PASS。早先单AIR有限状态复查r4及限定配置三类实时正例仍有效，但不能拼成最终全方法同次任务。两项业务/初次预算异步用户答案仍待。
