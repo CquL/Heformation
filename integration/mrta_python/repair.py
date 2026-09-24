@@ -153,6 +153,22 @@ def process_executor_completion(plan, event, final_events):
                 finishes[committed.execution_id]=finish
                 for member in committed.coalition:
                     available[member]=max(available.get(member,0.),finish)
+        # A cooperative method is one accepted launch commitment. If a prior
+        # Result delays one participant, move every still-unstarted role to the
+        # same new launch time before validating support-start precedence.
+        groups={}
+        for pending in updated.items:
+            if pending.status=='PLANNED' and pending.candidate_id:
+                groups.setdefault((pending.task_id,pending.candidate_id),[]).append(pending)
+        for group in groups.values():
+            if len(group)<2:continue
+            release=max(max(row.planned_start for row in group),
+                max((available.get(member,0.) for row in group for member in row.coalition),default=0.))
+            for row in group:
+                if row.planned_start<release:
+                    row.planned_finish+=release-row.planned_start
+                    row.planned_start=release
+                    changed=True
         predecessors=activity_predecessors(updated)
         for successor in updated.items:
             if successor.status!='PLANNED':
@@ -167,6 +183,7 @@ def process_executor_completion(plan, event, final_events):
             successor.planned_start,successor.planned_finish=start,finish
             finishes[successor.execution_id]=finish
             for member in successor.coalition:available[member]=finish
+        activity_predecessors(updated)
         final_events[event.execution_id]=event
         return updated,changed
     release, changed = event.actual_finish, False

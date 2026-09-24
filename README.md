@@ -24,6 +24,18 @@ models/qn/qn.slx
 
 ## 五平台实时可视化仿真
 
+### 三类平台同次接线资格仿真（AIR AAV＋REMUS＋移动 Otter）
+
+这条入口使用**原港口两区域请求**与原回收区。它只在本次资格配置中不提供 AAV 水下备选，用来验证三类平台的 Action、有限交付与实时画面；普通联合请求的完整能力和方法比较不受影响。在桌面终端运行，看到具体四活动计划后输入 `yes`：
+
+```bash
+cd /home/lhj/Swarm-Formation
+bash scripts/docker_run_three_class_qualification.sh \
+  "experiments/$(date -u +%Y%m%dT%H%M%SZ)-three-class-live"
+```
+
+脚本使用当前主机的 CPU 核组和明确的 **180 秒诊断规划预算**，并只在本次运行期间暂停已证实会回拨 ROS 墙钟的宿主 `systemd-timesyncd`，正常退出或 Ctrl-C 时恢复原服务状态；需要本机非交互式 `sudo`。它不会修改 0.05 秒时间门槛或仿真模型。一次已保存的同次运行获得 AAV 空中、REMUS 原水下样点、移动 USV 支援、两份有限结果收件、规定返回、零锁以及独立五平台整场时间/安全和控制因果审计通过；边界见 [当前状态](context/02_current_status.md) 和 [WORKLOG](docs/WORKLOG.md)。本资格入口不证明普通完整能力请求会选 UUV、严格 10 秒求解或已触发复查。
+
 ### 两区域联合请求：AIR、USV支援与AAV跨介质（资格诊断）
 
 在有桌面 `DISPLAY` 的终端运行，查看具体计划后输入 `yes` 才派发：

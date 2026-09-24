@@ -77,3 +77,24 @@ def test_parallel_delay_does_not_shift_an_unrelated_unstarted_platform():
     assert changed
     assert updated.items[1].planned_start==0. and updated.items[1].planned_finish==10.
     assert updated.items[2].planned_start==3. and updated.items[2].planned_finish==5.
+
+
+def test_late_result_moves_unstarted_cooperative_roles_together():
+    from mrta_python.executors import activity_predecessors
+    air_support=ExecutorPlanItem('air-support','air','usv',('usv',),0.,14.,14.,0.,0.,
+        'RUNNING',candidate_id='air-method',fulfills_task=False)
+    air_work=ExecutorPlanItem('air-work','air','aav',('drone_0',),0.,24.,24.,0.,0.,
+        'RUNNING',candidate_id='air-method')
+    water_support=ExecutorPlanItem('water-support','water','usv',('usv',),14.,317.,303.,0.,0.,
+        candidate_id='water-method',fulfills_task=False)
+    water_work=ExecutorPlanItem('water-work','water','uuv',('uuv',),14.,266.,252.,0.,0.,
+        candidate_id='water-method')
+    plan=ExecutorPlan([air_support,air_work,water_support,water_work],serial=False)
+    updated,changed=process_executor_completion(plan,
+        DelayEvent('support-goal','air-support','air',14.,16.27),{})
+    assert changed
+    assert updated.items[2].planned_start==updated.items[3].planned_start==16.27
+    assert updated.items[2].planned_finish==319.27
+    assert updated.items[3].planned_finish==268.27
+    assert updated.items[1]==air_work and plan.items[2].planned_start==14.
+    activity_predecessors(updated)

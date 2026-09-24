@@ -633,6 +633,8 @@ class MissionDashboard:
         line(.21,'声明链路：水下 8 m / 2 KiB/s；射频 30 m / 32 KiB/s',10)
         reason=state.get('failure_reason','')
         if reason:
+            if reason=='dependent work precedes its support launch':
+                reason='协同作业启动早于支援启动，后续派发已阻断'
             timing=re.fullmatch(
                 r'endpoint not ready: (\S+): time baseline not qualified: model/ROS drift ([0-9.]+) s exceeds ([0-9.]+) s',
                 reason)

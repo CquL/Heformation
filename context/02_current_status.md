@@ -1,5 +1,7 @@
 # 当前状态
 
+> **2026-09-24 最新三类实时接线正例（限定测试配置）**：`experiments/20260924-three-class-live-stable-clock-r3`在原港口两区域同一正式`joint_request`中真实执行AAV1 AIR、REMUS水下样点与移动Otter预承诺通信支援；5原生Goal/Result、7/7有限下行、5/5有限终态母船通知、两32KiB几何代理产品收件、三方规定返回与零锁都成立，中文任务面板/RViz同ROS会话真窗口已保存。独立**整场**五平台时间/场景/净距审计`passed=true`（模型/ROS峰值0.01673s，执行位置零缺、代理最小净距0.59421m、UUV实体余量0.68088m），bag控制因果审计亦PASS；宿主NTP仅实验期间暂停，退出已恢复active。**范围**：该接线测试执行单元表暂不提供AAV水下备选、180s初次规划为诊断、观测是几何代理、未触发复查；普通完整能力请求此前仍选AAV且UUV待命。因而不能将本次写成最终完整方法选择/严格10s/真实载荷/反馈复查全验收。前述时间与DAG负例保留，详见WORKLOG顶部。
+
 > **2026-09-24 三类同请求最新负例**：仅在接线测试配置中排除AAV水下替代方法（普通请求/原能力配置不改），正式`joint_request`确实生成AAV AIR＋UUV WATER＋移动USV完整计划，RViz/中文面板同次启动；但360s重规划期使三qn全程模型/ROS漂移峰值约1.73s，AAV1 Action以原0.05s就绪门拒绝，AIR Goal零派发、终态`UNKNOWN_LOCKED`，UUV产品虽送达仍只有交付0.5。把诊断规划缩到180s仍能找到完整计划，却同样在规划期出现1.719s峰值；确认输入`no`，零派发。`docs/WORKLOG.md`顶部、`experiments/20260923-three-class-integration-r1`及`three-class-plan-180-r1`保留原失败。此前UUV＋USV组件实时正例继续成立，但**最终三类同请求有效实跑尚未通过**；不能清掉规划期时间历史或放宽门槛。
 
 > **2026-09-23 最新实时UUV＋USV组件证据**：原港口同样点/回区，在正式`joint_request`同次Noetic运行中用预承诺Otter等待→移动、REMUS原生水下长回环取得1份32KiB几何代理结果与2/2有限终态母船收件，双方原生Action成功并返回、锁空；中文面板/RViz真窗口已保存规划、运行与收件中画面。CPU核组隔离后**整场**五平台模型/ROS峰值0.014863s，执行期零位置缺样、平台代理净距0.592976m、声明实体余量合格；同bag控制因果PASS。通用AIR审计仍因本组件无AIR Goal而总FAIL，原文件保留。这是UUV＋移动USV组件资格，不是AAV也参与同一业务的最终三类协同；普通原请求预览仍选AAV且UUV待命。详见WORKLOG顶部及本机`experiments/20260923-uuv-usv-joint-live-r1`。

@@ -12,6 +12,7 @@ JOINT_VIEW_CPUSET="${JOINT_VIEW_CPUSET:-}"
 JOINT_VIEW_HOLD_S="${JOINT_VIEW_HOLD_S:-5}"
 JOINT_REQUEST_FILE="${JOINT_REQUEST_FILE:-/workspace/src/src/qn_aav_simulator/config/monitoring_request_joint.yaml}"
 JOINT_EXECUTORS_FILE="${JOINT_EXECUTORS_FILE:-/workspace/src/src/qn_aav_simulator/config/joint_request_executors.yaml}"
+QN_SAME_SOURCE_ACCELERATION="${QN_SAME_SOURCE_ACCELERATION:-false}"
 case "$JOINT_VISUALIZE" in true|false) ;; *) echo 'JOINT_VISUALIZE must be true or false' >&2; exit 2 ;; esac
 mkdir -p "$JOINT_OUTPUT"
 JOINT_OUTPUT="$(realpath "$JOINT_OUTPUT")"
@@ -49,6 +50,7 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
   --env JOINT_VIEW_HOLD_S="$JOINT_VIEW_HOLD_S" \
   --env JOINT_REQUEST_FILE="$JOINT_REQUEST_FILE" \
   --env JOINT_EXECUTORS_FILE="$JOINT_EXECUTORS_FILE" \
+  --env QN_SAME_SOURCE_ACCELERATION="$QN_SAME_SOURCE_ACCELERATION" \
   "${JOINT_GUI_ARGS[@]}" \
   --volume "$PROJECT_ROOT/integration/qn_aav_simulator:/workspace/src/src/qn_aav_simulator:ro" \
   --volume "$PROJECT_ROOT/integration/mrta_python:/workspace/integration/mrta_python:ro" \

@@ -16,8 +16,17 @@ and ``~diagnostics``.  No qn controller, actuator or 6DOF equation is changed.
 """
 
 import math
+import os
 import threading
 import time
+
+# Opt-in diagnostic: the existing private query build compiles these exact qn
+# sources and checks their source hashes/ABI before import. Keep the ordinary
+# online path unchanged unless an experiment explicitly selects it.
+if os.environ.get('QN_SAME_SOURCE_ACCELERATION')=='true':
+    from mrta_python.query_worker import _enable_query_extensions
+    if not _enable_query_extensions():
+        raise RuntimeError('same-source qn accelerator is absent or differs from mounted source')
 
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from geometry_msgs.msg import PoseStamped, TwistStamped
