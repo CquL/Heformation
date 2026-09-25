@@ -65,7 +65,8 @@ int main(int argc,char **argv) {
       std::vector<double> durations;std::vector<poly_traj::CoefficientMat> coefficients;
       if (raw.get<bool>("stationary",false)) {
         poly_traj::CoefficientMat c=poly_traj::CoefficientMat::Zero();c.col(5)=vector3(raw.get_child("position"));
-        durations.push_back(1.);coefficients.push_back(c);peer.start_time=ros::Time::now().toSec();
+        durations.push_back(1.);coefficients.push_back(c);
+        peer.start_time=request.get<double>("reference_start_time",ros::Time::now().toSec());
       } else {
         peer.start_time=raw.get<double>("start_time");
         for (const auto &d:raw.get_child("durations")) {

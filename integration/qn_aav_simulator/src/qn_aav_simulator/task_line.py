@@ -163,12 +163,14 @@ def request_native_methods(request,scene,executors,member_states,native_models,d
     sites=[]
     for site in scene.get('communication_sites',()):
         position=tuple(site['position'])
-        wait=float(site.get('wait_before_s',0.))
-        if (len(position)!=3 or not all(math.isfinite(v) for v in position) or
-                position[2]!=scene['surface_z_m'] or not math.isfinite(wait) or wait<0):
-            raise ValueError('communication site must be a finite surface position')
-        entry=(position,wait)
-        if entry not in sites:sites.append(entry)
+        waits=site.get('departure_wait_candidates_s',(site.get('wait_before_s',0.),))
+        for raw_wait in waits:
+            wait=float(raw_wait)
+            if (len(position)!=3 or not all(math.isfinite(v) for v in position) or
+                    position[2]!=scene['surface_z_m'] or not math.isfinite(wait) or wait<0):
+                raise ValueError('communication site must be a finite surface position and wait')
+            entry=(position,wait)
+            if entry not in sites:sites.append(entry)
     regions={r.region_id:r for r in request.regions};methods={}
     for task in tasks:
         region=regions[task.target_ref]
@@ -178,7 +180,9 @@ def request_native_methods(request,scene,executors,member_states,native_models,d
             member=work.physical_agent_ids[0]
             if request.return_required and member not in return_sites:continue
             backend=member_states[member].get('native_backend',native_models.get(member))
-            if getattr(backend,'model',None)!='remus100':continue
+            qn_uuv=(member=='uuv' and getattr(backend,'backend_id',None)=='PYTHON_QN_CLOSED_LOOP'
+                    and member_states[member]['mode']=='WATER')
+            if getattr(backend,'model',None)!='remus100' and not qn_uuv:continue
             start=tuple(member_states[member]['position'])
             home=tuple(return_sites[member]['position']) if request.return_required else start
             work_specs=[]
@@ -187,15 +191,16 @@ def request_native_methods(request,scene,executors,member_states,native_models,d
             if len(point_positions)>1:routes.extend((point_positions,tuple(reversed(point_positions))))
             for candidate in scene.get('water_route_candidates',{}).get(region.region_id,()):
                 segments=tuple(NativeSegmentSpec('WATER_PATH',tuple(tuple(p) for p in raw['points']),
+                    duration_s=float(raw.get('duration_s',0.)),
                     propulsion_effort=float(raw.get('propulsion_effort',0.)))
                     for raw in candidate['segments'])
                 if (segments[0].points[0]!=start or
                         (request.return_required and segments[-1].points[-1]!=home)):
                     continue  # This declared route is not qualified from this member state.
-                work_specs.append(NativeActionSpec(segments,backend.terminal_behavior,
+                work_specs.append(NativeActionSpec(segments,'FIXED_REFERENCE' if qn_uuv else backend.terminal_behavior,
                     execution_timeout_s=float(candidate['execution_timeout_s']),
                     observation_ids=tuple(p.point_id for p in region.interest_points)))
-            for route in routes:
+            for route in (() if qn_uuv else routes):
                 points=[start]
                 for p in route:
                     if p!=points[-1]:points.append(p)
@@ -218,10 +223,16 @@ def request_native_methods(request,scene,executors,member_states,native_models,d
                         if time.monotonic()>=deadline:raise PlanningBudgetExceeded('request method generation exceeded shared budget')
                         support_home=tuple(return_sites[other]['position']) if request.return_required else boat_start
                         support_path=(boat_start,site,support_home) if request.return_required else (boat_start,site)
-                        support_segments=((NativeSegmentSpec('SURFACE_PATH',(boat_start,boat_start),duration_s=wait),)
-                                          if wait else ())+(NativeSegmentSpec('SURFACE_PATH',support_path),)
+                        if request.template_id=='OFFSHORE_JOINT':
+                            support_segments=((NativeSegmentSpec('SURFACE_PATH',(boat_start,boat_start),duration_s=wait),)
+                                              if wait else ())+(NativeSegmentSpec('SURFACE_PATH',(boat_start,site)),)
+                            if request.return_required:
+                                support_segments+=(NativeSegmentSpec('SURFACE_PATH',(site,support_home)),)
+                        else:
+                            support_segments=((NativeSegmentSpec('SURFACE_PATH',(boat_start,boat_start),duration_s=wait),)
+                                              if wait else ())+(NativeSegmentSpec('SURFACE_PATH',support_path),)
                         support_spec=NativeActionSpec(support_segments,boat.terminal_behavior,
-                            execution_timeout_s=180.+wait)
+                            execution_timeout_s=(300. if request.template_id=='OFFSHORE_JOINT' else 180.)+wait)
                         choices.append({work:work_spec,support:support_spec})
             if choices:methods[(work.executor_id,task.task_id)]=tuple(choices)
     return tasks,methods
@@ -270,6 +281,8 @@ def build_request_executor_plan(request,scene,executors,provider,member_states,*
             'SURFACE' in unit.capabilities and getattr(member_states[unit.physical_agent_ids[0]].get(
                 'native_backend',provider.native_models.get(unit.physical_agent_ids[0])),'model',None)=='otter'),
         air_support_sites=tuple(tuple(site['position']) for site in scene.get('communication_sites',())),
+        task_support_sites=tuple(dict(site) for site in scene.get('communication_sites',())),
+        planning_time_origin=time.time(),
         mother_position=tuple(scene.get('mother_ship_receiver_position',scene['mother_ship_position'])),
         return_sites=dict(return_sites) if request.return_required else {},
         air_units=tuple(unit for unit in executors if len(unit.physical_agent_ids)==1 and
@@ -385,7 +398,7 @@ def load_request(path: Path) -> MonitoringRequest:
     raw = yaml.safe_load(Path(path).read_text())
     if not isinstance(raw, dict):
         raise ValueError("a monitoring request must be a mapping")
-    allowed={'request_id','requirement','regions','required_capabilities','service_time_s','deadline_s',
+    allowed={'request_id','template_id','requirement','regions','required_capabilities','service_time_s','deadline_s',
              'delivery_required','requires_underwater','requires_relay_delivery','return_required','formation_phase'}
     if set(raw)-allowed:
         raise ValueError('unsupported request fields: '+str(sorted(set(raw)-allowed)))
@@ -411,7 +424,8 @@ def load_request(path: Path) -> MonitoringRequest:
         delivery_required=bool(raw.get("delivery_required", True)),
         requires_underwater=bool(raw.get("requires_underwater", False)),
         requires_relay_delivery=bool(raw.get("requires_relay_delivery", False)),
-        return_required=raw.get('return_required',False))
+        return_required=raw.get('return_required',False),
+        template_id=str(raw.get('template_id','')))
 
     from .monitoring_request import validate_request
     validate_request(request)

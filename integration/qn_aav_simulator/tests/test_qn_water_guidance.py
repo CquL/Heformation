@@ -24,11 +24,12 @@ def test_route_water_guidance_is_active_and_uses_position_derivative():
     b,s=backend(True,-.5)
     step(b,s,(0.,.001,-.5))
     assert b._water_guidance_active
-    assert math.isclose(b._water_horizontal_speed_mps,.1)
+    assert .1 < b._water_horizontal_speed_mps < .101
     assert b._water_desired_heading_rad > 0
-    # Constant position is a zero-speed request even if another field says 99.
+    # When the timed reference stops ahead of the plant, guidance keeps a
+    # bounded position-capture demand; the unused velocity field stays ignored.
     step(b,s,(0.,.001,-.5))
-    assert b._water_horizontal_speed_mps == 0
+    assert 0 < b._water_horizontal_speed_mps < .1
 
 
 def test_opt_in_water_guidance_preserves_air_dynamics():

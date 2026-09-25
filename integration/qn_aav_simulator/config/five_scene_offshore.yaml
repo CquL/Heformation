@@ -16,7 +16,9 @@ scene:
     - {id: pier, kind: SOLID, center: [-17.0, -2.0, -1.0], size: [2.0, 2.0, 4.0], appearance: jetty}
     - {id: rock, kind: SOLID, center: [6.0, 1.0, -3.0], size: [2.0, 2.0, 2.0], appearance: rock}
     - {id: exclusion, kind: FORBIDDEN, center: [-12.0, 10.0, -2.0], size: [2.0, 2.0, 8.0]}
-    - {id: shore, kind: SOLID, center: [-38.0, 0.0, -1.5], size: [3.0, 30.0, 9.0], appearance: quay}
+    # Entirely west of Swarm's x=-35 m map edge; analytic safety still checks
+    # the full box, while the planner need not serialize 111k unreachable voxels.
+    - {id: shore, kind: FORBIDDEN, center: [-38.0, 0.0, -1.5], size: [3.0, 30.0, 9.0], appearance: quay}
     - {id: breakwater, kind: SOLID, center: [-17.0, 10.0, -2.5], size: [2.0, 8.0, 7.0], appearance: jetty}
     - {id: reef_west, kind: SOLID, center: [-8.0, -3.0, -4.5], size: [3.0, 3.0, 3.0], appearance: rock}
     - {id: reef_east, kind: SOLID, center: [10.0, 2.0, -4.5], size: [3.0, 2.0, 3.0], appearance: rock}
@@ -41,18 +43,26 @@ scene:
     drone_0: {position: [-30.0, 6.0, 0.8], radius_m: 0.5}
     drone_1: {position: [-30.0, 4.0, 0.8], radius_m: 0.5}
     drone_2: {position: [-30.0, 8.0, 0.8], radius_m: 0.5}
-    usv: {position: [-25.0, 4.0, 0.0], radius_m: 1.1891593669479295}
+    usv: {position: [-25.0, -2.0, 0.0], radius_m: 1.1891593669479295}
     uuv: {position: [-27.0, 4.0, -2.0], radius_m: 0.8056208785775105}
   transition_sites:
     # Candidate only. Cross-medium execution remains unavailable until its
     # actual entry/exit and fault behavior pass native qualification here.
-    - {id: offshore_entry, position: [0.0, 4.0, 0.0]}
+    - {id: offshore_entry, position: [-3.0, 1.0, 0.0]}
   communication_sites:
     # Only this site can bridge both the mother receiver (RF 30 m model) and
     # the far UUV sample (acoustic 8 m model). This is geometry, not a modem
     # performance claim; actual Otter movement and delivery must still pass.
-    - {id: offshore_support, position: [-4.0, 4.0, 0.0]}
+    - {id: offshore_support, position: [-4.0, 9.0, 0.0], radius_m: 2.0, departure_wait_candidates_s: [0.0, 30.0]}
   observation_targets:
     - {id: offshore_air, position: [3.0, 4.0, 0.8], domain: AIR}
-    - {id: offshore_water, position: [0.0, 4.0, -2.0], domain: WATER}
+    - {id: offshore_aav_water, position: [-3.0, 1.0, -0.6], domain: WATER}
+    - {id: offshore_uuv, position: [0.0, 4.0, -2.0], domain: WATER}
+  # A WATER-only qn proxy must use a timed path; the same reference is used
+  # by the native query and its live PlatformTask endpoint.
+  water_route_candidates:
+    offshore_uuv:
+      - execution_timeout_s: 180.0
+        segments:
+          - {points: [[-27.0, 4.0, -2.0], [0.0, 4.0, -2.0], [-27.0, 4.0, -2.0]], duration_s: 120.0}
   visual_assets: /experiments/assets

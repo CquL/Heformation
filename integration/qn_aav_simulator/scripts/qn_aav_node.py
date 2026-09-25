@@ -60,7 +60,10 @@ from qn_aav_simulator.qn_telemetry import (
 class QnAavNode:
     def __init__(self):
         self.drone_id = int(rospy.get_param("~drone_id", 0))
-        self.agent_id = "drone_{}".format(self.drone_id)
+        self.agent_id = str(rospy.get_param("~agent_id", "drone_{}".format(self.drone_id)))
+        self.platform_type = "UUV" if self.agent_id == "uuv" else "AAV"
+        if self.platform_type == "UUV" and float(rospy.get_param("~init_z", 0.5)) >= 0.0:
+            raise ValueError("the qn UUV proxy must start submerged")
         self.world_frame = str(rospy.get_param("~world_frame", "world"))
         if not self.world_frame:
             raise ValueError("world_frame must be declared")
@@ -100,7 +103,7 @@ class QnAavNode:
         self.clock = ModelClock()
         self.state = AgentState(
             agent_id=self.agent_id,
-            type="AAV",
+            type=self.platform_type,
             timestamp_s=rospy.Time.now().to_sec(),
             position=position,
             velocity=(0.0, 0.0, 0.0),
@@ -300,7 +303,7 @@ class QnAavNode:
         model_time_s = self.clock.advance(dt_s, integration_step_s, substeps)
         self.state = AgentState(
             agent_id=self.agent_id,
-            type="AAV",
+            type=self.platform_type,
             timestamp_s=now.to_sec(),
             position=result.position,
             velocity=result.velocity,

@@ -49,13 +49,17 @@ class SceneTransport:
         from qn_aav_simulator.task_line import load_request
         from qn_aav_simulator.observation_coverage import FiniteDelivery,ObstacleBox
         self.String=String;self.request=load_request(request_file);self.frame=frame
+        self.task_service=self.request.template_id=='OFFSHORE_JOINT'
+        self.support_sites=tuple(scene.get('communication_sites',()))
         self.mother=tuple(scene.get('mother_ship_receiver_position',scene['mother_ship_position']))
         self.obstacles=tuple(ObstacleBox(tuple(o['center']),tuple(o['size'])) for o in scene['objects'] if o['kind']=='SOLID')
         if any(box.blocks(self.mother,self.mother) for box in self.obstacles):
             raise ValueError('declared mother receiver lies inside a solid; set its exterior attachment position')
         self.lock=threading.Lock();self.states={};self.modes={};self.local_diagnostics={};self.events={}
         self.last_time=math.floor(rospy.Time.now().to_sec()*10.)/10.;self.previous={}
-        self.delivery=FiniteDelivery(self.last_time)
+        self.started_at=self.last_time
+        self.delivery=None if self.task_service else FiniteDelivery(self.last_time)
+        self.delivered=set()
         self.receipts=rospy.Publisher('/mother/received_products',String,queue_size=100)
         self.notifications=rospy.Publisher('/mother/received_notifications',String,queue_size=100)
         self.command_deliveries=rospy.Publisher('/mother/command_deliveries',String,queue_size=100)
@@ -70,7 +74,8 @@ class SceneTransport:
                 rospy.Subscriber(prefix+'/odometry',Odometry,lambda m,k=member:self.odom(k,m),queue_size=5),
                 rospy.Subscriber(prefix+'/diagnostics',DiagnosticArray,lambda m,k=member:self.mode(k,m),queue_size=5),
                 rospy.Subscriber(source+'/local_products',String,lambda m,k=member:self.produce(k,m),queue_size=100)))
-        self.subs.append(rospy.Subscriber('/mother/command_requests',String,self.command,queue_size=100))
+        if not self.task_service:
+            self.subs.append(rospy.Subscriber('/mother/command_requests',String,self.command,queue_size=100))
         self.subs.append(rospy.Subscriber('/mother/state_claim_requests',String,
             self.state_claim_request,queue_size=20))
         self.timer=rospy.Timer(rospy.Duration(.1),self.tick)
@@ -124,10 +129,12 @@ class SceneTransport:
             if (not isinstance(ident,str) or not ident or event['producer']!=member or
                     event['request_id']!=self.request.request_id or
                     (not terminal and not action_terminal and (event['point_id'] not in points or
-                     event['observed'] is not True or event['required_bytes']!=32*1024))):
+                     event['observed'] is not True or
+                     not self.task_service and event['required_bytes']!=32*1024))):
                 raise ValueError('product identity or declared size mismatch')
             generated=event['generated_at'];now=rospy.Time.now().to_sec()
-            if not math.isfinite(generated) or not self.delivery.start_time<=generated<=now:
+            start_time=self.started_at if self.task_service else self.delivery.start_time
+            if not math.isfinite(generated) or not start_time<=generated<=now:
                 raise ValueError('product generation outside current run')
             with self.lock:
                 if ident in self.events:
@@ -136,10 +143,11 @@ class SceneTransport:
                 self.events[ident]=event
                 # Notification and summary use the same capacity. A received
                 # notice is explicitly not the 32 KiB business product.
-                size=4+len(msg.data.encode('utf-8'))  # std_msgs/String length prefix + actual UTF-8 payload
-                self.delivery.produce('notice:'+ident,DeliveryProduct(member,'mother',size,generated,True))
-                if not terminal and not action_terminal:
-                    self.delivery.produce('data:'+ident,DeliveryProduct(member,'mother',32*1024,generated,True))
+                if not self.task_service:
+                    size=4+len(msg.data.encode('utf-8'))
+                    self.delivery.produce('notice:'+ident,DeliveryProduct(member,'mother',size,generated,True))
+                    if not terminal and not action_terminal:
+                        self.delivery.produce('data:'+ident,DeliveryProduct(member,'mother',32*1024,generated,True))
         except (ValueError,KeyError,TypeError) as error:
             rospy.logerr_throttle(2.,'Rejected local product: %s',str(error))
 
@@ -181,7 +189,7 @@ class SceneTransport:
                     not isinstance(ident,str) or len(ident)!=64 or
                     any(char not in '0123456789abcdef' for char in ident) or
                     type(generated) not in (int,float) or not math.isfinite(generated) or
-                    not self.delivery.start_time<=generated<=now):
+                    not (self.started_at if self.task_service else self.delivery.start_time)<=generated<=now):
                 raise ValueError('invalid finite state-claim request')
             with self.lock:
                 key='claim-request:'+ident
@@ -189,8 +197,11 @@ class SceneTransport:
                     if self.events[key]!=event:raise ValueError('conflicting state-claim request')
                     return
                 self.events[key]=event
-                self.delivery.produce(key,DeliveryProduct('mother',member,
-                    4+len(msg.data.encode('utf-8')),generated,True))
+                if not self.task_service:
+                    self.delivery.produce(key,DeliveryProduct('mother',member,
+                        4+len(msg.data.encode('utf-8')),generated,True))
+            if self.task_service:
+                threading.Thread(target=self.capture_state_claim,args=(event,),daemon=True).start()
         except (ValueError,KeyError,TypeError) as error:
             rospy.logerr_throttle(2.,'Rejected state-claim request: %s',str(error))
 
@@ -234,10 +245,18 @@ class SceneTransport:
                     values.get('platform_resource_locked','false'))).lower())
             ident=claim['product_id'];encoded=json.dumps(claim,allow_nan=False)
             self.events[ident]=claim
-            self.delivery.produce('notice:'+ident,DeliveryProduct(member,'mother',
-                4+len(encoded.encode('utf-8')),stamp,True))
+            if self.task_service:
+                self.delivered.add(ident)
+            else:
+                self.delivery.produce('notice:'+ident,DeliveryProduct(member,'mother',
+                    4+len(encoded.encode('utf-8')),stamp,True))
+        if self.task_service:
+            self.notifications.publish(self.String(data=json.dumps(
+                dict(claim,received_at=rospy.Time.now().to_sec()),allow_nan=False)))
 
     def tick(self,_):
+        if self.task_service:
+            return self.tick_task_service()
         from qn_aav_simulator.observation_coverage import declared_delivery_channels
         now=math.floor(rospy.Time.now().to_sec()*10.)/10.;out=[];requests=[];progress=None
         with self.lock:
@@ -273,6 +292,35 @@ class SceneTransport:
             publisher.publish(self.String(data=json.dumps(event,allow_nan=False)))
         for request in requests:
             threading.Thread(target=self.capture_state_claim,args=(request,),daemon=True).start()
+
+    def tick_task_service(self):
+        from qn_aav_simulator.observation_coverage import task_service_ready
+        now=rospy.Time.now().to_sec();out=[]
+        with self.lock:
+            if now<=self.last_time:return
+            states={}
+            for member,rows in self.states.items():
+                stamp,pos=next((row for row in reversed(rows) if row[0]<=now),(-1.,None))
+                mode_stamp,mode=next((row for row in reversed(self.modes.get(member,()))
+                    if row[0]<=now),(-1.,'UNKNOWN'))
+                if 0<=now-stamp<=.25 and 0<=now-mode_stamp<=.25:
+                    states[member]=(pos,mode)
+            supported=task_service_ready(states,self.support_sites)
+            for ident,event in self.events.items():
+                if 'product_id' not in event:continue
+                if ident in self.delivered or event['generated_at']>now:continue
+                notification=event.get('event_type') in ('OBSERVATION_TERMINAL','ACTION_TERMINAL')
+                if not notification and not supported:continue
+                self.delivered.add(ident)
+                out.append((self.notifications if notification else self.receipts,
+                    dict(event,received_at=now)))
+            self.last_time=now
+            progress=dict(at_ros_s=now,scope='TASK_SERVICE',support_active=supported,
+                products=[dict(point_id=event['point_id'],received=ident in self.delivered)
+                    for ident,event in self.events.items() if event.get('point_id')])
+        self.progress.publish(self.String(data=json.dumps(progress,allow_nan=False)))
+        for publisher,event in out:
+            publisher.publish(self.String(data=json.dumps(event,allow_nan=False)))
 
 
 class SceneView:
@@ -350,7 +398,8 @@ class SceneView:
         label('bed_label', (18.,12.,-5.5), '海底', .65)
         for item in self.scene.get('objects', []):
             p, size = item['center'], item['size']
-            colour = (.9,.2,.25,.18) if item['kind']=='FORBIDDEN' else (.65,.65,.7,.95)
+            colour = ((.65,.65,.7,.95) if item.get('appearance')=='quay' else
+                      (.9,.2,.25,.18) if item['kind']=='FORBIDDEN' else (.65,.65,.7,.95))
             appearance=item.get('appearance','box')
             assets=self.scene.get('visual_assets')
             if appearance=='mother_ship' and assets:

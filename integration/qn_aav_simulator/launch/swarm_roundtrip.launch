@@ -17,6 +17,22 @@
   <param name="drone_0_qn_aav/world_frame" value="world"/>
   <param name="drone_0_qn_aav/water_guidance_mode" value="LOS_VELOCITY_REFERENCE"/>
   <param name="drone_0_qn_aav/water_horizontal_controller_mode" value="LOS_SURGE_YAW"/>
+  <param name="drone_1_ego_planner_node/fsm/reference_handover_enabled" value="true"/>
+  <param name="drone_1_qn_aav/enable_platform_action" value="true"/>
+  <param name="drone_1_qn_aav/reference_handover_enabled" value="true"/>
+  <param name="drone_1_qn_aav/qualification_only" value="true"/>
+  <param name="drone_1_qn_aav/transition_fault_behavior" value="$(arg transition_fault_behavior)"/>
+  <param name="drone_1_qn_aav/world_frame" value="world"/>
+  <param name="drone_1_qn_aav/water_guidance_mode" value="LOS_VELOCITY_REFERENCE"/>
+  <param name="drone_1_qn_aav/water_horizontal_controller_mode" value="LOS_SURGE_YAW"/>
+  <param name="drone_2_ego_planner_node/fsm/reference_handover_enabled" value="true"/>
+  <param name="drone_2_qn_aav/enable_platform_action" value="true"/>
+  <param name="drone_2_qn_aav/reference_handover_enabled" value="true"/>
+  <param name="drone_2_qn_aav/qualification_only" value="true"/>
+  <param name="drone_2_qn_aav/transition_fault_behavior" value="$(arg transition_fault_behavior)"/>
+  <param name="drone_2_qn_aav/world_frame" value="world"/>
+  <param name="drone_2_qn_aav/water_guidance_mode" value="LOS_VELOCITY_REFERENCE"/>
+  <param name="drone_2_qn_aav/water_horizontal_controller_mode" value="LOS_SURGE_YAW"/>
   <node if="$(arg record)" pkg="rosbag" type="record" name="handover_recorder"
     args="-O $(arg output_dir)/handover.bag --buffsize=256 --regex /aav_(1|2|3|formation)/formation_action/.*|/drone_0_qn_aav/(platform_task/.*|local_products)|/drone_[0-2]_qn/(odometry|used_reference_pose|used_reference_twist|diagnostics|medium_flag)|/drone_0_planning/(trajectory|pos_cmd|safety_status)|/drone_0_(member|formation)_goal|/(usv|uuv)/(odometry|diagnostics|local_products|platform_task/.*)|/mother/received_.*|/scene/(global_cloud|delivery_progress)"/>
 </launch>

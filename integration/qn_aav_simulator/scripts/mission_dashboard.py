@@ -568,6 +568,8 @@ class MissionDashboard:
             if key.startswith('retest-'):
                 return '复查'+task_name(key[len('retest-'):].rsplit('-',1)[0])
             return {'overview':'概览','seabed_samples':'水下样点',
+                    'offshore_air':'空中概览','offshore_aav_water':'两栖点测',
+                    'offshore_uuv':'水下巡测',
                     'zone_A':'A区','zone_B':'B区','zone_C':'C区'}.get(key,key[:12])
         rows=(state.get('plan') or {}).get('items',[])
         selected_members={member for row in rows for member in row.get('coalition',())}
@@ -593,7 +595,8 @@ class MissionDashboard:
                'FAIL':'请求未完成，请查看原因',
                'UNKNOWN_LOCKED':'结果未知，成员保持锁定',
                'NOT_CONFIRMED':'未确认，未派发'}
-        title=('近岸联合观测' if not rows else '近岸空中＋水下联合观测' if air and water else
+        title=('远域联合观测' if state.get('delivery_model')=='TASK_SERVICE' else
+               '近岸联合观测' if not rows else '近岸空中＋水下联合观测' if air and water else
                '空中观测＋无人船射频支援' if air else '水下观测＋无人船支援')
         line(1.,title,18)
         status=state.get('status','STANDBY')
@@ -604,7 +607,9 @@ class MissionDashboard:
                 elapsed,state['planning_budget_s']),10)
         else:
             age=now-state.get('updated_at_ros_s',now)
-            line(.875,'任务记录年龄 {:.1f}s · 当前计划 {} 项活动'.format(age,len(rows)),10)
+            line(.875,('任务终态已确认 · 当前计划 {} 项活动'.format(len(rows))
+                if status.startswith('PASS_') else
+                '任务记录年龄 {:.1f}s · 当前计划 {} 项活动'.format(age,len(rows))),10)
         statuses={'PLANNED':'等待派发','RUNNING':'执行中','COMPLETED':'动作完成',
                   'UNKNOWN_LOCKED':'未知，保持锁定','FAILED':'失败'}
         phases={'PREPARING':'正在预装载','PREPARED':'等待共同启动','AIR_MOVE':'空中转场',
@@ -617,6 +622,7 @@ class MissionDashboard:
         for index,row in enumerate(rows[:6]):
             executor=row['executor_id']
             member=member_name(executor)
+            business='共享支援' if not row['fulfills_task'] else task_name(row['task_id'])
             role=('通信支援' if not row['fulfills_task'] else
                   '跨介质观测' if cross and executor.endswith('_native') else
                   '空中观测' if executor.startswith('aav_') else '水下观测' if executor=='uuv' else '作业')
@@ -626,8 +632,9 @@ class MissionDashboard:
             native=steps[0].get('native_action') if steps else None
             wait=0. if native is None else native.get('terminal_wait_s',0.)
             detail=(' · 交付等待{:.1f}s'.format(wait) if wait else '')
+            if row.get('support_execution_ids'):detail+=' · 共享无人船支援'
             line(.81-index*.06,'{} · {} / {}  {}  {:.0f}–{:.0f}s{}'.format(
-                member,task_name(row['task_id']),role,label,
+                member,business,role,label,
                 row['planned_start'],row['planned_finish'],detail),11)
         if len(rows)>6:line(.45,'另有 {} 项活动；完整记录见任务结果'.format(len(rows)-6),10)
         if not rows:line(.79,'正在规划；确认前不派发',12)
@@ -642,18 +649,29 @@ class MissionDashboard:
         line(.38,'母船结果 {:.0%} · 业务 {} 项{}{}'.format(
             state.get('delivered_fraction',0.),len(state.get('results_received',[])),
             command_status,claim_status),11)
-        line(.32,'传输过程（独立仿真视图，不作为任务完成判定）',11)
+        task_service=state.get('delivery_model')=='TASK_SERVICE'
+        line(.32,'共享支援与结果接收' if task_service else
+            '传输过程（独立仿真视图，不作为任务完成判定）',11)
         if not progress or now-progress.get('at_ros_s',0.)>2.:
             detail='传输状态缺失／过期，不能推断接收进度'
         elif not progress.get('products'):
             detail='等待平台产生观测摘要'
         else:
             products=progress['products']
-            detail='{} 份摘要 · 无人船已收 {:.1f} KiB · 母船已收 {:.1f} KiB'.format(
-                len(products),sum(p['relay_bytes'] for p in products)/1024.,
-                sum(p['mother_bytes'] for p in products)/1024.)
+            if task_service:
+                received=sum(bool(p.get('received')) for p in products)
+                detail=(('共享支援已完成' if received==len(products) else
+                         '支援'+('到位' if progress.get('support_active') else '尚未到位'))+
+                        ' · 结果已收 {}/{}'.format(received,len(products)))
+            else:
+                detail='{} 份摘要 · 无人船已收 {:.1f} KiB · 母船已收 {:.1f} KiB'.format(
+                    len(products),sum(p['relay_bytes'] for p in products)/1024.,
+                    sum(p['mother_bytes'] for p in products)/1024.)
         line(.27,detail,12)
-        line(.21,'声明链路：水下 8 m / 2 KiB/s；射频 30 m / 32 KiB/s',10)
+        if task_service:
+            line(.21,'USV 共享支援 · 到位后交付',10)
+        else:
+            line(.21,'声明链路：水下 8 m / 2 KiB/s；射频 30 m / 32 KiB/s',10)
         reason=state.get('failure_reason','')
         if reason:
             if reason=='dependent work precedes its support launch':

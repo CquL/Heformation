@@ -6,6 +6,8 @@
 
 ## 当前快照（2026-09-23）
 
+> **2026-09-24 最新优先快照**：远域`OFFSHORE_JOINT`已在同次实时RViz/中文面板完成AAV AIR、另一AAV AIR→WATER→AIR、固定WATER qn UUV代理、Otter USV共享支援及三结果实收/四返回，任务`PASS_GEOMETRIC_PROXY_QUALIFICATION`，同次五平台bag独立安全/时间审计PASS。证据在WORKLOG首条和`experiments/20260924-qn-uuv-joint-live-r11`。UUV不再使用REMUS执行；300s初次诊断规划不能冒充正式10s，已触发复查与代码清理仍待。以下2026-09-23快照是历史时点；当前事实以`context/02_current_status.md`为准。
+
 - `main@ace6565` 的正式 `joint_request` 入口已有**同次实时 RViz/中文面板**两区域资格正例：AAV2 AIR 观测＋USV 支援、AAV1 经同一 qn 完成 AIR→WATER 观测→AIR 返回；10 条有限下行 Goal、10 条有限上行 Action 终态通知、九段 Action、两份 32 KiB 业务结果收件与规定返回均有实际证据。独立静态云＋动态 bag 的五平台时间/安全审计和命令/Result 因果核对全项 PASS。见 WORKLOG 顶部及 `experiments/20260923-joint-result-uplink-live-r1`。
 - USV 现有 Otter/PVS 在线 Action 后端；UUV 现有 REMUS100/PVS 在线资格端点。**这次普通请求中 UUV 待命**，原港口样点的通过式返部署区仍失败，不能把“模型在画面里”写成三类平台协同验收。AAV 跨介质只在已实跑的有限方法/场景有资格，不是任意状态保证。
 - 当前交付是声明初态、几何可见性/连续驻留代理与实验性有限链路；未校准真实图像/声呐质量及设备通信。默认 10 秒完整规划仍无可提交方案；已通过的初次完整规划采用明确的 360 秒**隔离诊断预算**。真实缺测后一轮复查、在线完整状态重建与有效修复、UUV 同请求参与及最终三类平台实时验收尚未完成。

@@ -21,6 +21,20 @@ executors:
     operations: [ENTER_WATER, WATER_PATH, EXIT_WATER]
     action_endpoint: /drone_0_qn_aav/platform_task
     odometry_topics: {drone_0: /drone_0_qn/odometry}
+  - executor_id: aav_2_native
+    physical_agent_ids: [drone_1]
+    capabilities: [WATER, AAV]
+    action_type: PlatformTaskAction
+    operations: [ENTER_WATER, WATER_PATH, EXIT_WATER]
+    action_endpoint: /drone_1_qn_aav/platform_task
+    odometry_topics: {drone_1: /drone_1_qn/odometry}
+  - executor_id: aav_3_native
+    physical_agent_ids: [drone_2]
+    capabilities: [WATER, AAV]
+    action_type: PlatformTaskAction
+    operations: [ENTER_WATER, WATER_PATH, EXIT_WATER]
+    action_endpoint: /drone_2_qn_aav/platform_task
+    odometry_topics: {drone_2: /drone_2_qn/odometry}
   - executor_id: usv
     physical_agent_ids: [usv]
     capabilities: [SURFACE]
@@ -30,7 +44,7 @@ executors:
     odometry_topics: {usv: /usv/odometry}
   - executor_id: uuv
     physical_agent_ids: [uuv]
-    capabilities: [WATER]
+    capabilities: [WATER, UUV]
     action_type: PlatformTaskAction
     operations: [WATER_PATH]
     action_endpoint: /uuv/platform_task

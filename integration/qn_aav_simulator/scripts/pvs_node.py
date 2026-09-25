@@ -332,7 +332,8 @@ class PvsNode:
                     waiting=(path[0]==path[1] and w['durations'][segment]>0)
                 effort=0. if w['coast'] or waiting else w['efforts'][w['segment']]
                 if w['coast'] or waiting:target=None
-            state=self.backend.step(self.dt,target,effort)
+            leg_start=w['paths'][w['segment']][w['point']-1] if w and target is not None else None
+            state=self.backend.step(self.dt,target,effort,leg_start)
             if self.scene:
                 reason=self.scene.violation(state['position'],self.backend.collision_radius_m)
                 if reason:

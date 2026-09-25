@@ -386,9 +386,11 @@ class LocalObservationWindow:
             dwell=model_time-begin
             if dwell+1e-9<self.request.requirement.min_dwell_s:continue
             self.emitted.add(key)
-            events.append(dict(product_id=self.goal_id+':'+key,request_id=self.request.request_id,
+            event=dict(product_id=self.goal_id+':'+key,request_id=self.request.request_id,
                 goal_id=self.goal_id,point_id=key,producer=self.producer,generated_at=stamp,observed=True,
-                result=dict(model='GEOMETRIC_PROXY',dwell_s=dwell),required_bytes=32*1024))
+                result=dict(model='GEOMETRIC_PROXY',dwell_s=dwell))
+            if self.request.template_id!='OFFSHORE_JOINT':event['required_bytes']=32*1024
+            events.append(event)
         return tuple(events)
 
     def terminal_report(self,stamp):
@@ -404,14 +406,8 @@ class LocalObservationWindow:
             point_ids=sorted(self.points),observed_ids=sorted(self.emitted),generated_at=stamp)
 
 
-def predict_received_products(request,point_ids,producer,goal_id,traces,mother_position,obstacles,deadline):
-    """Evaluate observations and finite receipt on supplied complete rollouts.
-
-    Traces contain (relative model time, position, actual medium). Never freeze
-    a platform beyond its supplied, checked terminal/wait path. The event's
-    supplied identity is part of its exact encoded notification size; this is
-    a nominal prediction, not a guarantee about a later different wire event.
-    """
+def predict_local_products(request,point_ids,producer,goal_id,traces,obstacles,deadline):
+    """Check the declared observation on the actual method rollout."""
     import time
     if producer not in traces or not point_ids or not traces or not math.isfinite(deadline):
         raise ValueError('observation source, finite traces and shared deadline required')
@@ -428,6 +424,15 @@ def predict_received_products(request,point_ids,producer,goal_id,traces,mother_p
         if time.monotonic()>=deadline:return dict(status='UNKNOWN',reason='PLANNING_BUDGET_EXHAUSTED')
         generated.extend(window.sample(stamp,pos,mode,stamp))
     if window.emitted!=set(point_ids):return dict(status='INFEASIBLE',reason='REQUIRED_OBSERVATION_NOT_COVERED')
+    return dict(status='FEASIBLE',reason='LOCAL_GEOMETRIC_OBSERVATION',
+                generated_events=generated)
+
+
+def predict_received_products(request,point_ids,producer,goal_id,traces,mother_position,obstacles,deadline):
+    """Evaluate observations and finite receipt on supplied complete rollouts."""
+    local=predict_local_products(request,point_ids,producer,goal_id,traces,obstacles,deadline)
+    if local['status']!='FEASIBLE':return local
+    generated=local['generated_events']
     horizon=min(rows[-1][0] for rows in traces.values())
     result=predict_received_events(generated,traces,
         {member:((0.,horizon),) for member in traces},mother_position,obstacles,deadline)
@@ -435,6 +440,41 @@ def predict_received_products(request,point_ids,producer,goal_id,traces,mother_p
               for event in generated if event['product_id'] in result['received_at']}
     result.update(received_at=receipts,generated_events=generated)
     return result
+
+
+def task_service_ready(states,sites):
+    """Whether the shared USV is at a declared task support position."""
+    sample=states.get('usv')
+    return bool(sample and sample[1]=='SURFACE' and any(
+        math.dist(sample[0],site['position'])<=site['radius_m'] for site in sites))
+
+
+def predict_task_service_receipts(events,traces,intervals,sites,deadline):
+    """Nominal task events: notifications are direct; products need support."""
+    import time
+    from bisect import bisect_right
+    rows=traces.get('usv',())
+    clocks=[row[0] for row in rows]
+    horizon=max((end for ranges in intervals.values() for _,end in ranges),default=0.)
+    received={event['product_id']:event['generated_at'] for event in events
+              if event.get('event_type')=='OBSERVATION_TERMINAL'}
+    for tick in range(int(math.floor(horizon*10.))+1):
+        if time.monotonic()>=deadline:
+            return dict(status='UNKNOWN',reason='PLANNING_BUDGET_EXHAUSTED',received_at=received)
+        stamp=tick/10.
+        index=bisect_right(clocks,stamp+1e-8)-1
+        usv_active=any(start<=stamp<=end for start,end in intervals.get('usv',()))
+        state=({'usv':(rows[index][1],rows[index][2])}
+            if usv_active and index>=0 and stamp-clocks[index]<=.010001 else {})
+        supported=task_service_ready(state,sites)
+        for event in events:
+            ident=event['product_id']
+            if ident not in received and event['generated_at']<=stamp and supported:
+                received[ident]=stamp
+    if len(received)!=len(events):
+        return dict(status='INFEASIBLE',reason='TASK_SUPPORT_WINDOW_MISSING',received_at=received)
+    return dict(status='FEASIBLE',received_at=received,
+                receipt_finish_s=max(received.values(),default=0.))
 
 
 def predict_received_events(generated,traces,communication_intervals,mother_position,obstacles,deadline):

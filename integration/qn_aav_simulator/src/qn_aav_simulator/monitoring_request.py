@@ -69,6 +69,8 @@ class MonitoringRequest:
     #: declared mission policy: participating members reach scenario-declared
     #: return/exit sites before the request can finish
     return_required: bool = False
+    # A single fixed joint-operation template; ordinary requests leave it unset.
+    template_id: str = ''
 
 
 @dataclass(frozen=True)
@@ -250,6 +252,18 @@ def regional_requirements(request):
     from mrta_python.models import Task
     validate_request(request)
     extra=set(request.required_capabilities)-{'AIR','WATER','SURFACE'}
+    if request.template_id=='OFFSHORE_JOINT':
+        roles={'offshore_air':('SURFACE',frozenset({'AIR','AAV'})),
+               'offshore_aav_water':('UNDERWATER',frozenset({'WATER','AAV'})),
+               'offshore_uuv':('UNDERWATER',frozenset({'WATER','UUV'}))}
+        if (len(request.regions)!=len(roles) or
+                any(r.region_id not in roles or r.kind!=roles[r.region_id][0]
+                    for r in request.regions)):
+            raise ValueError('OFFSHORE_JOINT requires AIR, AAV WATER and UUV WATER regions')
+        return tuple(Task(request.request_id+'::'+r.region_id,roles[r.region_id][1],1,
+            0.,request.deadline_s,r.region_id) for r in request.regions)
+    if request.template_id:
+        raise ValueError('unknown monitoring template: '+request.template_id)
     tasks=[]
     for region in request.regions:
         if region.kind not in KINDS:raise ValueError('unknown region kind: '+region.kind)

@@ -109,6 +109,11 @@ def audit(path,include_marine=False,scene_file=None,scene_bag=None):
                               (scene_bag is not None and scene_once_count!=1)):
         failures.append('actual scene cloud differs from declared SOLID geometry or publisher')
     if invalid_native_trajectories:failures.append('native planner published invalid polynomial')
+    qn_uuv=bool(include_marine and diagnostics['uuv'] and
+                all('used_outer_step' in values for _,values in diagnostics['uuv']))
+    if qn_uuv:
+        from qn_aav_simulator.qn_python_backend import QnPythonClosedLoopBackend
+        radii['uuv']=QnPythonClosedLoopBackend({}).collision_radius_m
     interval_source='goal topic' if action_starts else 'result GoalID stamp' if result_goal_starts else None
     interval_start=min(action_starts) if action_starts else min(result_goal_starts) if result_goal_starts else None
     interval_end=max(action_finishes) if action_finishes else None
@@ -118,7 +123,8 @@ def audit(path,include_marine=False,scene_file=None,scene_bag=None):
         series.sort(key=lambda x:x[0])
         for stamp,values in series:
             monitor.note_sample(ModelTimeSample(str(i),stamp,float(values['model_time_s'])))
-        steps=[int(v['used_outer_step'] if i in range(3) else v['steps']) for _,v in series]
+        steps=[int(v['used_outer_step'] if i in range(3) or i=='uuv' and qn_uuv else v['steps'])
+               for _,v in series]
         if not steps or any(b<=a for a,b in zip(steps,steps[1:])):
             failures.append('missing/non-increasing actual model steps: '+str(i))
     alignment=monitor.report().as_dict()
@@ -204,7 +210,7 @@ def audit(path,include_marine=False,scene_file=None,scene_bag=None):
     air_min_envelope={}
     for i in range(3):
         heights=[float(v['position_z'])-.25 for _,v in diagnostics[i]
-                 if i!=0 or v.get('reference_source')=='AIR_SWARM']
+                 if v.get('reference_source')=='AIR_SWARM']
         air_min_envelope[str(i)]=min(heights) if heights else None
         if not heights:
             if i in active_air:failures.append('missing AIR-scope reference/state interval: '+str(i))
@@ -213,7 +219,9 @@ def audit(path,include_marine=False,scene_file=None,scene_bag=None):
         for i,mode in [('usv','SURFACE'),('uuv','WATER')]:
             if not diagnostics[i] or any(v.get('actual_mode')!=mode for _,v in diagnostics[i]):
                 failures.append('native domain evidence failed: '+i)
-            if scene is not None and any(float(v.get('collision_radius_m','nan'))!=radii[i] for _,v in diagnostics[i]):
+            if scene is not None and any(
+                    float(v.get('collision_radius_m','nan'))!=radii[i]
+                    for _,v in diagnostics[i] if not (i=='uuv' and qn_uuv and 'collision_radius_m' not in v)):
                 failures.append('runtime collision proxy differs from native-model geometry: '+i)
     returned=[]
     for stamp,v in own:

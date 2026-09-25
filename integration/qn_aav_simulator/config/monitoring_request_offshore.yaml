@@ -2,6 +2,7 @@
 # qualified underwater method; USV support is selected only if delivery needs it.
 # Coordinates are metres in the model scene, not a real-sea distance claim.
 request_id: offshore-joint-observation
+template_id: OFFSHORE_JOINT
 service_time_s: 4.0
 deadline_s: null
 delivery_required: true
@@ -18,7 +19,13 @@ regions:
     corner_b: [4.0, 5.0, 0.0]
     interest_points:
       - {point_id: air_sample, position: [3.0, 4.0, 0.0], weight: 1.0}
-  - region_id: offshore_water
+  - region_id: offshore_aav_water
+    kind: UNDERWATER
+    corner_a: [-4.0, 0.0, -0.6]
+    corner_b: [-2.0, 2.0, -0.6]
+    interest_points:
+      - {point_id: aav_water_sample, position: [-3.0, 1.0, -0.6], weight: 1.0}
+  - region_id: offshore_uuv
     kind: UNDERWATER
     corner_a: [-1.0, 3.0, -2.0]
     corner_b: [1.0, 5.0, -2.0]

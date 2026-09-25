@@ -1,3 +1,27 @@
+## 2026-09-24 UTC — 同次实时三类协同正常请求完成；复查与10秒规划仍待
+
+- 计划：将固定远域模板的一份联合Plan经现有 runner 派给三类真实动力学实例，在同一 ROS/RViz/中文面板核对并行、入出水、共享支援、结果接收与返回；随后独立审计同次bag，不以名义Plan代替实际完成。
+- 实际：`r5`定位旧布局`drone_0`/USV约21.5s净距冲突；`r6/r7`分别定位支援期和另一AIR成员的空间交叉。改用Otter原生模型验证的南侧部署`(-25,-2)`→支援`(-4,9)`→返区，保留0/30s有限出发等待候选；改正跨介质AAV无空中前置段时漏掉初始轨迹样点。`r9`首次形成完整Plan并真实派发，三份结果已收、两AAV及UUV完成，但协作组误用最短Action180s为整体Result期限，中断尚需约270s的USV，保留失败。原worker现用最长已接受Action观察期限，各Goal自身超时仍独立。
+- 结果：`experiments/20260924-qn-uuv-joint-live-r11`同一请求300.016s诊断规划后，经确认四活动约同时派发：AAV1 AIR约173.05s完成，AAV2 qn AIR→WATER→AIR约203.10s完成，qn水下UUV约163.82s完成，Otter USV共享支援并返回约276.22s完成；三项必做结果母船实收、`delivered_fraction=1.0`、四参与成员返回完成、资源锁空，任务`PASS_GEOMETRIC_PROXY_QUALIFICATION`。第三台AAV待命。实时RViz与中文面板保存规划、运行和终态画面；独立同次`execution.bag`＋`scene-once.bag`审计`passed=true,failures=[]`，五平台执行期2762对齐位置样本零缺、全平台代理最小净距1.08491m（门槛0.5m）、声明障碍余量全通过。审计按bag中qn UUV身份使用qn 0.25m代理，并只在AIR参考区间核空中机体高度；旧按REMUS代理/把跨介质WATER高度算AIR的假失败已修。
+- 证据：`experiments/20260924-qn-uuv-joint-live-r11/{metrics.json,nominal-plan.json,execution.bag,scene-once.bag,safety-audit.json,rviz-planning.png,rviz-running.png,rviz-terminal.png,dashboard-planning.png,dashboard-running.png,dashboard-terminal.png}`；实际方法与控制入口位于现有`executors.py`、`formation_mission_runner.py`、qn/PVS后端。首个可行候选未穷尽搜索，不能称全局最优；300s是隔离诊断预算，不是冻结的10s正式规划通过。观测只为声明几何代理，UUV是qn水下代理，不称REMUS物理验证。
+- 未完成／下一步：在同一三类请求里实际触发并执行至多一轮缺测复查，解决初次10s预算；中文面板终态支援文案已修待下次实跑加载。新主链通过后按实际调用清理旧Calvo专用排序与过时文档，不误删共用执行代码。
+
+## 2026-09-24 UTC — UUV代理返航、USV原生支援路线与跨介质轨迹边界
+
+- 计划：只修阻止固定远域联合方案提交的实际断点；保持 qn 水下代理、Otter 原生 PVS、现有联合搜索与同一 runner，不放宽场景障碍或返回要求。
+- 实际：qn WATER 导引原来在定时参考归零时忽略剩余位置误差，使UUV停在返部署点外约5.7m；在原水下导引中加入由参考速度和位置误差共同形成的有限速度需求，没有改变qn动力学与执行器。修改后同一含障碍路径查询 `FEASIBLE`、157.54s、终态距返回中心约0.027m，原AIR导引相关两项检查通过。Otter原“指向航点”支援返程在防波堤碰撞；在原PVS接入边界为Otter使用Fossen LOS几何（前视距取原生艇长），预测与实际节点调用同一引导，原生全路径查询 `FEASIBLE`、242.97s、终态距返回中心0.247m。来源：[Fossen LOS路径跟随](https://www.fossen.biz/php/research/path_following.php)、[PVS Otter/REMUS模型说明](https://github.com/cybergalactic/PythonVehicleSimulator/blob/master/README.md)。
+- 完整请求：`experiments/20260924-qn-uuv-joint-integration-r1` 300s预算无Plan，10个候选，拒绝含动态Swarm邻机冲突与旧USV时域耗尽；修后 `r2` 仍无Plan，但已有两个完整叶到全计划校核，拒绝为泛化的运动活动边界不符。单独原生重放证实UUV+USV活动/轨迹边界一致，定位到无空中前置段时跨介质AAV轨迹拼接误删首帧；在原`executors.py`修复，`r3`开始后在约57s主动停止旧诊断进程，避免继续跑已知错误；`r4`正在重跑。无Goal/收件/实时协同PASS可宣称。
+- 证据：`integration/qn_aav_simulator/src/qn_aav_simulator/qn_python_backend.py`、`pvs_backend.py`、`scripts/pvs_node.py`、`integration/mrta_python/executors.py`、上述实验目录及本轮终端原生查询输出；镜像已按修改后的qn源码重建，同源扩展校验通过。
+- 未完成／下一步：读取r4整份Plan与真实Action结果；若形成Plan再开RViz/中文面板同次运行，处理实际反馈与复查。默认10s完整规划仍未通过；不能将300s诊断预算写成正式性能。
+
+## 2026-09-24 UTC — 用户改定 qn 水下专用 UUV 代理；同一联合任务接线中
+
+- 计划：按用户最新选择，三台跨介质 AAV 与固定 WATER 的 UUV 都用 qn；Otter/PVS 继续模拟 USV。UUV 明确是 qn 水下代理，不能宣称 REMUS100 物理验证。仍由现有联合候选搜索输出一份方案，不增协调层。
+- 实际：先用原 REMUS100/PVS 只读路径确认现有点指向引导导致偏航和返部署区失败；没有把未通过的 PVS 路径提交成合格方法。随后在原 qn 节点允许独立 `uuv` 身份和水下静态配平初态，复用原本地 PlatformTask；原场景为 UUV 声明有限定时 WATER 路径，原请求方法生成和联合候选查询开始接入 qn UUV＋Otter 共享支援，原 runner 从实际 `/uuv` 状态核对初态。
+- 结果：水下 qn `STATIC_TRIM` 初始化为 WATER，5 s 原生 idle 查询得到精确固定点，位置保持 `(-27,4,-2)`；宿主机未加速的120 s定时 UUV 路径只读查询在30 s预算时仍未完成，返回 UNKNOWN，不能称整项任务通过。源码语法与 diff 检查通过。完整镜像、10 s联合Plan、实际Goal、RViz同次协同和复查仍待验证。
+- 证据：本工作树 `qn_aav_node.py`、`qn_python_backend.py`、`five_qualification.launch`、`task_line.py`、`executors.py`、`formation_mission_runner.py`、`five_scene_offshore.yaml`；原 PVS 试算命令仅临时在 `/tmp/heformation_los_probe.py`，不作为验收产物。
+- 未完成／下一步：重建源码匹配的 qn 查询扩展与Docker镜像，核对 qn UUV Action 查询/实跑及共享支援收件；完整候选若仍超预算须直接定位查询成本，不以延长正式预算冒充10 s通过。
+
 ## 2026-09-24 UTC — 实时可视化与最新任务状态同步；三类同次复跑PASS
 
 - 计划：答复“是否离线算完再可视化”：保留只读候选查询与真实执行的区别，核原RViz/中文面板是否从**同一ROS会话**的实际Odometry、Action、`MissionRunner.task_state`及`FiniteDelivery`收件更新。把新加入的复查、五成员有限状态回执和返回结果显示到原面板，避免最新代码只在metrics里、画面仍是旧任务。不开第二套可视化状态服务。
@@ -2869,3 +2893,27 @@
 - 计划／实际：按“清理好就停下”补齐清理尾项：移除 README 的旧港口成功命令和 VRX 死链接、删除过时 VRX 试接评审页、更新上游目录说明，并在当前状态和交接首部标明旧实验路径已删除；停止本轮实时容器。
 - 结果：当前仓库约 2.7 GB；旧 `experiments/` 目录仅剩本轮三个 `offshore` 输出，`upstream/VRX` 与 `heformation-vrx:noetic` 均不存在。Swarm、qn、PVS、任务求解源码目录仍在。新远域布局截图可看，但其完整协同请求未通过规划，零 Goal。
 - 证据／未完成：`README.md`、`upstream/README.md`、`context/{02_current_status,15_handoff}.md`；未提交或推送。按用户要求停下，不继续调参、补路线或运行试验。
+## 2026-09-24 UTC — 固定协同模板接线，完整远域请求仍未通过
+
+- 计划：按已确认的联合任务，把空中 AAV、跨介质 AAV、UUV 巡测与一项共享 USV 支援放进原请求、候选搜索和 runner；两台 AAV 允许并行。通信只按支援到位产生接收事件，保留实际观测、GoalID 和资源锁，不另建协议或调度节点。
+- 修改：`OFFSHORE_JOINT` 在原请求展开处产生三项必做观测；三台同型 AAV 都配置 AIR 与 WATER 端点。原候选搜索为已选 AIR 方法保留内部动态邻机参考、统一计划时基，并只在此模板放开原静止邻机串行边；USV 支援只预约一次，关联各作业，按预计产品时刻在支援点加入有界原生等待。场景传输对该模板改为到位服务，控制及 Action Result 继续用 ROS。中文面板显示三项角色与共享支援。
+- 完整请求诊断：`experiments/20260924-offshore-joint-template-preview-r1` 的 180 s 规划评估 7 个候选，主要失败为 UUV 路线在岩石仅余约 0.198 m（声明实体余量 0.2 m）；零 Goal。修订同一远端任务的水下样点和支援位置后，`r3` 的 180 s 规划评估 9 个候选，仍零 Goal，原因包括 3 个 Swarm 只读优化未接受候选及 3 个 `uuv:SCENE_CLEARANCE: rock=0.196826m`。没有降低净距门槛。
+- 原生边界定位：从新岸边初态出发的 REMUS/PVS 直接往返在原航点引导下越过目标后作大转弯，无法重入当前部署区；原生通过式长回环虽可在去掉局部障碍后取得模型终态，但轨迹远超展示海域，且仍未满足业务返回。仅调期限、改结果文字或重复单机成功不能使完整协同通过。已异步提出是否允许在现有 PVS 后端做局部航点引导修正；等待该设计边界回复期间不改 PVS 控制。
+- 验证与证据：模板加载确认三项角色；Python 语法及 `git diff --check` 通过；观测／有限交付相关 17 项既有检查通过；到位服务预测的直接受控调用输出 `FEASIBLE`。这些不是物理协同验收。工作树改动尚未提交或推送。
+- 下一步：先取得 REMUS 业务返回的可执行方法，再以同一完整请求检查两台 AAV 并行、USV 共享服务和实际接收；复查及旧代码清理留在新主链真正通过后，避免先删仍被控制工具使用的内容。
+## 2026-09-24 UTC — 联合模板支援／并行增量与完整规划负例
+
+- 计划：在原 `joint_request` 主链输出两台 AAV 分担空中和跨介质观测、UUV 巡测、单项共享 USV 支援；用同一 Plan 驱动任务级收件与实时显示，固定模板减少任务顺序搜索。保留原生运动、安全与返回门槛。
+- 代码：新增 `OFFSHORE_JOINT` 三必做区域及三台同型 AAV WATER 端点；模板按 AIR→AAV WATER→UUV 的计算顺序展开，但各活动计划开始时刻仍允许重叠。选中 AIR 方法的内部 Swarm 参考用统一时间原点传给另一台 AAV 的动态邻机查询；Swarm C++ 只读入口的静止邻机也改用该参考时间。UUV/USV 候选按已有模型在支援点插入有界等待，整计划只预约一项共享支援。任务级接收只依据实际产品和支援到位事件；控制、终态及复查状态请求改走现有 ROS，局部动作完成与业务收件分开。中文面板显示角色和共享支援。
+- 整项诊断：`experiments/20260924-offshore-joint-template-preview-r4`使用默认 10 s 预算，首个原生候选未返回，评估数 0、Goal 数 0。重建当前 Noetic 镜像后，`r5`在声明的 180 s 隔离诊断预算内评估 8 个候选，仍零 Goal；三项动态 Swarm 查询报“native optimizer did not produce an accepted candidate”，一项 UUV 候选报 `SCENE_CLEARANCE: rock=0.196826m`。因此尚无完整联合计划，更无实时三类通过证据；180 s 不是已获准的正式 10 s 性能。
+- 原生运动定位：从当前 UUV 岸边初态直接去远端点再回部署区，原 PVS 航点引导因惯性与大转弯没有取得同时满足观测、障碍及返回的路线。局部引导修正是否纳入本轮已异步请用户选择；未收到答复前未改 PVS。尝试的临时备选只在只读模型副本中运行，未放宽场景净距或改写任务成功。
+- 相关核查：代码语法、`git diff --check`及受影响观测／runner检查通过；一次容量边界测试在新模板分支漏检空请求时失败，补同一空值判断后针对性重跑通过。C++镜像重建成功。上述检查不替代 Action 与实时 RViz 完整运行。
+- 下一步：先解决 UUV 原生返区和两 AAV 动态参考未被优化器接受的确切条件；只有完整计划可提交后才做同次实际派发、反馈修复及旧 Calvo／有限传输代码清理。
+## 2026-09-24 UTC — AAV并行候选与任务级接收继续核对；远域整项仍FAIL
+
+- 计划：在原联合搜索中用固定模板减少无意义的任务排列，复用 Swarm 动态邻机输入而不派试探 Goal；让本机动作结束与母船业务接收分别成为事实，继续检查一项共享 USV 支援能否服务三项观测。
+- 修改：模板按固定计算顺序检查 AIR→AAV WATER→UUV，实际计划仍可并行；两个AAV角色强制使用不同物理成员。已选AIR参考保留在内部预测状态，并与另一AAV查询共用时间原点；Swarm只读C++静止邻机也改用该原点，当前Noetic镜像完整重建成功。PlanItem只补共享支援活动ID；正常模板产品事件不再携带32KiB字段，到位服务按实际USV位置产生接收，控制/Result继续走ROS；AAV、UUV在本机Result后可结束物理占用，整项请求仍等待真正接收。复查状态请求由同一SceneTransport直接转达现有ROS状态摘要，不再占有限链路字节。
+- 完整请求负例：`experiments/20260924-offshore-joint-template-preview-r6`在90秒内评估4个候选，2个被Swarm原生动态邻机硬路径检查拒绝，0 Goal。改为稳定的AAV角色遍历顺序后，`r8`90秒内评估2个候选，最后进入`offshore_uuv:uuv`原生查询但预算到期、仍0 Goal；这表明前两项AAV角色已进入同一候选前缀，**不等于有完整方案或实际并行通过**。默认10秒预览仍首个候选未返回，不能宣称10秒求解成功。
+- UUV运动边界：在当前远域初态，直接往返与少量原生转弯路线或撞原岩石/防波堤，或经过目标后无法重新进入部署区。只读检查曾在将岩石移至非作业区后找到一条南侧大环原生终端路线，但轨迹范围达x约[-32.5,30.7]、y约[-45,9.3]，超出当前展示海域；这条探索路线**未写入场景、未通过返回/整任务验收**。未放宽0.2m实体余量、0.5m机间净距或返回条件。现有PVS航点引导是否允许局部修正仍待用户异步回复。
+- 必要核查：受影响runner的17项观测/结果检查通过；任务支援预测受控核对“结果先产生、USV后到位”会接收，“结果晚于支援窗口”拒绝。完整计划回归曾两次触发无请求对象时访问模板字段，均在原校核处修复并只复跑相应失败例；语法及`git diff --check`通过。没有把测试数量当作交付。
+- 下一步：依据用户对PVS引导边界的答复处理UUV实际返回；再用同一新场景和已修正Swarm邻机时基取得完整Plan、真实四平台以上重叠执行、必要接收/返回及一次反馈调整。新主链未通过前不删仍被控制工具调用的旧代码，不提交/推送未验收的协同成功声明。

@@ -206,10 +206,12 @@ class MissionRunner:
                         "formation_business_shape_verdict": "NOT_DEFINED"}
         self.plan = None
         self.finite_delivery=bool(rospy.get_param('/mission/request_file',''))
-        self.command_delivery_required=self.finite_delivery and self.planning_mode=='joint_request'
+        self.command_delivery_required=(self.finite_delivery and
+            self.planning_mode=='joint_request' and self.request.template_id!='OFFSHORE_JOINT')
         if self.finite_delivery:
             from std_msgs.msg import String
-            self.metrics['delivery_model']='FINITE_DECLARED_EXPERIMENT'
+            self.metrics['delivery_model']=('TASK_SERVICE' if self.request.template_id=='OFFSHORE_JOINT'
+                else 'FINITE_DECLARED_EXPERIMENT')
             self.metrics['received_products']={}
             self.metrics['received_terminal_reports']={}
             self.metrics['received_action_results']={}
@@ -217,6 +219,10 @@ class MissionRunner:
                 self._on_received_product,queue_size=100))
             self.action_subs.append(rospy.Subscriber('/mother/received_notifications',String,
                 self._on_received_notification,queue_size=100))
+            if self.request.template_id=='OFFSHORE_JOINT':
+                self.state_claim_requests=rospy.Publisher('/mother/state_claim_requests',String,queue_size=20)
+                self.metrics['state_claim_requests']={}
+                self.metrics['received_state_claims']={}
             if self.command_delivery_required:
                 self.command_requests=rospy.Publisher('/mother/command_requests',String,queue_size=100)
                 self.state_claim_requests=rospy.Publisher('/mother/state_claim_requests',String,queue_size=20)
@@ -261,7 +267,9 @@ class MissionRunner:
         try:
             event=json.loads(message.data);key=event['point_id'];ident=event['product_id']
             if (event['request_id']!=self.request.request_id or event['observed'] is not True or
-                    event['required_bytes']!=32768 or event['result']['model']!='GEOMETRIC_PROXY' or
+                    (self.request.template_id!='OFFSHORE_JOINT' and
+                     event.get('required_bytes')!=32768) or
+                    event['result']['model']!='GEOMETRIC_PROXY' or
                     not all(math.isfinite(event[k]) for k in ('generated_at','received_at')) or
                     event['received_at']<event['generated_at'] or
                     not math.isfinite(event['result']['dwell_s']) or
@@ -704,7 +712,7 @@ class MissionRunner:
         state = {key: self.metrics[key] for key in (
             "status", "request_id", "plan", "plan_revision", "resource_locks", "coverage",
             "observed_fraction", "delivered_fraction", "results_received", "failure_reason",
-            "observation_model", "payload_quality", "updated_at_ros_s")}
+            "observation_model", "payload_quality", "delivery_model", "updated_at_ros_s")}
         state["current_action"] = self.metrics.get("current_action")
         state["current_actions"] = self.metrics.get("current_actions", {})
         state["safety_disposition"] = self.metrics.get("safety_disposition")
@@ -864,7 +872,9 @@ class MissionRunner:
                 result.actual_mode==native.final_mode and result.reason==reason)
 
     def _member_return_complete(self,member,distance,site):
-        if member!='uuv':
+        if member!='uuv' or not any(item.native_action is not None and
+                                    item.native_action.terminal_behavior=='COAST_STOP'
+                                    for item in self.plan.items if member in item.coalition):
             return distance<=site['radius_m'],'ACTUAL_TERMINAL_IN_RETURN_SITE'
         # The REMUS endpoint verifies observation-after-departure, re-entry
         # and its safe coast tail before this specific native Result succeeds.
@@ -885,7 +895,7 @@ class MissionRunner:
                         return True,'NATIVE_REENTRY_AND_COAST_RESULT'
         return False,'NATIVE_REENTRY_AND_COAST_RESULT_MISSING'
 
-    def _wait_observation_receipt(self,goal_id,point_ids,timeout):
+    def _wait_observation_receipt(self,goal_id,point_ids,timeout,require_products=True):
         """Wait for this Goal's report and every product it says was observed."""
         wanted=set(point_ids);deadline=time.monotonic()+timeout
         while not rospy.is_shutdown():
@@ -897,7 +907,7 @@ class MissionRunner:
                 observed=set(report['observed_ids'])
                 if not observed<=wanted or not received<=observed:
                     raise RuntimeError('observation report conflicts with received products; keep member reserved')
-                if observed<=received:return
+                if not require_products or observed<=received:return
             if time.monotonic()>=deadline:
                 raise RuntimeError('observed products or terminal report not received; keep member reserved')
             time.sleep(.05)
@@ -910,13 +920,15 @@ class MissionRunner:
             # product. Keep the physical booking while the receiver event is
             # in flight; the matching GoalID is checked before commit below.
             self._wait_observation_receipt(result.goal_id,native.observation_ids,
-                                           native.execution_timeout_s)
+                                           native.execution_timeout_s,
+                                           require_products=self.request.template_id!='OFFSHORE_JOINT')
         elif (state==GoalStatus.ABORTED and result.reason=='OBSERVATION_NOT_SATISFIED'
                 and result.terminal_verified and not result.resource_locked):
             # A partial negative report still names positively observed points.
             # Keep this booking until those products and the report arrive.
             self._wait_observation_receipt(result.goal_id,native.observation_ids,
-                                           native.execution_timeout_s)
+                                           native.execution_timeout_s,
+                                           require_products=self.request.template_id!='OFFSHORE_JOINT')
 
     def _wait_action_terminal_receipt(self,goal_id,members,state,timeout):
         deadline=time.monotonic()+timeout
@@ -962,7 +974,8 @@ class MissionRunner:
         if native is None and getattr(goal,'observation_ids',()) and self._release_result_ok(state,result,item.execution_id):
             node=self.server_nodes[unit.executor_id]
             self._wait_observation_receipt(result.goal_id,goal.observation_ids,
-                float(rospy.get_param(node+'/execution_timeout',180.)))
+                float(rospy.get_param(node+'/execution_timeout',180.)),
+                require_products=self.request.template_id!='OFFSHORE_JOINT')
         # Only result commits hold this mutex, never physical Action waits.
         with self.executor_mutex:
             outcome=self._commit_executor_result(item,unit,state,result,retain_booking=retain_booking)
@@ -1035,7 +1048,10 @@ class MissionRunner:
             goal=self._executor_goal(item,unit);goal.prepare_only=True
             action=dict(task_id=item.task_id,execution_id=item.execution_id,endpoint=unit.action_endpoint,phase='PREPARING')
             units.append(unit);goals.append(goal);actions.append(action)
-        deadline=time.monotonic()+min(i.native_action.execution_timeout_s for i in items)
+        # The coordinated booking ends only after its slowest accepted member
+        # has a matching terminal Result. Each Action keeps its own timeout;
+        # using the shortest one here canceled a valid USV support return.
+        deadline=time.monotonic()+max(i.native_action.execution_timeout_s for i in items)
         with self.executor_mutex:
             for item,action in zip(items,actions):self.metrics.setdefault('current_actions',{})[item.execution_id]=action
         self._save_executor()
@@ -1282,7 +1298,8 @@ class MissionRunner:
                     self._release_result_ok(state,result,view.execution_id)):
                 node=self.server_nodes[unit.executor_id]
                 self._wait_observation_receipt(result.goal_id,goal.observation_ids,
-                    float(rospy.get_param(node+'/execution_timeout',180.)))
+                    float(rospy.get_param(node+'/execution_timeout',180.)),
+                    require_products=self.request.template_id!='OFFSHORE_JOINT')
             missing=(step.native_action is not None and state==GoalStatus.ABORTED and result is not None and
                 result.task_id==view.execution_id and bool(result.goal_id) and
                 result.reason=='OBSERVATION_NOT_SATISFIED' and result.terminal_verified and
@@ -1344,14 +1361,16 @@ class MissionRunner:
             elif step.observation_ids:
                 node=self.server_nodes[unit.executor_id]
                 self._wait_observation_receipt(result.goal_id,step.observation_ids,
-                    float(rospy.get_param(node+'/execution_timeout',180.)))
+                    float(rospy.get_param(node+'/execution_timeout',180.)),
+                    require_products=self.request.template_id!='OFFSHORE_JOINT')
                 self._receive_observations(view,evidence)
                 if getattr(self,'finite_delivery',False):
                     report=self.metrics['received_terminal_reports'][result.goal_id]
                     next(row for row in rows if row['execution_id']==view.execution_id)['observation_missing']=(
                         set(report['observed_ids'])!=set(step.observation_ids))
         with self.executor_mutex:
-            if has_products and self.request.delivery_required:
+            if (has_products and self.request.delivery_required and
+                    self.request.template_id!='OFFSHORE_JOINT'):
                 received_products=self.metrics.get('received_products',{}).values()
                 for step,row in zip(item.execution_steps,rows):
                     if row['observation_missing']:continue
@@ -1472,7 +1491,8 @@ class MissionRunner:
                 raise RuntimeError('negative observation report missing or inconsistent; keep member reserved')
         if item.fulfills_task and item.task_id in self.observation_tasks and not native.observation_ids:
             raise RuntimeError('native motion Result does not contain validated observation products')
-        if native.observation_ids and self.request.delivery_required and not missing:
+        if (native.observation_ids and self.request.delivery_required and not missing and
+                self.request.template_id!='OFFSHORE_JOINT'):
             delivered={event['point_id'] for event in self.metrics.get('received_products',{}).values()
                        if event.get('goal_id')==result.goal_id and event.get('observed') is True}
             if not set(native.observation_ids)<=delivered:
@@ -1609,7 +1629,9 @@ class MissionRunner:
             if report is None or set(report['point_ids'])!=set(point_ids):
                 raise RuntimeError('AIR local terminal report missing or names other points; keep members reserved')
             observed=set(report['observed_ids'])
-            if observed!=received or not observed<={p for p,row in coverage.points.items() if row.observed}:
+            if ((observed!=received if self.request.template_id!='OFFSHORE_JOINT'
+                    else not received<=observed) or
+                    not observed<={p for p,row in coverage.points.items() if row.observed}):
                 raise RuntimeError('AIR local observation or actual receipt conflicts with qn evidence; keep members reserved')
         for point_id, observation in coverage.points.items():
             if getattr(self,'finite_delivery',False) and point_id not in observed:
@@ -1634,6 +1656,7 @@ class MissionRunner:
         from qn_aav_simulator.monitoring_request import ObservationTask
         from qn_aav_simulator.observation_coverage import ObstacleBox
         from qn_aav_simulator.pvs_backend import PvsBackend, NATIVE_START_TOLERANCE_M
+        from qn_aav_simulator.platform_execution import actual_mode
         from qn_aav_simulator.task_line import build_request_executor_plan, retest_tasks
         timer=None
         self.points={point.point_id:point.position for region in self.request.regions
@@ -1668,7 +1691,7 @@ class MissionRunner:
                 backend.reset(AgentState(member,'AAV',0.,position,(0.,0.,0.)))
                 positions[member]=backend.snapshot().position;models[member]=backend
             efforts={}
-            for member,model_name in (('usv','otter'),('uuv','remus100')):
+            for member,model_name in (('usv','otter'),):
                 node='/'+member
                 if rospy.get_param(node+'/model')!=model_name:
                     raise RuntimeError('native marine model differs from declared executor: '+member)
@@ -1678,6 +1701,16 @@ class MissionRunner:
                     initialization_mode=rospy.get_param(node+'/initialization_mode','NATIVE_ZERO'))
                 positions[member]=backend.snapshot()['position'];models[member]=backend
                 efforts[member]=float(rospy.get_param(node+'/propulsion_effort'))
+            uuv_position=tuple(float(rospy.get_param('/uuv/init_'+axis)) for axis in 'xyz')
+            uuv_model=QnPythonClosedLoopBackend(dict(
+                initialization_mode='STATIC_TRIM',model_step_s=.001,
+                reference_mode='ROUTE_POSITION',
+                water_guidance_mode=rospy.get_param('/uuv/water_guidance_mode'),
+                water_horizontal_controller_mode=rospy.get_param('/uuv/water_horizontal_controller_mode')))
+            uuv_model.reset(AgentState('uuv','UUV',0.,uuv_position,(0.,0.,0.)))
+            if actual_mode(uuv_model.snapshot().medium_flag)!='WATER':
+                raise RuntimeError('dedicated qn UUV did not initialize in WATER')
+            positions['uuv']=uuv_model.snapshot().position;models['uuv']=uuv_model
 
             def checked_start():
                 deadline=time.monotonic()+10.
@@ -1694,7 +1727,7 @@ class MissionRunner:
 
             self.metrics['initial_position_deviation_m']=checked_start()
             states={member:dict(position=position,mode=('AIR' if member.startswith('drone_')
-                         else models[member].snapshot()['actual_mode']),available_from=0.)
+                         else 'WATER' if member=='uuv' else models[member].snapshot()['actual_mode']),available_from=0.)
                     for member,position in positions.items()}
             units=[Executor(unit.executor_id,unit.physical_agent_ids,frozenset(unit.capabilities))
                    for unit in self.units]
@@ -1708,7 +1741,8 @@ class MissionRunner:
             self._save_executor()
             try:
                 self.plan,tasks=build_request_executor_plan(self.request,scene,units,provider,states,
-                    budget_s=self.metrics['planning_budget_s'],first_feasible=True)
+                    budget_s=self.metrics['planning_budget_s'],
+                    first_feasible=self.request.template_id!='OFFSHORE_JOINT')
             finally:
                 self.metrics['planning_wall_s']=time.monotonic()-began
             # Retain only the terminal backend of the method actually selected.
@@ -1727,8 +1761,8 @@ class MissionRunner:
             with self.condition:
                 _,uuv_diagnostic=self.executor_diagnostics.get('uuv',(None,{}))
             uuv_time=float(uuv_diagnostic.get('model_time_s','nan'))
-            if math.isfinite(uuv_time) and uuv_time>=models['uuv'].time_s:
-                idle=models['uuv'].predict_idle(uuv_time-models['uuv'].time_s,
+            if math.isfinite(uuv_time) and uuv_time>=0.:
+                idle=models['uuv'].predict_idle(uuv_time,
                     geometry,time.monotonic()+10.)
                 if idle['status']=='FEASIBLE':idle_anchors['uuv']=idle['terminal_backend']
             for key,backend in selected_terminals.items():
@@ -1809,7 +1843,9 @@ class MissionRunner:
                 method=[step.target_ref for step in item.execution_steps]) for item in self.plan.items]
             print(json.dumps(dict(request_id=self.request.request_id,activities=preview,
                 limits=['geometric observation proxy; payload quality unverified',
-                        'finite experimental delivery; actual receipt required',
+                        ('task-level shared support; actual receipt required'
+                         if self.request.template_id=='OFFSHORE_JOINT' else
+                         'finite experimental delivery; actual receipt required'),
                         'return required; native endpoint decides actual terminal',
                         'complete model/trajectory in nominal-plan.json']),
                 indent=2,default=json_default),flush=True)
@@ -1893,7 +1929,12 @@ class MissionRunner:
                                 if row.get('execution_id')==prior.execution_id),None)
                             notice=(self.metrics['received_action_results'].get(row['goal_id'],{}).get(member)
                                     if row and row.get('goal_id') else None)
-                            if backend is None or notice is None or notice.get('nominal_terminal_state_match') is not True:
+                            if (backend is None or
+                                    (notice is None or notice.get('nominal_terminal_state_match') is not True)
+                                    and not (self.request.template_id=='OFFSHORE_JOINT' and
+                                        row is not None and row.get('result')=='SUCCEEDED' and
+                                        claim.get('terminal_state_digest')==hashlib.sha256(
+                                            backend.execution_state_bytes()).hexdigest())):
                                 raise RuntimeError('native support terminal state not confirmed: '+member)
                         target_time=float(claim['model_time_s'])
                         if not math.isfinite(target_time) or target_time+1e-6<backend.time_s:

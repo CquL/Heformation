@@ -173,6 +173,7 @@ class QnPythonClosedLoopBackend:
             raise ValueError("qn water_min_turn_surge_fraction must be in [0, 1]")
         self.constants = QnModelConstants()
         self._agent_id: str | None = None
+        self._platform_type: str | None = None
         self._state: QnClosedLoopState | None = None
         self._reference_position_m: Vector3 | None = None
         self._reference_lead_m = 0.0
@@ -214,6 +215,7 @@ class QnPythonClosedLoopBackend:
             for _ in QN_CONTROLLER_NAMES
         )
         self._agent_id = state.agent_id
+        self._platform_type = state.type
         self._reference_position_m = state.position
         self._reference_lead_m = 0.0
         self._reference_lead_clamped = False
@@ -231,10 +233,12 @@ class QnPythonClosedLoopBackend:
         )
         if self.initialization_mode == "STATIC_TRIM":
             self._state = _static_trim_state(self._state, self.constants)
-        # Before any AIR command the node's INITIAL_HOLD takes the current
-        # actual position on each outer tick, rather than freezing the plant.
-        # Other initial ownership/mode combinations need explicit evidence.
-        if self.reference_mode == "ROUTE_POSITION" and medium_flag(state.position[2], self.constants.hg_m) == 0.0:
+        # Before a platform Action the node's INITIAL_HOLD takes the actual
+        # position on each outer tick. This also applies to a dedicated qn
+        # instance initialized submerged; predict_idle still integrates and
+        # checks its complete WATER state instead of assuming a fixed pose.
+        if (self.reference_mode == "ROUTE_POSITION" and
+                medium_flag(state.position[2], self.constants.hg_m) in (0.0, 1.0)):
             self._idle_reference = ("INITIAL_HOLD", None, 0.0, self._state)
 
     def hold_reference(self) -> None:
@@ -363,7 +367,7 @@ class QnPythonClosedLoopBackend:
         if self._state is None:
             raise RuntimeError('qn backend has not been initialized')
         plant=self._state.plant
-        return AgentState(self._agent_id,'AAV',timestamp_s,plant.position_xyz_m,
+        return AgentState(self._agent_id,self._platform_type,timestamp_s,plant.position_xyz_m,
             self._map_velocity(plant),orientation_quat_wxyz=plant.quaternion_wxyz,
             body_linear_velocity_mps=plant.body_twist[:3],body_angular_velocity_radps=plant.body_twist[3:],
             medium_flag=medium_flag(plant.position_xyz_m[2],self.constants.hg_m))
@@ -389,7 +393,8 @@ class QnPythonClosedLoopBackend:
             raise ValueError('terminal wait must fit the finite model horizon')
         def reply(status,reason,t=0.,state=source):
             return dict(status=status,reason=reason,duration_s=t,terminal_position=state.position,
-                        terminal_mode=actual_mode(state.medium_flag),geometry_checked=scene is not None)
+                        terminal_mode=actual_mode(state.medium_flag),geometry_checked=scene is not None,
+                        collision_radius_m=radius)
         if time.monotonic()>=deadline:return reply('UNKNOWN','PLANNING_BUDGET_EXHAUSTED')
         if (self.reference_mode!='ROUTE_POSITION' or self.water_horizontal_controller_mode!='LOS_SURGE_YAW' or
                 self.water_guidance_mode!='LOS_VELOCITY_REFERENCE'):
@@ -632,13 +637,21 @@ class QnPythonClosedLoopBackend:
             self.water_guidance_mode == "LOS_VELOCITY_REFERENCE" and flag > 0.0
         )
         if self._water_guidance_active:
-            horizontal_speed = math.hypot(velocity[0], velocity[1])
+            # A timed reference may stop ahead of the actual plant after a
+            # turn. Pure feed-forward reference velocity then becomes zero
+            # and strands the vehicle outside its terminal region. Keep the
+            # existing qn controller/actuators, but let the guidance velocity
+            # close the remaining position error over its declared lead time.
+            capture_time = max(1.0, self.water_surge_reference_gain_s)
+            guidance_x = velocity[0] + (candidate[0] - actual[0]) / capture_time
+            guidance_y = velocity[1] + (candidate[1] - actual[1]) / capture_time
+            horizontal_speed = min(step_input.max_speed_mps, math.hypot(guidance_x, guidance_y))
             self._water_horizontal_speed_mps = horizontal_speed
             _, _, yaw = _qn_attitude(
                 normalize_quaternion(self._state.plant.quaternion_wxyz)
             )
             target_heading = (
-                math.atan2(velocity[1], velocity[0])
+                math.atan2(guidance_y, guidance_x)
                 if horizontal_speed > 1e-6
                 else yaw
             )

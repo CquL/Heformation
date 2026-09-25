@@ -7,8 +7,6 @@
   <arg name="record" default="true"/>
   <arg name="request_file" default=""/>
   <arg name="usv_initial_position" default="[-5.0, -8.0, 0.0]"/>
-  <arg name="uuv_initial_position" default="[-5.0, 8.0, -2.0]"/>
-  <arg name="uuv_initial_heading_rad" default="0.0"/>
   <group if="$(eval arg('request_file') != '')">
     <param name="/mission/request_file" value="$(arg request_file)"/>
   </group>
@@ -30,13 +28,17 @@
     <param name="propulsion_effort" value="20.0"/>
     <param name="qualification_only" value="true"/>
   </node>
-  <node pkg="qn_aav_simulator" type="pvs_node.py" name="uuv" output="screen">
+  <!-- Dedicated WATER-only qn instance. Its plant is the qn underwater AAV
+       proxy, not a REMUS100 hydrodynamic validation. -->
+  <node pkg="qn_aav_simulator" type="qn_aav_node.py" name="uuv" output="screen">
     <param name="agent_id" value="uuv"/>
-    <param name="model" value="remus100"/>
     <param name="world_frame" value="world"/>
-    <rosparam param="initial_position" subst_value="true">$(arg uuv_initial_position)</rosparam>
-    <param name="initial_heading_rad" value="$(arg uuv_initial_heading_rad)"/>
-    <param name="propulsion_effort" value="500.0"/>
+    <param name="init_x" value="-27.0"/>
+    <param name="init_y" value="4.0"/>
+    <param name="init_z" value="-2.0"/>
+    <param name="enable_platform_action" value="true"/>
+    <param name="water_guidance_mode" value="LOS_VELOCITY_REFERENCE"/>
+    <param name="water_horizontal_controller_mode" value="LOS_SURGE_YAW"/>
     <param name="qualification_only" value="true"/>
   </node>
 </launch>

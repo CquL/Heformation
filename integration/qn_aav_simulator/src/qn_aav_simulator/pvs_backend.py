@@ -24,7 +24,7 @@ def advance_path_target(paths,segment,point,position):
         if point+1<len(points):point+=1
         elif segment+1<len(paths):segment,point=segment+1,1
         else:return segment,point,None,True
-    return segment,point,target,False
+    return segment,point,paths[segment][point],False
 
 
 def quaternion_product(a,b):
@@ -115,7 +115,7 @@ class PvsBackend:
         if np.linalg.norm(residual)>.000001:
             raise ValueError('static trim fails native zero-acceleration check')
 
-    def step(self,dt,target=None,effort=0.):
+    def step(self,dt,target=None,effort=0.,leg_start=None):
         from python_vehicle_simulator.lib.gnc import attitudeEuler
         if not math.isfinite(dt) or not 0<dt<=.05 or not math.isfinite(effort) or effort<0:
             raise ValueError('invalid native model step/control effort')
@@ -123,7 +123,18 @@ class PvsBackend:
             if len(target)!=3 or not all(math.isfinite(v) for v in target):
                 raise ValueError('target must be a finite ENU point')
             delta=np.array([target[1],target[0],-target[2]])-self.eta[:3]
-            heading=math.degrees(math.atan2(delta[1],delta[0])) if np.linalg.norm(delta[:2])>1e-9 else math.degrees(self.eta[5])
+            if self.model=='otter' and leg_start is not None:
+                if len(leg_start)!=3 or not all(math.isfinite(v) for v in leg_start):
+                    raise ValueError('leg start must be a finite ENU point')
+                east=target[0]-leg_start[0];north=target[1]-leg_start[1]
+                length=math.hypot(east,north)
+                if length<=1e-9:raise ValueError('LOS guidance needs a nonzero horizontal leg')
+                position=(self.eta[1],self.eta[0])
+                cross=(east*(position[1]-leg_start[1])-north*(position[0]-leg_start[0]))/length
+                course=math.atan2(north,east)-math.atan2(cross,self.vehicle.L)
+                heading=math.degrees(math.pi/2-course)
+            else:
+                heading=math.degrees(math.atan2(delta[1],delta[0])) if np.linalg.norm(delta[:2])>1e-9 else math.degrees(self.eta[5])
             # Native refModel3 uses the *linear* difference r - psi_d. atan2
             # alone jumps by 2*pi at the branch cut and commands the long
             # turn to an equivalent heading. Preserve the native controller;
@@ -237,7 +248,8 @@ class PvsBackend:
                         if not coasting and paths[segment][0]==paths[segment][1] and durations[segment]:
                             waiting=True;target=None
                 if coasting:coast_start=model.time_s-start
-            state=model.step(dt,target,0. if coasting or waiting else efforts[segment])
+            leg_start=paths[segment][point-1] if target is not None else None
+            state=model.step(dt,target,0. if coasting or waiting else efforts[segment],leg_start)
             elapsed=model.time_s-start
             samples.append((elapsed,state['position']))
             reason=scene.violation(state['position'],model.collision_radius_m) if scene else ''

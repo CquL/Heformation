@@ -1,5 +1,9 @@
 # 当前状态
 
+> **2026-09-24 最新远域协同实跑**：`experiments/20260924-qn-uuv-joint-live-r11`由原`joint_request`联合搜索生成完整Plan，用户确认后同一ROS/RViz/中文面板中AAV1 AIR概览、AAV2 AIR→WATER点测→AIR、固定WATER的qn UUV代理巡测、Otter USV共享支援并行执行；三项结果母船实收，四活动/四返回完成、零锁，任务`PASS_GEOMETRIC_PROXY_QUALIFICATION`。同次独立静态场景＋动态bag审计`passed=true,failures=[]`，执行期五平台2762对齐样本零缺、全平台代理最小净距1.08491m≥0.5m。三台AAV同型，第三台按联合方案待命。REMUS不再是本场景UUV执行模型；UUV是qn水下代理，不能据此宣称REMUS验证。初次规划使用300s隔离诊断且搜索未穷尽，正式10s预算、同请求一次缺测复查与严格物理/载荷保证**仍未通过**。代码工作树尚未提交/推送。下方旧状态条目仅为历史，按WORKLOG首条和README继续。
+
+> **2026-09-24 当前实施状态**：在原 `joint_request` 主链增加 `OFFSHORE_JOINT` 固定协同模板：两台不同AAV分别负责AIR概览和跨介质点测、UUV巡测、USV一项共享支援；三台AAV已声明同型AIR/WATER端点。模板采用支援到位后的任务级收件，控制/Action Result继续走现有ROS。Swarm动态邻机同一时间原点、任务级支援与中文面板均已接线，但**尚无新场景完整Plan、实际Goal或并行实跑通过证据**。默认10秒完整规划仍在首个远距AIR原生候选返回前结束（含同源qn加速试跑）；180秒诊断出现动态AAV路径冲突和REMUS原生返部署区失败。PVS航点引导是否允许局部修正的用户回复尚待；工作树未提交或推送。先读WORKLOG顶部，下面旧港口实验路径已按用户要求清除。
+
 > **2026-09-24 用户要求停止后的当前快照**：旧港口本地实验产物和独立 VRX/Gazebo 试接已删除；下方旧条目引用的 `experiments/20260923*`、旧 `20260924*` 路径不再存在，仅保留文字历史。新[远域场景](/home/lhj/Swarm-Formation/integration/qn_aav_simulator/config/five_scene_offshore.yaml)把五平台放在母船附近岸边部署区，RViz 初始布局已实时显示；新联合请求在 180 s 诊断预算内尚无完整可派发方案，**没有**新场景三类并行作业通过证据。本轮源码工作树未提交，用户要求清理后停下；以 WORKLOG 首条和 README 为准。
 
 > **2026-09-24 实时可视化最新核对**：只读运动/任务候选计算与同会话实际执行有明确区别：规划期 qn/PVS 仍积分但无Goal，RViz/中文面板从运行一开始显示待命；确认具体Plan后真实Action、Odometry与有限收件立即同步到相同窗口，绝非计算完播放bag。`experiments/20260924-three-class-live-ui-sync-r1`最新同次实时三类资格运行选AAV2 AIR＋REMUS WATER＋移动USV，任务两32KiB收件/返回/零锁PASS，独立五平台时间/安全3324对齐样本零缺及控制因果PASS。原面板已补短中文任务名、复查/五成员状态回执/返回进度及单调规划时间显示；规划时间字段在下次启动时生效，不能把此已启动实验截图说成测过它。这个正例仍限排除AAV1水下备选的三类接线资格、180秒初次诊断规划；四区域全方法区B回执迟到的失败没有因此消失。命令与范围见README和WORKLOG首条。
