@@ -209,16 +209,20 @@ class SceneTransport:
         """Read one local claim after its request arrives; uplink uses the same channel."""
         from qn_aav_simulator.observation_coverage import DeliveryProduct
         member=event['receiver'];digest=None;model_time=None;stamp=rospy.Time.now().to_sec()
-        if member.startswith('drone_'):
+        native_state=None;local_goal=None;local_locked=None
+        if member in ('drone_0','drone_1','drone_2','usv','uuv'):
             try:
                 from std_srvs.srv import Trigger
-                service='/'+member+'_qn_aav/state_digest'
+                service='/'+member+('_qn_aav' if member.startswith('drone_') else '')+'/state_digest'
                 rospy.wait_for_service(service,timeout=.25)
                 reply=rospy.ServiceProxy(service,Trigger)()
                 if not reply.success:return
                 local=json.loads(reply.message)
                 if local.get('agent_id')!=member:return
                 digest=local['digest'];model_time=float(local['model_time_s'])
+                native_state=local.get('native_state')
+                local_goal=local.get('active_goal_id')
+                local_locked=local.get('resource_locked')
                 stamp=float(local['ros_stamp_s'])
                 if len(digest)!=64 or any(char not in '0123456789abcdef' for char in digest):return
             except (ValueError,KeyError,TypeError,rospy.ROSException,rospy.ServiceException):
@@ -240,9 +244,11 @@ class SceneTransport:
                 generated_at=stamp,position=sample[1],actual_mode=values.get('actual_mode'),
                 model_time_s=model_time,terminal_state_digest=digest,
                 reference_source=values.get('reference_source'),
-                active_goal_id=values.get('active_goal_id',''),
-                resource_locked=str(values.get('resource_locked',
-                    values.get('platform_resource_locked','false'))).lower())
+                active_goal_id=(local_goal if local_goal is not None else
+                    values.get('active_goal_id','')),
+                resource_locked=str(local_locked if local_locked is not None else
+                    values.get('resource_locked',values.get('platform_resource_locked','false'))).lower())
+            if native_state is not None:claim['native_state']=native_state
             ident=claim['product_id'];encoded=json.dumps(claim,allow_nan=False)
             self.events[ident]=claim
             if self.task_service:
@@ -427,10 +433,21 @@ class SceneView:
             name = {'pier':'码头','rock':'岩石','coast_rock':'尾段障碍','quay':'岸壁'}.get(item['id'],
                 '栈桥' if appearance=='jetty' else '礁石' if appearance=='rock' else '禁入区' if item['kind']=='FORBIDDEN' else '障碍')
             label('geometry_label', (p[0],p[1],p[2]+size[2]/2+.6), name, .65)
+        air_targets=[item for item in self.scene.get('observation_targets', [])
+                     if item['domain']=='AIR']
+        if len(air_targets)>1:
+            xs=[item['position'][0] for item in air_targets]
+            ys=[item['position'][1] for item in air_targets]
+            center=((min(xs)+max(xs))/2,(min(ys)+max(ys))/2,.04)
+            add('air_survey_area',M.CUBE,center,(max(xs)-min(xs)+2.,max(ys)-min(ys)+2.,.04),
+                (1.,.82,.2,.16))
+            label('air_survey_label',(center[0],max(ys)+1.6,1.2),'空中扫测区',.65)
         for item in self.scene.get('observation_targets', []):
             p = item['position']
-            add('targets', M.SPHERE, p, (.6,.6,.6), (1.,.9,.25,.8))
+            add('targets', M.SPHERE, p, (.45,.45,.45) if len(air_targets)>1 and item['domain']=='AIR'
+                else (.6,.6,.6), (1.,.9,.25,.8))
             name = '空中样点' if item['domain']=='AIR' else '水下样点'
+            if item['domain']=='AIR' and len(air_targets)>1:continue
             offset_y = -2.5 if item['domain']=='AIR' else 0.
             label('target_label', (p[0],p[1]+offset_y,p[2]+.5), name, .55)
         for item in self.scene.get('transition_sites', []):

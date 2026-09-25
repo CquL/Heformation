@@ -1,17 +1,23 @@
 # Heformation 当前实施顺序
 
-当前唯一主链：请求与固定远域任务模板 → 现有完整候选联合搜索 → 一份 Plan → 原 runner/Action → Swarm＋qn／Otter PVS → 实际 Result 与母船收到的观测事件 → 同请求修复。五个平台固定为三台同型 AAV、一台 USV、一台固定 WATER 的 qn UUV 代理；UUV 代理不称为 REMUS100 物理验证。通信在本轮只按“USV 共享支援到位后交付”评价，不做逐字节协议。普通请求可让第三台 AAV 待命，不强制编队。
+唯一运行主链：远域区域扫测请求 → 原候选联合搜索快速选成员、方法、路线及支援时序 → 一份 Plan → 原 runner 并行派发 Action → Swarm AIR、qn 跨介质/qn WATER UUV、Otter/PVS USV → 实际 Result 与母船收到的结果 → 至多一轮缺测修复。固定五平台，允许冗余 AAV 待命，不强制编队。通信只按“USV 共享支援到位即可交付”这一声明的任务级条件评价。
 
-## 当前验收进度
+## 在线求解与执行边界
 
-- **正常协同已实跑**：`experiments/20260924-qn-uuv-joint-live-r11` 在同一 ROS/RViz/中文面板会话中确认一份 Plan 后，两台 AAV 分别做 AIR 概览与 AIR→WATER→AIR 点测，qn UUV 代理巡测，Otter USV 共享支援。四项活动有实际并行段、三项必要结果被母船接收、四成员返回、零锁；任务状态 `PASS_GEOMETRIC_PROXY_QUALIFICATION`，同次独立五平台时间／静态障碍／代理净距审计通过。第三台 AAV 待命。
-- **限制**：初次规划用了 300 秒明确诊断预算、搜索未穷尽；默认 10 秒预算仍无完整可派发 Plan。观测是几何代理，通信是任务级支援条件，均不是载荷／设备保证。已触发的一轮复查和同请求反馈修复尚未在这条三类任务中通过。
+当前任务层按实际收到的 Odometry、模式、成员占用和场景有限航路，在共享 10 秒预算内优先取得一份完整方案；名义时刻只用于候选排序和支援安排。不会把每个候选的 Swarm/qn/PVS 动力学完整预跑一遍。运动可行、终端和实际安全由已选 Action 及运行检查确认，故计划标记 `TASK_LEVEL_EXECUTION_PENDING`，不能称物理安全证书或全局最优。
 
-## 后续顺序
+场景的业务活动是：一台合格 AAV 穿过 6×4 m 空中扫测区的四个观测位置，另一台 AAV 做 AIR→WATER→AIR 点测，UUV 做水下通过段，USV 走南侧航路提供共享结果交付，参与成员返回。四份空中与两份水下结果均须实收。四点几何足迹覆盖该矩形是当前观测代理，不代表真实载荷影像质量。USV 使用 Otter 原生 LOS 航点控制，绿线的转弯和回转是实际动力学，不是 Swarm 路线。
 
-1. 使同一三类请求的一个明确缺测终结报告被母船收到后，原任务程序只修复未承诺部分，派发一次实际补测并完成结果接收与返回。保留其他平台的实际终态、占用和旧 GoalID 防护。失败就保留失败，不将另一次请求的复查拼接为本次成功。
-2. 定位完整搜索中重复 Swarm/qn 查询的实际成本；在同一状态、场景、模型和参考条件下复用有限方法证据，保持每次规划共享 10 秒截止时刻。预算内没有完整解时如实报告，绝不以空计划覆盖承诺；不能用距离／速度替代运动资格。
-3. 新主链以上两项稳定后，按实际调用关系删除 Calvo v9 专属排序、回退、配置与测试，以及退出生产链的有限字节通信门控；保留共用模型、执行、安全检查、三机／七机控制工具和来源署名。只合并真实重复代码，不增协调器、管理器或通用封装。
-4. 用一次带 RViz 的完整请求和一次实际偏差复跑验收，更新 WORKLOG、当前状态与交接。安全、结果因果、成员占用及返回分别核对；默认 10 秒若仍未达成，明确标记未完成。
+## 当前证据
 
-方法依据：Calvo／Capitán [异构协同调度与执行修复](https://arxiv.org/html/2411.02062v3)、D-ITAGS [分配与运动反馈交错](https://star-lab.cc.gatech.edu/papers/neville-ditags/)、Swarm-Formation [原生编队／轨迹优化](https://github.com/ZJU-FAST-Lab/Swarm-Formation)、Fossen [LOS 航路跟随](https://www.fossen.biz/php/research/path_following.php)及 [PVS 原生船艇模型](https://github.com/cybergalactic/PythonVehicleSimulator)。这些是采用机制的来源，不表示直接继承论文的最优性、稳定性或海上通信保证。
+- `experiments/20260925-area-sweep-live-r15`：默认预算下初次规划约 1.01 秒，同次实时 RViz/中文面板四活动并行，四空中＋两水下产品到母船，跨介质、支援和规定返回完成，`PASS_GEOMETRIC_PROXY_QUALIFICATION`，同次五平台 bag 审计 `passed=true,failures=[]`，最小代理净距约 0.746 m。
+- `experiments/20260925-task-level-retest-r13`：此前单空中点模板的一次明确缺测报告实际到达后，0.232 秒内从当前状态选择备用 AAV＋返回的 USV，新 Goal 真正执行、正产品实收、再次返航；同次 bag 安全/时间审计通过。这证明修复链在旧点测范围成立，不能替代新区域扫测的复查验收。
+- `experiments/20260925-area-sweep-retest-r16`：新区域扫测的一次明确缺测复查正在实跑，完成前不记通过。
+
+## 下一步
+
+1. 完成 r16，核对负报告先于补测、新成员和共享支援实际派发、全部六结果收件、所有返回及同次独立 bag 审计。若失败只修该执行边界。
+2. 同步 README、WORKLOG、当前状态与交接；明确缩比场景、几何观测和任务级通信假设，以及计划估计与实跑事实的区别。
+3. 按实际调用清除旧 Calvo v9 专属生产排序、自动回退和退出主链的重复有限字节门控；保留共用模型、原 Action、安全代码与三机/七机控制工具。只删除已确认无消费者的内容，不增加协调层或新封装。
+
+方法依据：[Calvo/Capitán T-RO 2025](https://arxiv.org/html/2411.02062v3) 的低成本估计与执行修复、[D-ITAGS RA-L/IROS 2023](https://arxiv.org/pdf/2209.13092) 的按需运动反馈、[GRSTAPS IJRR 2022](https://journals.sagepub.com/doi/10.1177/02783649211052066) 的交错任务/运动安排；实际空中由 [Swarm-Formation](https://github.com/ZJU-FAST-Lab/Swarm-Formation) 执行，USV 采用 [Fossen LOS/PVS](https://www.fossen.biz/php/research/path_following.php)。这些来源支持职责划分，不提供本场景的严格物理保证。

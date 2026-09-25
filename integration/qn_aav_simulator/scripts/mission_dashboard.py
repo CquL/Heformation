@@ -568,7 +568,7 @@ class MissionDashboard:
             if key.startswith('retest-'):
                 return '复查'+task_name(key[len('retest-'):].rsplit('-',1)[0])
             return {'overview':'概览','seabed_samples':'水下样点',
-                    'offshore_air':'空中概览','offshore_aav_water':'两栖点测',
+                    'offshore_air':'空中扫测','offshore_aav_water':'两栖点测',
                     'offshore_uuv':'水下巡测',
                     'zone_A':'A区','zone_B':'B区','zone_C':'C区'}.get(key,key[:12])
         rows=(state.get('plan') or {}).get('items',[])

@@ -16,6 +16,7 @@ import rospy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from nav_msgs.msg import Odometry
 from std_msgs.msg import String
+from std_srvs.srv import Trigger,TriggerResponse
 from qn_aav_simulator.msg import PlatformTaskAction, PlatformTaskFeedback, PlatformTaskResult
 from qn_aav_simulator.pvs_backend import PvsBackend,advance_path_target,NATIVE_START_TOLERANCE_M
 from qn_aav_simulator.experiment_verdict import StaticSceneGeometry
@@ -56,6 +57,7 @@ class PvsNode:
         self.observation_request=load_request(request_file) if request_file else None
         self.observation_obstacles=tuple(ObstacleBox(c,s) for _,kind,c,s in self.scene.objects if kind=='SOLID') if self.scene else ()
         self.products=rospy.Publisher('~local_products',String,queue_size=100)
+        self.state_digest_service=rospy.Service('~state_digest',Trigger,self.state_digest)
         self.domain_failure=False
         self.work=None
         self.pending=None
@@ -81,6 +83,15 @@ class PvsNode:
         self.start_service=rospy.Service('~start_prepared',StartPreparedAction,self.start_prepared)
         self.server.start()
 
+    def state_digest(self,_request):
+        with self.lock:
+            report=dict(agent_id=self.agent_id,model_time_s=self.backend.time_s,
+                ros_stamp_s=rospy.Time.now().to_sec(),
+                digest=hashlib.sha256(self.backend.execution_state_bytes()).hexdigest(),
+                active_goal_id=self.work['id'] if self.work else '',resource_locked=self.locked)
+            if self.model=='otter':report['native_state']=self.backend.numeric_state_claim()
+        return TriggerResponse(True,json.dumps(report,allow_nan=False))
+
     def goal(self,handle):
         goal=handle.get_goal()
         ident=handle.get_goal_id().id
@@ -88,8 +99,8 @@ class PvsNode:
             try:
                 if self.work is not None or self.pending is not None or self.locked or ident in self.retired:
                     raise ValueError('MEMBER_BUSY_OR_LOCKED')
-                if self.backend.snapshot()['actual_mode']!=self.mode:
-                    raise ValueError('ACTUAL_STATE_OUTSIDE_NATIVE_DOMAIN')
+                if not ident:raise ValueError('INVALID_GOAL_ID')
+                if self.generation>=2147483647:raise ValueError('GENERATION_EXHAUSTED')
                 if goal.terminal_behavior!=self.terminal_behavior:
                     raise ValueError('terminal behavior differs from the configured native trim/coast experiment')
                 paths=[];efforts=[];durations=[]
@@ -126,8 +137,8 @@ class PvsNode:
                     efforts.append(selected)
                 if not 1<=len(paths)<=16:
                     raise ValueError('fragment requires 1..16 segments')
-                if math.dist(paths[0][0],self.backend.snapshot()['position'])>NATIVE_START_TOLERANCE_M:
-                    raise ValueError('path start must match actual position')
+                reason=self._entry_reason(paths)
+                if reason:raise ValueError(reason)
                 timeout=goal.execution_timeout.to_sec()
                 if not math.isfinite(timeout) or timeout<=0:
                     raise ValueError('finite positive timeout required')
@@ -144,7 +155,11 @@ class PvsNode:
                     actual_mode=self.backend.snapshot()['actual_mode'],reason=str(exc),resource_locked=self.locked,
                     model_time_s=self.backend.time_s))
                 return
-            if self.native_preflight:
+            # The mission assigns a path and lets this endpoint execute it from
+            # its current admissible state. A full future plant rollout belongs
+            # to an explicit diagnostic, not every OFFSHORE_JOINT acceptance.
+            task_level=(getattr(self.observation_request,'template_id','')=='OFFSHORE_JOINT')
+            if self.native_preflight and not task_level:
                 query_deadline=time.monotonic()+self.planning_budget_s
                 backend_snapshot=copy.deepcopy(self.backend)
                 token=dict(handle=handle,id=ident,task=goal.task_id,paths=paths,efforts=efforts,
@@ -158,8 +173,11 @@ class PvsNode:
                 # query must run outside BOTH locks so cancel and integration
                 # remain live. A token prevents a late query committing a new goal.
                 threading.Thread(target=self._preflight,args=(token,),daemon=True).start()
-            else:self._accept(handle,ident,goal.task_id,paths,efforts,durations,timeout,
-                bool(getattr(goal,'prepare_only',False)),observations,terminal_wait_s)
+            else:
+                self.last_prediction=dict(goal_id=ident,status='TASK_LEVEL_ADMITTED',
+                    reason='LOCAL_STATE_AND_PATH_CHECKED; FUTURE_DYNAMICS_NOT_PREDICTED')
+                self._accept(handle,ident,goal.task_id,paths,efforts,durations,timeout,
+                    bool(getattr(goal,'prepare_only',False)),observations,terminal_wait_s)
 
     def _accept(self,handle,ident,task,paths,efforts,durations,timeout,prepare_only=False,observations=None,terminal_wait_s=0.):
         self.generation+=1
@@ -167,10 +185,33 @@ class PvsNode:
                        segment=0,point=1,segment_started=self.backend.time_s,
                        coast=False,settled=None,cause='',model_start=self.backend.time_s,waiting_commit=prepare_only,
                        deadline=time.monotonic()+timeout,observations=observations,ros_start=rospy.Time.now().to_sec(),
-                       terminal_wait_s=terminal_wait_s,return_left=False,return_reentered=False)
+                       terminal_wait_s=terminal_wait_s,return_left=False,return_reentered=False,
+                       admission='LOCAL_STATE_AND_PATH')
         if self.last_prediction.get('goal_id')==ident:
             self.last_prediction['accepted_model_time_s']=self.backend.time_s
         handle.set_accepted('finite native path fragment accepted')
+
+    def _entry_reason(self,paths):
+        """Check present execution conditions without integrating a future copy."""
+        state=self.backend.snapshot()
+        if self.domain_failure:return 'PERSISTENT_NATIVE_DOMAIN_FAILURE'
+        if self.scene_failure:return 'PERSISTENT_SCENE_SAFETY_FAILURE'
+        if state['model']!=self.model:return 'NATIVE_MODEL_MISMATCH'
+        if any(not all(math.isfinite(v) for v in state[key]) for key in
+               ('position','world_velocity','body_angular_velocity','quaternion_wxyz','actuators')):
+            return 'NONFINITE_ACTUAL_NATIVE_STATE'
+        if state['actual_mode']!=self.mode:return 'ACTUAL_STATE_OUTSIDE_NATIVE_DOMAIN'
+        if math.dist(paths[0][0],state['position'])>NATIVE_START_TOLERANCE_M:
+            return 'START_STATE_CHANGED'
+        if math.sqrt(sum(v*v for v in state['world_velocity']))>self.speed_limit:
+            return 'NATIVE_ENTRY_NOT_SETTLED'
+        if self.scene:
+            reason=self.scene.violation(state['position'],self.backend.collision_radius_m)
+            if reason:return reason
+            for path in paths:
+                reason=self.scene.path_violation(path,self.backend.collision_radius_m)
+                if reason:return reason
+        return ''
 
     def _preflight(self,token):
         try:
@@ -242,15 +283,12 @@ class PvsNode:
             elif time.monotonic()>=work['deadline']:reason='PREPARATION_EXPIRED'
             if reason:return StartPreparedActionResponse(False,reason)
             if not work['waiting_commit']:return StartPreparedActionResponse(True,'ALREADY_STARTED')
-            state=self.backend.snapshot()
-            qualified=work.get('qualified_state_signature')
-            if self.scene is not None and qualified is None:
-                return StartPreparedActionResponse(False,'NATIVE_PREPARATION_NOT_QUALIFIED')
-            if qualified is not None and self.backend.execution_state_bytes()!=qualified:
-                return StartPreparedActionResponse(False,'NATIVE_STATE_CHANGED_SINCE_PREPARATION')
-            if state['actual_mode']!=self.mode:return StartPreparedActionResponse(False,'ACTUAL_MODE_MISMATCH')
-            if math.dist(work['paths'][0][0],state['position'])>NATIVE_START_TOLERANCE_M:
-                return StartPreparedActionResponse(False,'START_STATE_CHANGED')
+            if work.get('admission')!='LOCAL_STATE_AND_PATH':
+                return StartPreparedActionResponse(False,'LOCAL_PREPARATION_NOT_ADMITTED')
+            # The live plant keeps integrating while reserved. Recheck actual
+            # entry conditions, not byte identity of a previous simulation.
+            reason=self._entry_reason(work['paths'])
+            if reason:return StartPreparedActionResponse(False,reason)
             work['waiting_commit']=False
             work['model_start']=self.backend.time_s
             work['segment_started']=self.backend.time_s

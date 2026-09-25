@@ -53,11 +53,22 @@ scene:
     # Only this site can bridge both the mother receiver (RF 30 m model) and
     # the far UUV sample (acoustic 8 m model). This is geometry, not a modem
     # performance claim; actual Otter movement and delivery must still pass.
-    - {id: offshore_support, position: [-4.0, 9.0, 0.0], radius_m: 2.0, departure_wait_candidates_s: [0.0, 30.0]}
+    # The direct diagonal crosses the AAV return lane in the actual r6 run.
+    # This declared southern approach keeps the hull out of both air lanes;
+    # the native Otter Action still decides whether it can follow and return.
+    - {id: offshore_support, position: [-4.0, 9.0, 0.0], radius_m: 2.0, approach_via: [[-4.0, -8.0, 0.0]], departure_wait_candidates_s: [0.0, 30.0, 60.0]}
   observation_targets:
-    - {id: offshore_air, position: [3.0, 4.0, 0.8], domain: AIR}
+    - {id: air_swath_1, position: [1.0, 3.0, 0.8], domain: AIR}
+    - {id: air_swath_2, position: [5.0, 3.0, 0.8], domain: AIR}
+    - {id: air_swath_3, position: [5.0, 5.0, 0.8], domain: AIR}
+    - {id: air_swath_4, position: [1.0, 5.0, 0.8], domain: AIR}
     - {id: offshore_aav_water, position: [-3.0, 1.0, -0.6], domain: WATER}
     - {id: offshore_uuv, position: [0.0, 4.0, -2.0], domain: WATER}
+  # AAV3's direct corner at the breakwater passed the static point route by
+  # only 0.2 m and the r9 live controller crossed that margin. This common
+  # corridor is available to any AAV selected for the air-observation role.
+  air_route_via:
+    offshore_air: [[-24.0, 4.0, 0.8]]
   # A WATER-only qn proxy must use a timed path; the same reference is used
   # by the native query and its live PlatformTask endpoint.
   water_route_candidates:

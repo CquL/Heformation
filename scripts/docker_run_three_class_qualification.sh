@@ -31,6 +31,6 @@ fi
 echo '远域三类平台联合请求：平台从岸边共同部署，方法和支援由现有求解器选择。'
 echo '打印具体计划后，请在终端输入 yes 才会派发。'
 QN_SAME_SOURCE_ACCELERATION=true JOINT_VISUALIZE=true \
-  JOINT_SIM_CPUSET=0-11 JOINT_PLANNING_BUDGET_S=300 \
+  JOINT_SIM_CPUSET=0-11 JOINT_PLANNING_BUDGET_S="${JOINT_PLANNING_BUDGET_S:-10}" \
   JOINT_PLANNER_CPUSET=12-15 JOINT_VIEW_CPUSET=24-31 JOINT_VIEW_HOLD_S=120 \
   bash "$PROJECT_ROOT/scripts/docker_run_joint_request.sh" "$OUTPUT"

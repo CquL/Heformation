@@ -6,7 +6,9 @@
 
 [场景配置](integration/qn_aav_simulator/config/five_scene_offshore.yaml)把三台 AAV、USV、UUV 和母船放在同一岸边部署区；[任务请求](integration/qn_aav_simulator/config/monitoring_request_offshore.yaml)声明障碍通道另一侧的空中与水下观测、必要结果接收及返回。RViz 显示同一 ROS 会话中的实际平台状态。坐标以米计，是现有模型的缩比任务场景，不能解释为真实数公里航程或设备通信性能。
 
-**当前状态：同一次实时三类协同正常请求已通过。** [运行记录](experiments/20260924-qn-uuv-joint-live-r11)中，两台 AAV 分别完成空中概览和入水／水下点测／出水，UUV 完成水下巡测，USV 到共享支援区接收结果并返回；四项活动实际完成、三项必要结果到达母船、参与成员按规定返回。独立 bag 审计的五平台时间对齐、声明障碍与代理净距通过。当前仍是**300 秒初始规划诊断预算**、几何观测与任务级支援模型；正式 10 秒规划和同请求缺测复查尚未通过。详见[当前状态](context/02_current_status.md)和[工作日志](docs/WORKLOG.md)。
+**当前状态：默认 10 秒预算下的实时三类协同区域扫测正常请求已通过。** [同次运行](experiments/20260925-area-sweep-live-r15)约 1.01 秒选出负责空中扫测、入水点测、水下巡测和共享支援的成员；四项并行进入原 Action 链。AAV 穿过声明的 6×4 m 空中区域并完成四个几何观测位置，另一 AAV 完成 AIR→WATER→AIR，UUV 完成通过段，USV 到位后母船收到六份必要结果，参与成员都实际返回。同次 bag 的五平台时间、声明障碍和代理净距审计通过，最小代理净距约 0.746 m（门槛 0.5 m）。任务层路线和时刻是快速筛选估计，不能替代原生执行资格或证明真实最短工期；观测与通信分别限几何代理及“支援到位即可交付”的任务级抽象。[旧单点请求的一轮实际缺测复查](experiments/20260925-task-level-retest-r13)已通过，新区域扫测的一轮复查仍在验证。详见[当前状态](context/02_current_status.md)和[工作日志](docs/WORKLOG.md)。
+
+USV 的支援与返回由 Otter/PVS 航点及 LOS 引导执行，**不是 Swarm 空中规划器**。场景给它一条避开空中作业走廊的南侧去程和反向返程；实际绿线会因欠驱动转向出现回转，终点由实际 Action 判断。普通请求中各平台无需等其他平台一起返航；若出现明确缺测，求解器会再选备用 AAV 和 USV 执行一次补测，图上会出现 USV 的第二次支援航次。
 
 在桌面终端打开实时场景与任务入口：
 
@@ -16,7 +18,7 @@ bash scripts/docker_run_three_class_qualification.sh \
   "experiments/$(date -u +%Y%m%dT%H%M%SZ)-offshore-live"
 ```
 
-脚本打印完整可行计划后才会询问 `yes`；没有完整计划就不会派发 Goal。可选 `JOINT_GPU_RENDER=true` 只影响 RViz 渲染，不加速联合求解或动力学。该入口使用 300 秒诊断规划预算、本机 CPU 核组和中文实时面板；需要 Docker、Noto CJK 字体及本机非交互式 `sudo`。其他机器可直接使用 `scripts/docker_run_joint_request.sh` 并按自身环境设置核组。
+脚本打印一份完整的任务级方案后才会询问 `yes`；没有方案就不会派发 Goal。默认共享规划预算为 10 秒；方案中的运动可行性由派发后的原生端点和实际反馈确认。可选 `JOINT_GPU_RENDER=true` 只影响 RViz 渲染，不加速联合求解或动力学。该入口使用本机 CPU 核组和中文实时面板；需要 Docker、Noto CJK 字体及本机非交互式 `sudo`。其他机器可直接使用 `scripts/docker_run_joint_request.sh` 并按自身环境设置核组。
 
 缺少当前镜像时构建：
 

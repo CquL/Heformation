@@ -13,6 +13,7 @@ instead is which plan revision each dispatch actually read.
 """
 
 import json
+import copy
 import hashlib
 import io
 import math
@@ -504,9 +505,13 @@ class MissionRunner:
         with self.condition:
             self.actual[member] = sample
             self.condition.notify_all()
-        hold=getattr(self,'opaque_hold',None)
-        if hold is not None and member==hold['member'] and math.dist(sample.position,hold['position'])>hold['radius_m']:
-            hold['violation']='retained AIR member left its qualified return ball'
+        holds=getattr(self,'opaque_holds',None)
+        if holds is None:
+            old=getattr(self,'opaque_hold',None)
+            holds=(old,) if old is not None else ()
+        for hold in holds:
+            if member==hold['member'] and math.dist(sample.position,hold['position'])>hold['radius_m']:
+                hold['violation']='retained member left its declared return ball: '+member
 
     def _wait_executor_ready(self, unit, timeout=120.0):
         import rosgraph
@@ -610,6 +615,195 @@ class MissionRunner:
             if missing:
                 raise RuntimeError("missing/fresh actual positions: " + str(missing))
             return {m: self.actual[m].position for m in self.fleet}
+
+    def _tasklevel_current_states(self):
+        """Read observable state and ownership; never reconstruct a plant."""
+        now=rospy.Time.now().to_sec()
+        with self.condition:
+            samples={member:self.actual.get(member) for member in self.fleet}
+            diagnostics={member:self.executor_diagnostics.get(member,(None,{})) for member in self.fleet}
+        with self.executor_mutex:
+            booked={member for ident in self.active_executor_ids
+                    for member in self.routing[ident].physical_agent_ids}
+        states={}
+        for member,sample in samples.items():
+            stamp,values=diagnostics[member]
+            if sample is None or not sample.is_fresh(now,.25) or stamp is None or not 0<=now-stamp<=.25:
+                raise RuntimeError('task-level planning needs fresh Odometry and diagnostics: '+member)
+            mode=values.get('actual_mode')
+            if mode not in ('AIR','WATER','SURFACE'):
+                raise RuntimeError('task-level planning has no actual medium: '+member)
+            locked=(member in booked or any(str(values.get(key,'false')).lower()=='true'
+                for key in ('resource_locked','platform_resource_locked','domain_failure','air_domain_violation')) or
+                bool(values.get('scene_failure')) or bool(values.get('active_goal_id')) or
+                bool(values.get('pending_goal_id')) or values.get('platform_action_active')=='true' or
+                values.get('reference_active')=='true')
+            states[member]=dict(position=tuple(sample.position),velocity=tuple(sample.velocity),mode=mode,
+                available_from=0.,locked=locked,collision_radius_m=1.1891593669479295 if member=='usv' else .25,
+                state_stamp_s=sample.stamp_s if hasattr(sample,'stamp_s') else stamp)
+        return states
+
+    def _check_tasklevel_fleet_clearance(self):
+        """Monitor fresh actual positions; this is not a predictive guarantee."""
+        now=rospy.Time.now().to_sec()
+        with self.condition:
+            samples={member:self.actual.get(member) for member in self.fleet}
+        stale=[member for member,sample in samples.items()
+               if sample is None or not sample.is_fresh(now,.25)]
+        if stale:
+            # Local Action endpoints retain their own 0.25 s control gate.
+            # A delayed task-authority callback is an information gap, not
+            # evidence that the plant stopped or collided. Keep reservations
+            # and fail if the observation gap persists for one second.
+            if any(samples[member] is None or not samples[member].is_fresh(now,1.)
+                   for member in stale):
+                raise RuntimeError('task authority lost member Odometry: '+str(stale))
+            with self.executor_mutex:
+                self.metrics['runtime_monitor_remote_gap_samples']=(
+                    self.metrics.get('runtime_monitor_remote_gap_samples',0)+1)
+            return
+        positions={member:sample.position for member,sample in samples.items()}
+        geometry=getattr(self,'task_geometry',None)
+        minimum=math.inf
+        for index,member in enumerate(self.fleet):
+            radius=1.1891593669479295 if member=='usv' else .25
+            if geometry is not None:
+                reason=geometry.violation(positions[member],radius)
+                if reason:raise RuntimeError('actual fleet safety: '+member+' '+reason)
+            for other in self.fleet[index+1:]:
+                clearance=math.dist(positions[member],positions[other])-radius-(1.1891593669479295 if other=='usv' else .25)
+                minimum=min(minimum,clearance)
+                if clearance<.5:
+                    raise RuntimeError('actual fleet clearance below 0.5 m: {} / {} = {:.6f}'.format(member,other,clearance))
+        with self.executor_mutex:
+            self.metrics['runtime_monitor_min_clearance_m']=min(
+                self.metrics.get('runtime_monitor_min_clearance_m',minimum),minimum)
+            self.metrics['runtime_monitor_scope']='FRESH_ODOMETRY_SAMPLED_CLEARANCE_NOT_PREDICTIVE_GUARANTEE'
+
+    def _bind_tasklevel_native_entry(self,item,unit):
+        """Bind the existing native reference to the settled actual entry."""
+        native=item.native_action
+        if native is None or item.native_prediction.get('status')!='TASK_LEVEL':return item
+        from qn_aav_simulator.experiment_verdict import StaticSceneGeometry
+        member=unit.physical_agent_ids[0]
+        now=rospy.Time.now().to_sec()
+        with self.condition:
+            sample=self.actual.get(member)
+            stamp,values=self.executor_diagnostics.get(member,(None,{}))
+        if sample is None or not sample.is_fresh(now,.25) or stamp is None or not 0<=now-stamp<=.25:
+            raise RuntimeError('native reference entry lacks fresh actual state')
+        actual_start=tuple(sample.position)
+        start=actual_start
+        if native.segments[0].operation=='SURFACE_PATH':
+            # Otter's integrated heave is slightly below zero. Native surface
+            # references use the declared water-plane coordinate, while entry
+            # admissibility still checks the unmodified actual plant state.
+            start=(start[0],start[1],0.)
+        old=native.segments[0].points[0]
+        segments=list(native.segments)
+        if segments[0].operation=='ENTER_WATER':
+            tolerance=float(values.get('platform_speed_tolerance_mps','nan'))
+            if (values.get('actual_mode')!='AIR' or not math.isfinite(tolerance) or tolerance<=0 or
+                    math.sqrt(sum(v*v for v in sample.velocity))>tolerance):
+                raise RuntimeError('cross-medium entry is not settled in AIR')
+            # Translate the complete connected water reference horizontally.
+            # Vertical entry/exit and the declared water path length survive.
+            dx,dy=start[0]-old[0],start[1]-old[1]
+            segments=[replace(segment,points=tuple((p[0]+dx,p[1]+dy,p[2]) for p in segment.points))
+                      for segment in segments]
+        else:
+            expected='SURFACE' if segments[0].operation=='SURFACE_PATH' else 'WATER'
+            if values.get('actual_mode')!=expected:
+                raise RuntimeError('native reference entry medium changed')
+            if expected=='SURFACE':
+                projected=[]
+                for segment in segments:
+                    points=[]
+                    for x,y,_ in segment.points:
+                        point=(x,y,0.)
+                        if not points or point!=points[-1]:points.append(point)
+                    if len(points)==1:points.append(points[0])
+                    projected.append(replace(segment,points=tuple(points)))
+                segments=projected
+        segments[0]=replace(segments[0],points=(start,)+segments[0].points[1:])
+        bound=replace(native,segments=tuple(segments))
+        geometry=getattr(self,'task_geometry',None) or StaticSceneGeometry.from_mapping(rospy.get_param('/scene',{}))
+        if geometry is None:raise RuntimeError('native entry binding needs static geometry')
+        radius=1.1891593669479295 if member=='usv' else .25
+        for segment in bound.segments:
+            reason=geometry.path_violation(segment.points,radius)
+            if reason:raise RuntimeError('bound native reference fails static geometry: '+reason)
+        prediction=dict(item.native_prediction,terminal_position=bound.segments[-1].points[-1],
+            entry_bound_from_actual=True,actual_entry_position=actual_start,
+            reference_path=tuple(point for segment in bound.segments for point in segment.points))
+        # The original schedule remains only an allocation estimate; the exact
+        # rebound command is recorded at dispatch and used by the local endpoint.
+        prediction.pop('reference_schedule',None)
+        step=replace(item.execution_steps[0],native_action=bound,native_prediction=prediction)
+        with self.executor_mutex:
+            self.metrics.setdefault('native_entry_bindings',{})[item.execution_id]=dict(
+                original_entry=old,actual_entry=actual_start,segments=[asdict(segment) for segment in bound.segments],
+                geometry_checked=True,dynamic_safety_certified=False)
+        return replace(item,execution_steps=(step,))
+
+    def _wait_task_support_receipts(self,item,step,action):
+        """Keep the shared reservation at the site until actual reports arrive."""
+        related=[work for work in self.plan.items if work.fulfills_task and
+                 item.execution_id in work.support_execution_ids]
+        if not related:raise RuntimeError('shared support has no declared dependent work')
+        # The business deadline may be absent. Bound this local wait by the
+        # declared action horizons of the dependent chains, which can still be
+        # running after the USV reaches its support site.
+        timeout=max(sum(work_step.native_action.execution_timeout_s
+                        if work_step.native_action else 180.
+                        for work_step in work.execution_steps) for work in related)+30.
+        if not math.isfinite(timeout) or timeout<=0:raise RuntimeError('support receipt wait must be bounded')
+        deadline=time.monotonic()+timeout
+        position=tuple(step.native_prediction['terminal_position'])
+        scene=rospy.get_param('/scene',{})
+        sites=[site for site in scene.get('communication_sites',())
+               if math.dist(position,site['position'])<1e-6]
+        if len(sites)!=1:raise RuntimeError('shared support endpoint is not a declared support site')
+        radius=float(sites[0]['radius_m'])
+        with self.executor_mutex:action.update(phase='WAITING_FOR_RECEIPTS',support_site=position)
+        while not rospy.is_shutdown():
+            now=rospy.Time.now().to_sec()
+            with self.condition:
+                sample=self.actual.get('usv')
+                stamp,values=self.executor_diagnostics.get('usv',(None,{}))
+                goals={key:tuple(value) for key,value in self.goal_ids.items()}
+            if (sample is None or not sample.is_fresh(now,.25) or stamp is None or not 0<=now-stamp<=.25 or
+                    values.get('actual_mode')!='SURFACE' or math.dist(sample.position,position)>radius or
+                    any(str(values.get(key,'false')).lower()=='true' for key in
+                        ('resource_locked','platform_resource_locked','domain_failure'))):
+                raise RuntimeError('shared support actual hold unavailable or outside site; keep reservation')
+            complete=True
+            with self.executor_mutex:
+                reports=dict(self.metrics.get('received_terminal_reports',{}))
+                products=tuple(self.metrics.get('received_products',{}).values())
+            for work in related:
+                for index,work_step in enumerate(work.execution_steps):
+                    expected=set(work_step.native_action.observation_ids if work_step.native_action else work_step.observation_ids)
+                    if not expected:continue
+                    ident=work.execution_id if len(work.execution_steps)==1 else work.execution_id+':step:'+str(index)
+                    ids=goals.get(ident,())
+                    if len(ids)!=1 or ids[0] not in reports:
+                        complete=False;continue
+                    report=reports[ids[0]];observed=set(report['observed_ids'])
+                    received={product['point_id'] for product in products
+                              if product.get('goal_id')==ids[0] and product.get('observed') is True}
+                    if set(report['point_ids'])!=expected or not observed<=expected or not received<=observed:
+                        raise RuntimeError('shared support received conflicting terminal report/products')
+                    if not observed<=received:complete=False
+            if complete:
+                with self.executor_mutex:self.metrics.setdefault('events',[]).append(dict(
+                    kind='SUPPORT_TERMINAL_REPORTS_RECEIVED',execution_id=item.execution_id,
+                    work_executions=[work.execution_id for work in related],at_ros_s=now))
+                self._save_executor();return
+            if time.monotonic()>=deadline:
+                raise RuntimeError('shared support terminal reports/products missing; keep reservation')
+            time.sleep(.05)
+        raise RuntimeError('shutdown during shared support receipt wait; keep reservation')
 
     def _executor_plan(self, observations, *, include_formation=False, release=0.0):
         from mrta_python import Executor, ExecutorPlan, ExecutorTravelTimeProvider, build_executor_plan
@@ -798,13 +992,20 @@ class MissionRunner:
                 and result.reason == 0 and result.task_outcome == 1
                 and result.safety_outcome == 1 and result.experiment_validity == 1)
 
-    @staticmethod
-    def _checked_native_prediction(item):
+    def _checked_native_prediction(self,item):
         prediction=item.native_prediction
         if 'terminal_backend' in prediction or 'trajectory' in prediction:
             raise RuntimeError('internal model/trajectory must not be copied into plan metadata')
-        if prediction.get('status')!='FEASIBLE' or not prediction.get('geometry_checked'):
+        task_level=prediction.get('status')=='TASK_LEVEL'
+        if task_level:
+            if (self.plan.validation_scope!='TASK_LEVEL_EXECUTION_PENDING' or
+                    not prediction.get('estimate_basis') or
+                    prediction.get('dynamic_safety_certified') is not False):
+                raise RuntimeError('task-level estimate lacks its honest execution-pending scope')
+        elif prediction.get('status')!='FEASIBLE':
             raise RuntimeError('native plan lacks a complete checked motion prediction')
+        if not prediction.get('geometry_checked'):
+            raise RuntimeError('native reference path lacks static geometry checks')
         duration=float(prediction['duration_s']);position=prediction['terminal_position']
         if not math.isfinite(duration) or duration<0 or len(position)!=3 or not all(math.isfinite(v) for v in position):
             raise RuntimeError('invalid native motion prediction')
@@ -960,7 +1161,8 @@ class MissionRunner:
         if not reserved and conflicting_active_unit(self.routing, self.active_executor_ids, unit.executor_id):
             raise RuntimeError("physical members already occupied")
         self._wait_executor_ready(unit)
-        goal = self._executor_goal(item,unit)
+        encoded=self._bind_tasklevel_native_entry(item,unit)
+        goal = self._executor_goal(encoded,unit)
         action = {"task_id": item.task_id, "execution_id": item.execution_id,
                                          "endpoint": unit.action_endpoint, "phase": "DISPATCHING"}
         with self.executor_mutex:
@@ -970,6 +1172,7 @@ class MissionRunner:
             if getattr(self,"executor_serial",True):self.metrics["current_action"] = action
         self._save_executor()  # reserve before sending, survive runner interruption
         state,result=self._send_executor_goal(item,unit,goal,action)
+        self._reject_unaccepted_item(item,item,state,result)
         self._wait_native_observation_receipt(state,result,native)
         if native is None and getattr(goal,'observation_ids',()) and self._release_result_ok(state,result,item.execution_id):
             node=self.server_nodes[unit.executor_id]
@@ -981,6 +1184,31 @@ class MissionRunner:
             outcome=self._commit_executor_result(item,unit,state,result,retain_booking=retain_booking)
         self._save_executor()
         return outcome
+
+    def _reject_unaccepted_item(self,parent,view,state,result):
+        """Release only a matching explicit rejection before any acceptance."""
+        if state!=getattr(GoalStatus,'REJECTED',5) or result is None:return
+        if (result.task_id!=view.execution_id or not result.goal_id or
+                any(row.get('activity_id')==parent.execution_id and row.get('verified')
+                    for row in self.metrics.get('step_results',()))):return
+        goal_id,envelope=self.native_result(view.execution_id)
+        if goal_id!=result.goal_id or envelope.status.status!=state:return
+        if view.native_action is not None:
+            if result.resource_locked or result.task_completed or result.terminal_verified:return
+        else:
+            path=self.output/result.evidence_file
+            if path.parent!=self.output or not path.is_file():return
+            evidence=json.loads(path.read_text())
+            if (evidence.get('goal_id')!=goal_id or evidence.get('accepted_for_dispatch') is not False or
+                    evidence.get('resource_released') is not True):return
+        with self.executor_mutex:
+            parent.status='REJECTED_BEFORE_ACCEPTANCE'
+            self.active_executor_ids.discard(parent.executor_id)
+            self.metrics.setdefault('current_actions',{}).pop(parent.execution_id,None)
+            self.metrics['executions'].append(dict(task_id=parent.task_id,execution_id=parent.execution_id,
+                goal_id=goal_id,result='REJECTED_BEFORE_ACCEPTANCE',reason=str(result.reason)))
+        self._save_executor()
+        raise RuntimeError('local method rejected before acceptance: '+str(result.reason))
 
     def _send_executor_goal(self,item,unit,goal,action,sent_deadline=None,
                             defer_terminal_receipt=False):
@@ -1241,7 +1469,8 @@ class MissionRunner:
                 # The completed group may have shifted a successor's start.
                 # Keep that execution order, but withdraw the old full-model
                 # validation until its native endpoint checks the actual entry.
-                self.plan.validation_scope='EXECUTION_ENTRY_REQUALIFICATION_REQUIRED'
+                if self.request.template_id!='OFFSHORE_JOINT':
+                    self.plan.validation_scope='EXECUTION_ENTRY_REQUALIFICATION_REQUIRED'
                 self.plan_revision+=1
                 self.metrics['plan_history'].append({'revision':self.plan_revision,'plan':asdict(self.plan)})
         self._save_executor()
@@ -1257,7 +1486,7 @@ class MissionRunner:
             raise RuntimeError('qualified waiting must execute before motion')
         has_products=any((s.native_action and s.native_action.observation_ids) or s.observation_ids
                          for s in item.execution_steps)
-        if item.task_id in self.observation_tasks and not has_products:
+        if item.fulfills_task and item.task_id in self.observation_tasks and not has_products:
             raise RuntimeError('composite motion cannot substitute for received observation products')
         units=[]
         for step in item.execution_steps:
@@ -1281,6 +1510,8 @@ class MissionRunner:
                          executor_id=step.executor_id,travel_time=step.duration_s-step.service_time_s,
                          service_time=step.service_time_s,execution_steps=(step,))
             self._wait_executor_ready(unit)
+            view=self._bind_tasklevel_native_entry(view,unit)
+            step=view.execution_steps[0]
             goal=self._executor_goal(view,unit)
             with self.executor_mutex:
                 action.update(endpoint=unit.action_endpoint,step=index,step_count=len(units),
@@ -1291,6 +1522,7 @@ class MissionRunner:
                     defer_terminal_receipt=True)
             else:
                 state,result=self._send_executor_goal(view,unit,goal,action)
+            self._reject_unaccepted_item(item,view,state,result)
             if step.native_action is not None and not continuing:
                 self._wait_native_observation_receipt(state,result,step.native_action)
             if (step.native_action is None and not continuing and
@@ -1338,6 +1570,9 @@ class MissionRunner:
                         row['observation_missing']=set(report['observed_ids'])!=set(step.observation_ids)
             row.update(verified=True,result_received_at=rospy.Time.now().to_sec())
             rows.append(row)
+            if (continuing and index==0 and not item.fulfills_task and
+                    self.request.template_id=='OFFSHORE_JOINT'):
+                self._wait_task_support_receipts(item,step,action)
             if continuing:
                 deferred.append((view,unit,step,state,result,evidence if not step.native_action else None))
             self._save_executor()
@@ -1385,7 +1620,8 @@ class MissionRunner:
             self.plan,changed=process_executor_completion(self.plan,event,self.final_events)
             if changed and (self.plan.activity_edges or
                             len({i.task_id for i in self.plan.items})!=len(self.plan.items)):
-                self.plan.validation_scope='EXECUTION_ENTRY_REQUALIFICATION_REQUIRED'
+                if self.request.template_id!='OFFSHORE_JOINT':
+                    self.plan.validation_scope='EXECUTION_ENTRY_REQUALIFICATION_REQUIRED'
                 self.plan_revision+=1
                 self.metrics['plan_history'].append({'revision':self.plan_revision,'plan':asdict(self.plan)})
             self.metrics['executions'].append(dict(task_id=item.task_id,execution_id=item.execution_id,
@@ -1520,7 +1756,18 @@ class MissionRunner:
         failure=None
         with ThreadPoolExecutor(max_workers=len(self.units)) as workers:
             while not rospy.is_shutdown():
-                if getattr(self,'opaque_hold',None) is not None:
+                if self.request.template_id=='OFFSHORE_JOINT' and failure is None:
+                    try:self._check_tasklevel_fleet_clearance()
+                    except RuntimeError as error:
+                        failure=error
+                        with self.executor_mutex:
+                            self.metrics['runtime_safety_failure']=str(error)
+                            occupied={m for ident in self.active_executor_ids
+                                      for m in self.routing[ident].physical_agent_ids}
+                        for unit in self.units:
+                            if occupied.intersection(unit.physical_agent_ids):
+                                self.clients[unit.executor_id].cancel_goal()
+                if getattr(self,'opaque_hold',None) is not None or getattr(self,'opaque_holds',None):
                     try:self._check_opaque_hold()
                     except RuntimeError as error:
                         failure=error
@@ -1535,7 +1782,7 @@ class MissionRunner:
                             failure=error
                             with self.executor_mutex:
                                 for ident in activity_ids:
-                                    if self.plan.item(ident).status=='COMPLETED':continue
+                                    if self.plan.item(ident).status in ('COMPLETED','REJECTED_BEFORE_ACCEPTANCE'):continue
                                     self.plan.item(ident).status="UNKNOWN_LOCKED"
                                     action=self.metrics.get("current_actions",{}).get(ident)
                                     if action is not None:action.update(phase="UNKNOWN_LOCKED",failure_reason=str(error))
@@ -1548,8 +1795,9 @@ class MissionRunner:
                     if failure is None:
                         for item in pending:
                             if item.status!='PLANNED':continue
-                            group=[i for i in pending if i.status=='PLANNED' and i.task_id==item.task_id and
-                                   item.candidate_id and i.candidate_id==item.candidate_id] or [item]
+                            group=([item] if self.request.template_id=='OFFSHORE_JOINT' else
+                                [i for i in pending if i.status=='PLANNED' and i.task_id==item.task_id and
+                                 item.candidate_id and i.candidate_id==item.candidate_id] or [item])
                             group_ids={i.execution_id for i in group}
                             if (min(i.planned_start for i in group)>now or
                                 any(not (predecessors[i.execution_id]-group_ids)<=completed or
@@ -1574,25 +1822,95 @@ class MissionRunner:
             if rospy.is_shutdown():raise RuntimeError("runner shutdown with accepted commitments")
 
     def _check_opaque_hold(self):
-        """Monitor a previously accepted AIR return while its model state is unknown."""
-        hold=self.opaque_hold
-        if hold.get('violation'):raise RuntimeError(hold['violation'])
-        if time.monotonic()-hold['started_monotonic']>hold['horizon_s']:
-            raise RuntimeError('retained AIR hold exceeded its experimentally qualified horizon')
+        """Monitor accepted returns whose internal model state is unavailable."""
+        holds=getattr(self,'opaque_holds',None)
+        if holds is None:holds=(self.opaque_hold,)
         now=rospy.Time.now().to_sec()
-        with self.condition:
-            sample=self.actual.get(hold['member'])
-            stamp,values=self.executor_diagnostics.get(hold['member'],(None,{}))
-        if sample is None or not sample.is_fresh(now,.25) or stamp is None or not 0<=now-stamp<=.25:
-            raise RuntimeError('retained AIR member state or reference is stale')
-        if (math.dist(sample.position,hold['position'])>hold['radius_m'] or
-                values.get('reference_source')!='AIR_SWARM' or
-                values.get('domain_failure')=='true' or values.get('platform_resource_locked')=='true' or
-                values.get('air_domain_violation')=='true'):
-            raise RuntimeError('retained AIR member left its safe hold/reference contract')
-        reference=tuple(float(values['reference_position_'+axis]) for axis in 'xyz')
-        if math.dist(reference,hold['position'])>hold['radius_m']:
-            raise RuntimeError('retained AIR member adopted a different reference')
+        for hold in holds:
+            if hold.get('violation'):raise RuntimeError(hold['violation'])
+            if time.monotonic()-hold['started_monotonic']>hold['horizon_s']:
+                raise RuntimeError('retained member exceeded its bounded hold horizon: '+hold['member'])
+            with self.condition:
+                sample=self.actual.get(hold['member'])
+                stamp,values=self.executor_diagnostics.get(hold['member'],(None,{}))
+            if sample is None or not sample.is_fresh(now,.25) or stamp is None or not 0<=now-stamp<=.25:
+                raise RuntimeError('retained member state or reference is stale: '+hold['member'])
+            if (math.dist(sample.position,hold['position'])>hold['radius_m'] or
+                    values.get('reference_source')!=hold.get('source','AIR_SWARM') or
+                    values.get('actual_mode')!=hold.get('mode','AIR') or
+                    values.get('domain_failure')=='true' or values.get('platform_resource_locked')=='true' or
+                    values.get('air_domain_violation')=='true'):
+                raise RuntimeError('retained member left its hold/reference contract: '+hold['member'])
+            reference=tuple(float(values['reference_position_'+axis]) for axis in 'xyz')
+            if math.dist(reference,hold['position'])>hold['radius_m']:
+                raise RuntimeError('retained member adopted a different reference: '+hold['member'])
+
+    def _repair_offshore_air(self,missing,scene,geometry,units,models,efforts,
+                             standby_fixed):
+        """Repair one received AIR miss using the same candidate search and Plan."""
+        from mrta_python.executors import ExecutorTravelTimeProvider
+        from mrta_python.models import Task
+        from qn_aav_simulator.task_line import build_request_executor_plan
+        from qn_aav_simulator.pvs_backend import NATIVE_START_TOLERANCE_M
+        if len(missing)!=1 or missing[0].region_id!='offshore_air':
+            raise RuntimeError('only one received offshore AIR miss is qualified for this repair')
+        if any(item.status!='COMPLETED' for item in self.plan.items) or self.active_executor_ids:
+            raise RuntimeError('repair cannot release a still accepted activity')
+        failed=next((item for item in self.plan.items if item.fulfills_task and
+            item.task_id.endswith('::offshore_air')),None)
+        if failed is None or len(failed.coalition)!=1:
+            raise RuntimeError('received AIR miss has no unique physical member')
+        rows=[row for row in self.metrics['executions'] if row.get('execution_id')==failed.execution_id]
+        if len(rows)!=1 or rows[0].get('result')!='OBSERVATION_MISSING':
+            raise RuntimeError('AIR missing report does not match the accepted Action')
+        # A real terminal negative report, including any positive partial
+        # products, must precede the repair. Missing transport is not a miss.
+        reports=self.metrics.get('received_terminal_reports',{})
+        failed_goals=rows[0].get('step_goal_ids',()) or (rows[0].get('goal_id'),)
+        if not any(goal in reports and set(reports[goal]['observed_ids'])!=set(reports[goal]['point_ids'])
+                   for goal in failed_goals):
+            raise RuntimeError('no actually received negative report authorizes the retest')
+        repair_states=self._tasklevel_current_states()
+        idle_member=next((member for member in ('drone_0','drone_1','drone_2')
+            if not repair_states[member]['locked'] and
+            all(member not in item.coalition for item in self.plan.items)),None)
+        if idle_member is None:
+            raise RuntimeError('no available standby AAV for one-round repair')
+        repair_task=Task(missing[0].task_id,missing[0].required_capabilities,1,
+            missing[0].service_time_s,missing[0].deadline_s,missing[0].region_id)
+        available=[unit for unit in units if unit.physical_agent_ids in ((idle_member,),('usv',))]
+        provider=ExecutorTravelTimeProvider({'start':repair_states[idle_member]['position']},
+            {unit.executor_id:(.2 if 'usv' in unit.physical_agent_ids else .35) for unit in available},
+            member_positions={m:state['position'] for m,state in repair_states.items()},
+            native_models={},native_efforts=efforts)
+        budget=float(rospy.get_param('~repair_budget_s',10.))
+        if not math.isfinite(budget) or budget<=0:raise RuntimeError('invalid repair budget')
+        search=time.monotonic()
+        repair_plan,_=build_request_executor_plan(self.request,scene,available,provider,repair_states,
+            budget_s=budget,tasks_override=(repair_task,),first_feasible=True)
+        self.metrics['repair_wall_s']=time.monotonic()-search
+        self.metrics['repair_source']='CURRENT_TELEMETRY_TASK_LEVEL_SEARCH'
+        offset=rospy.Time.now().to_sec()-self.epoch
+        for item in repair_plan.items:
+            item.planned_start+=offset;item.planned_finish+=offset
+            if any(old.execution_id==item.execution_id for old in self.plan.items):
+                raise RuntimeError('repair activity ID collides with prior commitment')
+        self.plan.items.extend(repair_plan.items)
+        self.plan.precedence_edges+=((failed.task_id,repair_task.task_id),)
+        self.plan.activity_edges+=repair_plan.activity_edges
+        self.plan.validation_scope=repair_plan.validation_scope
+        self.plan_revision+=1
+        self.metrics['repair_plan']=asdict(repair_plan)
+        self.metrics['plan_history'].append({'revision':self.plan_revision,'plan':asdict(self.plan)})
+        self.tasks_by_id[repair_task.task_id]=repair_task
+        self.observation_tasks[repair_task.task_id]=missing[0]
+        self.metrics['status']='RUNNING_RETEST';self._save_executor()
+        self._execute_parallel_pending()
+        if self.coverage.delivered_fraction(self.weights)!=1.:
+            raise RuntimeError('retest product was not actually received')
+        self.metrics['pending_retest']=[]
+        self.metrics['retest_completed']=[repair_task.task_id]
+        self._save_executor()
 
     def _receive_observations(self, item, evidence):
         from qn_aav_simulator.observation_coverage import (ObservationSample,PointObservation,
@@ -1664,11 +1982,7 @@ class MissionRunner:
         self.weights={point.point_id:point.weight for region in self.request.regions
                       for point in region.interest_points}
         try:
-            if os.environ.get('QN_SAME_SOURCE_ACCELERATION')=='true':
-                from mrta_python.query_worker import _enable_query_extensions
-                if not _enable_query_extensions():
-                    raise RuntimeError('planner qn source/ABI differs from the running compiled model')
-            from qn_aav_simulator.qn_python_backend import QnPythonClosedLoopBackend
+            task_level=self.request.template_id=='OFFSHORE_JOINT'
             if self.executor_serial or not self.finite_delivery:
                 raise RuntimeError('joint request requires parallel executor and actual finite receipt inputs')
             if set(self.fleet)!={'drone_0','drone_1','drone_2','usv','uuv'}:
@@ -1678,73 +1992,110 @@ class MissionRunner:
             geometry=StaticSceneGeometry.from_mapping(scene)
             if geometry is None or not scene.get('return_sites'):
                 raise RuntimeError('joint request needs the declared obstacle scene and return sites')
-            positions={};models={}
-            for member in ('drone_0','drone_1','drone_2'):
-                node='/'+member+'_qn_aav'
-                position=tuple(float(rospy.get_param(node+'/init_'+axis)) for axis in 'xyz')
-                backend=QnPythonClosedLoopBackend(dict(
+            self.task_geometry=geometry
+            if task_level:
+                states=self._tasklevel_current_states()
+                positions={member:state['position'] for member,state in states.items()}
+                models={}
+                efforts={'usv':float(rospy.get_param('/usv/propulsion_effort'))}
+                units=[Executor(unit.executor_id,unit.physical_agent_ids,frozenset(unit.capabilities))
+                       for unit in self.units]
+                provider=ExecutorTravelTimeProvider({'start':positions['drone_0']},
+                    {unit.executor_id:(.2 if 'usv' in unit.physical_agent_ids else
+                     .45 if 'uuv' in unit.physical_agent_ids else .35) for unit in units},
+                    member_positions=positions,native_models={},native_efforts=efforts)
+                self.metrics['planning_state_source']='CURRENT_ODOMETRY_DIAGNOSTICS_AND_LOCKS'
+                def checked_start():
+                    expiry=time.monotonic()+2.
+                    while True:
+                        try:fresh=self._tasklevel_current_states();break
+                        except RuntimeError:
+                            if time.monotonic()>=expiry:raise
+                            with self.condition:self.condition.wait(.05)
+                    if any(fresh[m]['locked'] for item in self.plan.items for m in item.coalition):
+                        raise RuntimeError('selected physical member became locked before dispatch')
+                    return {m:math.dist(fresh[m]['position'],positions[m]) for m in positions}
+            else:
+                if os.environ.get('QN_SAME_SOURCE_ACCELERATION')=='true':
+                    from mrta_python.query_worker import _enable_query_extensions
+                    if not _enable_query_extensions():
+                        raise RuntimeError('planner qn source/ABI differs from the running compiled model')
+                from qn_aav_simulator.qn_python_backend import QnPythonClosedLoopBackend
+                positions={};models={}
+                for member in ('drone_0','drone_1','drone_2'):
+                    node='/'+member+'_qn_aav'
+                    position=tuple(float(rospy.get_param(node+'/init_'+axis)) for axis in 'xyz')
+                    backend=QnPythonClosedLoopBackend(dict(
+                        initialization_mode='STATIC_TRIM',model_step_s=.001,
+                        reference_mode='ROUTE_POSITION',
+                        water_guidance_mode=rospy.get_param(node+'/water_guidance_mode','QN_ORIGINAL_POSITION'),
+                        water_horizontal_controller_mode=rospy.get_param(
+                            node+'/water_horizontal_controller_mode','QN_ORIGINAL_RBF_PD')))
+                    backend.reset(AgentState(member,'AAV',0.,position,(0.,0.,0.)))
+                    positions[member]=backend.snapshot().position;models[member]=backend
+                efforts={}
+                for member,model_name in (('usv','otter'),):
+                    node='/'+member
+                    if rospy.get_param(node+'/model')!=model_name:
+                        raise RuntimeError('native marine model differs from declared executor: '+member)
+                    position=tuple(float(v) for v in rospy.get_param(node+'/initial_position'))
+                    backend=PvsBackend(model_name,position,
+                        heading_rad=float(rospy.get_param(node+'/initial_heading_rad',0.)),
+                        initialization_mode=rospy.get_param(node+'/initialization_mode','NATIVE_ZERO'))
+                    positions[member]=backend.snapshot()['position'];models[member]=backend
+                    efforts[member]=float(rospy.get_param(node+'/propulsion_effort'))
+                uuv_position=tuple(float(rospy.get_param('/uuv/init_'+axis)) for axis in 'xyz')
+                uuv_model=QnPythonClosedLoopBackend(dict(
                     initialization_mode='STATIC_TRIM',model_step_s=.001,
                     reference_mode='ROUTE_POSITION',
-                    water_guidance_mode=rospy.get_param(node+'/water_guidance_mode','QN_ORIGINAL_POSITION'),
-                    water_horizontal_controller_mode=rospy.get_param(
-                        node+'/water_horizontal_controller_mode','QN_ORIGINAL_RBF_PD')))
-                backend.reset(AgentState(member,'AAV',0.,position,(0.,0.,0.)))
-                positions[member]=backend.snapshot().position;models[member]=backend
-            efforts={}
-            for member,model_name in (('usv','otter'),):
-                node='/'+member
-                if rospy.get_param(node+'/model')!=model_name:
-                    raise RuntimeError('native marine model differs from declared executor: '+member)
-                position=tuple(float(v) for v in rospy.get_param(node+'/initial_position'))
-                backend=PvsBackend(model_name,position,
-                    heading_rad=float(rospy.get_param(node+'/initial_heading_rad',0.)),
-                    initialization_mode=rospy.get_param(node+'/initialization_mode','NATIVE_ZERO'))
-                positions[member]=backend.snapshot()['position'];models[member]=backend
-                efforts[member]=float(rospy.get_param(node+'/propulsion_effort'))
-            uuv_position=tuple(float(rospy.get_param('/uuv/init_'+axis)) for axis in 'xyz')
-            uuv_model=QnPythonClosedLoopBackend(dict(
-                initialization_mode='STATIC_TRIM',model_step_s=.001,
-                reference_mode='ROUTE_POSITION',
-                water_guidance_mode=rospy.get_param('/uuv/water_guidance_mode'),
-                water_horizontal_controller_mode=rospy.get_param('/uuv/water_horizontal_controller_mode')))
-            uuv_model.reset(AgentState('uuv','UUV',0.,uuv_position,(0.,0.,0.)))
-            if actual_mode(uuv_model.snapshot().medium_flag)!='WATER':
-                raise RuntimeError('dedicated qn UUV did not initialize in WATER')
-            positions['uuv']=uuv_model.snapshot().position;models['uuv']=uuv_model
+                    water_guidance_mode=rospy.get_param('/uuv/water_guidance_mode'),
+                    water_horizontal_controller_mode=rospy.get_param('/uuv/water_horizontal_controller_mode')))
+                uuv_model.reset(AgentState('uuv','UUV',0.,uuv_position,(0.,0.,0.)))
+                if actual_mode(uuv_model.snapshot().medium_flag)!='WATER':
+                    raise RuntimeError('dedicated qn UUV did not initialize in WATER')
+                positions['uuv']=uuv_model.snapshot().position;models['uuv']=uuv_model
 
-            def checked_start():
-                deadline=time.monotonic()+10.
-                while True:
-                    try:actual=self._actual_positions();break
-                    except RuntimeError:
-                        if time.monotonic()>=deadline:raise
-                        time.sleep(.05)
-                deviations={member:math.dist(actual[member],position)
-                            for member,position in positions.items()}
-                if any(distance>NATIVE_START_TOLERANCE_M for distance in deviations.values()):
-                    raise RuntimeError('declared initial model position differs from actual: '+str(deviations))
-                return deviations
+                def checked_start():
+                    deadline=time.monotonic()+10.
+                    while True:
+                        try:actual=self._actual_positions();break
+                        except RuntimeError:
+                            if time.monotonic()>=deadline:raise
+                            time.sleep(.05)
+                    deviations={member:math.dist(actual[member],position)
+                                for member,position in positions.items()}
+                    if any(distance>NATIVE_START_TOLERANCE_M for distance in deviations.values()):
+                        raise RuntimeError('declared initial model position differs from actual: '+str(deviations))
+                    return deviations
 
-            self.metrics['initial_position_deviation_m']=checked_start()
-            states={member:dict(position=position,mode=('AIR' if member.startswith('drone_')
-                         else 'WATER' if member=='uuv' else models[member].snapshot()['actual_mode']),available_from=0.)
-                    for member,position in positions.items()}
-            units=[Executor(unit.executor_id,unit.physical_agent_ids,frozenset(unit.capabilities))
-                   for unit in self.units]
-            provider=ExecutorTravelTimeProvider({'start':positions['drone_0']},
-                {unit.executor_id:1. for unit in units},native_models=models,native_efforts=efforts)
-            self.metrics['status']='PLANNING_DIAGNOSTIC'
+                self.metrics['initial_position_deviation_m']=checked_start()
+                states={member:dict(position=position,mode=('AIR' if member.startswith('drone_')
+                             else 'WATER' if member=='uuv' else models[member].snapshot()['actual_mode']),available_from=0.)
+                        for member,position in positions.items()}
+                units=[Executor(unit.executor_id,unit.physical_agent_ids,frozenset(unit.capabilities))
+                       for unit in self.units]
+                provider=ExecutorTravelTimeProvider({'start':positions['drone_0']},
+                    {unit.executor_id:1. for unit in units},native_models=models,native_efforts=efforts)
+            self.metrics['status']='PLANNING' if task_level else 'PLANNING_DIAGNOSTIC'
             self.metrics['planning_budget_s']=float(rospy.get_param('~planning_budget_s',10.))
             began=time.monotonic()
             self.metrics['planning_started_monotonic']=began
-            self.metrics['qualification_scope']='DECLARED_INITIAL_MODEL_AND_ACTUAL_POSITION_CHECK'
+            self.metrics['qualification_scope']=('TASK_LEVEL_EXECUTION_PENDING' if task_level else
+                'DECLARED_INITIAL_MODEL_AND_ACTUAL_POSITION_CHECK')
             self._save_executor()
             try:
                 self.plan,tasks=build_request_executor_plan(self.request,scene,units,provider,states,
                     budget_s=self.metrics['planning_budget_s'],
-                    first_feasible=self.request.template_id!='OFFSHORE_JOINT')
+                    first_feasible=True)
             finally:
                 self.metrics['planning_wall_s']=time.monotonic()-began
+            if rospy.get_param('/mission/qualification_missing_air_member','')=='SELECTED_AIR':
+                air_work=[item for item in self.plan.items if item.fulfills_task and
+                    item.task_id.endswith('::offshore_air')]
+                if len(air_work)!=1 or len(air_work[0].coalition)!=1:
+                    raise RuntimeError('qualification fault needs one selected AIR observer')
+                rospy.set_param('/mission/qualification_missing_air_member',air_work[0].coalition[0])
+                self.metrics['qualification_missing_air_member']=air_work[0].coalition[0]
             # Retain only the terminal backend of the method actually selected.
             # A later repair may reuse it only when the matching finite Action
             # notice confirms that the local terminal state was reached.
@@ -1754,22 +2105,23 @@ class MissionRunner:
             # declared no-command continuation otherwise consume the later
             # 10 s feedback-repair budget for identical computations.
             standby_fixed={};idle_anchors={}
-            for member in ('drone_0','drone_1','drone_2'):
-                idle=models[member].predict_idle(5.,geometry,time.monotonic()+10.)
-                if idle['status']=='FEASIBLE' and idle['reason']=='QN_EXACT_INITIAL_HOLD_FIXED_POINT':
-                    standby_fixed[member]=idle['terminal_backend']
-            with self.condition:
-                _,uuv_diagnostic=self.executor_diagnostics.get('uuv',(None,{}))
-            uuv_time=float(uuv_diagnostic.get('model_time_s','nan'))
-            if math.isfinite(uuv_time) and uuv_time>=0.:
-                idle=models['uuv'].predict_idle(uuv_time,
-                    geometry,time.monotonic()+10.)
-                if idle['status']=='FEASIBLE':idle_anchors['uuv']=idle['terminal_backend']
-            for key,backend in selected_terminals.items():
-                if getattr(backend,'model',None)!='otter':continue
-                idle=backend.predict_idle(.1,geometry,time.monotonic()+2.)
-                if idle['status']=='FEASIBLE' and idle['terminal_backend'].execution_state_bytes()==backend.execution_state_bytes():
-                    standby_fixed[key]=backend
+            if not task_level:
+                for member in ('drone_0','drone_1','drone_2'):
+                    idle=models[member].predict_idle(5.,geometry,time.monotonic()+10.)
+                    if idle['status']=='FEASIBLE' and idle['reason']=='QN_EXACT_INITIAL_HOLD_FIXED_POINT':
+                        standby_fixed[member]=idle['terminal_backend']
+                with self.condition:
+                    _,uuv_diagnostic=self.executor_diagnostics.get('uuv',(None,{}))
+                uuv_time=float(uuv_diagnostic.get('model_time_s','nan'))
+                if math.isfinite(uuv_time) and uuv_time>=0.:
+                    idle=models['uuv'].predict_idle(uuv_time,
+                        geometry,time.monotonic()+10.)
+                    if idle['status']=='FEASIBLE':idle_anchors['uuv']=idle['terminal_backend']
+                for key,backend in selected_terminals.items():
+                    if getattr(backend,'model',None)!='otter':continue
+                    idle=backend.predict_idle(.1,geometry,time.monotonic()+2.)
+                    if idle['status']=='FEASIBLE' and idle['terminal_backend'].execution_state_bytes()==backend.execution_state_bytes():
+                        standby_fixed[key]=backend
             self.tasks_by_id={task.task_id:task for task in tasks}
             regions={region.region_id:region for region in self.request.regions}
             def target(task):
@@ -1785,12 +2137,19 @@ class MissionRunner:
                 self.request.requirement.cruise_altitude_m) for site in scene['transition_sites']})
             self.centers.update({'transition-stage:'+site['id']+':'+str(index):tuple(point)
                 for site in scene['transition_sites'] for index,point in enumerate(site.get('air_stages',()))})
+            self.centers.update({'air-route:'+region+':'+str(index):tuple(point)
+                for region,points in scene.get('air_route_via',{}).items()
+                for index,point in enumerate(points)})
+            self.centers.update({'survey:'+region.region_id+':'+point.point_id:
+                (point.position[0],point.position[1],self.request.requirement.cruise_altitude_m)
+                for region in self.request.regions if region.kind in ('SURFACE','SHORELINE')
+                for point in region.interest_points})
             self.centers.update({'return:'+member:tuple(site['position'])
                 for member,site in scene['return_sites'].items()})
             self.obstacles=[ObstacleBox(center,size) for _,kind,center,size in geometry.objects
                             if kind=='SOLID']
             conditional_retest=None
-            if len(tasks)==1 and regions[tasks[0].target_ref].kind in ('SURFACE','SHORELINE'):
+            if not task_level and len(tasks)==1 and regions[tasks[0].target_ref].kind in ('SURFACE','SHORELINE'):
                 selected_work=[item for item in self.plan.items if item.fulfills_task and
                     item.task_id==tasks[0].task_id and len(item.coalition)==1 and
                     item.coalition[0].startswith('drone_')]
@@ -1847,7 +2206,8 @@ class MissionRunner:
                          if self.request.template_id=='OFFSHORE_JOINT' else
                          'finite experimental delivery; actual receipt required'),
                         'return required; native endpoint decides actual terminal',
-                        'complete model/trajectory in nominal-plan.json']),
+                        ('task-level estimates only; dynamic safety decided during execution' if task_level else
+                         'complete model/trajectory in nominal-plan.json')]),
                 indent=2,default=json_default),flush=True)
             try:answer=input('Confirm this exact joint plan? Type yes to dispatch: ')
             except (EOFError,KeyboardInterrupt):answer=''
@@ -1856,13 +2216,19 @@ class MissionRunner:
             self.metrics['confirmation']={'answer':'yes','at_ros_s':rospy.Time.now().to_sec()}
             self.metrics['initial_position_deviation_m']=checked_start()
             self.epoch=rospy.Time.now().to_sec()
-            self.metrics['status']='RUNNING_DIAGNOSTIC';self._save_executor()
+            self.metrics['status']='RUNNING' if task_level else 'RUNNING_DIAGNOSTIC';self._save_executor()
             timer=rospy.Timer(rospy.Duration(1.),lambda _:self._save_executor())
             self._execute_parallel_pending()
             delivered=self.coverage.delivered_fraction(self.weights)
             missing=retest_tasks(self.request,(),self.coverage,self.weights,
                 delivery_recorded=set(self.metrics['results_received'])=={task.task_id for task in tasks},
                 already_retested=False)
+            if missing and self.request.template_id=='OFFSHORE_JOINT':
+                self.metrics['pending_retest']=[task.task_id for task in missing]
+                self._repair_offshore_air(missing,scene,geometry,units,models,efforts,
+                                          standby_fixed)
+                delivered=self.coverage.delivered_fraction(self.weights)
+                missing=()
             if missing:
                 self.metrics['pending_retest']=[task.task_id for task in missing]
                 if len(missing)!=1 or regions[missing[0].region_id].kind not in ('SURFACE','SHORELINE'):

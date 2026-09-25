@@ -335,6 +335,45 @@ class PvsBackend:
         state={key:value for key,value in vars(self).items() if key not in ('time_s','steps')}
         return canonical_model_state_bytes(state)
 
+    def numeric_state_claim(self):
+        """Current plant, actuators and native autopilot memory for repair."""
+        if self.model!='otter':raise ValueError('numeric state claim is qualified for Otter only')
+        controls=('ref','tauX','e_int','psi_d','r_d','a_d')
+        def scalar(value):
+            kind=('numpy64' if isinstance(value,np.float64) else
+                  'int' if type(value) is int else 'float')
+            return [kind,float(value)]
+        return dict(model=self.model,eta=self.eta.tolist(),nu=self.nu.tolist(),
+                    actuators=self.actuators.tolist(),time_s=self.time_s,steps=self.steps,
+                    autopilot={key:scalar(getattr(self.vehicle,key)) for key in controls})
+
+    def apply_numeric_state_claim(self,claim):
+        """Update a private query copy; the digest check is owned by the caller."""
+        if self.model!='otter':raise ValueError('numeric state claim is qualified for Otter only')
+        controls=('ref','tauX','e_int','psi_d','r_d','a_d')
+        if (claim.get('model')!=self.model or set(claim)!=
+                {'model','eta','nu','actuators','time_s','steps','autopilot'} or
+                set(claim['autopilot'])!=set(controls) or
+                any(len(claim['autopilot'][key])!=2 or
+                    claim['autopilot'][key][0] not in ('numpy64','int','float') for key in controls) or
+                len(claim['eta'])!=6 or len(claim['nu'])!=6 or
+                len(claim['actuators'])!=len(self.actuators) or
+                type(claim['steps']) is not int or claim['steps']<0):
+            raise ValueError('incomplete native numeric state claim')
+        values=(tuple(claim['eta'])+tuple(claim['nu'])+tuple(claim['actuators'])+
+                (claim['time_s'],)+tuple(claim['autopilot'][key][1] for key in controls))
+        if not all(isinstance(v,(int,float)) and math.isfinite(v) for v in values):
+            raise ValueError('nonfinite native numeric state claim')
+        self.eta=np.asarray(claim['eta'],dtype=float)
+        self.nu=np.asarray(claim['nu'],dtype=float)
+        self.actuators=np.asarray(claim['actuators'],dtype=float)
+        self.time_s=float(claim['time_s']);self.steps=claim['steps']
+        for key in controls:
+            kind,value=claim['autopilot'][key]
+            setattr(self.vehicle,key,np.float64(value) if kind=='numpy64' else
+                    int(value) if kind=='int' else float(value))
+        return self
+
     def snapshot(self):
         from python_vehicle_simulator.lib.gnc import Rzyx
         rotation=Rzyx(*self.eta[3:])

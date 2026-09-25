@@ -15,10 +15,15 @@ requirement:
 regions:
   - region_id: offshore_air
     kind: SURFACE
-    corner_a: [2.0, 3.0, 0.0]
-    corner_b: [4.0, 5.0, 0.0]
+    corner_a: [0.0, 2.0, 0.0]
+    corner_b: [6.0, 6.0, 0.0]
     interest_points:
-      - {point_id: air_sample, position: [3.0, 4.0, 0.0], weight: 1.0}
+      # Four footprint witnesses in a bounded two-lane sweep. The points are
+      # visited in order; all four observations are required before return.
+      - {point_id: air_swath_1, position: [1.0, 3.0, 0.0], weight: 1.0}
+      - {point_id: air_swath_2, position: [5.0, 3.0, 0.0], weight: 1.0}
+      - {point_id: air_swath_3, position: [5.0, 5.0, 0.0], weight: 1.0}
+      - {point_id: air_swath_4, position: [1.0, 5.0, 0.0], weight: 1.0}
   - region_id: offshore_aav_water
     kind: UNDERWATER
     corner_a: [-4.0, 0.0, -0.6]

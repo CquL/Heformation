@@ -7,6 +7,7 @@ JOINT_IMAGE="${JOINT_IMAGE:-swarm-formation-qn:joint-wip}"
 JOINT_VISUALIZE="${JOINT_VISUALIZE:-true}"
 JOINT_GPU_RENDER="${JOINT_GPU_RENDER:-false}"
 JOINT_PLANNING_BUDGET_S="${JOINT_PLANNING_BUDGET_S:-10}"
+JOINT_REPAIR_BUDGET_S="${JOINT_REPAIR_BUDGET_S:-10}"
 JOINT_SIM_CPUSET="${JOINT_SIM_CPUSET:-}"
 JOINT_PLANNER_CPUSET="${JOINT_PLANNER_CPUSET:-}"
 JOINT_VIEW_CPUSET="${JOINT_VIEW_CPUSET:-}"
@@ -16,6 +17,8 @@ JOINT_EXECUTORS_FILE="${JOINT_EXECUTORS_FILE:-/workspace/src/src/qn_aav_simulato
 JOINT_SCENE_FILE="${JOINT_SCENE_FILE:-$PROJECT_ROOT/integration/qn_aav_simulator/config/five_scene_offshore.yaml}"
 JOINT_USV_INITIAL_POSITION="${JOINT_USV_INITIAL_POSITION:-[-25.0, -2.0, 0.0]}"
 QN_SAME_SOURCE_ACCELERATION="${QN_SAME_SOURCE_ACCELERATION:-false}"
+JOINT_QUALIFICATION_MISSING_AIR_MEMBER="${JOINT_QUALIFICATION_MISSING_AIR_MEMBER:-}"
+JOINT_VISUAL_TIMING_RELAX="${JOINT_VISUAL_TIMING_RELAX:-false}"
 case "$JOINT_VISUALIZE" in true|false) ;; *) echo 'JOINT_VISUALIZE must be true or false' >&2; exit 2 ;; esac
 case "$JOINT_GPU_RENDER" in true|false) ;; *) echo 'JOINT_GPU_RENDER must be true or false' >&2; exit 2 ;; esac
 mkdir -p "$JOINT_OUTPUT"
@@ -57,6 +60,7 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
   --env ROS_HOME=/tmp/joint-request-ros \
   --env JOINT_VISUALIZE="$JOINT_VISUALIZE" \
   --env JOINT_PLANNING_BUDGET_S="$JOINT_PLANNING_BUDGET_S" \
+  --env JOINT_REPAIR_BUDGET_S="$JOINT_REPAIR_BUDGET_S" \
   --env JOINT_SIM_CPUSET="$JOINT_SIM_CPUSET" \
   --env JOINT_PLANNER_CPUSET="$JOINT_PLANNER_CPUSET" \
   --env JOINT_VIEW_CPUSET="$JOINT_VIEW_CPUSET" \
@@ -65,6 +69,8 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
   --env JOINT_EXECUTORS_FILE="$JOINT_EXECUTORS_FILE" \
   --env JOINT_USV_INITIAL_POSITION="$JOINT_USV_INITIAL_POSITION" \
   --env QN_SAME_SOURCE_ACCELERATION="$QN_SAME_SOURCE_ACCELERATION" \
+  --env JOINT_QUALIFICATION_MISSING_AIR_MEMBER="$JOINT_QUALIFICATION_MISSING_AIR_MEMBER" \
+  --env JOINT_VISUAL_TIMING_RELAX="$JOINT_VISUAL_TIMING_RELAX" \
   "${JOINT_GUI_ARGS[@]}" \
   --volume "$PROJECT_ROOT/integration/qn_aav_simulator:/workspace/src/src/qn_aav_simulator:ro" \
   --volume "$PROJECT_ROOT/integration/mrta_python:/workspace/integration/mrta_python:ro" \
@@ -98,12 +104,19 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
       kill -0 "$launch_pid"
       sleep .25
     done
+    if [[ -n "$JOINT_QUALIFICATION_MISSING_AIR_MEMBER" ]]; then
+      rosparam set /mission/qualification_missing_air_member "$JOINT_QUALIFICATION_MISSING_AIR_MEMBER"
+    fi
+    if [[ "$JOINT_VISUAL_TIMING_RELAX" == true ]]; then
+      rosparam set /mission/allow_visual_timing_relaxation true
+    fi
     rosparam load "$JOINT_EXECUTORS_FILE" /formation_mission_runner
     rosparam set /formation_mission_runner/planning_mode joint_request
     rosparam set /formation_mission_runner/executor_serial false
     rosparam set /formation_mission_runner/request_file "$JOINT_REQUEST_FILE"
     rosparam set /formation_mission_runner/output_dir /experiments/current
     rosparam set /formation_mission_runner/planning_budget_s "$JOINT_PLANNING_BUDGET_S"
+    rosparam set /formation_mission_runner/repair_budget_s "$JOINT_REPAIR_BUDGET_S"
     timeout 15 rosbag record --lz4 -l 1 -O /experiments/current/scene-once.bag \
       /scene/global_cloud > /experiments/current/scene-recorder.log 2>&1
     record_cmd=(rosbag record --lz4 --buffsize=256 -O /experiments/current/execution.bag

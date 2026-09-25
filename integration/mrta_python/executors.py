@@ -34,7 +34,7 @@ from typing import Callable, Dict, FrozenSet, List, Mapping, Sequence, Tuple
 from typing import Optional
 
 from .validation import identifier, nonnegative
-from .models import NativeActionSpec, ExecutionStep, ExecutionCandidate
+from .models import NativeActionSpec, NativeSegmentSpec, ExecutionStep, ExecutionCandidate
 
 
 ExecutorTravelTimeFunction = Callable[[str, str, str], float]
@@ -408,6 +408,260 @@ class ExecutorTravelTimeProvider:
     # PlatformTask endpoint. Only declared conversion sites are candidates.
     air_units: Tuple[Executor, ...] = ()
     transition_sites: tuple = ()
+    # The offshore task allocator uses public state and finite route references,
+    # never a copied controller/plant. Full native queries remain diagnostic.
+    task_water_routes: Mapping = field(default_factory=dict)
+    task_support_task_id: str = ''
+
+    def _task_level(self):
+        return (self.observation_request is not None and
+                self.observation_request.template_id=='OFFSHORE_JOINT')
+
+    def _task_path(self,source,target,radius,deadline):
+        """A small static visibility graph at the requested operating height.
+
+        Its route is an estimate, not the trajectory the local controller must
+        track. Inflated declared boxes screen reachability without an ODE.
+        """
+        import heapq
+        source=tuple(source);target=tuple(target)
+        if self.scene_geometry is None:raise ValueError('TASK_SCENE_MISSING')
+        prefix=[source]
+        if source[2]!=target[2]:prefix.append((source[0],source[1],target[2]))
+        if len(prefix)>1 and self.scene_geometry.path_violation(prefix,radius):
+            raise ValueError('TASK_VERTICAL_ROUTE_BLOCKED')
+        origin=prefix[-1]
+        if not self.scene_geometry.path_violation((origin,target),radius):
+            return tuple(prefix+[target])
+        margin=radius+self.scene_geometry.clearance+1e-6
+        vertices=[origin,target]
+        for _,_,center,size in self.scene_geometry.objects:
+            if abs(target[2]-center[2])>size[2]/2+margin:continue
+            for sx,sy in ((-1,-1),(-1,1),(1,-1),(1,1)):
+                point=(center[0]+sx*(size[0]/2+margin),
+                       center[1]+sy*(size[1]/2+margin),target[2])
+                if not self.scene_geometry.violation(point,radius):vertices.append(point)
+        distances={0:0.};previous={};queue=[(0.,0)]
+        while queue:
+            if time.monotonic()>=deadline:raise PlanningBudgetExceeded('task geometry budget exhausted')
+            cost,index=heapq.heappop(queue)
+            if cost!=distances[index]:continue
+            if index==1:
+                route=[1]
+                while route[-1]!=0:route.append(previous[route[-1]])
+                return tuple(prefix[:-1]+[vertices[i] for i in reversed(route)])
+            for other,point in enumerate(vertices):
+                if other==index:continue
+                candidate=cost+math.dist(vertices[index],point)
+                if candidate>=distances.get(other,float('inf')):continue
+                if self.scene_geometry.path_violation((vertices[index],point),radius):continue
+                distances[other]=candidate;previous[other]=index
+                heapq.heappush(queue,(candidate,other))
+        raise ValueError('TASK_STATIC_ROUTE_UNREACHABLE')
+
+    @staticmethod
+    def _task_schedule(path,duration,hold=0.):
+        lengths=[math.dist(a,b) for a,b in zip(path,path[1:])]
+        total=sum(lengths);clock=0.;rows=[(0.,tuple(path[0]))]
+        for length,point in zip(lengths,path[1:]):
+            clock+=duration*length/total if total else duration/len(lengths)
+            if clock>rows[-1][0]:rows.append((clock,tuple(point)))
+        if hold:rows.append((clock+hold,tuple(path[-1])))
+        return tuple(rows)
+
+    def _task_step(self,executor,target_ref,path,mode,*,duration=None,hold=0.,native=None,
+                   observations=(),radius=.25):
+        duration=(sum(math.dist(a,b) for a,b in zip(path,path[1:]))/
+                  self.nominal_speed_mps[executor.executor_id] if duration is None else duration)
+        schedule=self._task_schedule(path,duration,hold)
+        total=duration+hold
+        prediction=dict(status='TASK_LEVEL',duration_s=total,terminal_position=tuple(path[-1]),
+            terminal_mode=mode,geometry_checked=True,geometry_scope='DECLARED_STATIC_PATH_ONLY',
+            dynamic_safety_certified=False,collision_radius_m=radius,
+            estimate_basis='declared route length / nominal speed or declared segment duration; actual Action feedback required',
+            reference_path=tuple(path),reference_schedule=schedule)
+        return ExecutionStep(executor.executor_id,total,target_ref,native,
+            service_time_s=hold if native is None else 0.,native_prediction=prediction,
+            observation_ids=tuple(observations) if native is None else ())
+
+    def _task_observation_screen(self,steps,region):
+        """Check estimated continuous footprint dwell along finite references."""
+        from qn_aav_simulator.observation_coverage import ObstacleBox,_visible
+        requirement=self.observation_request.requirement
+        obstacles=tuple(ObstacleBox(c,s) for _,kind,c,s in self.scene_geometry.objects if kind=='SOLID')
+        for point in region.interest_points:
+            longest=0.;continuous=0.
+            for step in steps:
+                ids=step.native_action.observation_ids if step.native_action else step.observation_ids
+                if point.point_id not in ids:continue
+                rows=step.native_prediction['reference_schedule']
+                for (begin,a),(end,b) in zip(rows,rows[1:]):
+                    delta=tuple(y-x for x,y in zip(a,b));offset=tuple(x-y for x,y in zip(a,point.position))
+                    low,high=0.,1.;aa=delta[0]**2+delta[1]**2
+                    cc=offset[0]**2+offset[1]**2-requirement.footprint_radius_m**2
+                    if aa:
+                        bb=2*(offset[0]*delta[0]+offset[1]*delta[1]);disc=bb*bb-4*aa*cc
+                        if disc<0:continuous=0.;continue
+                        low=max(low,(-bb-math.sqrt(disc))/(2*aa));high=min(high,(-bb+math.sqrt(disc))/(2*aa))
+                    elif cc>0:continuous=0.;continue
+                    vertical=requirement.max_distance_from_altitude_m
+                    if delta[2]:
+                        bounds=sorted(((-vertical-offset[2])/delta[2],(vertical-offset[2])/delta[2]))
+                        low=max(low,bounds[0]);high=min(high,bounds[1])
+                    elif abs(offset[2])>vertical:continuous=0.;continue
+                    if low>=high:continuous=0.;continue
+                    positions=[tuple(a[i]+fraction*delta[i] for i in range(3))
+                               for fraction in (low+1e-9,(low+high)/2,high-1e-9)]
+                    if not all(_visible(p,point.position,requirement,obstacles) for p in positions):
+                        continuous=0.;continue
+                    continuous=(continuous if low<=1e-8 else 0.)+(high-low)*(end-begin)
+                    longest=max(longest,continuous)
+                    if high<1.-1e-8:continuous=0.
+            if longest+1e-8<requirement.min_dwell_s:raise ValueError('TASK_OBSERVATION_DWELL_UNAVAILABLE:'+point.point_id)
+
+    def _iter_task_candidates(self,unit,task,start,states,deadline):
+        """Offshore allocation/scheduling estimates; actual motion stays local."""
+        from dataclasses import replace
+        from qn_aav_simulator.monitoring_request import observation_position
+        if len(unit.physical_agent_ids)!=1:
+            yield ExecutionCandidate('task-unit',(),{},status='UNKNOWN',reason='TASK_INDIVIDUAL_ENDPOINT_REQUIRED');return
+        member=unit.physical_agent_ids[0];state=states[member]
+        if state.get('locked',False):return
+        region=next(r for r in self.observation_request.regions if r.region_id==task.target_ref)
+        ids=tuple(p.point_id for p in region.interest_points)
+        source=tuple(state['position']);radius=float(state.get('collision_radius_m',.25))
+        home=tuple(self.return_sites[member]['position']) if self.return_sites else source
+        methods=[]
+        try:
+            if 'AIR' in unit.capabilities:
+                if state['mode']!='AIR':raise ValueError('TASK_AIR_ENTRY_MODE')
+                via=tuple(tuple(point) for point in self.native_routes.get(task.target_ref,()))
+                steps=[];position=source
+                for index,waypoint in enumerate(via):
+                    steps.append(self._task_step(unit,'air-route:'+task.target_ref+':'+str(index),
+                        self._task_path(position,waypoint,radius,deadline),'AIR',hold=4.,radius=radius))
+                    position=waypoint
+                for point in region.interest_points:
+                    target=observation_position(point.position,self.observation_request.requirement)
+                    steps.append(self._task_step(unit,'survey:'+task.target_ref+':'+point.point_id,
+                        self._task_path(position,target,radius,deadline),'AIR',
+                        hold=self.observation_request.service_time_s,
+                        observations=(point.point_id,),radius=radius))
+                    position=target
+                for index in reversed(range(len(via))):
+                    waypoint=via[index]
+                    steps.append(self._task_step(unit,'air-route:'+task.target_ref+':'+str(index),
+                        self._task_path(position,waypoint,radius,deadline),'AIR',hold=4.,radius=radius))
+                    position=waypoint
+                steps.append(self._task_step(unit,'return:'+member,
+                    self._task_path(position,home,radius,deadline),'AIR',radius=radius))
+                methods.append(tuple(steps))
+            elif 'AAV' in unit.capabilities:
+                if state['mode']!='AIR':raise ValueError('TASK_TRANSITION_ENTRY_MODE')
+                air=next((e for e in self.air_units if e.physical_agent_ids==unit.physical_agent_ids),None)
+                if air is None:raise ValueError('TASK_AIR_ENDPOINT_MISSING')
+                for site_id,site,stages in self.transition_sites:
+                    entry=(site[0],site[1],self.observation_request.requirement.cruise_altitude_m)
+                    steps=[];position=source
+                    for index,target in enumerate(tuple(stages)+(entry,)):
+                        ref=('transition-stage:'+site_id+':'+str(index) if index<len(stages) else 'transition:'+site_id)
+                        steps.append(self._task_step(air,ref,self._task_path(position,target,radius,deadline),
+                            'AIR',hold=4.,radius=radius));position=target
+                    x,y,_=entry;exit_position=(x+.7,y,entry[2])
+                    segments=(NativeSegmentSpec('ENTER_WATER',(entry,(x,y,-.6)),14.),
+                        NativeSegmentSpec('WATER_PATH',((x,y,-.6),(x+.7,y,-.6)),7.),
+                        NativeSegmentSpec('EXIT_WATER',((x+.7,y,-.6),exit_position),14.))
+                    for segment in segments:
+                        reason=self.scene_geometry.path_violation(segment.points,radius)
+                        if reason:raise ValueError(reason)
+                    route=NativeActionSpec(segments,'FIXED_REFERENCE',observation_ids=ids)
+                    native=self._task_step(unit,task.target_ref,
+                        tuple(segment.points[0] for segment in segments)+(exit_position,),
+                        'AIR',duration=35.,hold=4.,native=route,radius=radius)
+                    native.native_prediction['reference_schedule']=((0.,entry),(14.,(x,y,-.6)),
+                        (21.,(x+.7,y,-.6)),(35.,exit_position),(39.,exit_position))
+                    steps.append(native)
+                    steps.append(self._task_step(air,'return:'+member,
+                        self._task_path(exit_position,home,radius,deadline),'AIR',radius=radius))
+                    methods.append(tuple(steps))
+            elif 'UUV' in unit.capabilities:
+                if state['mode']!='WATER':raise ValueError('TASK_WATER_ENTRY_MODE')
+                for raw in self.task_water_routes.get(task.target_ref,()):
+                    segments=tuple(NativeSegmentSpec('WATER_PATH',tuple(tuple(p) for p in s['points']),
+                        duration_s=float(s['duration_s'])) for s in raw['segments'])
+                    if (not segments or segments[0].points[0]!=source or segments[-1].points[-1]!=home or
+                            any(s.duration_s<=0 or any(p[2]>=0 for p in s.points) for s in segments)):
+                        continue
+                    rows=[];clock=0.;path=[]
+                    for segment in segments:
+                        reason=self.scene_geometry.path_violation(segment.points,radius)
+                        if reason:raise ValueError(reason)
+                        section=self._task_schedule(segment.points,segment.duration_s)
+                        rows.extend((clock+t,p) for t,p in section[1 if rows else 0:])
+                        path.extend(segment.points[1 if path else 0:]);clock+=segment.duration_s
+                    route=NativeActionSpec(segments,'FIXED_REFERENCE',
+                        execution_timeout_s=float(raw['execution_timeout_s']),observation_ids=ids)
+                    step=self._task_step(unit,task.target_ref,tuple(path),'WATER',duration=clock,
+                        hold=4.,native=route,radius=radius)
+                    step.native_prediction['reference_schedule']=tuple(rows)+((clock+4.,home),)
+                    methods.append((step,))
+            else:raise ValueError('TASK_METHOD_UNAVAILABLE')
+            if not methods:raise ValueError('TASK_DECLARED_ROUTE_UNAVAILABLE')
+        except ValueError as error:
+            yield ExecutionCandidate(unit.executor_id+'-task',(),{},status='INFEASIBLE',reason=str(error));return
+        for index,steps in enumerate(methods):
+            name=unit.executor_id+'-'+task.task_id+'-task-'+str(index)
+            try:self._task_observation_screen(steps,region)
+            except ValueError as error:
+                yield ExecutionCandidate(name,(),{},status='INFEASIBLE',reason=str(error));continue
+            terminal={member:dict(position=home,mode=steps[-1].native_prediction['terminal_mode'])}
+            duration=sum(s.duration_s for s in steps)
+            if task.task_id!=self.task_support_task_id:
+                yield ExecutionCandidate(name,steps,terminal);continue
+            for support in self.air_support_units:
+                other=support.physical_agent_ids[0]
+                if other not in states or states[other].get('locked',False) or states[other]['mode']!='SURFACE':continue
+                support_state=states[other];support_radius=float(support_state.get('collision_radius_m',1.1891593669479295))
+                origin=tuple(support_state['position']);support_home=tuple(self.return_sites[other]['position'])
+                release=max(start,support.available_from,support_state.get('available_from',0.))
+                if release>start+1e-8:continue
+                for site in self.task_support_sites:
+                    position=tuple(site['position'])
+                    via=tuple(tuple(point) for point in site.get('approach_via',()))
+                    for wait in site.get('departure_wait_candidates_s',(0.,)):
+                        try:
+                            outbound=(origin,)
+                            for target in via+(position,):
+                                outbound+=self._task_path(outbound[-1],target,support_radius,deadline)[1:]
+                            returning=(position,)
+                            for target in tuple(reversed(via))+(support_home,):
+                                returning+=self._task_path(returning[-1],target,support_radius,deadline)[1:]
+                        except ValueError:continue
+                        travel=sum(math.dist(a,b) for a,b in zip(outbound,outbound[1:]))/self.nominal_speed_mps[support.executor_id]
+                        arrival=float(wait)+travel+4.
+                        until=max(start+duration,states[other].get('required_support_until',0.),start+arrival)
+                        hold=max(0.,until-start-arrival)
+                        segments=(((NativeSegmentSpec('SURFACE_PATH',(origin,origin),duration_s=float(wait)),) if wait else ())+
+                            (NativeSegmentSpec('SURFACE_PATH',outbound),))
+                        route=NativeActionSpec(segments,'TRIM_PROPULSION',execution_timeout_s=300.+float(wait))
+                        first=self._task_step(support,site['id'],outbound,'SURFACE',duration=travel,
+                            hold=4.+float(wait)+hold,native=route,radius=support_radius)
+                        schedule=self._task_schedule(outbound,travel)
+                        first.native_prediction.update(reference_schedule=((0.,origin),)+
+                            (((float(wait),origin),) if wait else ())+tuple((float(wait)+t,p) for t,p in schedule[1:])+
+                            ((arrival+hold,position),),arrival_duration_s=arrival,support_hold_s=hold,
+                            support_site_id=site['id'])
+                        back_route=NativeActionSpec((NativeSegmentSpec('SURFACE_PATH',returning),),
+                            'TRIM_PROPULSION',execution_timeout_s=300.)
+                        back=self._task_step(support,'return:'+other,returning,'SURFACE',hold=4.,
+                            native=back_route,radius=support_radius)
+                        support_duration=first.duration_s+back.duration_s
+                        activities=(ExecutorPlanItem(unit.executor_id,task.task_id,unit.executor_id,(member,),
+                            0.,duration,duration,0.,0.,execution_steps=steps),
+                            ExecutorPlanItem(support.executor_id,task.task_id,support.executor_id,(other,),
+                            0.,support_duration,support_duration,0.,0.,fulfills_task=False,execution_steps=(first,back)))
+                        yield ExecutionCandidate(name+'-'+site['id']+'-wait-'+str(wait),(),
+                            dict(terminal,**{other:dict(position=support_home,mode='SURFACE')}),activities=activities)
 
     def execution_candidates(self,unit,task,start,states,deadline):
         """Evaluate declared finite native route alternatives with plant state.
@@ -415,6 +669,8 @@ class ExecutorTravelTimeProvider:
         Unqualified/missing methods remain unknown; they never inherit a
         nominal AIR distance/speed estimate. Models are internal forecast state.
         """
+        if self._task_level():
+            return list(self._iter_task_candidates(unit,task,start,states,deadline))
         if (unit.executor_id,task.task_id) in self.cooperative_routes:
             return list(self._iter_cooperative_candidates(unit,task,start,states,deadline))
         if (self.observation_request is not None and 'AIR' in unit.capabilities and
@@ -543,7 +799,9 @@ class ExecutorTravelTimeProvider:
         return alternatives
 
     def iter_execution_candidates(self,unit,task,start,states,deadline):
-        if (unit.executor_id,task.task_id) in self.cooperative_routes:
+        if self._task_level():
+            yield from self._iter_task_candidates(unit,task,start,states,deadline)
+        elif (unit.executor_id,task.task_id) in self.cooperative_routes:
             yield from self._iter_cooperative_candidates(unit,task,start,states,deadline)
         elif (self.observation_request is not None and 'AIR' in unit.capabilities and
               any(r.region_id==task.target_ref and r.kind in ('SURFACE','SHORELINE')
@@ -569,9 +827,10 @@ class ExecutorTravelTimeProvider:
         from qn_aav_simulator.monitoring_request import observation_candidates,observation_position
         from qn_aav_simulator.experiment_verdict import box_sample_points
         from qn_aav_simulator.observation_coverage import (LocalObservationWindow,ObstacleBox,
-            predict_received_events,radio_link_available)
+            predict_received_events,predict_task_service_receipts,radio_link_available)
         from qn_aav_simulator.platform_execution import actual_mode
         from qn_aav_simulator.qn_dynamics import medium_flag
+        from .models import NativeActionSpec,NativeSegmentSpec
         if len(unit.physical_agent_ids)!=1 or self.scene_geometry is None or self.scene_resolution_m<=0:
             yield ExecutionCandidate('air-context',(),{},status='UNKNOWN',reason='AIR_QUERY_CONTEXT_MISSING');return
         member=unit.physical_agent_ids[0]
@@ -718,11 +977,75 @@ class ExecutorTravelTimeProvider:
                     durations=durations,coefficients=coefficients)
             direct_candidate=ExecutionCandidate(name,air_steps,{member:air_terminal},
                 motion_traces={member:full_trace},collision_radii={member:.25},generated_products=tuple(products))
-            if (self.observation_request.template_id=='OFFSHORE_JOINT' and
-                    not task.task_id.startswith('retest-')):
-                # One request-level support activity serves all three work
-                # roles; do not reserve the USV again for this AIR task.
+            if self.observation_request.template_id=='OFFSHORE_JOINT':
                 yield direct_candidate
+                if task.task_id.startswith('retest-'):
+                    for support in self.air_support_units:
+                        if time.monotonic()>=deadline:raise PlanningBudgetExceeded('AIR retest support budget exhausted')
+                        if len(support.physical_agent_ids)!=1:continue
+                        other=support.physical_agent_ids[0]
+                        if other==member or states[other].get('locked',False) or states[other].get('available_from',0.)>start:
+                            continue
+                        boat=states[other].get('native_backend',self.native_models.get(other))
+                        if getattr(boat,'model',None)!='otter' or boat.snapshot()['actual_mode']!='SURFACE':continue
+                        home=self.return_sites.get(other)
+                        if home is None:continue
+                        position=boat.snapshot()['position'];surface=(position[0],position[1],0.)
+                        for declared,departure_wait in ((site,float(wait))
+                                for site in self.task_support_sites
+                                for wait in site.get('departure_wait_candidates_s',(0.,))):
+                            site=tuple(declared['position']);radius=declared['radius_m']
+                            prefix=((NativeSegmentSpec('SURFACE_PATH',(surface,surface),
+                                duration_s=departure_wait),) if departure_wait else ())
+                            support_action=NativeActionSpec(prefix+(
+                                NativeSegmentSpec('SURFACE_PATH',(surface,site)),
+                                NativeSegmentSpec('SURFACE_PATH',(site,tuple(home['position'])))),
+                                boat.terminal_behavior,execution_timeout_s=360.+departure_wait)
+                            def query_support(action):
+                                return self.query_native_fragment(boat,[s.points for s in action.segments],
+                                    tuple(self.native_efforts[support.executor_id] for s in action.segments),
+                                    self.scene_geometry,deadline,max_model_time=action.execution_timeout_s,
+                                    include_state=True,segment_durations=tuple(s.duration_s for s in action.segments))
+                            support_query=query_support(support_action)
+                            if support_query['status']!='FEASIBLE':continue
+                            present=[t for t,p in support_query['trajectory'] if math.dist(p,site)<=radius]
+                            if not present:continue
+                            product_ready=max(event['generated_at']-start for event in products)
+                            if product_ready+.1>present[-1]:
+                                wait=math.ceil((product_ready+.1-present[-1])*10.-1e-9)/10.
+                                index=len(prefix)+1
+                                support_action=NativeActionSpec(support_action.segments[:index]+(
+                                    NativeSegmentSpec('SURFACE_PATH',(site,site),duration_s=wait),)+
+                                    support_action.segments[index:],boat.terminal_behavior,
+                                    execution_timeout_s=360.+departure_wait+wait)
+                                support_query=query_support(support_action)
+                                if support_query['status']!='FEASIBLE':continue
+                            support_duration=support_query['duration_s']
+                            support_trace=tuple((start+t,p,'SURFACE') for t,p in support_query['trajectory'])
+                            receipt=predict_task_service_receipts(products,
+                                {member:full_trace,other:support_trace},
+                                {member:((start,start+total_duration),),other:((start,start+support_duration),)},
+                                self.task_support_sites,deadline)
+                            if receipt['status']!='FEASIBLE':continue
+                            summary={k:v for k,v in support_query.items() if k not in ('terminal_backend','trajectory','source_fingerprint')}
+                            summary['terminal_state_digest']=hashlib.sha256(
+                                support_query['terminal_backend'].execution_state_bytes()).hexdigest()
+                            support_step=ExecutionStep(support.executor_id,support_duration,task.target_ref,
+                                support_action,native_prediction=summary)
+                            air_item=ExecutorPlanItem('air-retest',task.task_id,unit.executor_id,(member,),
+                                0.,total_duration,total_duration-service,0.,service,execution_steps=air_steps)
+                            support_item=ExecutorPlanItem('retest-support',task.task_id,support.executor_id,(other,),
+                                0.,support_duration,support_duration,0.,0.,fulfills_task=False,
+                                execution_steps=(support_step,))
+                            yield ExecutionCandidate(name+'-task-support-'+str(int(departure_wait)),(),{
+                                member:air_terminal,other:dict(position=support_query['terminal_position'],
+                                    mode='SURFACE',native_backend=support_query['terminal_backend'])},
+                                activities=(air_item,support_item),
+                                motion_traces={member:full_trace,other:support_trace},
+                                collision_radii={member:.25,other:support_query['collision_radius_m']},
+                                generated_products=tuple(products))
+                # Normal observation roles share the single USV activity of
+                # the UUV method. A later retest may need a new support trip.
                 continue
             # Ordering only. If this activity alone cannot deliver its result
             # before its commitment ends, try an existing relay method first.
@@ -740,7 +1063,6 @@ class ExecutorTravelTimeProvider:
                 boat=states[other].get('native_backend',self.native_models.get(other))
                 if getattr(boat,'model',None)!='otter' or boat.snapshot()['actual_mode']!='SURFACE':continue
                 if tuple(boat.snapshot()['position'])!=tuple(states[other]['position']):continue
-                from .models import NativeActionSpec,NativeSegmentSpec
                 boat_position=boat.snapshot()['position']
                 surface=(boat_position[0],boat_position[1],0.)
                 for site in dict.fromkeys((surface,)+self.air_support_sites):
@@ -1253,6 +1575,119 @@ class ExecutorTravelTimeProvider:
             yield ExecutionCandidate(name,(),terminal_states,activities=tuple(activities),
                 motion_traces=complete_traces,collision_radii=radii,generated_products=products)
 
+    def _check_task_level_plan(self,plan,initial_states,deadline):
+        """Screen the selected task references; actual motion remains with endpoints."""
+        if time.monotonic()>=deadline:
+            return dict(status='UNKNOWN',reason='PLANNING_BUDGET_EXHAUSTED')
+        if self.scene_geometry is None:
+            return dict(status='UNKNOWN',reason='TASK_SCENE_MISSING')
+        support=[item for item in plan.items if 'usv' in item.coalition and not item.fulfills_task]
+        if self.observation_request.delivery_required and len(support)!=1:
+            return dict(status='INFEASIBLE',reason='TASK_SHARED_SUPPORT_REQUIRED')
+        support_item=support[0] if support else None
+        if support_item is not None:
+            if len(support_item.execution_steps)!=2:
+                return dict(status='INFEASIBLE',reason='TASK_SUPPORT_OUTBOUND_RETURN_REQUIRED')
+            outbound=support_item.execution_steps[0]
+            arrival=outbound.native_prediction.get('arrival_duration_s')
+            if arrival is None or not 0<=arrival<=outbound.duration_s:
+                return dict(status='UNKNOWN',reason='TASK_SUPPORT_ARRIVAL_UNKNOWN')
+            site=outbound.native_prediction.get('support_site_id')
+            if site not in {entry['id'] for entry in self.task_support_sites}:
+                return dict(status='INFEASIBLE',reason='TASK_SUPPORT_SITE_UNDECLARED')
+            support_start=support_item.planned_start+arrival
+            support_end=support_item.planned_start+outbound.duration_s
+        horizon=plan.makespan
+        trajectories={}
+        for member,state in initial_states.items():
+            if len(state.get('position',()))!=3 or state.get('mode') not in ('AIR','WATER','SURFACE'):
+                return dict(status='UNKNOWN',reason='TASK_MEMBER_STATE_MISSING:'+member)
+            if (not math.isfinite(state.get('collision_radius_m',float('nan'))) or
+                    state['collision_radius_m']<=0):
+                return dict(status='UNKNOWN',reason='TASK_MEMBER_GEOMETRY_MISSING:'+member)
+            trajectories[member]=[(0.,tuple(state['position']))]
+        for item in sorted(plan.items,key=lambda row:(row.planned_start,row.execution_id)):
+            if time.monotonic()>=deadline:return dict(status='UNKNOWN',reason='PLANNING_BUDGET_EXHAUSTED')
+            if len(item.coalition)!=1:
+                return dict(status='UNKNOWN',reason='TASK_INDIVIDUAL_ROUTE_REQUIRED')
+            member=item.coalition[0];radius=initial_states[member]['collision_radius_m']
+            rows=trajectories[member]
+            if rows[-1][0]>item.planned_start+1e-6:
+                return dict(status='INFEASIBLE',reason='TASK_MEMBER_RESERVATION_OVERLAP:'+member)
+            if rows[-1][0]<item.planned_start:
+                rows.append((item.planned_start,rows[-1][1]))
+            stamp=item.planned_start
+            observed=False;observation_ready=0.
+            for step in item.execution_steps:
+                prediction=step.native_prediction
+                if (prediction.get('status')!='TASK_LEVEL' or
+                        prediction.get('dynamic_safety_certified') is not False or
+                        not prediction.get('geometry_checked')):
+                    return dict(status='UNKNOWN',reason='TASK_STEP_EVIDENCE_MISSING')
+                schedule=prediction.get('reference_schedule',())
+                if (not schedule or abs(schedule[0][0])>1e-8 or
+                        abs(schedule[-1][0]-step.duration_s)>1e-6):
+                    return dict(status='UNKNOWN',reason='TASK_REFERENCE_SCHEDULE_MISSING')
+                if math.dist(rows[-1][1],schedule[0][1])>1e-6:
+                    return dict(status='INFEASIBLE',reason='TASK_REFERENCE_START_DISCONNECTED:'+member)
+                for (start,a),(finish,b) in zip(schedule,schedule[1:]):
+                    if finish<=start or self.scene_geometry.path_violation((a,b),radius):
+                        return dict(status='INFEASIBLE',reason='TASK_STATIC_ROUTE_BLOCKED:'+member)
+                rows.extend((stamp+t,tuple(p)) for t,p in schedule[1:])
+                if step.native_action is not None:
+                    for segment in step.native_action.segments:
+                        if self.scene_geometry.path_violation(segment.points,radius):
+                            return dict(status='INFEASIBLE',reason='TASK_NATIVE_STATIC_ROUTE_BLOCKED:'+member)
+                    ids=step.native_action.observation_ids
+                else:ids=step.observation_ids
+                if ids:
+                    observed=True
+                    observation_ready=max(observation_ready,stamp+step.duration_s)
+                stamp+=step.duration_s
+            if abs(stamp-item.planned_finish)>1e-6:
+                return dict(status='INFEASIBLE',reason='TASK_STEP_TIME_MISMATCH:'+member)
+            if item.fulfills_task:
+                if not observed:return dict(status='INFEASIBLE',reason='TASK_REQUIRED_OBSERVATION_MISSING')
+                if support_item is not None:
+                    if tuple(item.support_execution_ids)!=(support_item.execution_id,):
+                        return dict(status='INFEASIBLE',reason='TASK_SUPPORT_LINK_MISSING')
+                    if observation_ready>support_end+1e-6:
+                        # A produced result may wait until the USV reaches its
+                        # site. Runtime receipt controls the actual hold.
+                        return dict(status='INFEASIBLE',reason='TASK_SUPPORT_WINDOW_MISSING')
+            site=self.return_sites.get(member)
+            if site is not None and math.dist(rows[-1][1],site['position'])>site['radius_m']:
+                return dict(status='INFEASIBLE',reason='TASK_RETURN_REGION_MISSING:'+member)
+        for member,rows in trajectories.items():
+            if rows[-1][0]<horizon:rows.append((horizon,rows[-1][1]))
+        def position(rows,stamp):
+            for (first,a),(last,b) in zip(rows,rows[1:]):
+                if first-1e-8<=stamp<=last+1e-8:
+                    ratio=max(0.,min(1.,(stamp-first)/(last-first)))
+                    return tuple(a[i]+ratio*(b[i]-a[i]) for i in range(3))
+            return rows[-1][1]
+        members=sorted(trajectories)
+        from qn_aav_simulator.experiment_verdict import _MIN_INTER_AGENT_CLEARANCE_M
+        for index,first in enumerate(members):
+            for second in members[index+1:]:
+                limit=(initial_states[first]['collision_radius_m']+
+                       initial_states[second]['collision_radius_m']+
+                       _MIN_INTER_AGENT_CLEARANCE_M)
+                times=sorted({t for t,_ in trajectories[first]}|{t for t,_ in trajectories[second]})
+                for begin,end in zip(times,times[1:]):
+                    if time.monotonic()>=deadline:
+                        return dict(status='UNKNOWN',reason='PLANNING_BUDGET_EXHAUSTED')
+                    a=position(trajectories[first],begin);b=position(trajectories[second],begin)
+                    va=tuple((x-y)/(end-begin) for x,y in zip(position(trajectories[first],end),a))
+                    vb=tuple((x-y)/(end-begin) for x,y in zip(position(trajectories[second],end),b))
+                    delta=tuple(x-y for x,y in zip(a,b));velocity=tuple(x-y for x,y in zip(va,vb))
+                    speed2=sum(v*v for v in velocity)
+                    closest=(0. if speed2==0 else max(0.,min(end-begin,
+                        -sum(p*v for p,v in zip(delta,velocity))/speed2)))
+                    if math.sqrt(sum((p+closest*v)**2 for p,v in zip(delta,velocity)))<limit:
+                        return dict(status='INFEASIBLE',reason='TASK_REFERENCE_CONFLICT:'+first+':'+second)
+        return dict(status='FEASIBLE',reason='TASK_LEVEL_EXECUTION_PENDING')
+
     def _check_complete_plan(self,plan,selected,initial_states,deadline):
         """Check known members and all products together before accepting a leaf.
 
@@ -1260,6 +1695,8 @@ class ExecutorTravelTimeProvider:
         final safety horizon; it never extends a communication commitment.
         This is a sampled nominal-model check, not a tracking-error guarantee.
         """
+        if self._task_level():
+            return self._check_task_level_plan(plan,initial_states,deadline)
         from qn_aav_simulator.observation_coverage import (ObstacleBox,predict_received_events,
             predict_task_service_receipts)
         from qn_aav_simulator.experiment_verdict import _MIN_INTER_AGENT_CLEARANCE_M
@@ -1923,10 +2360,15 @@ def _build_complete_candidate_plan(executors,tasks,provider,member_states,deadli
     validate_executor_inputs(executors,tasks)
     predecessors=checked_predecessors(tasks,precedence_edges)
     members={m for e in executors for m in e.physical_agent_ids}
+    task_level_owner=getattr(provider,'__self__',None)
+    task_level=(isinstance(task_level_owner,ExecutorTravelTimeProvider) and
+                task_level_owner._task_level())
     if member_states is None or not members<=set(member_states):
         raise ValueError('candidate search requires every executable physical member state')
-    if any(not member_states[m].get('locked',False) or
-           member_states[m].get('opaque_hold_radius_m') is None
+    if any((member_states[m].get('locked',False) and
+            member_states[m].get('opaque_hold_radius_m') is None) if task_level else
+           (not member_states[m].get('locked',False) or
+            member_states[m].get('opaque_hold_radius_m') is None)
            for m in set(member_states)-members):
         raise ValueError('extra physical members require a locked finite hold commitment')
     states=copy.deepcopy(member_states)
@@ -1935,13 +2377,13 @@ def _build_complete_candidate_plan(executors,tasks,provider,member_states,deadli
                 or value.get('mode') not in ('AIR','WATER','SURFACE','TRANSITION')):
             raise ValueError('invalid physical predicted state: '+member)
         if value.get('opaque_hold_radius_m') is not None and (
-                not value.get('locked',False) or value['mode']!='AIR' or
+                not value.get('locked',False) or value['mode'] not in ('AIR','WATER') or
                 not math.isfinite(value['opaque_hold_radius_m']) or value['opaque_hold_radius_m']<0 or
                 not math.isfinite(value.get('opaque_hold_horizon_s',float('nan'))) or
                 value['opaque_hold_horizon_s']<=0 or
                 not math.isfinite(value.get('collision_radius_m',float('nan'))) or
                 value['collision_radius_m']<=0):
-            raise ValueError('opaque AIR hold requires a finite locked envelope and horizon')
+            raise ValueError('opaque hold requires a finite locked envelope and horizon')
         nonnegative(value.get('available_from',0.),'member availability')
         value['available_from']=value.get('available_from',0.)
     participants=set(serial_units) if serial_units is not None else {e.executor_id for e in executors}
@@ -1995,7 +2437,23 @@ def _build_complete_candidate_plan(executors,tasks,provider,member_states,deadli
                 if region is not None and region.interest_points:
                     target=region.interest_points[0].position
             def unit_order(unit):
-                if template:return (unit.executor_id,)
+                if template:
+                    member=unit.physical_agent_ids[0]
+                    if task.target_ref=='offshore_air':
+                        water=next(r.interest_points[0].position for r in
+                            native_owner.observation_request.regions if r.region_id=='offshore_aav_water')
+                        remaining_water=[other.physical_agent_ids[0] for other in executors
+                            if other.physical_agent_ids!=(member,) and 'WATER' in other.capabilities
+                            and 'AAV' in other.capabilities and len(other.physical_agent_ids)==1]
+                        complement=min((math.dist(snapshot[other]['position'],water)
+                            for other in remaining_water if not snapshot[other].get('locked',False)),
+                            default=float('inf'))
+                        # State-dependent ordering only; the native motion and
+                        # whole-plan check still decide actual feasibility.
+                        return (math.dist(snapshot[member]['position'],target)+complement,unit.executor_id)
+                    if task.target_ref=='offshore_aav_water':
+                        return (math.dist(snapshot[member]['position'],target),unit.executor_id)
+                    return (0.,unit.executor_id)
                 # Cheap ordering hint only. Every complete candidate still
                 # needs its native motion/receipt check; distance is never a
                 # feasibility assertion or a pruning lower bound.

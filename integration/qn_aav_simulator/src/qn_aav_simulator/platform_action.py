@@ -1,7 +1,9 @@
 """qn-local finite Action worker, advanced by completed plant steps.
 
 Opt-in qualification endpoint. It shares the existing qn node lock and never
-creates/resets a second plant. Production qualification is explicit configuration.
+creates/resets a second plant or rolls out a candidate before acceptance.
+Admission checks the actual entry and path; completion uses physical feedback.
+Production qualification is explicit configuration.
 """
 import math
 import hashlib
@@ -111,6 +113,7 @@ class LocalPlatformAction:
             self.owner.generation,paused,time.monotonic(),self.ack_timeout)
 
     def allowed_modes(self):
+        if getattr(self.node,'platform_type','AAV')=='UUV':return frozenset({'WATER'})
         # A Result ends observation, not the persistent local fault behavior.
         # Retain the authorized fault phase instead of reclassifying a
         # transition hold as AIR from its last instantaneous medium sample.
@@ -149,6 +152,8 @@ class LocalPlatformAction:
 
     def claim(self,request):
         with self.node.lock:
+            if getattr(self.node,'platform_type','AAV')=='UUV' and request.source=='AIR_SWARM':
+                return TakeReferenceResponse(False,self.owner.generation,'UUV_WATER_ONLY')
             if self.work is not None and request.goal_id != self.work['id']:
                 return TakeReferenceResponse(False,self.owner.generation,'MEMBER_BUSY')
             if request.source=='AIR_SWARM' and self.mode()!='AIR':
@@ -215,9 +220,14 @@ class LocalPlatformAction:
                     if self.scene:
                         reason=self.scene.path_violation(points,self.scene_radius)
                         if reason:raise ValueError(reason)
-                permitted=frozenset(('ENTER_WATER','WATER_PATH','EXIT_WATER'))
+                permitted=(frozenset(('WATER_PATH',)) if getattr(self.node,'platform_type','AAV')=='UUV'
+                           else frozenset(('ENTER_WATER','WATER_PATH','EXIT_WATER')))
                 validate_fragment(segments,self.mode(),goal.terminal_behavior,permitted)
                 for segment in segments:
+                    if segment.operation=='WATER_PATH' and any(
+                            actual_mode(medium_flag(p[2],self.node.backend.constants.hg_m))!='WATER'
+                            for p in segment.points):
+                        raise ValueError('water path leaves the required actual medium')
                     end_mode=actual_mode(medium_flag(segment.points[-1][2],self.node.backend.constants.hg_m))
                     if end_mode!=segment.target_mode:
                         raise ValueError('segment endpoint is outside its required actual medium')
@@ -225,10 +235,8 @@ class LocalPlatformAction:
                             segment.operation in ('ENTER_WATER','EXIT_WATER') and
                             any(p[:2]!=segment.points[0][:2] for p in segment.points)):
                         raise ValueError('transition fault continuation requires an accepted vertical segment')
-                if math.dist(segments[0].points[0],self.node.state.position)>self.position_tolerance:
-                    raise ValueError('path start does not match actual position')
-                if math.sqrt(sum(v*v for v in self.node.state.velocity))>self.speed_tolerance:
-                    raise ValueError('fragment entry is not settled')
+                reason=self._entry_reason(segments)
+                if reason:raise ValueError(reason)
                 timeout=goal.execution_timeout.to_sec()
                 if not math.isfinite(timeout) or timeout<=0:
                     raise ValueError('positive finite execution timeout required')
@@ -258,6 +266,26 @@ class LocalPlatformAction:
                 terminal_wait_s=terminal_wait_s)
             handle.set_accepted('finite local fragment accepted')
 
+    def _entry_reason(self,segments):
+        state=self.node.state
+        if self.node.domain_history.violation:return 'PERSISTENT_DOMAIN_VIOLATION'
+        if self.scene_failure:return 'PERSISTENT_SCENE_SAFETY_FAILURE'
+        if not all(math.isfinite(v) for v in (*state.position,*state.velocity)):
+            return 'NONFINITE_ACTUAL_STATE'
+        required='AIR' if segments[0].operation=='ENTER_WATER' else 'WATER'
+        if self.mode()!=required:return 'ACTUAL_ENTRY_MODE_MISMATCH'
+        if math.dist(segments[0].points[0],state.position)>self.position_tolerance:
+            return 'START_STATE_CHANGED'
+        if math.sqrt(sum(v*v for v in state.velocity))>self.speed_tolerance:
+            return 'FRAGMENT_ENTRY_NOT_SETTLED'
+        if self.scene:
+            reason=self.scene.violation(state.position,self.scene_radius)
+            if reason:return reason
+            for segment in segments:
+                reason=self.scene.path_violation(segment.points,self.scene_radius)
+                if reason:return reason
+        return ''
+
     def cancel(self,handle):
         with self.node.lock:
             if self.work is None or handle.get_goal_id().id!=self.work['id']:
@@ -277,6 +305,8 @@ class LocalPlatformAction:
             if reason:return StartPreparedActionResponse(False,reason)
             if not work.get('waiting_commit',False):
                 return StartPreparedActionResponse(True,'ALREADY_STARTED')
+            reason=self._entry_reason(work['segments'])
+            if reason:return StartPreparedActionResponse(False,reason)
             work['waiting_commit']=False
             # The next real model tick establishes the motion start; no reset
             # of dynamics, observation deadline or ownership generation.

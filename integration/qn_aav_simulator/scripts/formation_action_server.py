@@ -195,6 +195,7 @@ class FormationActionServer:
         request_file=rospy.get_param('/mission/request_file','')
         self.observation_request=None
         self.local_product_publishers={}
+        self.qualification_missing_used=False
         if request_file:
             from qn_aav_simulator.task_line import load_request
             self.observation_request=load_request(Path(request_file))
@@ -815,7 +816,9 @@ class FormationActionServer:
                 reasons.append(safety_reason)
         if planner_health != "OK":
             reasons.append("planner_health: " + planner_health)
-        if not baseline.within_thresholds:
+        visual_timing_relaxed=bool(rospy.get_param('/mission/allow_visual_timing_relaxation',False))
+        snapshot['visual_timing_relaxed']=visual_timing_relaxed and not baseline.within_thresholds
+        if not baseline.within_thresholds and not visual_timing_relaxed:
             reasons.append("time baseline not qualified: " + "; ".join(baseline.reasons))
         snapshot["ready"] = not reasons
         snapshot["reason"] = "ready" if not reasons else "; ".join(reasons)
@@ -1452,18 +1455,30 @@ class FormationActionServer:
                   "hold_elapsed", "model_hold_elapsed", "model_hold_pending"]
         member_samples = {agent_id: [] for agent_id in self.agent_ids}
         observation_window=None
+        suppress_observation=False
         if getattr(goal,'observation_ids',()):
             from qn_aav_simulator.observation_coverage import LocalObservationWindow,ObstacleBox
             obstacles=tuple(ObstacleBox(c,s) for _,kind,c,s in self.static_scene.objects if kind=='SOLID')
             observation_window=LocalObservationWindow(self.observation_request,goal.observation_ids,
                 'drone_{}'.format(self.agent_ids[0]),diagnostics['goal_id'],obstacles,
                 sample_timeout_s=self.odom_timeout)
+            # Explicit one-shot qualification fault. Motion still executes and
+            # the real terminal report says which observations are missing.
+            # No business product or missing report is fabricated by the runner.
+            member='drone_{}'.format(self.agent_ids[0])
+            if (self.observation_request.template_id=='OFFSHORE_JOINT' and
+                    rospy.get_param('/mission/qualification_missing_air_member','')==member and
+                    not self.qualification_missing_used):
+                self.qualification_missing_used=True
+                suppress_observation=True
+                diagnostics['qualification_missing_observation']=member
         obstacle_clearances = []
         reference_missing = 0
         previous_phase = None
         last_obstacle_sample = -1.0
         monitor_path = self.output_dir / (
             diagnostics["evidence_file"].replace(".diagnostics.json", ".monitor.csv"))
+        terminal_finish=None
         try:
             with monitor_path.open("w", newline="") as stream:
                 writer = csv.DictWriter(stream, fieldnames=fields)
@@ -1564,7 +1579,8 @@ class FormationActionServer:
                         if self._safety_trigger(diagnostics["goal_id"]):
                             self._observe_safety_hold(work, diagnostics, alignment, member_samples)
                         break
-                    if observation_window is not None and snapshot.phase=='HOLDING' and adoption.verdict().state=='ADOPTED':
+                    if (observation_window is not None and not suppress_observation and
+                            snapshot.phase=='HOLDING' and adoption.verdict().state=='ADOPTED'):
                         try:
                             events=self._air_observation_events(observation_window,member_samples,now_s)
                         except ValueError as error:
@@ -1575,6 +1591,7 @@ class FormationActionServer:
                                 self.local_product_publishers[self.agent_ids[0]].publish(
                                     String(data=json.dumps(event,allow_nan=False)))
                     if snapshot.terminal_state:
+                        terminal_finish=now
                         stream.flush()
                         break
                     rate.sleep()
@@ -1582,7 +1599,9 @@ class FormationActionServer:
             with self.lock:
                 self.active_diagnostics = None
 
-        finish = rospy.Time.now()
+        # The physical terminal event was observed in the monitor tick above.
+        # CSV flush/close time is I/O latency, not additional robot execution.
+        finish = terminal_finish or rospy.Time.now()
         committed = self._finalize(diagnostics, work, monitor, adoption, alignment,
                                   member_samples, obstacle_clearances, reference_missing,
                                   start, finish, counts_start, group_goal_start,observation_window)
@@ -1905,7 +1924,9 @@ class FormationActionServer:
         diagnostics["time_alignment"] = alignment_report.as_dict()
         baseline_report = self._cached_baseline_report()
         diagnostics["time_alignment_baseline"] = baseline_report.as_dict()
-        time_ok = (baseline_report.within_thresholds
+        visual_timing_relaxed=bool(rospy.get_param('/mission/allow_visual_timing_relaxation',False))
+        diagnostics['visual_timing_relaxed']=visual_timing_relaxed and not baseline_report.within_thresholds
+        time_ok = ((baseline_report.within_thresholds or visual_timing_relaxed)
                    and alignment_report.within_thresholds
                    and not alignment_report.alignment_failure_count)
         if (alignment_report.induced_reference_displacement_m is not None

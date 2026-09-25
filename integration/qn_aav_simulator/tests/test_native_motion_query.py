@@ -1,4 +1,6 @@
 import pickle
+import copy
+import hashlib
 import pytest
 import sys
 import time
@@ -20,6 +22,20 @@ class ExplicitOtter(PvsBackend):
         result=super().step(*args,**kwargs)
         self.probe_count+=1  # changes the full-state signature; no extrapolation
         return result
+
+
+def test_otter_return_state_claim_rebuilds_actual_query_state():
+    scene_file=Path(__file__).parents[1]/'config/five_scene_offshore.yaml'
+    scene=StaticSceneGeometry.from_mapping(yaml.safe_load(scene_file.read_text())['scene'])
+    home=(-25.,-2.,0.);site=(-4.,9.,0.)
+    source=PvsBackend('otter',home,initialization_mode='STATIC_TRIM')
+    result=source.predict_native_fragment(((home,site),(site,home)),(20.,20.),scene,
+        time.monotonic()+10.,max_model_time=300.,include_state=True)
+    assert result['status']=='FEASIBLE'
+    actual=result['terminal_backend']
+    rebuilt=copy.deepcopy(source).apply_numeric_state_claim(actual.numeric_state_claim())
+    assert hashlib.sha256(actual.execution_state_bytes()).digest()==hashlib.sha256(
+        rebuilt.execution_state_bytes()).digest()
 
 
 def config():

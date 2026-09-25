@@ -159,6 +159,10 @@ def request_native_methods(request,scene,executors,member_states,native_models,d
         raise PlanningBudgetExceeded('request method generation has no remaining budget')
     if request.return_required and not return_sites:
         raise ValueError('return destinations must be declared before method generation')
+    if request.template_id=='OFFSHORE_JOINT':
+        # The existing provider builds finite task methods directly from public
+        # state and declared routes. It does not require plant/controller copies.
+        return tasks,{}
     return_sites=return_sites or {}
     sites=[]
     for site in scene.get('communication_sites',()):
@@ -274,12 +278,18 @@ def build_request_executor_plan(request,scene,executors,provider,member_states,*
                     point[2]!=request.requirement.cruise_altitude_m for point in air_stages)):
             raise ValueError('transition site needs unique ID, surface position and AIR stages')
         seen_sites.add(ident);transition_sites.append((ident,position,air_stages))
+    task_level=request.template_id=='OFFSHORE_JOINT'
+    support_task=next((task.task_id for task in tasks if task.target_ref=='offshore_uuv'),
+                      tasks[-1].task_id)
     provider=replace(provider,cooperative_routes=methods,observation_request=request,
+        task_water_routes=dict(scene.get('water_route_candidates',{})),
+        native_routes=dict(scene.get('air_route_via',{})) if task_level else provider.native_routes,
+        task_support_task_id=support_task if task_level else '',
         scene_geometry=StaticSceneGeometry.from_mapping(scene),
         scene_resolution_m=float(scene['resolution']),
         air_support_units=tuple(unit for unit in executors if len(unit.physical_agent_ids)==1 and
-            'SURFACE' in unit.capabilities and getattr(member_states[unit.physical_agent_ids[0]].get(
-                'native_backend',provider.native_models.get(unit.physical_agent_ids[0])),'model',None)=='otter'),
+            'SURFACE' in unit.capabilities and (task_level or getattr(member_states[unit.physical_agent_ids[0]].get(
+                'native_backend',provider.native_models.get(unit.physical_agent_ids[0])),'model',None)=='otter')),
         air_support_sites=tuple(tuple(site['position']) for site in scene.get('communication_sites',())),
         task_support_sites=tuple(dict(site) for site in scene.get('communication_sites',())),
         planning_time_origin=time.time(),
@@ -341,6 +351,15 @@ def retest_tasks(request: MonitoringRequest,
                 region_id=region_id,service_time_s=request.service_time_s,
                 deadline_s=request.deadline_s,
                 required_capabilities=frozenset(extra|{'WATER'})))
+            continue
+        if request.template_id=='OFFSHORE_JOINT':
+            retests.append(ObservationTask(
+                task_id='retest-'+region_id+'-0',
+                target=narrowed.interest_points[0].position,
+                covers=tuple(point.point_id for point in narrowed.interest_points),
+                region_id=region_id,service_time_s=request.service_time_s,
+                deadline_s=request.deadline_s,
+                required_capabilities=frozenset(extra|{'AIR'})))
             continue
         for index, task in enumerate(expand(MonitoringRequest(
                 request_id="{}-retest".format(request.request_id),
