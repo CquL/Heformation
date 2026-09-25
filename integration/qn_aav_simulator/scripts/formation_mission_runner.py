@@ -805,6 +805,29 @@ class MissionRunner:
             time.sleep(.05)
         raise RuntimeError('shutdown during shared support receipt wait; keep reservation')
 
+    def _wait_joint_return(self,item,action):
+        """Release the selected terminal steps together after all members stage."""
+        with self.executor_mutex:action.update(phase='WAITING_FOR_GROUP_RETURN')
+        deadline=time.monotonic()+max(600.,self.plan.makespan+120.)
+        with self.condition:
+            self.joint_return_ready.add(item.execution_id)
+            self.condition.notify_all()
+            while not self.joint_return_released:
+                if self.joint_return_abort:
+                    raise RuntimeError('joint return blocked by failed commitment: '+self.joint_return_abort)
+                if self.joint_return_ready==self.joint_return_ids:
+                    self.joint_return_released=True
+                    self.joint_return_release_at=rospy.Time.now().to_sec()
+                    self.condition.notify_all()
+                    break
+                if time.monotonic()>=deadline:
+                    raise RuntimeError('joint return staging window expired; keep reservations')
+                self.condition.wait(.05)
+        with self.executor_mutex:
+            self.metrics['joint_return_release_at_ros_s']=self.joint_return_release_at
+            self.metrics['joint_return_members']=sorted(self.joint_return_ids)
+        self._save_executor()
+
     def _executor_plan(self, observations, *, include_formation=False, release=0.0):
         from mrta_python import Executor, ExecutorPlan, ExecutorTravelTimeProvider, build_executor_plan
         from qn_aav_simulator.task_line import request_centres, to_plan_tasks
@@ -1506,6 +1529,9 @@ class MissionRunner:
         self._save_executor()
         rows=[];deferred=[]
         for index,(step,unit) in enumerate(zip(item.execution_steps,units)):
+            if (index==len(units)-1 and self.request.template_id=='OFFSHORE_JOINT' and
+                    item.execution_id in getattr(self,'joint_return_ids',())):
+                self._wait_joint_return(item,action)
             view=replace(item,execution_id='{}:step:{}'.format(item.execution_id,index),
                          executor_id=step.executor_id,travel_time=step.duration_s-step.service_time_s,
                          service_time=step.service_time_s,execution_steps=(step,))
@@ -1818,7 +1844,11 @@ class MissionRunner:
                         running[group[0].execution_id]=(future,tuple(i.execution_id for i in group))
                 if finished:break
                 time.sleep(.05)
-            if failure is not None:raise failure
+            if failure is not None:
+                with self.condition:
+                    self.joint_return_abort=str(failure)
+                    self.condition.notify_all()
+                raise failure
             if rospy.is_shutdown():raise RuntimeError("runner shutdown with accepted commitments")
 
     def _check_opaque_hold(self):
@@ -1880,7 +1910,7 @@ class MissionRunner:
             missing[0].service_time_s,missing[0].deadline_s,missing[0].region_id)
         available=[unit for unit in units if unit.physical_agent_ids in ((idle_member,),('usv',))]
         provider=ExecutorTravelTimeProvider({'start':repair_states[idle_member]['position']},
-            {unit.executor_id:(.2 if 'usv' in unit.physical_agent_ids else .35) for unit in available},
+            {unit.executor_id:(.2 if 'usv' in unit.physical_agent_ids else .4) for unit in available},
             member_positions={m:state['position'] for m,state in repair_states.items()},
             native_models={},native_efforts=efforts)
         budget=float(rospy.get_param('~repair_budget_s',10.))
@@ -2002,7 +2032,7 @@ class MissionRunner:
                        for unit in self.units]
                 provider=ExecutorTravelTimeProvider({'start':positions['drone_0']},
                     {unit.executor_id:(.2 if 'usv' in unit.physical_agent_ids else
-                     .45 if 'uuv' in unit.physical_agent_ids else .35) for unit in units},
+                     .13 if 'uuv' in unit.physical_agent_ids else .4) for unit in units},
                     member_positions=positions,native_models={},native_efforts=efforts)
                 self.metrics['planning_state_source']='CURRENT_ODOMETRY_DIAGNOSTICS_AND_LOCKS'
                 def checked_start():
@@ -2089,6 +2119,11 @@ class MissionRunner:
                     first_feasible=True)
             finally:
                 self.metrics['planning_wall_s']=time.monotonic()-began
+            if task_level:
+                self.joint_return_ids={item.execution_id for item in self.plan.items}
+                self.joint_return_ready=set()
+                self.joint_return_released=False
+                self.joint_return_abort=''
             if rospy.get_param('/mission/qualification_missing_air_member','')=='SELECTED_AIR':
                 air_work=[item for item in self.plan.items if item.fulfills_task and
                     item.task_id.endswith('::offshore_air')]
@@ -2146,6 +2181,8 @@ class MissionRunner:
                 for point in region.interest_points})
             self.centers.update({'return:'+member:tuple(site['position'])
                 for member,site in scene['return_sites'].items()})
+            self.centers.update({'return-stage:'+member:tuple(site['staging_position'])
+                for member,site in scene['return_sites'].items() if 'staging_position' in site})
             self.obstacles=[ObstacleBox(center,size) for _,kind,center,size in geometry.objects
                             if kind=='SOLID']
             conditional_retest=None

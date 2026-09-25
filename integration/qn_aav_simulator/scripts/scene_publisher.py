@@ -52,6 +52,10 @@ class SceneTransport:
         self.task_service=self.request.template_id=='OFFSHORE_JOINT'
         self.support_sites=tuple(scene.get('communication_sites',()))
         self.mother=tuple(scene.get('mother_ship_receiver_position',scene['mother_ship_position']))
+        self.air_contact_m=max((float(site['mother_contact_m']) for site in self.support_sites),default=0.)
+        if self.task_service and (not self.support_sites or self.air_contact_m<=0 or
+                any(float(site['acoustic_contact_m'])<=0 for site in self.support_sites)):
+            raise ValueError('task service needs declared positive contact geometry')
         self.obstacles=tuple(ObstacleBox(tuple(o['center']),tuple(o['size'])) for o in scene['objects'] if o['kind']=='SOLID')
         if any(box.blocks(self.mother,self.mother) for box in self.obstacles):
             raise ValueError('declared mother receiver lies inside a solid; set its exterior attachment position')
@@ -60,6 +64,7 @@ class SceneTransport:
         self.started_at=self.last_time
         self.delivery=None if self.task_service else FiniteDelivery(self.last_time)
         self.delivered=set()
+        self.task_relayed={}
         self.receipts=rospy.Publisher('/mother/received_products',String,queue_size=100)
         self.notifications=rospy.Publisher('/mother/received_notifications',String,queue_size=100)
         self.command_deliveries=rospy.Publisher('/mother/command_deliveries',String,queue_size=100)
@@ -312,11 +317,29 @@ class SceneTransport:
                 if 0<=now-stamp<=.25 and 0<=now-mode_stamp<=.25:
                     states[member]=(pos,mode)
             supported=task_service_ready(states,self.support_sites)
+            usv=states.get('usv')
+            site=next((entry for entry in self.support_sites if usv and usv[1]=='SURFACE' and
+                math.dist(usv[0],entry['position'])<=entry['radius_m']),None)
             for ident,event in self.events.items():
                 if 'product_id' not in event:continue
                 if ident in self.delivered or event['generated_at']>now:continue
                 notification=event.get('event_type') in ('OBSERVATION_TERMINAL','ACTION_TERMINAL')
-                if not notification and not supported:continue
+                if not notification:
+                    producer=event.get('producer','')
+                    if producer=='uuv':
+                        source=states.get('uuv')
+                        if (ident not in self.task_relayed and site and source and
+                                source[1]=='WATER' and
+                                math.dist(usv[0],source[0])<=site['acoustic_contact_m']):
+                            self.task_relayed[ident]=now
+                        if (ident not in self.task_relayed or now<=self.task_relayed[ident] or
+                                usv is None or math.dist(usv[0],self.mother)>self.air_contact_m):
+                            continue
+                    else:
+                        source=states.get(producer)
+                        if (source is None or source[1]!='AIR' or
+                                math.dist(source[0],self.mother)>self.air_contact_m):
+                            continue
                 self.delivered.add(ident)
                 out.append((self.notifications if notification else self.receipts,
                     dict(event,received_at=now)))
@@ -435,19 +458,33 @@ class SceneView:
             label('geometry_label', (p[0],p[1],p[2]+size[2]/2+.6), name, .65)
         air_targets=[item for item in self.scene.get('observation_targets', [])
                      if item['domain']=='AIR']
+        deep_targets=[item for item in self.scene.get('observation_targets', [])
+                      if item['id'].startswith('deep_swath_')]
         if len(air_targets)>1:
+            all_targets=self.scene.get('observation_targets', [])
+            joint_x=[item['position'][0] for item in all_targets]
+            joint_y=[item['position'][1] for item in all_targets]
+            add('joint_survey_area',M.CUBE,
+                ((min(joint_x)+max(joint_x))/2,(min(joint_y)+max(joint_y))/2,-.06),
+                (max(joint_x)-min(joint_x)+2.,max(joint_y)-min(joint_y)+2.,.04),
+                (.25,.85,1.,.12))
+            label('joint_survey_label',((min(joint_x)+max(joint_x))/2,
+                max(joint_y)+1.6,1.3),'联合监测区',.7)
             xs=[item['position'][0] for item in air_targets]
             ys=[item['position'][1] for item in air_targets]
             center=((min(xs)+max(xs))/2,(min(ys)+max(ys))/2,.04)
             add('air_survey_area',M.CUBE,center,(max(xs)-min(xs)+2.,max(ys)-min(ys)+2.,.04),
                 (1.,.82,.2,.16))
-            label('air_survey_label',(center[0],max(ys)+1.6,1.2),'空中扫测区',.65)
+        if len(deep_targets)>1:
+            label('deep_survey_label',(-1.5,4.,-1.),'深水扫测段',.55)
         for item in self.scene.get('observation_targets', []):
             p = item['position']
             add('targets', M.SPHERE, p, (.45,.45,.45) if len(air_targets)>1 and item['domain']=='AIR'
                 else (.6,.6,.6), (1.,.9,.25,.8))
-            name = '空中样点' if item['domain']=='AIR' else '水下样点'
+            name = ('空中样点' if item['domain']=='AIR' else
+                    '浅水点' if item['id']=='offshore_aav_water' else '深水段')
             if item['domain']=='AIR' and len(air_targets)>1:continue
+            if item['id'].startswith('deep_swath_') and len(deep_targets)>1:continue
             offset_y = -2.5 if item['domain']=='AIR' else 0.
             label('target_label', (p[0],p[1]+offset_y,p[2]+.5), name, .55)
         for item in self.scene.get('transition_sites', []):

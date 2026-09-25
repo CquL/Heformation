@@ -39,6 +39,7 @@
     <param name="enable_platform_action" value="true"/>
     <param name="water_guidance_mode" value="LOS_VELOCITY_REFERENCE"/>
     <param name="water_horizontal_controller_mode" value="LOS_SURGE_YAW"/>
+    <param name="platform_observation_timeout_s" value="350.0"/>
     <param name="qualification_only" value="true"/>
   </node>
 </launch>

@@ -32,7 +32,9 @@ regions:
       - {point_id: aav_water_sample, position: [-3.0, 1.0, -0.6], weight: 1.0}
   - region_id: offshore_uuv
     kind: UNDERWATER
-    corner_a: [-1.0, 3.0, -2.0]
+    corner_a: [-4.0, 3.0, -2.0]
     corner_b: [1.0, 5.0, -2.0]
     interest_points:
-      - {point_id: water_sample, position: [0.0, 4.0, -2.0], weight: 1.0}
+      - {point_id: deep_swath_1, position: [-3.0, 4.0, -2.0], weight: 1.0}
+      - {point_id: deep_swath_2, position: [-1.5, 4.0, -2.0], weight: 1.0}
+      - {point_id: deep_swath_3, position: [0.0, 4.0, -2.0], weight: 1.0}

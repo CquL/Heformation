@@ -355,6 +355,7 @@ class PvsNode:
             target=None
             effort=0.
             waiting=False
+            terminal_homing=False
             if w and not w['coast'] and not w['waiting_commit']:
                 segment=w['segment'];path=w['paths'][segment]
                 waiting=(path[0]==path[1] and w['durations'][segment]>0)
@@ -362,15 +363,41 @@ class PvsNode:
                     segment+=1;w['segment']=segment;w['point']=1;w['segment_started']=self.backend.time_s
                     w['coast']=segment==len(w['paths']);waiting=False
                 if not waiting and not w['coast']:
-                    previous=w['segment']
-                    w['segment'],w['point'],target,w['coast']=advance_path_target(
-                        w['paths'],w['segment'],w['point'],self.backend.snapshot()['position'])
-                    if w['segment']!=previous:w['segment_started']=self.backend.time_s
+                    position=self.backend.snapshot()['position']
+                    terminal_return=(self.model=='otter' and
+                        getattr(self.observation_request,'template_id','')=='OFFSHORE_JOINT' and
+                        self._returns_to_declared_site(w['paths']) and
+                        w['segment']==len(w['paths'])-1 and
+                        w['point']==len(w['paths'][-1])-1)
+                    distance=(math.dist(position,self.return_site['position'])
+                              if terminal_return else math.inf)
+                    past_endpoint=False
+                    if terminal_return:
+                        start=w['paths'][-1][-2];end=w['paths'][-1][-1]
+                        direction=tuple(end[i]-start[i] for i in range(3))
+                        past_endpoint=sum((position[i]-start[i])*direction[i] for i in range(3))>=sum(
+                            value*value for value in direction)
+                    if terminal_return and (distance<=2*self.return_site['radius_m'] or past_endpoint):
+                        if distance<=.6*self.return_site['radius_m']:
+                            w['coast']=True
+                        elif (self.scene and self.scene.path_violation(
+                                (position,self.return_site['position']),self.backend.collision_radius_m)):
+                            w.update(cause='SCENE_SAFETY_VIOLATION',coast=True)
+                            self.locked=True
+                        else:
+                            target=self.return_site['position']
+                            terminal_homing=True
+                    else:
+                        previous=w['segment']
+                        w['segment'],w['point'],target,w['coast']=advance_path_target(
+                            w['paths'],w['segment'],w['point'],position)
+                        if w['segment']!=previous:w['segment_started']=self.backend.time_s
                     segment=w['segment'];path=w['paths'][segment]
                     waiting=(path[0]==path[1] and w['durations'][segment]>0)
                 effort=0. if w['coast'] or waiting else w['efforts'][w['segment']]
                 if w['coast'] or waiting:target=None
-            leg_start=w['paths'][w['segment']][w['point']-1] if w and target is not None else None
+            leg_start=(w['paths'][w['segment']][w['point']-1]
+                       if w and target is not None and not terminal_homing else None)
             state=self.backend.step(self.dt,target,effort,leg_start)
             if self.scene:
                 reason=self.scene.violation(state['position'],self.backend.collision_radius_m)

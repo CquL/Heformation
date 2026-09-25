@@ -553,6 +553,11 @@ class ExecutorTravelTimeProvider:
                     steps.append(self._task_step(unit,'air-route:'+task.target_ref+':'+str(index),
                         self._task_path(position,waypoint,radius,deadline),'AIR',hold=4.,radius=radius))
                     position=waypoint
+                stage=tuple(self.return_sites[member].get('staging_position',home))
+                if stage!=home:
+                    steps.append(self._task_step(unit,'return-stage:'+member,
+                        self._task_path(position,stage,radius,deadline),'AIR',hold=4.,radius=radius))
+                    position=stage
                 steps.append(self._task_step(unit,'return:'+member,
                     self._task_path(position,home,radius,deadline),'AIR',radius=radius))
                 methods.append(tuple(steps))
@@ -581,8 +586,12 @@ class ExecutorTravelTimeProvider:
                     native.native_prediction['reference_schedule']=((0.,entry),(14.,(x,y,-.6)),
                         (21.,(x+.7,y,-.6)),(35.,exit_position),(39.,exit_position))
                     steps.append(native)
+                    stage=tuple(self.return_sites[member].get('staging_position',home))
+                    if stage!=home:
+                        steps.append(self._task_step(air,'return-stage:'+member,
+                            self._task_path(exit_position,stage,radius,deadline),'AIR',hold=4.,radius=radius))
                     steps.append(self._task_step(air,'return:'+member,
-                        self._task_path(exit_position,home,radius,deadline),'AIR',radius=radius))
+                        self._task_path(stage,home,radius,deadline),'AIR',radius=radius))
                     methods.append(tuple(steps))
             elif 'UUV' in unit.capabilities:
                 if state['mode']!='WATER':raise ValueError('TASK_WATER_ENTRY_MODE')
@@ -599,12 +608,31 @@ class ExecutorTravelTimeProvider:
                         section=self._task_schedule(segment.points,segment.duration_s)
                         rows.extend((clock+t,p) for t,p in section[1 if rows else 0:])
                         path.extend(segment.points[1 if path else 0:]);clock+=segment.duration_s
-                    route=NativeActionSpec(segments,'FIXED_REFERENCE',
-                        execution_timeout_s=float(raw['execution_timeout_s']),observation_ids=ids)
-                    step=self._task_step(unit,task.target_ref,tuple(path),'WATER',duration=clock,
-                        hold=4.,native=route,radius=radius)
-                    step.native_prediction['reference_schedule']=tuple(rows)+((clock+4.,home),)
-                    methods.append((step,))
+                    stage=tuple(self.return_sites[member].get('staging_position',home))
+                    if (stage!=home and len(segments)==2 and
+                            segments[0].points[-1]==stage and segments[1].points[0]==stage):
+                        work_route=NativeActionSpec((segments[0],),'FIXED_REFERENCE',
+                            execution_timeout_s=float(raw['execution_timeout_s']),observation_ids=ids)
+                        work=self._task_step(unit,task.target_ref,segments[0].points,'WATER',
+                            duration=segments[0].duration_s,hold=4.,native=work_route,radius=radius)
+                        work.native_prediction['reference_schedule']=(self._task_schedule(
+                            segments[0].points,segments[0].duration_s)+
+                            ((segments[0].duration_s+4.,stage),))
+                        return_route=NativeActionSpec((segments[1],),'FIXED_REFERENCE',
+                            execution_timeout_s=float(raw['return_timeout_s']))
+                        back=self._task_step(unit,'return:'+member,segments[1].points,'WATER',
+                            duration=segments[1].duration_s,hold=4.,native=return_route,radius=radius)
+                        back.native_prediction['reference_schedule']=(self._task_schedule(
+                            segments[1].points,segments[1].duration_s)+
+                            ((segments[1].duration_s+4.,home),))
+                        methods.append((work,back))
+                    else:
+                        route=NativeActionSpec(segments,'FIXED_REFERENCE',
+                            execution_timeout_s=float(raw['execution_timeout_s']),observation_ids=ids)
+                        step=self._task_step(unit,task.target_ref,tuple(path),'WATER',duration=clock,
+                            hold=4.,native=route,radius=radius)
+                        step.native_prediction['reference_schedule']=tuple(rows)+((clock+4.,home),)
+                        methods.append((step,))
             else:raise ValueError('TASK_METHOD_UNAVAILABLE')
             if not methods:raise ValueError('TASK_DECLARED_ROUTE_UNAVAILABLE')
         except ValueError as error:
@@ -1582,7 +1610,8 @@ class ExecutorTravelTimeProvider:
         if self.scene_geometry is None:
             return dict(status='UNKNOWN',reason='TASK_SCENE_MISSING')
         support=[item for item in plan.items if 'usv' in item.coalition and not item.fulfills_task]
-        if self.observation_request.delivery_required and len(support)!=1:
+        uuv_required=any(item.fulfills_task and 'uuv' in item.coalition for item in plan.items)
+        if (uuv_required and len(support)!=1) or (not uuv_required and support):
             return dict(status='INFEASIBLE',reason='TASK_SHARED_SUPPORT_REQUIRED')
         support_item=support[0] if support else None
         if support_item is not None:
@@ -1648,7 +1677,7 @@ class ExecutorTravelTimeProvider:
                 return dict(status='INFEASIBLE',reason='TASK_STEP_TIME_MISMATCH:'+member)
             if item.fulfills_task:
                 if not observed:return dict(status='INFEASIBLE',reason='TASK_REQUIRED_OBSERVATION_MISSING')
-                if support_item is not None:
+                if support_item is not None and member=='uuv':
                     if tuple(item.support_execution_ids)!=(support_item.execution_id,):
                         return dict(status='INFEASIBLE',reason='TASK_SUPPORT_LINK_MISSING')
                     if observation_ready>support_end+1e-6:
@@ -1666,6 +1695,22 @@ class ExecutorTravelTimeProvider:
                     ratio=max(0.,min(1.,(stamp-first)/(last-first)))
                     return tuple(a[i]+ratio*(b[i]-a[i]) for i in range(3))
             return rows[-1][1]
+        if support_item is not None:
+            uuv_work=next((item for item in plan.items if item.fulfills_task and
+                item.coalition==('uuv',)),None)
+            if uuv_work is None:return dict(status='INFEASIBLE',reason='TASK_UUV_SOURCE_MISSING')
+            contact_at=uuv_work.planned_start+uuv_work.execution_steps[0].duration_s
+            site=next(entry for entry in self.task_support_sites
+                if entry['id']==support_item.execution_steps[0].native_prediction['support_site_id'])
+            usv_at=position(trajectories['usv'],contact_at)
+            uuv_at=position(trajectories['uuv'],contact_at)
+            if (not support_start-1e-6<=contact_at<=support_end+1e-6 or
+                    math.dist(usv_at,uuv_at)>site['acoustic_contact_m'] or
+                    math.dist(usv_at,self.mother_position)>site['mother_contact_m']):
+                return dict(status='INFEASIBLE',reason='TASK_SUPPORT_CONTACT_NOT_AVAILABLE:'+site['id']+
+                    ':uuv_distance={:.3f}:mother_distance={:.3f}:contact={:.3f}:window={:.3f}-{:.3f}'.format(
+                        math.dist(usv_at,uuv_at),math.dist(usv_at,self.mother_position),
+                        contact_at,support_start,support_end))
         members=sorted(trajectories)
         from qn_aav_simulator.experiment_verdict import _MIN_INTER_AGENT_CLEARANCE_M
         for index,first in enumerate(members):
@@ -2623,12 +2668,14 @@ def _build_complete_candidate_plan(executors,tasks,provider,member_states,deadli
                         native_owner.observation_request.template_id=='OFFSHORE_JOINT'):
                     shared=tuple(item.execution_id for item in items
                         if 'usv' in item.coalition and not item.fulfills_task)
-                    if len(shared)!=1:
+                    uuv_required=any(item.fulfills_task and 'uuv' in item.coalition for item in items)
+                    if len(shared)!=(1 if uuv_required else 0):
                         rejections['SHARED_SUPPORT_ACTIVITY_MISSING']=rejections.get(
                             'SHARED_SUPPORT_ACTIVITY_MISSING',0)+1
                         continue
                     for item in candidate_plan.items:
-                        if item.fulfills_task:item.support_execution_ids=shared
+                        if item.fulfills_task and 'uuv' in item.coalition:
+                            item.support_execution_ids=shared
                 validate_executor_plan(candidate_plan,executors,tasks)
                 physical=checker is not None or any(step.native_action is not None
                     for item in items for step in item.execution_steps) or any(c.motion_traces for c,_ in evidence)

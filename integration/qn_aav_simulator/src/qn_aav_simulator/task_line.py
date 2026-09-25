@@ -261,8 +261,11 @@ def build_request_executor_plan(request,scene,executors,provider,member_states,*
         if not return_sites:
             raise ValueError('return destinations must be declared in the scenario or invocation')
         for site in return_sites.values():
-            if (not isinstance(site,Mapping) or set(site)!={'position','radius_m'} or
+            if (not isinstance(site,Mapping) or not {'position','radius_m'}<=set(site) or
+                    set(site)-{'position','radius_m','staging_position'} or
                     len(site['position'])!=3 or not all(math.isfinite(v) for v in site['position']) or
+                    ('staging_position' in site and (len(site['staging_position'])!=3 or
+                        not all(math.isfinite(v) for v in site['staging_position']))) or
                     not math.isfinite(site['radius_m']) or site['radius_m']<=0):
                 raise ValueError('return site requires finite position and positive declared radius')
     deadline=time.monotonic()+budget_s
@@ -279,8 +282,7 @@ def build_request_executor_plan(request,scene,executors,provider,member_states,*
             raise ValueError('transition site needs unique ID, surface position and AIR stages')
         seen_sites.add(ident);transition_sites.append((ident,position,air_stages))
     task_level=request.template_id=='OFFSHORE_JOINT'
-    support_task=next((task.task_id for task in tasks if task.target_ref=='offshore_uuv'),
-                      tasks[-1].task_id)
+    support_task=next((task.task_id for task in tasks if task.target_ref=='offshore_uuv'),'')
     provider=replace(provider,cooperative_routes=methods,observation_request=request,
         task_water_routes=dict(scene.get('water_route_candidates',{})),
         native_routes=dict(scene.get('air_route_via',{})) if task_level else provider.native_routes,
@@ -291,7 +293,11 @@ def build_request_executor_plan(request,scene,executors,provider,member_states,*
             'SURFACE' in unit.capabilities and (task_level or getattr(member_states[unit.physical_agent_ids[0]].get(
                 'native_backend',provider.native_models.get(unit.physical_agent_ids[0])),'model',None)=='otter')),
         air_support_sites=tuple(tuple(site['position']) for site in scene.get('communication_sites',())),
-        task_support_sites=tuple(dict(site) for site in scene.get('communication_sites',())),
+        task_support_sites=tuple(sorted((dict(site) for site in scene.get('communication_sites',())),
+            key=lambda site: (math.dist(member_states['usv']['position'],site['position'])+
+                math.dist(return_sites['uuv']['position'],site['position'])+
+                math.dist(scene['mother_ship_receiver_position'],site['position']),site['id'])))
+            if task_level else tuple(dict(site) for site in scene.get('communication_sites',())),
         planning_time_origin=time.time(),
         mother_position=tuple(scene.get('mother_ship_receiver_position',scene['mother_ship_position'])),
         return_sites=dict(return_sites) if request.return_required else {},
@@ -339,11 +345,11 @@ def retest_tasks(request: MonitoringRequest,
         region = next(r for r in request.regions if r.region_id == region_id)
         narrowed = SurveyRegion(region.region_id, region.kind, region.corner_a,
                                 region.corner_b, tuple(by_region[region_id]))
+        extra=set(request.required_capabilities)-{'AIR','WATER','SURFACE'}
         if region.kind==UNDERWATER:
             # The legacy AIR set-cover expander skips underwater regions.
             # Keep one regional requirement so the joint method search can
             # select its viewpoint/pass and executor after the report arrives.
-            extra=set(request.required_capabilities)-{'AIR','WATER','SURFACE'}
             retests.append(ObservationTask(
                 task_id='retest-'+region_id+'-0',
                 target=narrowed.interest_points[0].position,
