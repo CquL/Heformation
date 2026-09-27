@@ -2976,3 +2976,10 @@
 - 区域扫测：按用户指出的“刚到就返”问题，当前请求空中区域改为 6×4 m、四个按序扫测位置，四个几何足迹共同覆盖声明矩形；每个位置独立产生产品，全部结果到达才算区域完成。RViz 改为单个“空中扫测区”面片与短标记。`experiments/20260925-area-sweep-live-r15` 正在同一实时入口执行；已见四空中点、两水下点共六正产品到母船，USV 返航终态及独立审计未结束，不提前记为 PASS。
 - 来源与证据：方法依据 [Calvo/Capitán T-RO 2025](https://arxiv.org/html/2411.02062v3) 的低成本预计转场及执行修复、[D-ITAGS RA-L/IROS 2023](https://arxiv.org/pdf/2209.13092) 的按需运动反馈与局部修复、[GRSTAPS IJRR 2022](https://journals.sagepub.com/doi/10.1177/02783649211052066) 的任务/运动交错；数值路线、缩比场景与代理性能均由本机实验给出，不继承论文的物理保证。完整证据见各实验目录的 `metrics.json`、`nominal-plan.json`、`execution.bag`、`scene-once.bag`、`safety-audit.json`；本轮源码集中原候选、worker、场景和 Action 端点。
 - 未完成／下一步：等 r15 的 USV 返回并做同次五平台 bag 审计；若通过，再在**新区域扫测请求**下跑一次明确缺测复查，核四点覆盖和一次修复。之后按实际调用清理旧 Calvo 专属入口/重复通信门控，更新 README、当前状态与交接；未通过的边界如实保留。
+## 2026-09-27 — 用户指定的旧文件、缓存与实验产物清理
+
+- 计划：只清理用户明确指定的缓存、`context/README (1).md`、遗留 Gazebo/VRX 查看脚本、三份被 v2 取代的文稿，以及最终共同返航 r3 以外的本地实验产物；不触碰当前源码框架、Fossen/Swarm、最终证据或 Git 历史。
+- 实际：删除受版本管理的 `context/README (1).md`、`integration/qn_aav_simulator/scripts/vrx_state_view.py`、`Heformation_精简理论模型与推导_v1.md`、`Heformation_统一模型与联合求解理论_v1_20260922.md`、`Heformation_架构核查与下一步执行建议_2026-09-15.md`。仓库内37个 `__pycache__`／`.pytest_cache`、58个旧实验目录及根下旧 `20260923-joint-build.log` 移入桌面回收站。
+- 结果：项目目录约6.7 GB降到2.6 GB；`experiments/`约4.1 GB降到171 MB，现只保留 `README.md` 与 `20260927-target-return-live-r3`。r3的 metrics、Plan、两个bag、安全审计、共同返航审计及可重跑审计脚本逐项存在且非空。当前运行入口和Dockerfile无上述被删文件引用。
+- 恢复／磁盘边界：缓存和旧实验约3.9 GB位于 `/home/lhj/.local/share/Trash`，仍可通过桌面回收站恢复；在用户清空回收站前，工作区体积已下降但文件系统空间尚未真正释放。五个受版本管理文件可从 Git 历史恢复。
+- 未处理：未删除任何上游参考源码、旧控制回归入口、测试、文献台账、Git对象或最终r3证据；这些需要单独决定，不能混入本次授权范围。
