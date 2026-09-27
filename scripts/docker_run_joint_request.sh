@@ -6,6 +6,7 @@ JOINT_OUTPUT="${1:?usage: docker_run_joint_request.sh new-output-directory}"
 JOINT_IMAGE="${JOINT_IMAGE:-swarm-formation-qn:joint-wip}"
 JOINT_VISUALIZE="${JOINT_VISUALIZE:-true}"
 JOINT_GPU_RENDER="${JOINT_GPU_RENDER:-false}"
+JOINT_REGION_UI="${JOINT_REGION_UI:-$JOINT_VISUALIZE}"
 JOINT_PLANNING_BUDGET_S="${JOINT_PLANNING_BUDGET_S:-10}"
 JOINT_REPAIR_BUDGET_S="${JOINT_REPAIR_BUDGET_S:-10}"
 JOINT_SIM_CPUSET="${JOINT_SIM_CPUSET:-}"
@@ -21,6 +22,10 @@ JOINT_QUALIFICATION_MISSING_AIR_MEMBER="${JOINT_QUALIFICATION_MISSING_AIR_MEMBER
 JOINT_VISUAL_TIMING_RELAX="${JOINT_VISUAL_TIMING_RELAX:-false}"
 case "$JOINT_VISUALIZE" in true|false) ;; *) echo 'JOINT_VISUALIZE must be true or false' >&2; exit 2 ;; esac
 case "$JOINT_GPU_RENDER" in true|false) ;; *) echo 'JOINT_GPU_RENDER must be true or false' >&2; exit 2 ;; esac
+case "$JOINT_REGION_UI" in true|false) ;; *) echo 'JOINT_REGION_UI must be true or false' >&2; exit 2 ;; esac
+if [[ "$JOINT_REGION_UI" == true && "$JOINT_VISUALIZE" != true ]]; then
+  echo 'JOINT_REGION_UI=true requires JOINT_VISUALIZE=true' >&2; exit 2
+fi
 mkdir -p "$JOINT_OUTPUT"
 JOINT_OUTPUT="$(realpath "$JOINT_OUTPUT")"
 if [[ -e "$JOINT_OUTPUT/metrics.json" ]]; then
@@ -59,6 +64,7 @@ fi
 docker run --rm --init -i --user "$(id -u):$(id -g)" \
   --env ROS_HOME=/tmp/joint-request-ros \
   --env JOINT_VISUALIZE="$JOINT_VISUALIZE" \
+  --env JOINT_REGION_UI="$JOINT_REGION_UI" \
   --env JOINT_PLANNING_BUDGET_S="$JOINT_PLANNING_BUDGET_S" \
   --env JOINT_REPAIR_BUDGET_S="$JOINT_REPAIR_BUDGET_S" \
   --env JOINT_SIM_CPUSET="$JOINT_SIM_CPUSET" \
@@ -83,11 +89,21 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
     [[ -f "$JOINT_REQUEST_FILE" && -f "$JOINT_EXECUTORS_FILE" ]] || {
       echo "Declared request/executor file missing" >&2; exit 2;
     }
+    active_request="$JOINT_REQUEST_FILE"
+    active_scene=/experiments/scene.yaml
+    if [[ "$JOINT_REGION_UI" == true ]]; then
+      python3 /workspace/src/src/qn_aav_simulator/scripts/mission_console.py \
+        --select-circle --request "$active_request" --scene "$active_scene" \
+        --output-request /experiments/current/ui-request.yaml \
+        --output-scene /experiments/current/ui-scene.yaml
+      active_request=/experiments/current/ui-request.yaml
+      active_scene=/experiments/current/ui-scene.yaml
+    fi
     sim_prefix=()
     if [[ -n "$JOINT_SIM_CPUSET" ]]; then sim_prefix=(taskset -c "$JOINT_SIM_CPUSET"); fi
     "${sim_prefix[@]}" roslaunch qn_aav_simulator five_qualification.launch record:=false \
-      request_file:="$JOINT_REQUEST_FILE" \
-      scene_file:=/experiments/scene.yaml visualize:="$JOINT_VISUALIZE" \
+      request_file:="$active_request" \
+      scene_file:="$active_scene" visualize:="$JOINT_VISUALIZE" \
       usv_initial_position:="$JOINT_USV_INITIAL_POSITION" \
       > /experiments/current/launch.log 2>&1 &
     launch_pid=$!
@@ -113,7 +129,7 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
     rosparam load "$JOINT_EXECUTORS_FILE" /formation_mission_runner
     rosparam set /formation_mission_runner/planning_mode joint_request
     rosparam set /formation_mission_runner/executor_serial false
-    rosparam set /formation_mission_runner/request_file "$JOINT_REQUEST_FILE"
+    rosparam set /formation_mission_runner/request_file "$active_request"
     rosparam set /formation_mission_runner/output_dir /experiments/current
     rosparam set /formation_mission_runner/planning_budget_s "$JOINT_PLANNING_BUDGET_S"
     rosparam set /formation_mission_runner/repair_budget_s "$JOINT_REPAIR_BUDGET_S"

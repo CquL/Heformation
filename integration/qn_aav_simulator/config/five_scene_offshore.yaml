@@ -68,22 +68,10 @@ scene:
     - {id: deep_swath_1, position: [-3.0, 4.0, -2.0], domain: WATER}
     - {id: deep_swath_2, position: [-1.5, 4.0, -2.0], domain: WATER}
     - {id: deep_swath_3, position: [0.0, 4.0, -2.0], domain: WATER}
-  # AAV3's direct corner at the breakwater passed the static point route by
-  # only 0.2 m and the r9 live controller crossed that margin. This common
-  # corridor is available to any AAV selected for the air-observation role.
-  air_route_via:
-    offshore_air: [[-24.0, 4.0, 0.8]]
   # The survey observer crosses the USV and amphibious return corridors.
   # Its airborne return is vertically separated, then descends at deployment.
-  air_return_altitude_m: 2.5
-  # The WATER-only qn proxy reaches the target-area rendezvous after its
-  # slow sweep; the return leg starts with the AAVs and USV from that area.
-  # This is a model-scale task policy, not a REMUS performance claim.
-  water_route_candidates:
-    offshore_uuv:
-      - execution_timeout_s: 350.0
-        return_timeout_s: 350.0
-        segments:
-          - {points: [[-27.0, 4.0, -2.0], [0.0, 4.0, -2.0], [-3.0, 4.0, -2.0]], duration_s: 230.0}
-          - {points: [[-3.0, 4.0, -2.0], [-27.0, 4.0, -2.0]], duration_s: 185.0}
+  air_return_altitude_m: 3.5
+  amphibious_return_altitude_m: 2.0
+  # Exact AIR/USV/UUV routes are generated from the accepted request and this
+  # geometry. Configuration retains model, contact and terminal constraints.
   visual_assets: /experiments/assets

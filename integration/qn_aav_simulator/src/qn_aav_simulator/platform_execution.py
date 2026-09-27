@@ -8,6 +8,48 @@ import math
 from typing import Tuple
 
 
+def plan_static_path(source,target,radius,scene_geometry,deadline):
+    """Lower-layer geometric route query over the declared static map.
+
+    It returns waypoints only. Swarm/qn/PVS still generate and execute their
+    own references, guidance and controls from the selected path.
+    """
+    import heapq
+    import time
+    source=tuple(source);target=tuple(target)
+    if scene_geometry is None:raise ValueError('MOTION_SCENE_MISSING')
+    prefix=[source]
+    if source[2]!=target[2]:prefix.append((source[0],source[1],target[2]))
+    if len(prefix)>1 and scene_geometry.path_violation(prefix,radius):
+        raise ValueError('MOTION_VERTICAL_ROUTE_BLOCKED')
+    origin=prefix[-1]
+    if not scene_geometry.path_violation((origin,target),radius):return tuple(prefix+[target])
+    margin=radius+scene_geometry.clearance+1e-6
+    vertices=[origin,target]
+    for _,_,center,size in scene_geometry.objects:
+        if abs(target[2]-center[2])>size[2]/2+margin:continue
+        for sx,sy in ((-1,-1),(-1,1),(1,-1),(1,1)):
+            point=(center[0]+sx*(size[0]/2+margin),center[1]+sy*(size[1]/2+margin),target[2])
+            if not scene_geometry.violation(point,radius):vertices.append(point)
+    distances={0:0.};previous={};queue=[(0.,0)]
+    while queue:
+        if time.monotonic()>=deadline:raise TimeoutError('motion geometry budget exhausted')
+        cost,index=heapq.heappop(queue)
+        if cost!=distances[index]:continue
+        if index==1:
+            route=[1]
+            while route[-1]!=0:route.append(previous[route[-1]])
+            return tuple(prefix[:-1]+[vertices[i] for i in reversed(route)])
+        for other,point in enumerate(vertices):
+            if other==index:continue
+            candidate=cost+math.dist(vertices[index],point)
+            if candidate>=distances.get(other,float('inf')):continue
+            if scene_geometry.path_violation((vertices[index],point),radius):continue
+            distances[other]=candidate;previous[other]=index
+            heapq.heappush(queue,(candidate,other))
+    raise ValueError('MOTION_STATIC_ROUTE_UNREACHABLE')
+
+
 def actual_mode(flag):
     if flag is None or not math.isfinite(flag) or not 0 <= flag <= 1:
         return 'UNKNOWN'

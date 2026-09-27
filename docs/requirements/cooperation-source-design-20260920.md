@@ -20,6 +20,8 @@
 | R8 | Gosrich et al., **ICRA 2023**, Multi-Robot Coordination and Cooperation with Task Precedence Relationships, DOI 10.1109/ICRA48891.2023.10160998。[作者全文](https://docs.saurav.fyi/papers/Agarwal23_TaskAllocation_ICRA.pdf)，本次下载[arXiv副本](https://arxiv.org/pdf/2209.14417)并重点读§III–V | 区分“多机器人提高效率”与“必须组成联盟才能完成”；联盟规模/作业收益关系必须显式建模 | 原文任务图示例针对同类机器人、固定任务时长和给定收益函数。其联盟函数不是我们相机/编队收益的标定来源 |
 | R9 | Xiroi II, **Sensors 2023**，不是顶刊核心算法依据。[正文](https://pmc.ncbi.nlm.nih.gov/articles/PMC9824324/)；沿用本地已读笔记，本轮未重新全文阅读 | USV/ASV连接RF与水声链路的海洋角色依据 | 不照抄硬件带宽、通信距离或定位能力；它是角色实证，不提供本系统联合优化算法 |
 | R10 | Trajectory Planning for Hybrid Unmanned Aerial Underwater Vehicles with Smooth Media Transition, **JIRS 2021**。[正文](https://arxiv.org/abs/2112.13819)，本轮本地复核转换区/垂直运动段；TJ-FlyingFish **ICRA 2023**本地PDF在库 | 分域运动和转换入口有物理限制；q​​n资格结果决定可枚举的模式/入口 | 不是任何AAV通用的垂直入水定律；不把设备论文的控制/执行器限值套给qn。Surfing T-RO正文未取得，不能据摘要移植海浪转换算法 |
+| R11 | Bähnemann et al., **FSR 2019**, *Revisiting Boustrophedon Coverage Path Planning as a Generalized Traveling Salesman Problem*。[正文](https://arxiv.org/abs/1907.09224)；[官方开源实现](https://github.com/ethz-asl/polygon_coverage_planning) | 用户给出区域后，覆盖层生成往复式扫测条带/有限观测见证点；障碍间过渡由运动规划处理，不要求用户输入整条路线 | 原文面向低空MAV、多边形走廊和指定传感器足迹；本项目圆区、缩比坐标和几何观测分辨率是实验定义，不能继承其真实载荷覆盖结论 |
+| R12 | Mier et al., **IEEE RA-L 2023**, *Fields2Cover: An Open-Source Coverage Path Planning Library for Unmanned Agricultural Vehicles*。[正文](https://arxiv.org/abs/2210.07838)；[官方源码](https://github.com/Fields2Cover/Fields2Cover) | 明确分开区域边界、条带生成、条带次序和平台路径/转弯规划；本轮只采用这种职责划分，不引入新的通用框架 | 农业地面车辆的地头、曲率和覆盖工具模型不直接适用于AAV/UUV；不移植整库，也不把其七类目标函数增加到当前任务 |
 
 2026-09-20复核曾新增R8，用于解决“多机联盟与任务收益为何相关”的明确问题。本次没有新增论文或框架，实际阅读为：
 
@@ -28,6 +30,25 @@
 - 源码抽查：`upstream/GRSTAPS/src/Connections/taskAllocationToScheduling.cpp`按选中成员查询运动并反馈到达时间；`upstream/D-ITAGS/src/scheduling/milp/deterministic/deterministic_milp_scheduler.cpp`和`src/geometric_planning/motion_planner_base.cpp`的互斥/转场查询与缓存；`upstream/Swarm-Formation/src/planner/swarm_graph/src/swarm_graph.cpp`的归一化图矩阵和平方Frobenius差。未运行这些上游整套求解器。
 
 三个会直接限制本项目结论的原文条件：R3定理1要求其特定搜索、有效上下界，以及增加分配只增加调度约束的单调性；若联盟改变作业时长，不能直接继承此条件。R4以给定路径节点和安全可等待的执行语义构造无环图，并由实际完成节点释放后继；海洋平台的滑行终端需另行证明可执行。R5明确指出，断联时单方取消已确认会合可使另一方无限等待；其初始中继到中心立即上传假设也不能替代本项目的第二跳容量。
+
+### 1.1 用户圈选区域与路线生成的工程边界（2026-09-27）
+
+本轮将R11、R12用于解决一个具体接口问题：用户应该输入“监测哪里”，不应该为每个平台手写航点。当前第一版采用鼠标按下确定圆心、拖动确定半径；确认后由同一个请求生成函数产生AIR和UUV的往复式有限见证点。见证点表达当前几何观测代理必须扫过的位置，**不是控制航迹，也不是已完成观测**。圆心、半径和覆盖分辨率随请求保存，实际产品仍须由本地状态到达并满足驻留条件后产生。
+
+代码职责固定为：
+
+```text
+用户圆区
+  → 覆盖层生成有限条带/观测见证点（R11/R12）
+  → 联合搜索选择AAV成员、跨介质入口、USV支援点和并行关系（R2/R3）
+  → 执行层按当前起点、选中目标和静态场景生成过渡航点
+  → AIR由原Swarm在线轨迹优化执行（R7）；qn WATER与Otter按生成航点执行
+  → 实际Action、观测产品、支援和返回事件决定任务结果
+```
+
+因此，场景文件继续保存地图、障碍、允许转换区、母船/部署区和平台模型参数；动态请求保存用户区域和由覆盖规则得到的观测要求。它们都不保存某次完整往返路线。`air_route_via`和`water_route_candidates`已退出圈选入口；USV、UUV及跨介质AAV的过渡点由执行几何层从实际起点和目标生成。当前执行几何层是已知静态障碍上的膨胀可见图，AIR真正运动仍由Swarm在线重新规划，qn/PVS则跟踪所得航点。该边界不宣称已经解决未知动态障碍或连续时间全局最优路径。
+
+当前圆半径2–10模型米、覆盖间距、8m/30m支援几何和候选转换位置都是现有缩比场景的声明参数，并非R11/R12给出的装备指标。圈区与障碍/工作域不相容时应拒绝该请求；不能裁掉圈外部分后仍声称完整区域已监测。第一版只支持圆，任意多边形可沿R11的RViz Polygon工具思路后续增加，但不是本轮为了“通用化”预建的接口。
 
 ## 2. 用户需求、平台属性、决策变量必须分开
 

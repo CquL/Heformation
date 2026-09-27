@@ -19,7 +19,8 @@
 
   <arg name="map_size_x" value="70.0"/>
   <arg name="map_size_y" value="30.0"/>
-  <arg name="map_size_z" value="3.0"/>
+  <!-- Selected-area execution uses separated AIR return layers up to 3.5 m. -->
+  <arg name="map_size_z" value="5.0"/>
   <arg name="odom_topic" value="visual_slam/odom"/>
   <arg name="formation_config" value="$(find qn_aav_simulator)/config/formation_aav3.yaml"/>
   <!-- Existing physical safety contract, shared by the Action servers and the
@@ -127,6 +128,7 @@
     <param name="platform_radius_m" value="$(arg platform_radius_m)"/>
     <param name="inter_agent_clearance" value="$(arg inter_agent_clearance_m)"/>
     <param name="safety_hold_timeout_s" value="$(arg safety_hold_timeout_s)"/>
+    <param name="execution_timeout" value="$(arg safety_hold_timeout_s)"/>
     <param name="output_dir" value="$(arg output_dir)"/>
     <param name="action_name" value="/aav_1/formation_action"/>
     <rosparam param="agent_ids">[0]</rosparam>
@@ -141,6 +143,7 @@
     <param name="platform_radius_m" value="$(arg platform_radius_m)"/>
     <param name="inter_agent_clearance" value="$(arg inter_agent_clearance_m)"/>
     <param name="safety_hold_timeout_s" value="$(arg safety_hold_timeout_s)"/>
+    <param name="execution_timeout" value="$(arg safety_hold_timeout_s)"/>
     <param name="output_dir" value="$(arg output_dir)"/>
     <param name="action_name" value="/aav_2/formation_action"/>
     <rosparam param="agent_ids">[1]</rosparam>
@@ -155,6 +158,7 @@
     <param name="platform_radius_m" value="$(arg platform_radius_m)"/>
     <param name="inter_agent_clearance" value="$(arg inter_agent_clearance_m)"/>
     <param name="safety_hold_timeout_s" value="$(arg safety_hold_timeout_s)"/>
+    <param name="execution_timeout" value="$(arg safety_hold_timeout_s)"/>
     <param name="output_dir" value="$(arg output_dir)"/>
     <param name="action_name" value="/aav_3/formation_action"/>
     <rosparam param="agent_ids">[2]</rosparam>
@@ -169,6 +173,7 @@
     <param name="platform_radius_m" value="$(arg platform_radius_m)"/>
     <param name="inter_agent_clearance" value="$(arg inter_agent_clearance_m)"/>
     <param name="safety_hold_timeout_s" value="$(arg safety_hold_timeout_s)"/>
+    <param name="execution_timeout" value="$(arg safety_hold_timeout_s)"/>
     <param name="output_dir" value="$(arg output_dir)"/>
     <param name="action_name" value="/aav_formation/formation_action"/>
     <rosparam param="agent_ids">[0, 1, 2]</rosparam>

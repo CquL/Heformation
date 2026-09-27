@@ -1121,7 +1121,9 @@ class MissionRunner:
             goal.formation_center.header.stamp=rospy.Time.now()
             step=item.execution_steps[0] if item.execution_steps else None
             target_ref=step.target_ref if step else task.target_ref
-            goal.formation_center.point.x,goal.formation_center.point.y,goal.formation_center.point.z=self.centers[target_ref]
+            target=(tuple(step.native_prediction['terminal_position']) if step is not None and
+                    step.native_prediction.get('status')=='TASK_LEVEL' else self.centers[target_ref])
+            goal.formation_center.point.x,goal.formation_center.point.y,goal.formation_center.point.z=target
             goal.hold_duration=rospy.Duration(step.service_time_s if step else item.service_time)
             observation_ids=(list(step.observation_ids) if step is not None else
                 list(getattr(self.observation_tasks.get(item.task_id),'covers',()))) if getattr(self,'finite_delivery',False) else []

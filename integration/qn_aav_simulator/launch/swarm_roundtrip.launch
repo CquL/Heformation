@@ -4,8 +4,14 @@
   <arg name="output_dir" default="/experiments/current"/>
   <arg name="record" default="true"/>
   <arg name="transition_fault_behavior" default="FIXED_REFERENCE"/>
+  <!-- A user-selected offshore region can put a member target more than 30 m
+       from the deployment area.  This is an observation horizon, not a looser
+       arrival or safety threshold; the Action still has to settle and pass the
+       existing hold, clearance and reference-adoption checks. -->
+  <arg name="air_observation_timeout_s" default="350.0"/>
   <include file="$(find qn_aav_simulator)/launch/formation_aav3.launch">
     <arg name="planner_speed" value="0.35"/>
+    <arg name="safety_hold_timeout_s" value="$(arg air_observation_timeout_s)"/>
     <arg name="record" value="false"/>
     <arg name="output_dir" value="$(arg output_dir)"/>
   </include>

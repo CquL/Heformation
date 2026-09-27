@@ -5,11 +5,13 @@ waypoints, and that a request asking for something no online platform can do mus
 be refused rather than quietly trimmed.
 """
 
+from pathlib import Path
 import pytest
 
 from qn_aav_simulator.monitoring_request import (
     InterestPoint, MonitoringRequest, ObservationRequirement, SurveyRegion,
-    UnsupportedRequirement, expand, observation_candidates, unsupported_reasons,
+    UnsupportedRequirement, circle_joint_mission_mappings, circle_sweep_points,
+    expand, observation_candidates, unsupported_reasons,
 )
 
 REQUIREMENT = ObservationRequirement(footprint_radius_m=2.5, min_dwell_s=1.0,
@@ -32,6 +34,36 @@ def request(regions, **kwargs):
 
 def point(point_id, x, y, z=0.0, weight=1.0):
     return InterestPoint(point_id, (x, y, z), weight)
+
+
+def test_circle_sweep_is_boustrophedon_and_stays_inside_selection():
+    points=circle_sweep_points((3.,4.),4.,0.,2.,'p')
+    assert 5<len(points)<64
+    assert all((p.position[0]-3.)**2+(p.position[1]-4.)**2<=16.+1e-8 for p in points)
+    rows={round(p.position[1],8):[] for p in points}
+    for p in points:rows[round(p.position[1],8)].append(p.position[0])
+    directions=[values[-1]-values[0] for values in rows.values() if len(values)>1]
+    assert directions and all(a*b<0 for a,b in zip(directions,directions[1:]))
+
+
+def test_circle_selection_generates_one_request_scene_pair_without_fixed_routes():
+    import yaml
+    root=Path(__file__).parents[1]/'config'
+    base_request=yaml.safe_load((root/'monitoring_request_offshore.yaml').read_text())
+    base_scene=yaml.safe_load((root/'five_scene_offshore.yaml').read_text())
+    request,scene=circle_joint_mission_mappings(base_request,base_scene,(3.,4.),3.)
+    selected=scene['scene']['selected_monitoring_area']
+    assert selected['center'][:2]==[3.,4.] and selected['radius_m']==3.
+    assert 'water_route_candidates' not in scene['scene'] and 'air_route_via' not in scene['scene']
+    assert 1<=len(scene['scene']['transition_sites'])<=8
+    assert len(scene['scene']['communication_sites'])==1
+    assert all(region['shape']=='CIRCLE' for region in request['regions'] if region['region_id']!='offshore_aav_water')
+    air_points=next(region['interest_points'] for region in request['regions']
+                    if region['region_id']=='offshore_air')
+    assert all(min((site['position'][0]-point['position'][0])**2+
+                       (site['position'][1]-point['position'][1])**2
+                   for point in air_points)>=1.0**2
+               for site in scene['scene']['transition_sites'])
 
 
 def test_two_points_inside_one_footprint_become_one_task():

@@ -286,6 +286,7 @@ def build_request_executor_plan(request,scene,executors,provider,member_states,*
     provider=replace(provider,cooperative_routes=methods,observation_request=request,
         task_water_routes=dict(scene.get('water_route_candidates',{})),
         air_return_altitude_m=scene.get('air_return_altitude_m') if task_level else None,
+        amphibious_return_altitude_m=scene.get('amphibious_return_altitude_m') if task_level else None,
         native_routes=dict(scene.get('air_route_via',{})) if task_level else provider.native_routes,
         task_support_task_id=support_task if task_level else '',
         scene_geometry=StaticSceneGeometry.from_mapping(scene),
@@ -435,12 +436,20 @@ def load_request(path: Path) -> MonitoringRequest:
     requirement = ObservationRequirement(**raw["requirement"])
     regions = []
     for entry in raw["regions"]:
+        allowed_region={'region_id','kind','corner_a','corner_b','interest_points',
+                        'shape','center','radius_m','coverage_resolution_m'}
+        if set(entry)-allowed_region:
+            raise ValueError('unsupported region fields: '+str(sorted(set(entry)-allowed_region)))
         points = tuple(InterestPoint(str(p["point_id"]), tuple(p["position"]),
                                      float(p.get("weight", 1.0)))
                        for p in entry.get("interest_points", ()))
         regions.append(SurveyRegion(str(entry["region_id"]), str(entry["kind"]).upper(),
                                     tuple(entry["corner_a"]), tuple(entry["corner_b"]),
-                                    points))
+                                    points,str(entry.get('shape','BOX')).upper(),
+                                    None if entry.get('center') is None else tuple(entry['center']),
+                                    None if entry.get('radius_m') is None else float(entry['radius_m']),
+                                    None if entry.get('coverage_resolution_m') is None else
+                                    float(entry['coverage_resolution_m'])))
     request = MonitoringRequest(
         request_id=str(raw["request_id"]), regions=tuple(regions),
         requirement=requirement,

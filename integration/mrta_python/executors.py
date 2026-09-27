@@ -413,52 +413,17 @@ class ExecutorTravelTimeProvider:
     task_water_routes: Mapping = field(default_factory=dict)
     task_support_task_id: str = ''
     air_return_altitude_m: Optional[float] = None
+    amphibious_return_altitude_m: Optional[float] = None
 
     def _task_level(self):
         return (self.observation_request is not None and
                 self.observation_request.template_id=='OFFSHORE_JOINT')
 
     def _task_path(self,source,target,radius,deadline):
-        """A small static visibility graph at the requested operating height.
-
-        Its route is an estimate, not the trajectory the local controller must
-        track. Inflated declared boxes screen reachability without an ODE.
-        """
-        import heapq
-        source=tuple(source);target=tuple(target)
-        if self.scene_geometry is None:raise ValueError('TASK_SCENE_MISSING')
-        prefix=[source]
-        if source[2]!=target[2]:prefix.append((source[0],source[1],target[2]))
-        if len(prefix)>1 and self.scene_geometry.path_violation(prefix,radius):
-            raise ValueError('TASK_VERTICAL_ROUTE_BLOCKED')
-        origin=prefix[-1]
-        if not self.scene_geometry.path_violation((origin,target),radius):
-            return tuple(prefix+[target])
-        margin=radius+self.scene_geometry.clearance+1e-6
-        vertices=[origin,target]
-        for _,_,center,size in self.scene_geometry.objects:
-            if abs(target[2]-center[2])>size[2]/2+margin:continue
-            for sx,sy in ((-1,-1),(-1,1),(1,-1),(1,1)):
-                point=(center[0]+sx*(size[0]/2+margin),
-                       center[1]+sy*(size[1]/2+margin),target[2])
-                if not self.scene_geometry.violation(point,radius):vertices.append(point)
-        distances={0:0.};previous={};queue=[(0.,0)]
-        while queue:
-            if time.monotonic()>=deadline:raise PlanningBudgetExceeded('task geometry budget exhausted')
-            cost,index=heapq.heappop(queue)
-            if cost!=distances[index]:continue
-            if index==1:
-                route=[1]
-                while route[-1]!=0:route.append(previous[route[-1]])
-                return tuple(prefix[:-1]+[vertices[i] for i in reversed(route)])
-            for other,point in enumerate(vertices):
-                if other==index:continue
-                candidate=cost+math.dist(vertices[index],point)
-                if candidate>=distances.get(other,float('inf')):continue
-                if self.scene_geometry.path_violation((vertices[index],point),radius):continue
-                distances[other]=candidate;previous[other]=index
-                heapq.heappush(queue,(candidate,other))
-        raise ValueError('TASK_STATIC_ROUTE_UNREACHABLE')
+        """Ask the existing execution geometry layer for finite waypoints."""
+        from qn_aav_simulator.platform_execution import plan_static_path
+        try:return plan_static_path(source,target,radius,self.scene_geometry,deadline)
+        except TimeoutError as error:raise PlanningBudgetExceeded(str(error)) from error
 
     @staticmethod
     def _task_schedule(path,duration,hold=0.):
@@ -538,10 +503,30 @@ class ExecutorTravelTimeProvider:
                 if state['mode']!='AIR':raise ValueError('TASK_AIR_ENTRY_MODE')
                 via=tuple(tuple(point) for point in self.native_routes.get(task.target_ref,()))
                 steps=[];position=source
-                for index,waypoint in enumerate(via):
-                    steps.append(self._task_step(unit,'air-route:'+task.target_ref+':'+str(index),
-                        self._task_path(position,waypoint,radius,deadline),'AIR',hold=4.,radius=radius))
-                    position=waypoint
+                first_target=observation_position(region.interest_points[0].position,
+                                                  self.observation_request.requirement)
+                if self.air_return_altitude_m is not None:
+                    high=(position[0],position[1],self.air_return_altitude_m)
+                    steps.append(self._task_step(unit,'outbound-climb:'+task.target_ref,
+                        self._task_path(position,high,radius,deadline),'AIR',hold=4.,radius=radius))
+                    position=high
+                    for index,waypoint in enumerate(via):
+                        waypoint=(waypoint[0],waypoint[1],position[2])
+                        steps.append(self._task_step(unit,'air-route:'+task.target_ref+':'+str(index),
+                            self._task_path(position,waypoint,radius,deadline),'AIR',hold=4.,radius=radius))
+                        position=waypoint
+                    overhead=(first_target[0],first_target[1],self.air_return_altitude_m)
+                    steps.append(self._task_step(unit,'outbound-overhead:'+task.target_ref,
+                        self._task_path(position,overhead,radius,deadline),'AIR',hold=4.,radius=radius))
+                    position=overhead
+                    steps.append(self._task_step(unit,'survey-entry:'+task.target_ref,
+                        self._task_path(position,first_target,radius,deadline),'AIR',hold=4.,radius=radius))
+                    position=first_target
+                else:
+                    for index,waypoint in enumerate(via):
+                        steps.append(self._task_step(unit,'air-route:'+task.target_ref+':'+str(index),
+                            self._task_path(position,waypoint,radius,deadline),'AIR',hold=4.,radius=radius))
+                        position=waypoint
                 for point in region.interest_points:
                     target=observation_position(point.position,self.observation_request.requirement)
                     steps.append(self._task_step(unit,'survey:'+task.target_ref+':'+point.point_id,
@@ -578,26 +563,80 @@ class ExecutorTravelTimeProvider:
                         ref=('transition-stage:'+site_id+':'+str(index) if index<len(stages) else 'transition:'+site_id)
                         steps.append(self._task_step(air,ref,self._task_path(position,target,radius,deadline),
                             'AIR',hold=4.,radius=radius));position=target
-                    x,y,_=entry;exit_position=(x+.7,y,entry[2])
-                    segments=(NativeSegmentSpec('ENTER_WATER',(entry,(x,y,-.6)),14.),
-                        NativeSegmentSpec('WATER_PATH',((x,y,-.6),(x+.7,y,-.6)),7.),
-                        NativeSegmentSpec('EXIT_WATER',((x+.7,y,-.6),exit_position),14.))
+                    x,y,_=entry;water_start=(x,y,-.6);water_path=(water_start,)
+                    for point in region.interest_points:
+                        water_path+=self._task_path(water_path[-1],tuple(point.position),radius,deadline)[1:]
+                    if len(water_path)==1:
+                        for dx,dy in ((.7,0.),(-.7,0.),(0.,.7),(0.,-.7)):
+                            candidate=(x+dx,y+dy,-.6)
+                            if not self.scene_geometry.path_violation((water_start,candidate),radius):
+                                water_path+=(candidate,);break
+                    if len(water_path)==1:raise ValueError('TASK_WATER_PASS_UNAVAILABLE')
+                    water_duration=max(7.,sum(math.dist(a,b) for a,b in zip(
+                        water_path,water_path[1:]))/.1)
+                    exit_position=(water_path[-1][0],water_path[-1][1],entry[2])
+                    segments=(NativeSegmentSpec('ENTER_WATER',(entry,water_start),14.),
+                        NativeSegmentSpec('WATER_PATH',water_path,water_duration),
+                        NativeSegmentSpec('EXIT_WATER',(water_path[-1],exit_position),14.))
                     for segment in segments:
                         reason=self.scene_geometry.path_violation(segment.points,radius)
                         if reason:raise ValueError(reason)
                     route=NativeActionSpec(segments,'FIXED_REFERENCE',observation_ids=ids)
                     native=self._task_step(unit,task.target_ref,
                         tuple(segment.points[0] for segment in segments)+(exit_position,),
-                        'AIR',duration=35.,hold=4.,native=route,radius=radius)
+                        'AIR',duration=28.+water_duration,hold=4.,native=route,radius=radius)
                     native.native_prediction['reference_schedule']=((0.,entry),(14.,(x,y,-.6)),
-                        (21.,(x+.7,y,-.6)),(35.,exit_position),(39.,exit_position))
+                        (14.+water_duration,water_path[-1]),
+                        (28.+water_duration,exit_position),(32.+water_duration,exit_position))
                     steps.append(native)
+                    return_start=exit_position
+                    if self.amphibious_return_altitude_m is not None:
+                        high=(exit_position[0],exit_position[1],self.amphibious_return_altitude_m)
+                        steps.append(self._task_step(air,'return-climb:'+task.target_ref,
+                            self._task_path(exit_position,high,radius,deadline),'AIR',hold=4.,radius=radius))
+                        overhead=(home[0],home[1],self.amphibious_return_altitude_m)
+                        steps.append(self._task_step(air,'return-overhead:'+member,
+                            self._task_path(high,overhead,radius,deadline),'AIR',hold=4.,radius=radius))
+                        return_start=overhead
                     steps.append(self._task_step(air,'return:'+member,
-                        self._task_path(exit_position,home,radius,deadline),'AIR',radius=radius))
-                    methods.append(tuple(steps))
+                        self._task_path(return_start,home,radius,deadline),'AIR',radius=radius))
+                    for departure_wait in (0.,45.,90.,135.):
+                        prefix=(() if not departure_wait else (self._task_step(air,
+                            'departure-wait:'+member,(source,source),'AIR',duration=0.,
+                            hold=departure_wait,radius=radius),))
+                        methods.append(prefix+tuple(steps))
             elif 'UUV' in unit.capabilities:
                 if state['mode']!='WATER':raise ValueError('TASK_WATER_ENTRY_MODE')
-                for raw in self.task_water_routes.get(task.target_ref,()):
+                raw_routes=self.task_water_routes.get(task.target_ref,())
+                if region.shape=='CIRCLE' or not raw_routes:
+                    stage=tuple(self.return_sites[member].get('staging_position',
+                        region.interest_points[-1].position))
+                    work_points=(source,)
+                    for point in region.interest_points:
+                        work_points+=self._task_path(work_points[-1],tuple(point.position),radius,deadline)[1:]
+                    if work_points[-1]!=stage:
+                        work_points+=self._task_path(work_points[-1],stage,radius,deadline)[1:]
+                    back_points=self._task_path(stage,home,radius,deadline)
+                    speed=self.nominal_speed_mps[unit.executor_id]
+                    work_duration=max(4.,sum(math.dist(a,b) for a,b in zip(
+                        work_points,work_points[1:]))/speed)
+                    back_duration=max(4.,sum(math.dist(a,b) for a,b in zip(
+                        back_points,back_points[1:]))/speed)
+                    work_route=NativeActionSpec((NativeSegmentSpec('WATER_PATH',work_points,
+                        work_duration),),'FIXED_REFERENCE',execution_timeout_s=work_duration+120.,
+                        observation_ids=ids)
+                    work=self._task_step(unit,task.target_ref,work_points,'WATER',duration=work_duration,
+                        hold=4.,native=work_route,radius=radius)
+                    work.native_prediction['reference_schedule']=(self._task_schedule(
+                        work_points,work_duration)+((work_duration+4.,stage),))
+                    return_route=NativeActionSpec((NativeSegmentSpec('WATER_PATH',back_points,
+                        back_duration),),'FIXED_REFERENCE',execution_timeout_s=back_duration+165.)
+                    back=self._task_step(unit,'return:'+member,back_points,'WATER',duration=back_duration,
+                        hold=4.,native=return_route,radius=radius)
+                    back.native_prediction['reference_schedule']=(self._task_schedule(
+                        back_points,back_duration)+((back_duration+4.,home),))
+                    methods.append((work,back))
+                for raw in raw_routes if region.shape!='CIRCLE' else ():
                     segments=tuple(NativeSegmentSpec('WATER_PATH',tuple(tuple(p) for p in s['points']),
                         duration_s=float(s['duration_s'])) for s in raw['segments'])
                     if (not segments or segments[0].points[0]!=source or segments[-1].points[-1]!=home or

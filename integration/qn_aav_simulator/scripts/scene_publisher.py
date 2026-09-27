@@ -337,8 +337,16 @@ class SceneTransport:
                             continue
                     else:
                         source=states.get(producer)
-                        if (source is None or source[1]!='AIR' or
-                                math.dist(source[0],self.mother)>self.air_contact_m):
+                        direct=(source is not None and source[1]=='AIR' and
+                                math.dist(source[0],self.mother)<=self.air_contact_m)
+                        # The declared task-level support is a shared RF
+                        # service for every airborne producer, not a UUV-only
+                        # resource.  Radio packet scheduling remains outside
+                        # this first-version abstraction.
+                        relayed=(source is not None and source[1]=='AIR' and site is not None and
+                                 math.dist(source[0],usv[0])<=self.air_contact_m and
+                                 math.dist(usv[0],self.mother)<=self.air_contact_m)
+                        if not (direct or relayed):
                             continue
                 self.delivered.add(ident)
                 out.append((self.notifications if notification else self.receipts,
@@ -464,12 +472,20 @@ class SceneView:
             all_targets=self.scene.get('observation_targets', [])
             joint_x=[item['position'][0] for item in all_targets]
             joint_y=[item['position'][1] for item in all_targets]
-            add('joint_survey_area',M.CUBE,
-                ((min(joint_x)+max(joint_x))/2,(min(joint_y)+max(joint_y))/2,-.06),
-                (max(joint_x)-min(joint_x)+2.,max(joint_y)-min(joint_y)+2.,.04),
-                (.25,.85,1.,.12))
-            label('joint_survey_label',((min(joint_x)+max(joint_x))/2,
-                max(joint_y)+1.6,1.3),'联合监测区',.7)
+            selected=self.scene.get('selected_monitoring_area')
+            if selected and selected.get('shape')=='CIRCLE':
+                center=selected['center'];diameter=2*selected['radius_m']
+                add('joint_survey_area',M.CYLINDER,(center[0],center[1],-.06),
+                    (diameter,diameter,.04),(.25,.85,1.,.12))
+                label('joint_survey_label',(center[0],center[1]+selected['radius_m']+1.,1.3),
+                      '用户选择的联合监测区',.7)
+            else:
+                add('joint_survey_area',M.CUBE,
+                    ((min(joint_x)+max(joint_x))/2,(min(joint_y)+max(joint_y))/2,-.06),
+                    (max(joint_x)-min(joint_x)+2.,max(joint_y)-min(joint_y)+2.,.04),
+                    (.25,.85,1.,.12))
+                label('joint_survey_label',((min(joint_x)+max(joint_x))/2,
+                    max(joint_y)+1.6,1.3),'联合监测区',.7)
             xs=[item['position'][0] for item in air_targets]
             ys=[item['position'][1] for item in air_targets]
             center=((min(xs)+max(xs))/2,(min(ys)+max(ys))/2,.04)

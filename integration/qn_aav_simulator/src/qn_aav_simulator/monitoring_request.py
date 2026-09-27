@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+import copy
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 SURFACE = "SURFACE"
@@ -32,6 +33,10 @@ class SurveyRegion:
     corner_a: Vector3
     corner_b: Vector3
     interest_points: Tuple[InterestPoint, ...]
+    shape: str = "BOX"
+    center: Optional[Vector3] = None
+    radius_m: Optional[float] = None
+    coverage_resolution_m: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -71,6 +76,143 @@ class MonitoringRequest:
     return_required: bool = False
     # A single fixed joint-operation template; ordinary requests leave it unset.
     template_id: str = ''
+
+
+def circle_sweep_points(center, radius_m, z, spacing_m, prefix):
+    """Finite boustrophedon witnesses for a selected circular area.
+
+    The structure follows line-sweep coverage planning (Huang, ICRA 2001) and
+    the swath/route separation used by Fields2Cover (RA-L 2023).  These points
+    remain a declared geometric coverage proxy; they are not sensor pixels.
+    """
+    center=tuple(float(v) for v in center)
+    radius_m=float(radius_m);spacing_m=float(spacing_m);z=float(z)
+    if (len(center)!=2 or not all(math.isfinite(v) for v in center) or
+            not math.isfinite(radius_m) or radius_m<=0 or
+            not math.isfinite(spacing_m) or spacing_m<=0 or not math.isfinite(z)):
+        raise ValueError('circle sweep needs finite center, radius, spacing and depth')
+    lane_count=max(2,int(math.ceil(2*radius_m/spacing_m))+1)
+    points=[]
+    for lane in range(lane_count):
+        offset=-radius_m+2*radius_m*lane/(lane_count-1)
+        half=math.sqrt(max(0.,radius_m*radius_m-offset*offset))
+        count=max(1,int(math.ceil(2*half/spacing_m))+1)
+        xs=([center[0]] if count==1 else
+            [center[0]-half+2*half*i/(count-1) for i in range(count)])
+        if lane%2:xs.reverse()
+        points.extend((x,center[1]+offset,z) for x in xs)
+    if len(points)>64:raise ValueError('selected circle produces more than 64 coverage witnesses')
+    return tuple(InterestPoint('{}_{:02d}'.format(prefix,index+1),point,1.)
+                 for index,point in enumerate(points))
+
+
+def circle_joint_request_mapping(base, center, radius_m):
+    """Instantiate the existing joint business template from one UI circle."""
+    raw=copy.deepcopy(base)
+    if raw.get('template_id')!='OFFSHORE_JOINT':
+        raise ValueError('circle selection requires the OFFSHORE_JOINT template')
+    requirement=ObservationRequirement(**raw['requirement'])
+    center=tuple(float(v) for v in center);radius_m=float(radius_m)
+    if len(center)!=2 or not all(math.isfinite(v) for v in center) or not 2.<=radius_m<=10.:
+        raise ValueError('selected circle radius must be within 2..10 model metres')
+    spacing=min(requirement.footprint_radius_m*1.25,radius_m)
+    air=circle_sweep_points(center,radius_m,0.,spacing,'air_swath')
+    deep=circle_sweep_points(center,radius_m,-2.,spacing,'deep_swath')
+    shallow=InterestPoint('aav_water_sample',(center[0],center[1],-.6),1.)
+    by_id={entry['region_id']:entry for entry in raw['regions']}
+    if set(by_id)!={'offshore_air','offshore_aav_water','offshore_uuv'}:
+        raise ValueError('joint template region identities changed')
+    for region,points,z in ((by_id['offshore_air'],air,0.),
+                            (by_id['offshore_aav_water'],(shallow,),-.6),
+                            (by_id['offshore_uuv'],deep,-2.)):
+        region.update(shape='CIRCLE',center=[center[0],center[1],z],radius_m=radius_m,
+                      coverage_resolution_m=spacing,
+                      corner_a=[center[0]-radius_m,center[1]-radius_m,z],
+                      corner_b=[center[0]+radius_m,center[1]+radius_m,z],
+                      interest_points=[dict(point_id=p.point_id,position=list(p.position),weight=p.weight)
+                                       for p in points])
+    raw['request_id']='circle-{:.2f}-{:.2f}-r{:.2f}'.format(center[0],center[1],radius_m)
+    return raw
+
+
+def circle_joint_mission_mappings(base_request, base_scene, center, radius_m):
+    """Create one request/scene pair consumed by every existing endpoint."""
+    from .experiment_verdict import StaticSceneGeometry
+    request=circle_joint_request_mapping(base_request,center,radius_m)
+    root=copy.deepcopy(base_scene);scene=root['scene'] if 'scene' in root else root
+    geometry=StaticSceneGeometry.from_mapping(scene)
+    if geometry is None:raise ValueError('circle selection needs declared static geometry')
+    regions={entry['region_id']:entry for entry in request['regions']}
+    air=regions['offshore_air']['interest_points']
+    deep=regions['offshore_uuv']['interest_points']
+    for entry in air:
+        position=(entry['position'][0],entry['position'][1],request['requirement']['cruise_altitude_m'])
+        reason=geometry.violation(position,.25)
+        if reason:raise ValueError('selected AIR coverage intersects declared obstacle: '+reason)
+    for entry in deep:
+        reason=geometry.violation(tuple(entry['position']),.25)
+        if reason:raise ValueError('selected deep coverage intersects declared obstacle: '+reason)
+    cx,cy=(float(v) for v in center);radius_m=float(radius_m)
+    air_xy=tuple((entry['position'][0],entry['position'][1]) for entry in air)
+    # The airborne survey and the amphibious approach run concurrently.  An
+    # entry on an AIR coverage witness gives the Swarm hard-clearance layer no
+    # feasible terminal state.  Put the first entry ring outside the business
+    # area by the declared two-body envelope plus one platform radius; after
+    # entering WATER, qn plans from that entry to the selected sample.
+    required_aav_center_separation=2*.25+.5
+    outer_radius=radius_m+required_aav_center_separation+.25
+    candidates=[(cx+distance*math.cos(angle),cy+distance*math.sin(angle))
+        for distance in (outer_radius,.7*radius_m,.4*radius_m)
+        for angle in tuple(2*math.pi*i/12 for i in range(12))]
+    transitions=[]
+    for x,y in candidates:
+        if (not geometry.violation((x,y,0.),.25) and
+                not geometry.violation((x,y,-.6),.25) and
+                min(math.hypot(x-a,y-b) for a,b in air_xy)>=required_aav_center_separation):
+            if all(math.hypot(x-a,y-b)>.5 for a,b in transitions):transitions.append((x,y))
+    if not transitions:raise ValueError('selected circle has no qualified entry/exit point')
+    shallow=regions['offshore_aav_water']['interest_points'][0]
+    shallow_position=(cx,cy) if (not geometry.violation((cx,cy,-.6),.25)) else transitions[0]
+    shallow['position']=[shallow_position[0],shallow_position[1],-.6]
+    regions['offshore_aav_water'].update(center=[shallow_position[0],shallow_position[1],-.6],
+        corner_a=[shallow_position[0],shallow_position[1],-.6],
+        corner_b=[shallow_position[0],shallow_position[1],-.6],
+        shape='BOX',radius_m=None,coverage_resolution_m=None)
+    stage=tuple(deep[-1]['position'])
+    mother=tuple(scene.get('mother_ship_receiver_position',scene['mother_ship_position']))
+    acoustic=8.;radio=30.;depth=abs(stage[2]);receiver_height=abs(mother[2])
+    # Keep finite geometric margin; a boundary-equality contact is brittle to
+    # integration and state timestamp differences.
+    acoustic_xy=max(0.,math.sqrt(max(0.,acoustic*acoustic-depth*depth))-.5)
+    radio_xy=max(0.,math.sqrt(max(0.,radio*radio-receiver_height*receiver_height))-1.)
+    dx,dy=mother[0]-stage[0],mother[1]-stage[1];distance=math.hypot(dx,dy)
+    lower=max(0.,distance-radio_xy);upper=min(distance,acoustic_xy)
+    if lower>upper+1e-9:raise ValueError('selected circle is outside one-USV contact geometry')
+    start=tuple(scene['return_sites']['usv']['position'])
+    support_candidates=[]
+    for index in range(17):
+        along=lower+(upper-lower)*index/16 if upper>lower else lower
+        x=stage[0]+(dx/distance*along if distance else 0.)
+        y=stage[1]+(dy/distance*along if distance else 0.)
+        position=(x,y,0.)
+        if not geometry.violation(position,1.1891593669479295):
+            support_candidates.append((math.dist(start,position),position))
+    if not support_candidates:raise ValueError('selected circle has no free USV contact point')
+    support=min(support_candidates)[1]
+    scene['selected_monitoring_area']=dict(shape='CIRCLE',center=[cx,cy,0.],radius_m=radius_m,
+                                           coverage_resolution_m=regions['offshore_air']['coverage_resolution_m'])
+    scene['observation_targets']=[dict(id=point['point_id'],position=[point['position'][0],point['position'][1],
+        request['requirement']['cruise_altitude_m']],domain='AIR') for point in air]+[
+        dict(id=shallow['point_id'],position=shallow['position'],domain='WATER')]+[
+        dict(id=point['point_id'],position=point['position'],domain='WATER') for point in deep]
+    scene['transition_sites']=[dict(id='selected_entry_'+str(index+1),position=[point[0],point[1],0.])
+                               for index,point in enumerate(transitions[:8])]
+    scene['communication_sites']=[dict(id='selected_support',position=list(support),radius_m=2.,
+        acoustic_contact_m=acoustic,mother_contact_m=radio,
+        departure_wait_candidates_s=[0.,30.,60.])]
+    scene['return_sites']['uuv']['staging_position']=list(stage)
+    scene.pop('water_route_candidates',None);scene.pop('air_route_via',None)
+    return request,root
 
 
 @dataclass(frozen=True)
@@ -231,6 +373,15 @@ def validate_request(request: MonitoringRequest) -> None:
         if not region.region_id or region.region_id in region_ids or not region.interest_points:
             raise ValueError("region ids must be unique and regions nonempty")
         region_ids.add(region.region_id)
+        if region.shape not in ('BOX','CIRCLE'):
+            raise ValueError('region shape must be BOX or CIRCLE')
+        if region.shape=='CIRCLE':
+            if (region.center is None or len(region.center)!=3 or
+                    not all(math.isfinite(v) for v in region.center) or
+                    region.radius_m is None or not math.isfinite(region.radius_m) or region.radius_m<=0 or
+                    region.coverage_resolution_m is None or
+                    not math.isfinite(region.coverage_resolution_m) or region.coverage_resolution_m<=0):
+                raise ValueError('circle region needs finite center, radius and coverage resolution')
         for vector in (region.corner_a, region.corner_b) + tuple(p.position for p in region.interest_points):
             if len(vector) != 3 or not all(math.isfinite(x) for x in vector):
                 raise ValueError("coordinates must be finite 3-vectors")
@@ -240,6 +391,10 @@ def validate_request(request: MonitoringRequest) -> None:
             point_ids.add(point.point_id)
             if not math.isfinite(point.weight) or point.weight <= 0:
                 raise ValueError("point weights must be finite and positive")
+            if (region.shape=='CIRCLE' and
+                    math.hypot(point.position[0]-region.center[0],
+                               point.position[1]-region.center[1])>region.radius_m+1e-8):
+                raise ValueError('circle coverage witness lies outside its region')
 
 
 def regional_requirements(request):

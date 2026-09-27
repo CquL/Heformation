@@ -922,10 +922,13 @@ class FormationActionServer:
             if len(set(requested))!=len(requested) or not set(requested)<=declared:
                 raise ValueError('unknown or repeated AIR observation IDs')
         target_z=self.cruise_altitude_m
-        return_altitude=rospy.get_param('/scene/air_return_altitude_m',None)
-        if (not requested and return_altitude is not None and
-                abs(goal.formation_center.point.z-float(return_altitude))<=1e-6):
-            target_z=float(return_altitude)
+        return_altitudes=[float(value) for value in (
+            rospy.get_param('/scene/air_return_altitude_m',self.cruise_altitude_m),
+            rospy.get_param('/scene/amphibious_return_altitude_m',self.cruise_altitude_m))]
+        if not requested:
+            selected=next((value for value in return_altitudes
+                if abs(goal.formation_center.point.z-value)<=1e-6),None)
+            if selected is not None:target_z=selected
         return validate_target(goal.formation_center.header.frame_id,
                                (goal.formation_center.point.x,
                                 goal.formation_center.point.y,
