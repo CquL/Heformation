@@ -285,6 +285,7 @@ def build_request_executor_plan(request,scene,executors,provider,member_states,*
     support_task=next((task.task_id for task in tasks if task.target_ref=='offshore_uuv'),'')
     provider=replace(provider,cooperative_routes=methods,observation_request=request,
         task_water_routes=dict(scene.get('water_route_candidates',{})),
+        air_return_altitude_m=scene.get('air_return_altitude_m') if task_level else None,
         native_routes=dict(scene.get('air_route_via',{})) if task_level else provider.native_routes,
         task_support_task_id=support_task if task_level else '',
         scene_geometry=StaticSceneGeometry.from_mapping(scene),

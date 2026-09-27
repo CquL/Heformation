@@ -58,7 +58,7 @@ scene:
     # The direct diagonal crosses the AAV return lane in the actual r6 run.
     # This declared southern approach keeps the hull out of both air lanes;
     # the native Otter Action still decides whether it can follow and return.
-    - {id: offshore_support, position: [-4.0, 9.0, 0.0], radius_m: 2.0, acoustic_contact_m: 8.0, mother_contact_m: 30.0, approach_via: [[-4.0, -8.0, 0.0]], departure_wait_candidates_s: [0.0, 30.0, 60.0]}
+    - {id: offshore_support, position: [-4.0, 9.0, 0.0], radius_m: 2.0, acoustic_contact_m: 8.0, mother_contact_m: 30.0, approach_via: [[-7.0, -8.0, 0.0]], departure_wait_candidates_s: [0.0, 30.0, 60.0]}
   observation_targets:
     - {id: air_swath_1, position: [1.0, 3.0, 0.8], domain: AIR}
     - {id: air_swath_2, position: [5.0, 3.0, 0.8], domain: AIR}
@@ -73,13 +73,16 @@ scene:
   # corridor is available to any AAV selected for the air-observation role.
   air_route_via:
     offshore_air: [[-24.0, 4.0, 0.8]]
+  # The survey observer crosses the USV and amphibious return corridors.
+  # Its airborne return is vertically separated, then descends at deployment.
+  air_return_altitude_m: 2.5
   # The WATER-only qn proxy reaches the target-area rendezvous after its
   # slow sweep; the return leg starts with the AAVs and USV from that area.
   # This is a model-scale task policy, not a REMUS performance claim.
   water_route_candidates:
     offshore_uuv:
       - execution_timeout_s: 350.0
-        return_timeout_s: 250.0
+        return_timeout_s: 350.0
         segments:
           - {points: [[-27.0, 4.0, -2.0], [0.0, 4.0, -2.0], [-3.0, 4.0, -2.0]], duration_s: 230.0}
           - {points: [[-3.0, 4.0, -2.0], [-27.0, 4.0, -2.0]], duration_s: 185.0}

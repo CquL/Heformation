@@ -6,9 +6,13 @@
 
 [场景配置](integration/qn_aav_simulator/config/five_scene_offshore.yaml)把三台 AAV、USV、UUV 和母船放在同一岸边部署区；[任务请求](integration/qn_aav_simulator/config/monitoring_request_offshore.yaml)声明障碍通道另一侧的空中与水下观测、必要结果接收及返回。RViz 显示同一 ROS 会话中的实际平台状态。坐标以米计，是现有模型的缩比任务场景，不能解释为真实数公里航程或设备通信性能。
 
-**当前状态：默认 10 秒预算下的实时三类协同联合监测区正常请求已通过。** [同次运行](experiments/20260925-joint-area-live-r20)约 1.15 秒选择空中 AAV、跨介质 AAV、qn 水下 UUV 和近岸 USV 的成员与时序，四项并行进入原 Action 链。AAV 完成空中四位置扫测，另一 AAV 完成 AIR→WATER→AIR 浅水点测，UUV 完成三位置深水通过段；八份结果实际到母船，参与成员均返回。同次 bag 的五平台时间、声明障碍和代理净距审计通过，最小代理净距约 1.37 m（门槛 0.5 m）；[接触核对](experiments/20260925-joint-area-live-r20/contact-audit.json)检查了本次 UUV–USV 和结果接收端距离。计划路线/时刻只是快速筛选估计；观测、接触范围分别是几何代理和声明式实验假设。[旧单点请求的一轮实际缺测复查](experiments/20260925-task-level-retest-r13)已通过，最终八结果模板的一轮复查正在验证。详见[当前状态](context/02_current_status.md)和[工作日志](docs/WORKLOG.md)。
+**当前状态：从目标区共同返航的正常请求已实跑通过。** [同次运行](experiments/20260927-target-return-live-r3)在默认10秒预算内约1.34秒选择完整协同Plan：空中AAV完成四位置扫测，另一AAV完成AIR→WATER→AIR浅水点测，UUV完成三个深水点，USV在目标区外侧会合并接力。先完成的平台保持在目标区；八份必要结果实收、四方实际终态就绪后，统一释放全部返航后缀。四个首返航Goal发送时间差约0.025秒，四活动及规定返回全部成功，资源锁为空。[返航事件审计](experiments/20260927-target-return-live-r3/joint-return-audit.json)和[同次安全/时间审计](experiments/20260927-target-return-live-r3/safety-audit.json)均通过，最小代理净距约0.805m（门槛0.5m）。
 
-USV 的运动由 Otter/PVS 航点及 LOS 引导执行，**不是 Swarm 空中规划器**。求解器从少量声明的接触机会按当前 USV、UUV 返回处和母船位置比较；本次选了近岸位置，前出南侧路线只是另一候选。UUV 产品在实际接近 USV 时由船接力，再由船进入母船范围后交付；AIR AAV 在母船范围内直接交付。实验接触阈值为 8 m/30 m，不代表设备指标。普通请求中平台可以先后返回；明确缺测时才追加一次备用 AAV 补测。
+你会看到两台作业AAV在目标区等UUV完成，再与USV一起开始返航。共同开始返航不等于同时到家；实际控制响应和各平台速度不同。本次AIR扫测AAV运动速度中位数约0.386m/s、UUV约0.130m/s，约3倍。空中返航走场景声明的2.5m高度以避开共同返程中的交叉；UUV慢速作业与返航分别使用230秒和185秒定时参考，各自本地终态由原误差/速度判据确认，有限观察上限350秒。
+
+USV仍由Otter/PVS航点与LOS引导执行。求解器从有限接触位置中校核UUV目标区终端、USV和母船的距离；当前同步撤收政策下选择目标区外侧位置，近岸位置因不能在那里与UUV会合而被拒绝。UUV产品须实际接近USV才由船接力，AAV在AIR且进入母船范围后直接交付。8m/30m只是声明的接触几何，观测是几何足迹/驻留代理，均不是设备性能认证。计划时刻是估计；最终完成读取实际Result和接收事件。
+
+本次验收覆盖正常任务的目标区等待和共同返航。旧缺测策略仍是首轮返岸后再派一次补测，未宣称实现“目标区内补测后全员一起撤收”。细节与失败记录见[WORKLOG](docs/WORKLOG.md)。
 
 在桌面终端打开实时场景与任务入口：
 

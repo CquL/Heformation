@@ -79,6 +79,26 @@ def test_air_observation_goal_requires_declared_point_and_one_member(server_modu
     with pytest.raises(ValueError,match='one local member'):server._validate_goal(goal)
 
 
+def test_declared_return_altitude_does_not_relax_observation_altitude(server_module,monkeypatch):
+    from qn_aav_simulator.task_line import load_request
+    server=server_module.FormationActionServer.__new__(server_module.FormationActionServer)
+    server.observation_request=load_request(Path(__file__).parents[1]/'config/monitoring_request_joint.yaml')
+    server.agent_ids=[0];server.cruise_altitude_m=.8
+    monkeypatch.setattr(server_module.rospy,'get_param',
+        lambda key,default=None:2.5 if key=='/scene/air_return_altitude_m' else default)
+    goal=SimpleNamespace(task_id='return-climb',observation_ids=[],
+        formation_center=SimpleNamespace(header=SimpleNamespace(frame_id='world'),
+            point=SimpleNamespace(x=-28.,y=4.,z=2.5)),
+        hold_duration=SimpleNamespace(to_sec=lambda:4.))
+    assert server._validate_goal(goal)==(-28.,4.,2.5)
+    goal.formation_center.point.z=3.
+    with pytest.raises(ValueError,match='z=0.8'):server._validate_goal(goal)
+    goal.formation_center.point.z=2.5;goal.observation_ids=['air_sample']
+    with pytest.raises(ValueError,match='z=0.8'):server._validate_goal(goal)
+    goal.formation_center.point.z=.8
+    assert server._validate_goal(goal)==(-28.,4.,.8)
+
+
 @pytest.fixture
 def server_module(monkeypatch):
     class Stamp:

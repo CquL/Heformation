@@ -412,6 +412,7 @@ class ExecutorTravelTimeProvider:
     # never a copied controller/plant. Full native queries remain diagnostic.
     task_water_routes: Mapping = field(default_factory=dict)
     task_support_task_id: str = ''
+    air_return_altitude_m: Optional[float] = None
 
     def _task_level(self):
         return (self.observation_request is not None and
@@ -548,16 +549,21 @@ class ExecutorTravelTimeProvider:
                         hold=self.observation_request.service_time_s,
                         observations=(point.point_id,),radius=radius))
                     position=target
-                for index in reversed(range(len(via))):
-                    waypoint=via[index]
-                    steps.append(self._task_step(unit,'air-route:'+task.target_ref+':'+str(index),
+                if self.air_return_altitude_m is not None:
+                    waypoint=(position[0],position[1],self.air_return_altitude_m)
+                    steps.append(self._task_step(unit,'return-climb:'+task.target_ref,
                         self._task_path(position,waypoint,radius,deadline),'AIR',hold=4.,radius=radius))
                     position=waypoint
-                stage=tuple(self.return_sites[member].get('staging_position',home))
-                if stage!=home:
-                    steps.append(self._task_step(unit,'return-stage:'+member,
-                        self._task_path(position,stage,radius,deadline),'AIR',hold=4.,radius=radius))
-                    position=stage
+                for index in reversed(range(len(via))):
+                    waypoint=(via[index][0],via[index][1],position[2])
+                    steps.append(self._task_step(unit,'return-via:'+task.target_ref+':'+str(index),
+                        self._task_path(position,waypoint,radius,deadline),'AIR',hold=4.,radius=radius))
+                    position=waypoint
+                if self.air_return_altitude_m is not None:
+                    overhead=(home[0],home[1],self.air_return_altitude_m)
+                    steps.append(self._task_step(unit,'return-overhead:'+member,
+                        self._task_path(position,overhead,radius,deadline),'AIR',hold=4.,radius=radius))
+                    position=overhead
                 steps.append(self._task_step(unit,'return:'+member,
                     self._task_path(position,home,radius,deadline),'AIR',radius=radius))
                 methods.append(tuple(steps))
@@ -586,12 +592,8 @@ class ExecutorTravelTimeProvider:
                     native.native_prediction['reference_schedule']=((0.,entry),(14.,(x,y,-.6)),
                         (21.,(x+.7,y,-.6)),(35.,exit_position),(39.,exit_position))
                     steps.append(native)
-                    stage=tuple(self.return_sites[member].get('staging_position',home))
-                    if stage!=home:
-                        steps.append(self._task_step(air,'return-stage:'+member,
-                            self._task_path(exit_position,stage,radius,deadline),'AIR',hold=4.,radius=radius))
                     steps.append(self._task_step(air,'return:'+member,
-                        self._task_path(stage,home,radius,deadline),'AIR',radius=radius))
+                        self._task_path(exit_position,home,radius,deadline),'AIR',radius=radius))
                     methods.append(tuple(steps))
             elif 'UUV' in unit.capabilities:
                 if state['mode']!='WATER':raise ValueError('TASK_WATER_ENTRY_MODE')
@@ -667,7 +669,9 @@ class ExecutorTravelTimeProvider:
                         except ValueError:continue
                         travel=sum(math.dist(a,b) for a,b in zip(outbound,outbound[1:]))/self.nominal_speed_mps[support.executor_id]
                         arrival=float(wait)+travel+4.
-                        until=max(start+duration,states[other].get('required_support_until',0.),start+arrival)
+                        work_duration=sum(s.duration_s for s in steps
+                            if not s.target_ref.startswith(('return:', 'return-via:', 'return-climb:', 'return-overhead:')))
+                        until=max(start+work_duration,start+arrival)
                         hold=max(0.,until-start-arrival)
                         segments=(((NativeSegmentSpec('SURFACE_PATH',(origin,origin),duration_s=float(wait)),) if wait else ())+
                             (NativeSegmentSpec('SURFACE_PATH',outbound),))
@@ -1603,6 +1607,44 @@ class ExecutorTravelTimeProvider:
             yield ExecutionCandidate(name,(),terminal_states,activities=tuple(activities),
                 motion_traces=complete_traces,collision_radii=radii,generated_products=products)
 
+    @staticmethod
+    def _synchronize_task_returns(plan):
+        """Reserve target holds and align the entire return suffix of each member.
+
+        Timing is nominal. The worker releases these suffixes on actual terminal
+        and received-report events, never on this predicted release time.
+        """
+        from dataclasses import replace
+        boundaries={}
+        for item in plan.items:
+            boundary=next((n for n,step in enumerate(item.execution_steps)
+                if step.target_ref.startswith(('return:', 'return-via:', 'return-climb:', 'return-overhead:'))),None)
+            if boundary is None or boundary==0:
+                raise ValueError('target-area joint return needs work before its return suffix')
+            if any(not step.target_ref.startswith(('return:', 'return-via:', 'return-climb:', 'return-overhead:'))
+                   for step in item.execution_steps[boundary:]):
+                raise ValueError('return suffix contains a new observation activity')
+            boundaries[item.execution_id]=boundary
+        release=max(item.planned_start+sum(step.duration_s for step in
+            item.execution_steps[:boundaries[item.execution_id]]) for item in plan.items)
+        adjusted=[]
+        for item in plan.items:
+            steps=list(item.execution_steps);boundary=boundaries[item.execution_id]
+            arrival=item.planned_start+sum(step.duration_s for step in steps[:boundary])
+            wait=max(0.,release-arrival)
+            prior=steps[boundary-1]
+            prediction=dict(prior.native_prediction,joint_wait_s=wait)
+            if wait:
+                schedule=tuple(prediction['reference_schedule'])
+                prediction['reference_schedule']=schedule+((prior.duration_s+wait,schedule[-1][1]),)
+                prediction['duration_s']=prior.duration_s+wait
+                steps[boundary-1]=replace(prior,duration_s=prior.duration_s+wait,native_prediction=prediction)
+            steps[boundary]=replace(steps[boundary],native_prediction=dict(
+                steps[boundary].native_prediction,joint_return_boundary=True))
+            adjusted.append(replace(item,execution_steps=tuple(steps),
+                planned_finish=item.planned_finish+wait,travel_time=item.travel_time+wait))
+        return replace(plan,items=adjusted)
+
     def _check_task_level_plan(self,plan,initial_states,deadline):
         """Screen the selected task references; actual motion remains with endpoints."""
         if time.monotonic()>=deadline:
@@ -1730,7 +1772,8 @@ class ExecutorTravelTimeProvider:
                     closest=(0. if speed2==0 else max(0.,min(end-begin,
                         -sum(p*v for p,v in zip(delta,velocity))/speed2)))
                     if math.sqrt(sum((p+closest*v)**2 for p,v in zip(delta,velocity)))<limit:
-                        return dict(status='INFEASIBLE',reason='TASK_REFERENCE_CONFLICT:'+first+':'+second)
+                        return dict(status='INFEASIBLE',reason='TASK_REFERENCE_CONFLICT:'+first+':'+second+
+                            ':at={:.3f}'.format(begin+closest))
         return dict(status='FEASIBLE',reason='TASK_LEVEL_EXECUTION_PENDING')
 
     def _check_complete_plan(self,plan,selected,initial_states,deadline):
@@ -2676,6 +2719,12 @@ def _build_complete_candidate_plan(executors,tasks,provider,member_states,deadli
                     for item in candidate_plan.items:
                         if item.fulfills_task and 'uuv' in item.coalition:
                             item.support_execution_ids=shared
+                    candidate_plan=native_owner._synchronize_task_returns(candidate_plan)
+                    if hard_deadlines and any(task.deadline is not None and
+                            candidate_plan.task_finish_times[task.task_id]>task.deadline
+                            for task in tasks):
+                        rejections['JOINT_RETURN_DEADLINE']=rejections.get('JOINT_RETURN_DEADLINE',0)+1
+                        continue
                 validate_executor_plan(candidate_plan,executors,tasks)
                 physical=checker is not None or any(step.native_action is not None
                     for item in items for step in item.execution_steps) or any(c.motion_traces for c,_ in evidence)

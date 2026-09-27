@@ -767,6 +767,8 @@ class MissionRunner:
         radius=float(sites[0]['radius_m'])
         with self.executor_mutex:action.update(phase='WAITING_FOR_RECEIPTS',support_site=position)
         while not rospy.is_shutdown():
+            if getattr(self,'joint_return_abort',''):
+                raise RuntimeError('support blocked by failed commitment: '+self.joint_return_abort)
             now=rospy.Time.now().to_sec()
             with self.condition:
                 sample=self.actual.get('usv')
@@ -805,19 +807,80 @@ class MissionRunner:
             time.sleep(.05)
         raise RuntimeError('shutdown during shared support receipt wait; keep reservation')
 
-    def _wait_joint_return(self,item,action):
-        """Release the selected terminal steps together after all members stage."""
-        with self.executor_mutex:action.update(phase='WAITING_FOR_GROUP_RETURN')
+    def _wait_joint_return(self,item,action,completed_steps):
+        """Keep the target holds until actual work and receipts allow return."""
+        if not completed_steps:raise RuntimeError('joint return has no completed target-area work')
+        _,last_unit,last_step,_,_,_=completed_steps[-1]
+        target=tuple(last_step.native_prediction['terminal_position'])
+        mode=last_step.native_prediction['terminal_mode']
+        if len(item.coalition)!=1:raise RuntimeError('joint return expects one physical member per chain')
+        member=item.coalition[0]
+        if member=='usv':
+            sites=[site for site in rospy.get_param('/scene/communication_sites',())
+                   if math.dist(target,site['position'])<1e-6]
+            if len(sites)!=1:raise RuntimeError('joint return USV is outside declared rendezvous')
+            radius=float(sites[0]['radius_m'])
+        else:
+            node=self.server_nodes[last_unit.executor_id]
+            radius=float(rospy.get_param(node+('/platform_position_tolerance_m'
+                if last_step.native_action else '/epsilon_p'),.2 if last_step.native_action else .5))
+        if not math.isfinite(radius) or radius<=0:raise RuntimeError('invalid target hold tolerance')
+        expected=[(result.goal_id,set(step.native_action.observation_ids if step.native_action else step.observation_ids))
+                  for _,_,step,_,result,_ in completed_steps
+                  if (step.native_action and step.native_action.observation_ids) or step.observation_ids]
+        with self.executor_mutex:action.update(phase='WAITING_FOR_GROUP_RETURN',target_hold_position=target)
         deadline=time.monotonic()+max(600.,self.plan.makespan+120.)
+        # Receipt callbacks take the executor lock; do not hold condition while
+        # waiting for them. A received negative report is complete information,
+        # but every positive product in that report must also have arrived.
+        while not rospy.is_shutdown():
+            if getattr(self,'joint_return_abort',''):
+                raise RuntimeError('joint return blocked by failed commitment: '+self.joint_return_abort)
+            with self.executor_mutex:
+                reports=dict(self.metrics.get('received_terminal_reports',{}))
+                products=tuple(self.metrics.get('received_products',{}).values())
+            complete=True
+            for goal_id,wanted in expected:
+                report=reports.get(goal_id)
+                if report is None:complete=False;continue
+                observed=set(report['observed_ids'])
+                received={event['point_id'] for event in products
+                          if event.get('goal_id')==goal_id and event.get('observed') is True}
+                if set(report['point_ids'])!=wanted or not received<=observed or not observed<=wanted:
+                    raise RuntimeError('joint return observation report/product conflict')
+                if not observed<=received:complete=False
+            if complete:break
+            if time.monotonic()>=deadline:raise RuntimeError('joint return receipt window expired; keep reservations')
+            time.sleep(.05)
+        if rospy.is_shutdown():raise RuntimeError('shutdown before joint return; keep reservations')
         with self.condition:
+            self.joint_return_holds[item.execution_id]=dict(member=member,position=target,mode=mode,radius_m=radius)
             self.joint_return_ready.add(item.execution_id)
             self.condition.notify_all()
             while not self.joint_return_released:
+                if rospy.is_shutdown():raise RuntimeError('shutdown during joint return; keep reservations')
                 if self.joint_return_abort:
                     raise RuntimeError('joint return blocked by failed commitment: '+self.joint_return_abort)
+                # Validate one coherent callback snapshot of every ready member,
+                # including those that arrived long before the last platform.
+                now=rospy.Time.now().to_sec()
+                ready_states={}
+                for ident,hold in self.joint_return_holds.items():
+                    sample=self.actual.get(hold['member'])
+                    stamp,values=self.executor_diagnostics.get(hold['member'],(None,{}))
+                    if (sample is None or not sample.is_fresh(now,.25) or stamp is None or not 0<=now-stamp<=.25 or
+                            values.get('actual_mode')!=hold['mode'] or
+                            math.dist(sample.position,hold['position'])>hold['radius_m'] or
+                            any(str(values.get(key,'false')).lower()=='true' for key in
+                                ('resource_locked','platform_resource_locked','domain_failure','air_domain_violation')) or
+                            bool(values.get('scene_failure'))):
+                        raise RuntimeError('joint return target hold lost: '+hold['member'])
+                    ready_states[ident]=dict(member=hold['member'],position=tuple(sample.position),
+                                            mode=hold['mode'],diagnostic_at_ros_s=stamp)
                 if self.joint_return_ready==self.joint_return_ids:
                     self.joint_return_released=True
-                    self.joint_return_release_at=rospy.Time.now().to_sec()
+                    self.joint_return_release_at=now
+                    self.joint_return_release_states=ready_states
                     self.condition.notify_all()
                     break
                 if time.monotonic()>=deadline:
@@ -826,6 +889,7 @@ class MissionRunner:
         with self.executor_mutex:
             self.metrics['joint_return_release_at_ros_s']=self.joint_return_release_at
             self.metrics['joint_return_members']=sorted(self.joint_return_ids)
+            self.metrics['joint_return_release_states']=self.joint_return_release_states
         self._save_executor()
 
     def _executor_plan(self, observations, *, include_formation=False, release=0.0):
@@ -1123,6 +1187,8 @@ class MissionRunner:
         """Wait for this Goal's report and every product it says was observed."""
         wanted=set(point_ids);deadline=time.monotonic()+timeout
         while not rospy.is_shutdown():
+            if self.request.template_id=='OFFSHORE_JOINT' and getattr(self,'joint_return_abort',''):
+                raise RuntimeError('observation receipt wait aborted; keep member reserved: '+self.joint_return_abort)
             with self.executor_mutex:
                 received={event['point_id'] for event in self.metrics.get('received_products',{}).values()
                           if event.get('goal_id')==goal_id and event.get('observed') is True}
@@ -1529,9 +1595,9 @@ class MissionRunner:
         self._save_executor()
         rows=[];deferred=[]
         for index,(step,unit) in enumerate(zip(item.execution_steps,units)):
-            if (index==len(units)-1 and self.request.template_id=='OFFSHORE_JOINT' and
+            if (step.native_prediction.get('joint_return_boundary') and self.request.template_id=='OFFSHORE_JOINT' and
                     item.execution_id in getattr(self,'joint_return_ids',())):
-                self._wait_joint_return(item,action)
+                self._wait_joint_return(item,action,deferred)
             view=replace(item,execution_id='{}:step:{}'.format(item.execution_id,index),
                          executor_id=step.executor_id,travel_time=step.duration_s-step.service_time_s,
                          service_time=step.service_time_s,execution_steps=(step,))
@@ -1778,6 +1844,19 @@ class MissionRunner:
     def _execute_parallel_pending(self):
         """One scheduler owns bookings; workers wait independently on endpoints."""
         from mrta_python.executors import activity_predecessors
+        if self.request.template_id=='OFFSHORE_JOINT':
+            with self.executor_mutex:
+                batch=[item for item in self.plan.items if item.status=='PLANNED']
+                if any(sum(bool(step.native_prediction.get('joint_return_boundary'))
+                           for step in item.execution_steps)!=1 for item in batch):
+                    raise RuntimeError('every joint activity needs one marked return suffix')
+                return_ids={item.execution_id for item in batch}
+            with self.condition:
+                self.joint_return_ids=return_ids
+                self.joint_return_ready=set()
+                self.joint_return_holds={}
+                self.joint_return_released=False
+                self.joint_return_abort=''
         running={}
         failure=None
         with ThreadPoolExecutor(max_workers=len(self.units)) as workers:
@@ -1788,18 +1867,10 @@ class MissionRunner:
                         failure=error
                         with self.executor_mutex:
                             self.metrics['runtime_safety_failure']=str(error)
-                            occupied={m for ident in self.active_executor_ids
-                                      for m in self.routing[ident].physical_agent_ids}
-                        for unit in self.units:
-                            if occupied.intersection(unit.physical_agent_ids):
-                                self.clients[unit.executor_id].cancel_goal()
                 if getattr(self,'opaque_hold',None) is not None or getattr(self,'opaque_holds',None):
                     try:self._check_opaque_hold()
                     except RuntimeError as error:
                         failure=error
-                        for unit_id in tuple(self.active_executor_ids):
-                            client=self.clients.get(unit_id)
-                            if client is not None:client.cancel_goal()
                 dispatch=[]
                 for execution_id,(future,activity_ids) in list(running.items()):
                     if future.done():
@@ -1813,6 +1884,19 @@ class MissionRunner:
                                     action=self.metrics.get("current_actions",{}).get(ident)
                                     if action is not None:action.update(phase="UNKNOWN_LOCKED",failure_reason=str(error))
                         del running[execution_id]
+                if failure is not None and not getattr(self,'joint_return_abort',''):
+                    # Wake held peers before waiting for their futures. No
+                    # physical booking is released by this failure notification.
+                    with self.condition:
+                        self.joint_return_abort=str(failure)
+                        self.condition.notify_all()
+                    with self.executor_mutex:
+                        endpoints={action.get('endpoint') for action in
+                                   self.metrics.get('current_actions',{}).values()}
+                        occupied_units=set(self.active_executor_ids)
+                    for unit in self.units:
+                        if unit.action_endpoint in endpoints or unit.executor_id in occupied_units:
+                            self.clients[unit.executor_id].cancel_goal()
                 with self.executor_mutex:
                     completed={i.execution_id for i in self.plan.items if i.status=="COMPLETED"}
                     predecessors=activity_predecessors(self.plan)
@@ -2119,11 +2203,6 @@ class MissionRunner:
                     first_feasible=True)
             finally:
                 self.metrics['planning_wall_s']=time.monotonic()-began
-            if task_level:
-                self.joint_return_ids={item.execution_id for item in self.plan.items}
-                self.joint_return_ready=set()
-                self.joint_return_released=False
-                self.joint_return_abort=''
             if rospy.get_param('/mission/qualification_missing_air_member','')=='SELECTED_AIR':
                 air_work=[item for item in self.plan.items if item.fulfills_task and
                     item.task_id.endswith('::offshore_air')]
@@ -2175,6 +2254,16 @@ class MissionRunner:
             self.centers.update({'air-route:'+region+':'+str(index):tuple(point)
                 for region,points in scene.get('air_route_via',{}).items()
                 for index,point in enumerate(points)})
+            return_altitude=float(scene.get('air_return_altitude_m',self.request.requirement.cruise_altitude_m))
+            self.centers.update({'return-via:'+region+':'+str(index):(point[0],point[1],return_altitude)
+                for region,points in scene.get('air_route_via',{}).items()
+                for index,point in enumerate(points)})
+            self.centers.update({'return-climb:'+region.region_id:
+                (region.interest_points[-1].position[0],region.interest_points[-1].position[1],return_altitude)
+                for region in self.request.regions if region.kind in ('SURFACE','SHORELINE')})
+            self.centers.update({'return-overhead:'+member:
+                (site['position'][0],site['position'][1],return_altitude)
+                for member,site in scene['return_sites'].items() if member.startswith('drone_')})
             self.centers.update({'survey:'+region.region_id+':'+point.point_id:
                 (point.position[0],point.position[1],self.request.requirement.cruise_altitude_m)
                 for region in self.request.regions if region.kind in ('SURFACE','SHORELINE')

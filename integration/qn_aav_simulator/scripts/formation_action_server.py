@@ -921,12 +921,17 @@ class FormationActionServer:
                       if region.kind in ('SURFACE','SHORELINE') for p in region.interest_points}
             if len(set(requested))!=len(requested) or not set(requested)<=declared:
                 raise ValueError('unknown or repeated AIR observation IDs')
+        target_z=self.cruise_altitude_m
+        return_altitude=rospy.get_param('/scene/air_return_altitude_m',None)
+        if (not requested and return_altitude is not None and
+                abs(goal.formation_center.point.z-float(return_altitude))<=1e-6):
+            target_z=float(return_altitude)
         return validate_target(goal.formation_center.header.frame_id,
                                (goal.formation_center.point.x,
                                 goal.formation_center.point.y,
                                 goal.formation_center.point.z),
                                goal.hold_duration.to_sec(),
-                               self.cruise_altitude_m)
+                               target_z)
 
     def _goal_callback(self, goal_handle):
         """Validate, atomically reserve the group resource, hand over, return."""
@@ -1396,7 +1401,7 @@ class FormationActionServer:
             epsilon_p=self.epsilon_p, epsilon_v=self.epsilon_v,
             odom_timeout=self.odom_timeout, execution_timeout=self.execution_timeout,
             platform_radius_m=self.platform_radius_m,
-            target_z=self.cruise_altitude_m)
+            target_z=goal.formation_center.point.z)
         alignment = self._new_alignment_monitor()
         with self.lock:
             self._alignment_fed_ros = {

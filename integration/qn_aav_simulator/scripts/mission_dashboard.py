@@ -612,12 +612,15 @@ class MissionDashboard:
                 '任务记录年龄 {:.1f}s · 当前计划 {} 项活动'.format(age,len(rows))),10)
         statuses={'PLANNED':'等待派发','RUNNING':'执行中','COMPLETED':'动作完成',
                   'UNKNOWN_LOCKED':'未知，保持锁定','FAILED':'失败'}
-        phases={'PREPARING':'正在预装载','PREPARED':'等待共同启动','AIR_MOVE':'空中转场',
+        phases={'DISPATCHING':'正在派发','PREPARING':'正在预装载','PREPARED':'等待共同启动','AIR_MOVE':'空中转场',
                 'ENTER_WATER':'入水中','EXIT_WATER':'出水中',
                 'MOVING':'空中转场','HOLDING':'稳定确认',
                 'WATER_PATH':'水下航行／观测','SURFACE_PATH':'驶往支援区',
                 'PRECOMMITTED_WAIT':'等待预定会合',
+                'WAITING_FOR_RECEIPTS':'目标区等待结果',
+                'WAITING_FOR_GROUP_RETURN':'目标区等待联合返航',
                 'COAST_STOP':'滑行终端','TRIM_PROPULSION':'配平保持',
+                'SAFETY_HOLD':'安全保持',
                 'UNKNOWN_LOCKED':'未知，保持锁定'}
         for index,row in enumerate(rows[:6]):
             executor=row['executor_id']
@@ -626,9 +629,17 @@ class MissionDashboard:
             role=('通信支援' if not row['fulfills_task'] else
                   '跨介质观测' if cross and executor.endswith('_native') else
                   '空中观测' if executor.startswith('aav_') else '水下观测' if executor=='uuv' else '作业')
-            phase=(state.get('current_actions',{}).get(row['execution_id']) or {}).get('phase','')
-            label=phases.get(phase,statuses.get(row['status'],row['status']))
+            action=state.get('current_actions',{}).get(row['execution_id']) or {}
+            phase=action.get('phase','')
+            label=phases.get(phase,statuses.get(row['status'],'状态待同步'))
             steps=row.get('execution_steps') or ()
+            target_ref=action.get('target_ref','')
+            step_index=action.get('step')
+            if not target_ref and isinstance(step_index,int) and 0<=step_index<len(steps):
+                target_ref=steps[step_index].get('target_ref','')
+            if (target_ref.startswith(('return:','return-climb:','return-via:','return-overhead:')) and
+                    phase in ('DISPATCHING','AIR_MOVE','MOVING','HOLDING','WATER_PATH','SURFACE_PATH')):
+                label='返航中' if phase!='HOLDING' else '返航到位确认'
             native=steps[0].get('native_action') if steps else None
             wait=0. if native is None else native.get('terminal_wait_s',0.)
             detail=(' · 交付等待{:.1f}s'.format(wait) if wait else '')
