@@ -165,11 +165,28 @@ class GroupCompletionMonitor:
         return [sample for sample in window
                 if sample.is_fresh(now, self.odom_timeout)]
 
+    def retarget(self, center):
+        """Change one local reference without restarting the Action clock.
+
+        A region action may contain several observed-space short segments.
+        Only the settled window is reset; timeouts and sample continuity remain
+        tied to the original action, and a terminal action cannot be revived.
+        """
+        if self.snapshot is not None and self.snapshot.terminal_state is not None:
+            raise ValueError('cannot retarget a terminal action')
+        if len(self.agent_ids) != 1:
+            raise ValueError('online region retarget belongs to one physical member')
+        self.center = _vector(center)
+        self.targets = {agent_id: self.center for agent_id in self.agent_ids}
+        self.hold_started = None
+        self.snapshot = None
+
     def evaluate(self, now: float, samples: Mapping[int, OdometrySample], *,
                  cancelled: bool = False,
                  model_hold_satisfied=None,
                  hold_not_before_s: Optional[float] = None,
-                 reference_confirmed: bool = True) -> MonitorSnapshot:
+                 reference_confirmed: bool = True,
+                 completion_enabled: bool = True) -> MonitorSnapshot:
         """One completion evaluation.
 
         ``model_hold_satisfied(hold_start_ros, now_ros)`` optionally gates the
@@ -245,7 +262,7 @@ class GroupCompletionMonitor:
                 # Adoption happened after this window began: the window may not
                 # count dwell time from before the reference was in use.
                 self.hold_started = max(self.hold_started, float(hold_not_before_s))
-            if now - self.hold_started >= self.hold_duration:
+            if completion_enabled and now - self.hold_started >= self.hold_duration:
                 if model_hold_satisfied is None:
                     terminal = "SUCCEEDED"
                 else:

@@ -7,10 +7,312 @@ No exposure, blur, resolution score or arbitrary positive-score acceptance.
 from __future__ import annotations
 
 import math
+import heapq
+import time
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, Mapping, Optional, Sequence, Tuple
 
 Vector3 = Tuple[float, float, float]
+
+
+class LocalSurveyMap:
+    """Sparse, measured local map used by the existing region action.
+
+    Only first-return sensor rays in world coordinates enter this map: the
+    scene geometry and desired trajectory are not inputs. Ray interiors are
+    known free, measured end hits are occupied, and everything else is unknown
+    (OctoMap occupancy semantics). Occupancy is persistent for this static
+    scene; a later miss cannot erase a previous obstacle. This deliberately is
+    a geometric, voxel-resolution proxy, not SLAM or complete 3-D reconstruction.
+
+    The small observed-space search follows the frontier guidance used in
+    FUEL/FALCON, without importing their allocation or trajectory frameworks.
+    It proposes a safe short target; native motion/control still executes it.
+    """
+
+    def __init__(self, resolution_m=.25):
+        if not math.isfinite(resolution_m) or resolution_m <= 0:
+            raise ValueError('survey resolution must be finite and positive')
+        self.resolution_m = float(resolution_m)
+        self.free = set()
+        self.occupied = set()
+        self._hits = {}
+        self._visits = {}
+        self._last_origin = None
+        self.stamp = None
+        self._measured = set()
+        self.measured_modes = {}
+        self._forbidden_boxes = []
+        self._free_bounding_boxes = set()
+
+    def declare_forbidden_box(self, low, high):
+        """Known navigation policy, not a sensed solid or an occluding object."""
+        low, high = self._point(low), self._point(high)
+        if any(a >= b for a, b in zip(low, high)):
+            raise ValueError('forbidden policy needs ordered box corners')
+        self._free_bounding_boxes.clear()
+        self._forbidden_boxes.append(ObstacleBox(
+            tuple((a + b) / 2. for a, b in zip(low, high)),
+            tuple(b - a for a, b in zip(low, high))))
+
+    def declare_free_box(self, low, high):
+        """Explicit deployment prior, for navigation only; not a new scan.
+
+        Only complete voxels inside the declared already-surveyed launch box
+        are known free. A declaration never erases measured occupied cells and
+        cannot manufacture this request's mapping products.
+        """
+        low, high = self._point(low), self._point(high)
+        if any(a >= b for a, b in zip(low, high)):
+            raise ValueError('deployment prior needs ordered box corners')
+        self._free_bounding_boxes.clear()
+        lo = [math.ceil(v / self.resolution_m) for v in low]
+        hi = [math.floor(v / self.resolution_m) for v in high]
+        for x in range(lo[0], hi[0]):
+            for y in range(lo[1], hi[1]):
+                for z in range(lo[2], hi[2]):
+                    key = (x, y, z)
+                    if key not in self.occupied:
+                        self.free.add(key)
+
+    @staticmethod
+    def _point(point):
+        if len(point) != 3 or not all(math.isfinite(v) for v in point):
+            raise ValueError('survey point must be a finite XYZ vector')
+        return tuple(float(v) for v in point)
+
+    def _key(self, point):
+        return tuple(math.floor(v / self.resolution_m) for v in point)
+
+    def _centre(self, key):
+        return tuple((v + .5) * self.resolution_m for v in key)
+
+    def _ray_keys(self, start, end):
+        """Voxel traversal along a measured finite ray; no ray past its end."""
+        key = list(self._key(start))
+        final = self._key(end)
+        yield tuple(key)
+        if tuple(key) == final:
+            return
+        direction = tuple(b - a for a, b in zip(start, end))
+        step = [1 if d > 0 else -1 if d < 0 else 0 for d in direction]
+        delta = [self.resolution_m / abs(d) if d else math.inf for d in direction]
+        edge = [((key[j] + (step[j] > 0)) * self.resolution_m - start[j])
+                / direction[j] if direction[j] else math.inf for j in range(3)]
+        # Each iteration advances at least one grid coordinate toward the end.
+        for _ in range(sum(abs(a - b) for a, b in zip(key, final)) + 1):
+            for j in range(3):
+                if key[j] == final[j]:
+                    edge[j] = math.inf
+            crossing = min(edge)
+            for j in range(3):
+                if key[j] != final[j] and edge[j] <= crossing + 1e-12:
+                    key[j] += step[j]
+                    edge[j] += delta[j]
+            yield tuple(key)
+            if tuple(key) == final:
+                return
+
+    def integrate(self, origin, endpoints, hits, stamp, mode=None):
+        """Integrate one actual scan; ``False`` is an explicit valid no-hit ray.
+
+        Missing sensor returns must be omitted, not invented as no-hit rays.
+        Input is validated before mutation. Persistent occupied voxels truncate
+        conflicting rays, so a later miss cannot clear or observe through them.
+        ``mode`` describes the platform when this scan was captured, never its
+        mode when a delayed callback happens to run. Untagged scans can inform
+        navigation but cannot fulfil AIR/WATER-specific monitoring work.
+        """
+        origin = self._point(origin)
+        endpoints = tuple(self._point(p) for p in endpoints)
+        hits = tuple(hits)
+        if (len(hits) != len(endpoints) or any(type(hit) is not bool for hit in hits)
+                or not math.isfinite(stamp) or stamp < 0
+                or mode not in (None, 'AIR', 'WATER', 'SURFACE', 'TRANSITION', 'UNKNOWN')
+                or self.stamp is not None and stamp < self.stamp):
+            raise ValueError('invalid or stale measured scan')
+        self._free_bounding_boxes.clear()
+        rows = sorted(zip(endpoints, hits), key=lambda row: math.dist(origin, row[0]))
+        for endpoint, hit in rows:
+            terminal = self._key(endpoint)
+            for key in self._ray_keys(origin, endpoint):
+                if key in self.occupied:
+                    # A real repeat hit may provide the first measurement in
+                    # another medium. A contradictory miss cannot do so.
+                    if key == terminal and hit:
+                        self._measured.add(key)
+                        if mode is not None:
+                            self.measured_modes.setdefault(key, set()).add(mode)
+                    break
+                if key == terminal and hit:
+                    self.occupied.add(key)
+                    self.free.discard(key)
+                    self._hits[key] = endpoint
+                else:
+                    self.free.add(key)
+                self._measured.add(key)
+                if mode is not None:
+                    self.measured_modes.setdefault(key, set()).add(mode)
+        # Empty scans do not create a known-free seed around the vehicle.
+        self.stamp = float(stamp)
+        origin_key = self._key(origin)
+        if rows and origin_key != self._last_origin:
+            self._visits[origin_key] = self._visits.get(origin_key, 0) + 1
+            self._last_origin = origin_key
+
+    def state(self, point):
+        key = self._key(self._point(point))
+        return 'OCCUPIED' if key in self.occupied else 'FREE' if key in self.free else 'UNKNOWN'
+
+    def observed(self, point, mode=None):
+        """Measured cell at the declared slice; not whole-surface coverage."""
+        key = self._key(self._point(point))
+        return key in self._measured and (mode is None or mode in self.measured_modes.get(key, ()))
+
+    def covered_ids(self, points, mode=None):
+        """Existing fixed, weighted observation cells that have ray evidence.
+
+        A hit is a mapping result as well as an obstacle. Ray-free cells count
+        as explored at that declared depth slice, not as an image of a seabed
+        at another depth. This method never changes the task's denominator.
+        """
+        return tuple(key for key, point in points.items() if self.observed(point, mode))
+
+    def hit_points(self):
+        """One actual first-return point per occupied voxel, for map display."""
+        return tuple(self._hits.values())
+
+    def segment_clear(self, start, end, radius):
+        """Require observed FREE throughout a conservative swept-body envelope.
+
+        Inflating voxel boxes by radius over-approximates a spherical body.
+        It may reject a narrow opening, but never accepts an UNKNOWN neighbour
+        merely because the centreline ray was free. This is voxel geometry,
+        not a proof of the native controller's tracking error bound.
+        """
+        start, end = self._point(start), self._point(end)
+        if not math.isfinite(radius) or radius < 0:
+            raise ValueError('finite nonnegative body radius required')
+        for box in self._forbidden_boxes:
+            expanded = ObstacleBox(box.centre, tuple(size + 2. * radius for size in box.size))
+            if expanded.blocks(start, end):
+                return False
+        low_keys = [math.floor((min(a, b) - radius - 1e-10) / self.resolution_m)
+                    for a, b in zip(start, end)]
+        high_keys = [math.floor((max(a, b) + radius + 1e-10) / self.resolution_m)
+                     for a, b in zip(start, end)]
+        bounds = tuple(low_keys + high_keys)
+        if bounds in self._free_bounding_boxes:
+            return True
+        complete_box_free = True
+        for ix in range(low_keys[0], high_keys[0] + 1):
+            for iy in range(low_keys[1], high_keys[1] + 1):
+                for iz in range(low_keys[2], high_keys[2] + 1):
+                    key = (ix, iy, iz)
+                    if key in self.free and key not in self.occupied:
+                        continue
+                    complete_box_free = False
+                    t0, t1 = 0., 1.
+                    for j in range(3):
+                        low = key[j] * self.resolution_m - radius
+                        high = (key[j] + 1) * self.resolution_m + radius
+                        direction = end[j] - start[j]
+                        if abs(direction) < 1e-12:
+                            if start[j] < low or start[j] > high:
+                                t0 = 2.
+                                break
+                        else:
+                            a, b = (low - start[j]) / direction, (high - start[j]) / direction
+                            t0, t1 = max(t0, min(a, b)), min(t1, max(a, b))
+                            if t0 > t1:
+                                break
+                    if t0 <= t1:
+                        return False
+        # Reuse only a fully observed-free box. A successful slab intersection
+        # test alone cannot certify other segments sharing these same bounds.
+        if complete_box_free:
+            self._free_bounding_boxes.add(bounds)
+        return True
+
+    def next_target(self, current, goal, radius, max_step_m=1.):
+        """Find a bounded short target through the currently observed free map.
+
+        A known goal uses A*; an unknown/occupied goal selects a reachable near
+        frontier biased toward the goal and away from repeatedly visited cells.
+        Equal-depth requests stay at that depth. No safe move returns None, so
+        callers can obtain another scan/change heading rather than enter unknown.
+        """
+        current, goal = self._point(current), self._point(goal)
+        if not math.isfinite(max_step_m) or max_step_m <= 0:
+            raise ValueError('positive local step required')
+        if not self.segment_clear(current, current, radius):
+            return None
+        distance = math.dist(current, goal)
+        if distance <= max_step_m and self.segment_clear(current, goal, radius):
+            return goal
+        start = self._key(current)
+        # Small tracking errors must not move a declared cruise/return layer
+        # onto an arbitrary voxel-centre height (e.g. 2.0 -> 1.875 m). Once
+        # within one map cell of that layer, connect to its exact height.
+        planar = abs(current[2] - goal[2]) <= self.resolution_m
+
+        def position(key):
+            p = self._centre(key)
+            return (p[0], p[1], goal[2]) if planar else p
+
+        neighbours = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0))
+        if not planar:
+            neighbours += ((0, 0, 1), (0, 0, -1))
+        queue = [(distance, 0., start)]
+        costs, parent, closed = {start: 0.}, {}, set()
+        best, score, found_goal = start, math.inf, False
+        # A planning call must not consume the model's integration interval.
+        # Exhausting this local budget keeps a safe incumbent, not "no path".
+        deadline = time.monotonic() + .025
+        while queue and len(closed) < 768 and time.monotonic() < deadline:
+            _, cost, key = heapq.heappop(queue)
+            if key in closed:
+                continue
+            closed.add(key)
+            p = current if key == start else position(key)
+            remaining = math.dist(p, goal)
+            if remaining <= self.resolution_m * 1.8 and self.segment_clear(p, goal, radius):
+                best, found_goal = key, True
+                break
+            candidate_score = remaining + self.resolution_m * 2 * self._visits.get(key, 0)
+            if key != start and candidate_score < score:
+                best, score = key, candidate_score
+            for offset in neighbours:
+                adjacent = tuple(key[j] + offset[j] for j in range(3))
+                if adjacent in closed or adjacent not in self.free or adjacent in self.occupied:
+                    continue
+                q = position(adjacent)
+                new_cost = cost + math.dist(p, q)
+                if new_cost >= costs.get(adjacent, math.inf):
+                    continue
+                if not self.segment_clear(p, q, radius):
+                    continue
+                costs[adjacent], parent[adjacent] = new_cost, key
+                heapq.heappush(queue, (new_cost + math.dist(q, goal), new_cost, adjacent))
+        if best == start and not found_goal:
+            return None
+        path = [goal] if found_goal else []
+        key = best
+        while key != start:
+            path.append(position(key))
+            key = parent[key]
+        path.reverse()
+        target = None
+        for point in path:
+            length = math.dist(current, point)
+            if length > max_step_m:
+                point = tuple(a + (b - a) * max_step_m / length for a, b in zip(current, point))
+            if not self.segment_clear(current, point, radius):
+                break
+            target = point
+            if length >= max_step_m:
+                break
+        return target
 
 
 def action_terminal_event(request,goal_id,producer,generated_at,terminal_state,
@@ -368,6 +670,65 @@ class LocalObservationWindow:
         self.request=request;self.points={k:points[k] for k in point_ids}
         self.producer=producer;self.goal_id=goal_id;self.obstacles=obstacles;self.timeout=sample_timeout_s
         self.previous=None;self.started={};self.emitted=set()
+        self.mapping_cells = {key: (point,) for key, (point, _) in self.points.items()}
+        self.mapping_resolution_m = .25
+        if getattr(request, 'execution_mode', '') == 'ONLINE_MAPPING':
+            from qn_aav_simulator.monitoring_request import mapping_cell_samples
+            for region in request.regions:
+                if region.shape != 'CIRCLE':
+                    continue  # A declared BOX point sample is still that point.
+                for point in region.interest_points:
+                    if point.point_id not in self.points:
+                        continue
+                    cells = mapping_cell_samples(region.center[:2], region.radius_m,
+                        point.position, cell_size=region.coverage_resolution_m,
+                        resolution=self.mapping_resolution_m)
+                    if not cells:
+                        raise ValueError('mapping report cell contains no required sampled voxel')
+                    self.mapping_cells[point.point_id] = cells
+
+    def unobserved_mapping_points(self, local_map, mode):
+        """Actual residual fine cells, not unreceived coarse-cell centres."""
+        return tuple(point for key, (_, required_mode) in self.points.items()
+                     if key not in self.emitted and mode == required_mode
+                     for point in self.mapping_cells[key]
+                     if not local_map.observed(point, required_mode))
+
+    def sample_mapping(self, local_map, mode, stamp):
+        """Emit fixed slice-cell products only from actual measured map cells.
+
+        This new region execution has no manufactured dwell or virtual sensor
+        positions. It reports sampled occupancy coverage, not optical imagery,
+        seabed quality or completeness of every unknown three-dimensional face.
+        Existing point/dwell actions continue to use sample() below.
+        """
+        if not math.isfinite(stamp) or stamp < 0:
+            raise ValueError('invalid mapping product time')
+        if local_map.stamp is None or local_map.stamp > stamp:
+            return ()
+        if not math.isclose(local_map.resolution_m, self.mapping_resolution_m, abs_tol=1e-9):
+            raise ValueError('mapping window and measured map resolutions differ')
+        events = []
+        for key, (point, required_mode) in self.points.items():
+            cells = self.mapping_cells[key]
+            if key in self.emitted or mode != required_mode or not all(
+                    local_map.observed(cell, required_mode) for cell in cells):
+                continue
+            self.emitted.add(key)
+            states = {local_map.state(cell) for cell in cells}
+            event = dict(product_id=self.goal_id + ':' + key, request_id=self.request.request_id,
+                         goal_id=self.goal_id, point_id=key, producer=self.producer,
+                         generated_at=stamp, observed=True,
+                         result=dict(model='MAPPING_PROXY', dwell_s=0.,
+                                     resolution_m=local_map.resolution_m,
+                                     observed_state=next(iter(states)) if len(states) == 1 else 'MIXED',
+                                     source_mode=required_mode,
+                                     sampled_voxel_count=len(cells),
+                                     scope='DECLARED_DEPTH_SLICE_OCCUPANCY'))
+            if self.request.template_id != 'OFFSHORE_JOINT':
+                event['required_bytes'] = 32 * 1024
+            events.append(event)
+        return tuple(events)
 
     def sample(self,model_time,position,mode,stamp,valid=True):
         if not math.isfinite(model_time) or not math.isfinite(stamp):

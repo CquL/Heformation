@@ -17,7 +17,7 @@ import time
 import rospy
 from actionlib_msgs.msg import GoalID
 from python_qt_binding.QtCore import QTimer,Qt,QPointF,QRectF
-from python_qt_binding.QtGui import QFont,QFontDatabase,QPainter,QPen,QBrush,QColor,QPixmap
+from python_qt_binding.QtGui import QFont,QFontDatabase,QPainter,QPainterPath,QPen,QBrush,QColor,QPixmap
 from python_qt_binding.QtSvg import QSvgRenderer
 from python_qt_binding.QtWidgets import (QApplication,QFileDialog,QHBoxLayout,QLabel,
     QMessageBox,QPlainTextEdit,QPushButton,QSplitter,QVBoxLayout,QWidget,
@@ -32,9 +32,14 @@ class CircleMap(QWidget):
     def __init__(self,scene,center,radius,on_change):
         super().__init__();self.scene=scene;self.center=tuple(center);self.radius=float(radius)
         self.dragging=False;self.on_change=on_change;self.setMinimumSize(800,560)
-        self.editable=True;self.plan_items=[]
-        xs=[];ys=[]
+        self.editable=True;self.plan_items=[];self.observed_points=()
+        self.online_mapping=bool(scene.get('online_mapping',False))
+        self.mapping_layers={};self.mapping_layer='offshore_uuv'
+        self.mapping_request_id='';self.received_mapping_ids=set()
+        xs=[self.center[0]-self.radius,self.center[0]+self.radius]
+        ys=[self.center[1]-self.radius,self.center[1]+self.radius]
         for item in scene.get('objects',()):
+            if self.online_mapping and item['kind']!='FORBIDDEN':continue
             xs.extend((item['center'][0]-item['size'][0]/2,item['center'][0]+item['size'][0]/2))
             ys.extend((item['center'][1]-item['size'][1]/2,item['center'][1]+item['size'][1]/2))
         for item in scene.get('return_sites',{}).values():xs.append(item['position'][0]);ys.append(item['position'][1])
@@ -42,10 +47,46 @@ class CircleMap(QWidget):
         self.bounds=(min(xs)-4,max(xs)+12,min(ys)-5,max(ys)+5)
         self.base_bounds=self.bounds
 
+    def set_mapping_request(self,request):
+        """Display cells use the same sampled geometry as the task contract."""
+        from qn_aav_simulator.monitoring_request import mapping_cell_samples
+        self.mapping_request_id=request.get('request_id','');self.mapping_layers={}
+        self.received_mapping_ids=set()
+        if request.get('execution_mode')!='ONLINE_MAPPING':return
+        for region in request.get('regions',()):
+            if region.get('shape')!='CIRCLE':continue
+            name=region['region_id']
+            if name not in ('offshore_air','offshore_uuv'):continue
+            self.mapping_layers[name]=dict(
+                label='UUV 深水层' if name=='offshore_uuv' else 'AAV 空中层',
+                mode='WATER' if name=='offshore_uuv' else 'AIR',
+                center=region['center'],radius=region['radius_m'],
+                cells={point['point_id']:mapping_cell_samples(region['center'][:2],
+                    region['radius_m'],point['position'],region['coverage_resolution_m'],.25)
+                    for point in region['interest_points']})
+        self.update()
+
+    def set_received_mapping(self,products,request_id):
+        # The runner already validates identity/GoalID and actual receipt.
+        # A planned path, local point cloud or terminal report never paints a
+        # received report cell; only this authority's received_products does.
+        self.received_mapping_ids={event['point_id'] for event in products.values()
+            if request_id==self.mapping_request_id and
+            event.get('request_id')==request_id and event.get('observed') is True and
+            'received_at' in event and event.get('result',{}).get('model')=='MAPPING_PROXY'}
+
+    def set_mapping_layer(self,layer):
+        self.mapping_layer=layer;self.update()
+
     def fit_scene(self):
         xmin,xmax,ymin,ymax=self.base_bounds;cx,cy=self.center;r=self.radius
         self.bounds=(min(xmin,cx-r-2),max(xmax,cx+r+2),min(ymin,cy-r-2),max(ymax,cy+r+2))
         self.update()
+
+    def fit_region(self):
+        cx,cy=self.center;half_y=max(self.radius+1.,2.)
+        half_x=half_y*max(1.,self.width()-40)/max(1.,self.height()-40)
+        self.bounds=(cx-half_x,cx+half_x,cy-half_y,cy+half_y);self.update()
 
     def _scale(self):
         xmin,xmax,ymin,ymax=self.bounds
@@ -82,6 +123,7 @@ class CircleMap(QWidget):
         for y in range(math.floor(ymin),math.ceil(ymax)+1,2):
             a=self.to_screen((xmin,y));b=self.to_screen((xmax,y));painter.drawLine(a,b)
         for item in self.scene.get('objects',()):
+            if self.online_mapping and item['kind']!='FORBIDDEN':continue
             cx,cy,_=item['center'];sx,sy,_=item['size'];a=self.to_screen((cx-sx/2,cy+sy/2))
             painter.setPen(QPen(QColor('#c8c9cf') if item['kind']=='SOLID' else QColor('#ee5963'),2))
             painter.setBrush(QBrush(QColor(160,165,175,170) if item['kind']=='SOLID' else QColor(220,55,70,90)))
@@ -97,6 +139,34 @@ class CircleMap(QWidget):
             painter.setPen(QPen(QColor('#42d7f1'),2));painter.setBrush(QBrush(QColor(66,215,241,32)))
             painter.drawEllipse(c,r,r);painter.setBrush(QBrush(QColor('#42d7f1')));painter.drawEllipse(c,4,4)
             painter.drawText(c+QPointF(12,-r-12),'联合监测区')
+        layer=self.mapping_layers.get(self.mapping_layer)
+        if self.online_mapping and layer:
+            painter.save()
+            clip=QPainterPath();centre=self.to_screen(layer['center']);radius=layer['radius']*self._scale()
+            clip.addEllipse(centre,radius,radius);painter.setClipPath(clip)
+            painter.setPen(Qt.NoPen)
+            for ident,cells in layer['cells'].items():
+                received=ident in self.received_mapping_ids
+                painter.setBrush(QColor(48,202,154,210) if received else QColor(225,237,244,30))
+                for x,y,_ in cells:
+                    corner=self.to_screen((x-.125,y+.125));side=.25*self._scale()
+                    painter.drawRect(QRectF(corner.x(),corner.y(),side,side))
+            painter.restore()
+            total=sum(len(cells) for cells in layer['cells'].values())
+            received=sum(len(cells) for ident,cells in layer['cells'].items()
+                         if ident in self.received_mapping_ids)
+            painter.fillRect(QRectF(12,12,min(self.width()-24,500),47),QColor(14,35,48,235))
+            painter.setPen(QColor('#e2f5f0'))
+            painter.drawText(QRectF(23,17,self.width()-46,20),Qt.AlignLeft,
+                '{} · 母船已收切片（采样） {:.1f}%'.format(layer['label'],100.*received/total if total else 0.))
+            painter.setPen(QColor('#9fb9c7'))
+            painter.drawText(QRectF(23,37,self.width()-46,18),Qt.AlignLeft,
+                '绿色：已收　浅色：未收 / 未知　0.25 m 采样格；不代表完整三维重建')
+        # Measured first hits remain a separate display layer, not receipt or
+        # coverage evidence. Draw after the fill so mapped obstacles stay visible.
+        if self.online_mapping:
+            painter.setPen(QPen(QColor('#74daf0'),2));painter.setBrush(Qt.NoBrush)
+            for point in self.observed_points:painter.drawPoint(self.to_screen(point))
         for item in self.plan_items:
             member=item.get('coalition',[''])[0];color=QColor(COLORS.get(member,'#38b6d0'))
             painter.setPen(QPen(color,1.4,Qt.DashLine));painter.setBrush(Qt.NoBrush)
@@ -109,7 +179,8 @@ class CircleMap(QWidget):
                 if point:painter.drawEllipse(self.to_screen(point),3,3)
         painter.setPen(QColor('#b5c9d7'))
         painter.drawText(QRectF(14,self.height()-30,self.width()-28,22),Qt.AlignLeft,
-            '二维区域与预计路线 · 实际运动请查看独立 RViz' if self.plan_items else '按住并拖动鼠标绘制监测圆 · 岩石与禁区为覆盖孔洞')
+            '青色点：实测命中 · 虚线仅为目标意图 · 填色仅来自母船实际收件' if self.online_mapping else
+            '二维区域与预计路线 · 实际运动请查看独立 RViz' if self.plan_items else '按住并拖动鼠标绘制监测圆 · 已知场景几何')
 
 
 class CircleMissionSelector(QWidget):
@@ -342,11 +413,11 @@ class JointMissionPanel(QWidget):
         air=next(r for r in self.base_request['regions'] if r['region_id']=='offshore_air')
         self.center=tuple((air.get('center') or [(a+b)/2 for a,b in zip(air['corner_a'],air['corner_b'])])[:2])
         self.radius=air.get('radius_m') or min(air['corner_b'][i]-air['corner_a'][i] for i in (0,1))/2
-        self.point_count=sum(len(r['interest_points']) for r in self.base_request['regions'])
+        self.point_count=sum(len(r.get('interest_points',())) for r in self.base_request['regions'])
         self.last_snapshot=None;self.last_update=time.monotonic()
         self.setObjectName('taskPanel');self.setWindowTitle('Heformation · 空—海—潜协同任务')
         self.resize(1588,990)
-        self.telemetry={};self.transport={};self.telemetry_lock=threading.Lock();self.subscribers=[]
+        self.telemetry={};self.transport={};self.survey_hits={};self.telemetry_lock=threading.Lock();self.subscribers=[]
         self.subscriptions_started=False;self.stop_sent=False
         self.setStyleSheet('''
             QWidget { color: #102954; font-size: 13px; }
@@ -398,7 +469,8 @@ class JointMissionPanel(QWidget):
         region_box=QFrame();region_box.setObjectName('subcard');rb=QVBoxLayout(region_box);rb.setContentsMargins(11,12,11,10)
         region_line=QHBoxLayout();circle=icon_label('circle','#086cff',46);circle.setStyleSheet('background: #d0e8ff; border-radius: 23px;')
         region_line.addWidget(circle);self.region=QLabel();self.region.setWordWrap(True);region_line.addWidget(self.region,1);rb.addLayout(region_line)
-        region_buttons=QHBoxLayout();self.view_region_button=QPushButton('查看区域');self.view_region_button.clicked.connect(lambda:self.show_page(0))
+        region_buttons=QHBoxLayout();self.view_region_button=QPushButton('查看区域');self.view_region_button.clicked.connect(
+            lambda:(self.show_page(0),self.map.fit_region()))
         self.edit_button=QPushButton('编辑监测区域');self.edit_button.clicked.connect(self.edit_region)
         region_buttons.addWidget(self.view_region_button);region_buttons.addWidget(self.edit_button);rb.addLayout(region_buttons);left_layout.addWidget(region_box)
         label=QLabel('当前分工');label.setObjectName('section');left_layout.addWidget(label)
@@ -433,6 +505,16 @@ class JointMissionPanel(QWidget):
         self.detail_button=QPushButton('任务记录');self.detail_button.clicked.connect(self.show_details);toolbar.addWidget(self.detail_button)
         middle_layout.addLayout(toolbar)
         self.pages=QStackedWidget();self.map=CircleMap(self.base_scene['scene'],self.center,self.radius,self.region_changed)
+        self.map.set_mapping_request(self.base_request)
+        layers=QHBoxLayout();layers.setContentsMargins(12,4,12,6)
+        layers.addWidget(QLabel('已收建图层：'))
+        self.deep_layer=QPushButton('UUV 深水');self.air_layer=QPushButton('AAV 空中')
+        for button in (self.deep_layer,self.air_layer):button.setCheckable(True);button.setObjectName('tab');layers.addWidget(button)
+        self.deep_layer.setChecked(True)
+        self.deep_layer.clicked.connect(lambda:self.select_mapping_layer('offshore_uuv'))
+        self.air_layer.clicked.connect(lambda:self.select_mapping_layer('offshore_air'))
+        layers.addStretch();self.mapping_layer_bar=QWidget();self.mapping_layer_bar.setLayout(layers)
+        self.mapping_layer_bar.setVisible(self.map.online_mapping);middle_layout.addWidget(self.mapping_layer_bar)
         self.map.setMinimumSize(460,370);self.pages.addWidget(self.map)
         self.table=QTableWidget(5,5);self.table.setHorizontalHeaderLabels(('平台','角色','当前动作','结果已收','资源'))
         self.table.verticalHeader().hide();self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -451,9 +533,11 @@ class JointMissionPanel(QWidget):
         self.observed=QLabel('— / —');self.received=QLabel('— / —')
         self.observation_progress=QProgressBar();self.observation_progress.setObjectName('observation')
         self.progress=QProgressBar()
-        for name,bar,count in (('有效观测',self.observation_progress,self.observed),('母船已收',self.progress,self.received)):
+        mapping=bool(self.base_scene['scene'].get('online_mapping',False))
+        for name,bar,count in (('切片建图' if mapping else '有效观测',self.observation_progress,self.observed),('母船已收',self.progress,self.received)):
             row=QHBoxLayout();row.addWidget(QLabel(name));bar.setTextVisible(False);row.addWidget(bar,1);row.addWidget(count);right_layout.addLayout(row)
-        self.observed.setToolTip('由已收到的观测终结报告确认，不根据预计航迹推断。')
+        self.observed.setToolTip(('切片占据建图（几何采样），不代表全部三维表面已重建。\n' if mapping else '')+
+            '由已收到的观测终结报告确认，不根据预计航迹或显示点云推断。')
         support=QFrame();support.setObjectName('subcard');sl=QVBoxLayout(support);sl.setContentsMargins(10,10,10,10)
         sr=QHBoxLayout();sr.addWidget(icon_label('radio','#059c6a',29));heading=QLabel('共享支援');heading.setObjectName('section');sr.addWidget(heading);sr.addStretch()
         self.support_status=QLabel('待命');sr.addWidget(self.support_status);sl.addLayout(sr)
@@ -509,6 +593,10 @@ class JointMissionPanel(QWidget):
     def show_page(self,index):
         self.pages.setCurrentIndex(index);self.area_tab.setChecked(index==0);self.plan_tab.setChecked(index==1)
 
+    def select_mapping_layer(self,layer):
+        self.deep_layer.setChecked(layer=='offshore_uuv');self.air_layer.setChecked(layer=='offshore_air')
+        self.map.set_mapping_layer(layer);self.show_page(0)
+
     def show_details(self):
         self.details_dialog.show();self.refresh()
 
@@ -535,7 +623,10 @@ class JointMissionPanel(QWidget):
             load_request(temp);temp.replace(request_path)
             # Scene is the last file: its atomic rename releases the launcher.
             temp=scene_path.with_suffix('.tmp');temp.write_text(self.yaml.safe_dump(scene,allow_unicode=True,sort_keys=False));temp.replace(scene_path)
-            self.point_count=sum(len(r['interest_points']) for r in request['regions'])
+            self.base_request=request;self.base_scene=scene
+            self.map.scene=scene['scene'];self.map.online_mapping=bool(scene['scene'].get('online_mapping',False))
+            self.map.set_mapping_request(request);self.mapping_layer_bar.setVisible(self.map.online_mapping)
+            self.point_count=sum(len(r.get('interest_points',())) for r in request['regions'])
             self.submitted=True;self.refresh()
         except (ValueError,OSError,KeyError) as error:
             QMessageBox.warning(self,'区域暂不可用',str(error)+'\n请调整区域后重新生成。')
@@ -559,6 +650,8 @@ class JointMissionPanel(QWidget):
         try:
             from diagnostic_msgs.msg import DiagnosticArray
             from std_msgs.msg import String
+            from sensor_msgs.msg import PointCloud2
+            from sensor_msgs import point_cloud2
             if not rospy.core.is_initialized():rospy.init_node('joint_task_panel',anonymous=True,disable_signals=True)
             def diagnostic(member,message):
                 values={v.key:v.value for status in message.status for v in status.values}
@@ -567,10 +660,23 @@ class JointMissionPanel(QWidget):
                 try:value=json.loads(message.data)
                 except ValueError:return
                 with self.telemetry_lock:self.transport=dict(value,received_monotonic=time.monotonic())
+            def survey(message):
+                if message.header.frame_id!='world' or not message.header.stamp.to_sec():return
+                if not {'x','y','z','intensity'}.issubset({field.name for field in message.fields}):return
+                hits={}
+                for x,y,z,hit in point_cloud2.read_points(message,field_names=('x','y','z','intensity'),skip_nans=True):
+                    if hit==1.0 and math.isfinite(x) and math.isfinite(y):
+                        # Persistent 25 cm XY sampling is only for bounded UI
+                        # drawing cost; all task completion stays in runner.
+                        hits[(math.floor(x/.25),math.floor(y/.25))]=(x,y)
+                with self.telemetry_lock:self.survey_hits.update(hits)
             for member in MEMBERS:
                 topic='/'+member+('_qn' if member.startswith('drone') else '')+'/diagnostics'
                 self.subscribers.append(rospy.Subscriber(topic,DiagnosticArray,
                     lambda msg,m=member:diagnostic(m,msg),queue_size=1))
+                if self.map.online_mapping:
+                    scan='/'+member+('_qn' if member.startswith('drone') else '')+'/survey_cloud'
+                    self.subscribers.append(rospy.Subscriber(scan,PointCloud2,survey,queue_size=1))
             self.subscribers.append(rospy.Subscriber('/scene/delivery_progress',String,progress,queue_size=1))
         except Exception:
             pass  # Missing display telemetry is shown as unknown, never as AIR/ready.
@@ -591,6 +697,11 @@ class JointMissionPanel(QWidget):
                 self.state=json.loads(path.read_text());self.last_snapshot=stamp;self.last_update=time.monotonic()
         except (OSError,ValueError):pass
         state=self.state;status=state.get('status','STARTING' if self.submitted else 'SELECT_REGION')
+        # Reattaching to a request launched through the terminal has no
+        # ui-scene.yaml. Its authoritative Plan still makes the input read-only.
+        if (state.get('request_id')==self.base_request.get('request_id') and
+                (state.get('plan') or state.get('selected_plan'))):
+            self.submitted=True
         kind=terminal_kind(state);terminal=bool(kind)
         try:exit_code=(self.output/'runner-exit-code.txt').read_text().strip()
         except OSError:exit_code=None
@@ -633,6 +744,7 @@ class JointMissionPanel(QWidget):
         failure=failure_summary(state,items,self.base_scene['scene'])
         self.map.plan_items=(state.get('selected_plan') or {}).get('items',items);self.map.update()
         actions=state.get('current_actions',{});products=state.get('received_products',{})
+        self.map.set_received_mapping(products,state.get('request_id',''))
         received={p['point_id'] for p in products.values() if p.get('observed') is True}
         observed=received|{point for r in state.get('received_terminal_reports',{}).values() for point in r.get('observed_ids',())}
         for label,bar,count in ((self.received,self.progress,len(received)),(self.observed,self.observation_progress,len(observed))):
@@ -642,8 +754,11 @@ class JointMissionPanel(QWidget):
             self.subscriptions_started=True;threading.Thread(target=self.subscribe_display,daemon=True).start()
         with self.telemetry_lock:
             modes=dict(self.telemetry);transport=dict(self.transport)
+            self.map.observed_points=tuple(self.survey_hits.values())
         phases={'MOVING':'空中转场','HOLDING':'到位确认','AIR_MOVE':'空中转场','ENTER_WATER':'入水中',
             'EXIT_WATER':'出水中','WATER_PATH':'水下航行 / 观测','SURFACE_PATH':'水面转场','PREPARED':'等待启动',
+            'REGION_MAPPING':'区域扫描建图','WAIT_LOCAL_OBSERVATION':'等待安全局部运动',
+            'TRIM_PROPULSION':'减速与终态确认','COAST_STOP':'滑行减速',
             'WAITING_FOR_RECEIPTS':'等待作业结果','WAITING_FOR_GROUP_RETURN':'等待共同返航',
             'DISPATCHING':'正在派发','SAFETY_HOLD':'安全保持','UNKNOWN_LOCKED':'异常锁定'}
         selected={m for item in items for m in item.get('coalition',())}
@@ -711,7 +826,8 @@ class JointMissionPanel(QWidget):
             '本次任务未确认执行。' if kind=='unconfirmed' else
             '请核对当前分工，再确认执行。' if status=='AWAITING_CONFIRMATION' else
             '区域已提交，正在启动独立 RViz。' if status in ('STARTING','STANDBY') else
-            '二维区域与方案视图 · 实际仿真在独立 RViz 中显示' if self.submitted else
+            ('切片占据建图（几何采样）· 点云不是完整三维重建证明' if self.map.online_mapping else
+             '二维区域与方案视图 · 实际仿真在独立 RViz 中显示') if self.submitted else
             '在地图上拖动圈选区域，再生成协同方案。')
         self.central_hint.setStyleSheet('color: '+(color if terminal else '#8390a4')+'; font-size: 11px;')
         self.connection.setText('● '+{'success':'任务已完成','failure':'任务异常锁定' if status=='UNKNOWN_LOCKED' else '任务未完成',

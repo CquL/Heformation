@@ -48,6 +48,7 @@ class CommandSnapshot:
     yaw_rad: float
     reference_source: str = "AIR_SWARM"
     reference_generation: int = 0
+    water_terminal_hold: bool = False
 
     def __post_init__(self):
         if not self.agent_id:
@@ -79,6 +80,7 @@ class ReferenceUsage:
     velocity_was_derived: bool
     reference_source: str = "AIR_SWARM"
     reference_generation: int = 0
+    water_terminal_hold: bool = False
 
     @property
     def model_interval_s(self) -> float:
@@ -142,6 +144,7 @@ class ReferenceUsageTracker:
             velocity_was_derived=derived,
             reference_source=snapshot.reference_source,
             reference_generation=snapshot.reference_generation,
+            water_terminal_hold=snapshot.water_terminal_hold,
         )
         self._previous_position = position
         self._next_step += 1

@@ -421,6 +421,9 @@ class ExecutorTravelTimeProvider:
 
     def _task_path(self,source,target,radius,deadline):
         """Ask the existing execution geometry layer for finite waypoints."""
+        if self.observation_request.execution_mode=='ONLINE_MAPPING':
+            # A destination intention, not an obstacle-free trajectory claim.
+            return (tuple(source),tuple(target))
         from qn_aav_simulator.platform_execution import plan_static_path,QN_PLATFORM_POSITION_TOLERANCE_M
         # WATER waypoints must not skim the obstacle threshold: the real qn
         # plant has transient tracking error. Use its existing terminal
@@ -450,12 +453,21 @@ class ExecutorTravelTimeProvider:
             dynamic_safety_certified=False,collision_radius_m=radius,
             estimate_basis='declared route length / nominal speed or declared segment duration; actual Action feedback required',
             reference_path=tuple(path),reference_schedule=schedule)
+        if self.observation_request.execution_mode=='ONLINE_MAPPING':
+            prediction.update(geometry_checked=False,geometry_scope='LOCAL_SENSING_AT_EXECUTION',
+                estimate_basis='task-scale distance/work estimate; unknown routes resolved by local sensing')
         return ExecutionStep(executor.executor_id,total,target_ref,native,
             service_time_s=hold if native is None else 0.,native_prediction=prediction,
             observation_ids=tuple(observations) if native is None else ())
 
     def _task_observation_screen(self,steps,region):
         """Check estimated continuous footprint dwell along finite references."""
+        if self.observation_request.execution_mode=='ONLINE_MAPPING':
+            declared={ident for step in steps for ident in
+                      (step.native_action.observation_ids if step.native_action else step.observation_ids)}
+            if declared!={p.point_id for p in region.interest_points}:
+                raise ValueError('MAPPING_REGION_REQUIREMENTS_MISSING')
+            return
         from qn_aav_simulator.observation_coverage import ObstacleBox,_visible
         requirement=self.observation_request.requirement
         obstacles=tuple(ObstacleBox(c,s) for _,kind,c,s in self.scene_geometry.objects if kind=='SOLID')
@@ -509,6 +521,8 @@ class ExecutorTravelTimeProvider:
                 steps=[];position=source
                 first_target=observation_position(region.interest_points[0].position,
                                                   self.observation_request.requirement)
+                if self.observation_request.execution_mode=='ONLINE_MAPPING':
+                    first_target=observation_position(region.center,self.observation_request.requirement)
                 if self.air_return_altitude_m is not None:
                     high=(position[0],position[1],self.air_return_altitude_m)
                     steps.append(self._task_step(unit,'outbound-climb:'+task.target_ref,
@@ -531,13 +545,22 @@ class ExecutorTravelTimeProvider:
                         steps.append(self._task_step(unit,'air-route:'+task.target_ref+':'+str(index),
                             self._task_path(position,waypoint,radius,deadline),'AIR',hold=4.,radius=radius))
                         position=waypoint
-                for point in region.interest_points:
+                scan_points=(region.interest_points[:1] if
+                    self.observation_request.execution_mode=='ONLINE_MAPPING' else region.interest_points)
+                for point in scan_points:
                     target=observation_position(point.position,self.observation_request.requirement)
+                    if self.observation_request.execution_mode=='ONLINE_MAPPING':target=first_target
                     steps.append(self._task_step(unit,'survey:'+task.target_ref+':'+point.point_id,
                         self._task_path(position,target,radius,deadline),'AIR',
                         hold=self.observation_request.service_time_s,
                         observations=(point.point_id,),radius=radius))
                     position=target
+                if self.observation_request.execution_mode=='ONLINE_MAPPING':
+                    estimate=max(30.,len(ids)*2.)
+                    last=steps[-1]
+                    steps[-1]=replace(self._task_step(unit,'survey:'+task.target_ref,
+                        (last.native_prediction['reference_path'][0],target),'AIR',
+                        duration=last.duration_s+estimate,hold=4.,observations=ids,radius=radius),region_id=region.region_id)
                 if self.air_return_altitude_m is not None:
                     waypoint=(position[0],position[1],self.air_return_altitude_m)
                     steps.append(self._task_step(unit,'return-climb:'+task.target_ref,
@@ -568,8 +591,10 @@ class ExecutorTravelTimeProvider:
                         steps.append(self._task_step(air,ref,self._task_path(position,target,radius,deadline),
                             'AIR',hold=4.,radius=radius));position=target
                     x,y,_=entry;water_start=(x,y,-.6);water_path=(water_start,)
-                    for point in region.interest_points:
+                    for point in (() if self.observation_request.execution_mode=='ONLINE_MAPPING' else region.interest_points):
                         water_path+=self._task_path(water_path[-1],tuple(point.position),radius,deadline)[1:]
+                    if len(water_path)==1 and self.observation_request.execution_mode=='ONLINE_MAPPING':
+                        water_path=(water_start,water_start)
                     if len(water_path)==1:
                         for dx,dy in ((.7,0.),(-.7,0.),(0.,.7),(0.,-.7)):
                             candidate=(x+dx,y+dy,-.6)
@@ -578,14 +603,17 @@ class ExecutorTravelTimeProvider:
                     if len(water_path)==1:raise ValueError('TASK_WATER_PASS_UNAVAILABLE')
                     water_duration=max(7.,sum(math.dist(a,b) for a,b in zip(
                         water_path,water_path[1:]))/.1)
+                    if self.observation_request.execution_mode=='ONLINE_MAPPING':water_duration=max(60.,len(ids)*5.)
                     exit_position=(water_path[-1][0],water_path[-1][1],entry[2])
                     segments=(NativeSegmentSpec('ENTER_WATER',(entry,water_start),14.),
                         NativeSegmentSpec('WATER_PATH',water_path,water_duration),
                         NativeSegmentSpec('EXIT_WATER',(water_path[-1],exit_position),14.))
-                    for segment in segments:
+                    for segment in segments if self.observation_request.execution_mode!='ONLINE_MAPPING' else ():
                         reason=self.scene_geometry.path_violation(segment.points,radius)
                         if reason:raise ValueError(reason)
-                    route=NativeActionSpec(segments,'FIXED_REFERENCE',observation_ids=ids)
+                    route=NativeActionSpec(segments,'FIXED_REFERENCE',observation_ids=ids,
+                        execution_timeout_s=water_duration+180.,
+                        region_id=region.region_id if self.observation_request.execution_mode=='ONLINE_MAPPING' else '')
                     native=self._task_step(unit,task.target_ref,
                         tuple(segment.points[0] for segment in segments)+(exit_position,),
                         'AIR',duration=28.+water_duration,hold=4.,native=route,radius=radius)
@@ -604,7 +632,7 @@ class ExecutorTravelTimeProvider:
                         return_start=overhead
                     steps.append(self._task_step(air,'return:'+member,
                         self._task_path(return_start,home,radius,deadline),'AIR',radius=radius))
-                    for departure_wait in (0.,45.,90.,135.):
+                    for departure_wait in ((0.,) if self.observation_request.execution_mode=='ONLINE_MAPPING' else (0.,45.,90.,135.)):
                         prefix=(() if not departure_wait else (self._task_step(air,
                             'departure-wait:'+member,(source,source),'AIR',duration=0.,
                             hold=departure_wait,radius=radius),))
@@ -616,7 +644,7 @@ class ExecutorTravelTimeProvider:
                     stage=tuple(self.return_sites[member].get('staging_position',
                         region.interest_points[-1].position))
                     work_points=(source,)
-                    for point in region.interest_points:
+                    for point in (() if self.observation_request.execution_mode=='ONLINE_MAPPING' else region.interest_points):
                         work_points+=self._task_path(work_points[-1],tuple(point.position),radius,deadline)[1:]
                     if work_points[-1]!=stage:
                         work_points+=self._task_path(work_points[-1],stage,radius,deadline)[1:]
@@ -624,11 +652,12 @@ class ExecutorTravelTimeProvider:
                     speed=self.nominal_speed_mps[unit.executor_id]
                     work_duration=max(4.,sum(math.dist(a,b) for a,b in zip(
                         work_points,work_points[1:]))/speed)
+                    if self.observation_request.execution_mode=='ONLINE_MAPPING':work_duration+=max(60.,len(ids)*5.)
                     back_duration=max(4.,sum(math.dist(a,b) for a,b in zip(
                         back_points,back_points[1:]))/speed)
                     work_route=NativeActionSpec((NativeSegmentSpec('WATER_PATH',work_points,
                         work_duration),),'FIXED_REFERENCE',execution_timeout_s=work_duration+120.,
-                        observation_ids=ids)
+                        observation_ids=ids,region_id=region.region_id if self.observation_request.execution_mode=='ONLINE_MAPPING' else '')
                     work=self._task_step(unit,task.target_ref,work_points,'WATER',duration=work_duration,
                         hold=4.,native=work_route,radius=radius)
                     work.native_prediction['reference_schedule']=(self._task_schedule(
@@ -718,7 +747,15 @@ class ExecutorTravelTimeProvider:
                         hold=max(0.,until-start-arrival)
                         segments=(((NativeSegmentSpec('SURFACE_PATH',(origin,origin),duration_s=float(wait)),) if wait else ())+
                             (NativeSegmentSpec('SURFACE_PATH',outbound),))
-                        route=NativeActionSpec(segments,'TRIM_PROPULSION',execution_timeout_s=300.+float(wait))
+                        # Local observed-space navigation includes sensing,
+                        # braking and turning. Its observation window follows
+                        # the associated complete cooperation estimate, not the
+                        # old fixed 300 s single-path experiment. No business
+                        # deadline is inferred from this execution watchdog.
+                        observation_limit=(max(300.,duration+120.) if
+                            self.observation_request.execution_mode=='ONLINE_MAPPING' else 300.)
+                        route=NativeActionSpec(segments,'TRIM_PROPULSION',
+                            execution_timeout_s=observation_limit+float(wait))
                         first=self._task_step(support,site['id'],outbound,'SURFACE',duration=travel,
                             hold=4.+float(wait)+hold,native=route,radius=support_radius)
                         schedule=self._task_schedule(outbound,travel)
@@ -727,7 +764,7 @@ class ExecutorTravelTimeProvider:
                             ((arrival+hold,position),),arrival_duration_s=arrival,support_hold_s=hold,
                             support_site_id=site['id'])
                         back_route=NativeActionSpec((NativeSegmentSpec('SURFACE_PATH',returning),),
-                            'TRIM_PROPULSION',execution_timeout_s=300.)
+                            'TRIM_PROPULSION',execution_timeout_s=observation_limit)
                         back=self._task_step(support,'return:'+other,returning,'SURFACE',hold=4.,
                             native=back_route,radius=support_radius)
                         support_duration=first.duration_s+back.duration_s
@@ -1692,6 +1729,28 @@ class ExecutorTravelTimeProvider:
         """Screen the selected task references; actual motion remains with endpoints."""
         if time.monotonic()>=deadline:
             return dict(status='UNKNOWN',reason='PLANNING_BUDGET_EXHAUSTED')
+        if self.observation_request.execution_mode=='ONLINE_MAPPING':
+            # Preserve mission/resource commitments. Unobserved future routes
+            # cannot have a complete static collision certificate at this time.
+            reservations={}
+            support=[item for item in plan.items if item.coalition==('usv',) and not item.fulfills_task]
+            if len(support)!=1:return dict(status='INFEASIBLE',reason='MAPPING_SHARED_SUPPORT_REQUIRED')
+            for item in plan.items:
+                for member in item.coalition:
+                    if member not in initial_states or initial_states[member].get('locked'):
+                        return dict(status='UNKNOWN',reason='MAPPING_MEMBER_NOT_AVAILABLE')
+                    for a,b in reservations.setdefault(member,[]):
+                        if item.planned_start<b and a<item.planned_finish:
+                            return dict(status='INFEASIBLE',reason='MAPPING_MEMBER_OVERLAP')
+                    reservations[member].append((item.planned_start,item.planned_finish))
+                if not any(s.target_ref.startswith('return:') for s in item.execution_steps):
+                    return dict(status='INFEASIBLE',reason='MAPPING_RETURN_MISSING')
+                if item.fulfills_task and not any(s.region_id or
+                        (s.native_action and s.native_action.region_id) for s in item.execution_steps):
+                    return dict(status='INFEASIBLE',reason='MAPPING_REGION_MISSING')
+                if item.coalition==('uuv',) and tuple(item.support_execution_ids)!=(support[0].execution_id,):
+                    return dict(status='INFEASIBLE',reason='MAPPING_SUPPORT_ASSOCIATION_MISSING')
+            return dict(status='FEASIBLE',reason='TASK_LEVEL_EXECUTION_PENDING')
         if self.scene_geometry is None:
             return dict(status='UNKNOWN',reason='TASK_SCENE_MISSING')
         support=[item for item in plan.items if 'usv' in item.coalition and not item.fulfills_task]

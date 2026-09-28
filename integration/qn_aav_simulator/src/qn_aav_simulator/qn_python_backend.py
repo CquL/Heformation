@@ -187,6 +187,7 @@ class QnPythonClosedLoopBackend:
         self._water_horizontal_speed_mps = 0.0
         self._last_model_acceleration = None
         self._reference_yaw_rad = None
+        self._water_terminal_hold = False
         self._reference_input_position_m = None
         self._idle_reference = None
 
@@ -197,6 +198,7 @@ class QnPythonClosedLoopBackend:
     def reset(self, state: AgentState) -> None:
         self._last_model_acceleration = None
         self._reference_yaw_rad = 0.0
+        self._water_terminal_hold = False
         self._reference_input_position_m = None
         self._idle_reference = None
         quaternion = normalize_quaternion(state.orientation_quat_wxyz)
@@ -292,6 +294,7 @@ class QnPythonClosedLoopBackend:
             return dict(status='UNKNOWN', reason='SCENE_GEOMETRY_NOT_PROVIDED', duration_s=0.)
         behavior, target, yaw, _ = evidence
         model = copy.deepcopy(self)
+        terminal_hold = model._water_terminal_hold
         state = model.snapshot()
         mode = actual_mode(state.medium_flag)
         samples = [(0., state.position)]
@@ -313,7 +316,8 @@ class QnPythonClosedLoopBackend:
             point = state.position if behavior == 'INITIAL_HOLD' else target
             position_before=state.position
             command = ControlCmd('read-only-idle', state.agent_id, t, CommandMode.DESIRED_POSITION,
-                                 (0., 0., 0.), desired_position=point, desired_yaw_rad=yaw)
+                                 (0., 0., 0.), desired_position=point, desired_yaw_rad=yaw,
+                                 water_terminal_hold=terminal_hold)
             result = model.step(PlantStepInput(state, command, PlatformAdapterCmd(state.agent_id), dt, 2., 8.))
             t += dt
             state = model.snapshot(t)
@@ -466,6 +470,7 @@ class QnPythonClosedLoopBackend:
         # Retain the existing input for cold terminal-continuation queries;
         # an ordinary step does not prove that an active program has finished.
         self._reference_yaw_rad = step_input.control_cmd.desired_yaw_rad
+        self._water_terminal_hold = bool(step_input.control_cmd.water_terminal_hold)
         self._reference_input_position_m = step_input.control_cmd.desired_position
         self._idle_reference = None
         previous_reference = self._reference_position_m
@@ -582,6 +587,7 @@ class QnPythonClosedLoopBackend:
                 "water_guidance_mode": self.water_guidance_mode,
                 "water_horizontal_controller_mode": self.water_horizontal_controller_mode,
                 "water_guidance_active": self._water_guidance_active,
+                "water_terminal_hold": self._water_terminal_hold,
                 "water_heading_error_rad": self._water_heading_error_rad,
                 "water_target_heading_error_rad": self._water_target_heading_error_rad,
                 "water_desired_heading_rad": self._water_desired_heading_rad,
@@ -643,14 +649,22 @@ class QnPythonClosedLoopBackend:
             # existing qn controller/actuators, but let the guidance velocity
             # close the remaining position error over its declared lead time.
             capture_time = max(1.0, self.water_surge_reference_gain_s)
-            guidance_x = velocity[0] + (candidate[0] - actual[0]) / capture_time
-            guidance_y = velocity[1] + (candidate[1] - actual[1]) / capture_time
+            terminal_hold = self._water_terminal_hold
+            # A verified WATER terminal uses the native zero-surge condition.
+            # Preserve that input through an accepted vertical exit while the
+            # water channels remain active (flag > 0): re-enabling LOS in the
+            # mixed medium reintroduces turning against the frozen AIR heading.
+            # Horizontal navigation explicitly clears this input. Depth, mixed
+            # actuator allocation and continuous controller states are unchanged.
+            guidance_x = 0.0 if terminal_hold else velocity[0] + (candidate[0] - actual[0]) / capture_time
+            guidance_y = 0.0 if terminal_hold else velocity[1] + (candidate[1] - actual[1]) / capture_time
             horizontal_speed = min(step_input.max_speed_mps, math.hypot(guidance_x, guidance_y))
             self._water_horizontal_speed_mps = horizontal_speed
             _, _, yaw = _qn_attitude(
                 normalize_quaternion(self._state.plant.quaternion_wxyz)
             )
             target_heading = (
+                step_input.control_cmd.desired_yaw_rad if terminal_hold else
                 math.atan2(guidance_y, guidance_x)
                 if horizontal_speed > 1e-6
                 else yaw

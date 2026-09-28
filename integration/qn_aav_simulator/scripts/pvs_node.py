@@ -11,6 +11,7 @@ import time
 import copy
 import json
 import hashlib
+from collections import deque
 import actionlib
 import rospy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
@@ -55,6 +56,24 @@ class PvsNode:
         from qn_aav_simulator.observation_coverage import ObstacleBox
         request_file=rospy.get_param('/mission/request_file','')
         self.observation_request=load_request(request_file) if request_file else None
+        self.online_mapping=getattr(self.observation_request,'execution_mode','')=='ONLINE_MAPPING'
+        self.allow_visual_timing_relaxation=bool(rospy.get_param('/mission/allow_visual_timing_relaxation',False))
+        self.visual_timing_relaxed=False
+        self.action_model_clock_drift_s=0.
+        self.survey_map=None
+        self.survey_lock=threading.Lock()
+        self.survey_poses=deque(maxlen=400)
+        self.survey_stamp=-math.inf
+        if self.online_mapping:
+            from qn_aav_simulator.observation_coverage import LocalSurveyMap
+            self.survey_map=LocalSurveyMap()
+            for box in declared_scene.get('known_free_deployment',[]):
+                self.survey_map.declare_free_box(box['low'],box['high'])
+            for obj in declared_scene.get('objects',[]):
+                if obj['kind']=='FORBIDDEN':
+                    low=tuple(c-v/2 for c,v in zip(obj['center'],obj['size']))
+                    high=tuple(c+v/2 for c,v in zip(obj['center'],obj['size']))
+                    self.survey_map.declare_forbidden_box(low,high)
         self.observation_obstacles=tuple(ObstacleBox(c,s) for _,kind,c,s in self.scene.objects if kind=='SOLID') if self.scene else ()
         self.products=rospy.Publisher('~local_products',String,queue_size=100)
         self.state_digest_service=rospy.Service('~state_digest',Trigger,self.state_digest)
@@ -81,7 +100,179 @@ class PvsNode:
         self.server=actionlib.ActionServer('~platform_task',PlatformTaskAction,self.goal,self.cancel,auto_start=False)
         from qn_aav_simulator.srv import StartPreparedAction
         self.start_service=rospy.Service('~start_prepared',StartPreparedAction,self.start_prepared)
+        if self.online_mapping:
+            from sensor_msgs.msg import PointCloud2
+            self.survey_subscriber=rospy.Subscriber('~survey_cloud',PointCloud2,self._survey_cloud,queue_size=1)
         self.server.start()
+
+    def _survey_cloud(self,message):
+        """Measured map and bounded A* stay outside the native-step lock."""
+        from sensor_msgs import point_cloud2
+        stamp=message.header.stamp.to_sec()
+        if message.header.frame_id!=self.world_frame:return
+        with self.lock:
+            # Keep the prior/map but integrate only for a real accepted Goal.
+            # Acceptance does not authorize motion from an old map timestamp.
+            if self.work is None:return
+            if not self.survey_poses or stamp<=self.survey_stamp:return
+            captured=next((row for row in reversed(self.survey_poses) if row[0]==stamp),None)
+            if captured is None:return
+            pose_time,origin=captured
+        rows=tuple(point_cloud2.read_points(message,field_names=('x','y','z','intensity'),skip_nans=True))
+        with self.survey_lock:
+            self.survey_map.integrate(origin,[row[:3] for row in rows],[row[3]>.5 for row in rows],stamp,
+                mode=self.mode)
+            self.survey_stamp=stamp
+            with self.lock:
+                work=self.work
+                if work is None or work['cause'] or work['waiting_commit'] or work['coast']:return
+                index=work['segment'];position=tuple(self.backend.snapshot()['position'])
+                goals=[work['paths'][index][-1]]
+                observations=work.get('observations')
+                remaining=None
+                if work.get('region_id') and observations is not None:
+                    for event in observations.sample_mapping(self.survey_map,self.mode,stamp):
+                        self.products.publish(String(data=json.dumps(event,allow_nan=False)))
+                    remaining=observations.unobserved_mapping_points(self.survey_map,self.mode)
+                    if remaining:goals=sorted(remaining,key=lambda point:math.dist(position,point))
+            target=None
+            # Geometry proposes a route for the physical clearance envelope.
+            # The native command+coast rollout below handles transient motion.
+            # An extra static start margin would trap a stopped, physically safe
+            # vessel just inside that optional margin and prevent its retreat.
+            radius=self.backend.collision_radius_m+(self.scene.clearance if self.scene else 0.)
+            query_end=time.monotonic()+.04
+            if rospy.Time.now().to_sec()-stamp<=1.:
+                for goal in goals:
+                    target=self.survey_map.next_target(position,(goal[0],goal[1],position[2]),
+                        radius,max_step_m=max(1.,2*self.backend.vehicle.L))
+                    if target is not None or time.monotonic()>=query_end:break
+            with self.lock:
+                if self.work is not work or work['segment']!=index or work['cause'] or work['coast']:return
+                if math.dist(self.backend.snapshot()['position'],position)>NATIVE_START_TOLERANCE_M:return
+                if self.backend.steps<work.get('local_command_end_step',-1):return
+                # The live plant and prediction now share an exact native coast
+                # prefix. Only a future model-step activation may adopt a new
+                # command; no position-only stale-snapshot acceptance remains.
+                self._end_local_command(work)
+                work['local_pending_command']=False
+                work['local_command_until']=-math.inf
+                work['local_command_end_step']=-1
+                work['local_wait']=True
+                native=copy.deepcopy(self.backend)
+                requested=work['efforts'][index]
+                stopped=math.sqrt(sum(v*v for v in native.snapshot()['world_velocity']))<=self.speed_limit
+                retreat_first=(self.model=='otter' and stopped and
+                    'NATIVE_BRAKING_PATH_NOT_OBSERVED_FREE' in work.get('local_rejected_commands',''))
+            # Geometry proposes a point, but the underactuated Otter must be
+            # able to execute the next command AND its native coast backup.
+            # The small local query runs outside the integration lock.
+            motion_end=time.monotonic()+.25
+            selected=None;selected_effort=0.;selected_leg=None;has_command=False
+            prediction=dict(status='UNKNOWN',reason='NO_LOCAL_COMMAND')
+            # At a tight observed corner, steering at zero additional surge is
+            # a real native command too. It still needs the same complete coast
+            # check; simply falling back to coast can leave a stopped vessel
+            # unable to align with the next safe leg.
+            candidates=([(target,requested,position),(target,requested*.5,position),
+                         (target,0.,position)] if target is not None else [])
+            if self.model=='otter':
+                # One bounded reverse pulse preserves the last native heading.
+                # It is selected only if its real reverse-thrust/coast rollout
+                # is known-free, never by kinematic backstepping/teleporting.
+                retreat=(None,-requested*.5,None)
+                candidates.insert(0 if retreat_first else len(candidates),retreat)
+            candidates.append((None,0.,None))
+            rejected=[]
+            # A difficult first candidate must not consume every callback's
+            # budget and starve the remaining admissible steering/retreat
+            # choices. Only the search cursor survives; every candidate is
+            # re-evaluated from this callback's full current native state.
+            first_candidate=work.get('local_candidate_cursor',0)%len(candidates)
+            order=[(first_candidate+i)%len(candidates) for i in range(len(candidates))]
+            next_candidate=first_candidate
+            for candidate_index in order:
+                proposed,effort,leg=candidates[candidate_index]
+                next_candidate=(candidate_index+1)%len(candidates)
+                prediction=native.predict_local_command(proposed,effort,leg,self.survey_map,
+                    self.scene.clearance if self.scene else 0.,motion_end,
+                    dt=self.dt,terminal_speed=self.speed_limit,hold_duration=self.hold_seconds,
+                    coast_delay_s=.25)
+                if prediction['status']=='FEASIBLE':
+                    selected=proposed;selected_effort=effort;selected_leg=leg;has_command=True;break
+                rejected.append(str(effort)+':'+prediction['reason'])
+                if time.monotonic()>=motion_end:break
+            with self.lock:
+                if self.work is not work or work['segment']!=index or work['cause'] or work['coast']:return
+                work['local_candidate_cursor']=0 if has_command and (selected is not None or selected_effort) else next_candidate
+                activation=prediction.get('activation_model_time_s',native.time_s+.25)
+                activation_step=prediction.get('activation_step',native.steps+int(math.ceil(.25/self.dt-1e-9)))
+                if self.backend.steps>=activation_step:
+                    work['local_motion_status']='STALE_NATIVE_QUERY'
+                    return
+                work.update(local_plan_seq=work.get('local_plan_seq',0)+1,
+                    local_target=selected,local_leg_start=selected_leg,local_plan_stamp=stamp,
+                    local_has_command=False,local_pending_command=has_command,
+                    local_activation=activation,local_activation_step=activation_step,
+                    local_command_end_step=prediction.get('command_end_step',-1) if has_command else -1,
+                    local_activation_digest=prediction.get('activation_state_digest',''),
+                    local_command_until=activation+.25 if has_command else -math.inf,local_effort=selected_effort,
+                    local_motion_status=prediction['status']+':'+prediction['reason'],
+                    local_rejected_commands=';'.join(rejected),
+                    local_geometric_target=target,
+                    local_stop_s=prediction.get('predicted_stop_s',0.),
+                    local_wait=not has_command or (selected is None and selected_effort==0.),
+                    local_survey_done=remaining is not None and not remaining)
+
+    def _end_local_command(self,work):
+        """Exactly the once-only heading-input handoff in the coast forecast."""
+        if work.pop('local_freeze_on_coast',False) and self.model=='otter':
+            self.backend.freeze_heading_reference()
+        work['local_has_command']=False
+
+    def _mapping_target(self,work,position):
+        """Apply one observed-map target without resetting the native plant.
+
+        Missing/stale observations command native coast/trim. They do not
+        instantaneously stop the physical vessel or complete the Goal.
+        """
+        goal=work['paths'][work['segment']][-1]
+        tolerance=(.6*self.return_site['radius_m'] if self.return_site and
+            tuple(goal)==tuple(self.return_site['position']) else NATIVE_START_TOLERANCE_M)
+        done=(math.dist(position,goal)<=tolerance and
+              (not work.get('region_id') or work.get('local_survey_done',False)))
+        if done and not work.get('local_has_command',False):
+            if work['segment']+1<len(work['paths']):
+                work['segment']+=1;work['point']=1
+                work['segment_started']=self.backend.time_s
+                work['local_plan_stamp']=-math.inf
+            else:work['coast']=True
+            self._end_local_command(work)
+            return None
+        if work.get('local_pending_command',False):
+            activation=work['local_activation']
+            if self.backend.steps<work['local_activation_step']:
+                work['local_has_command']=False
+                work['local_wait']=True
+                return None
+            expected=work['local_activation_digest']
+            matched=(self.backend.steps==work['local_activation_step'] and
+                abs(self.backend.time_s-activation)<self.dt*.5 and
+                hashlib.sha256(self.backend.execution_state_bytes()).hexdigest()==expected)
+            work['local_pending_command']=False
+            if not matched:
+                work.update(local_has_command=False,local_command_until=-math.inf,local_command_end_step=-1,
+                            local_motion_status='ACTIVATION_STATE_CHANGED',local_wait=True)
+                return None
+            work['local_has_command']=True
+            work['local_freeze_on_coast']=True
+            work['local_wait']=work.get('local_target') is None and work.get('local_effort',0.)==0.
+        if (rospy.Time.now().to_sec()-work.get('local_plan_stamp',-math.inf)>1. or
+                self.backend.steps>=work.get('local_command_end_step',-1)):
+            work['local_wait']=True
+            self._end_local_command(work)
+            return None
+        return work.get('local_target')
 
     def state_digest(self,_request):
         with self.lock:
@@ -125,7 +316,7 @@ class PvsNode:
                         raise ValueError('intermediate stationary path requires finite duration')
                     if not stationary and any(math.dist(a,b)==0 for a,b in zip(points,points[1:])):
                         raise ValueError('zero-length path leg')
-                    if self.scene:
+                    if self.scene and not self.online_mapping:
                         reason=self.scene.path_violation(points,self.backend.collision_radius_m)
                         if reason:raise ValueError(reason)
                     paths.append(points)
@@ -137,6 +328,12 @@ class PvsNode:
                     efforts.append(selected)
                 if not 1<=len(paths)<=16:
                     raise ValueError('fragment requires 1..16 segments')
+                region_id=str(getattr(goal,'region_id',''))
+                if region_id and not self.online_mapping:raise ValueError('REGION_REQUIRES_ONLINE_MAPPING')
+                if self.online_mapping:
+                    actual=tuple(self.backend.snapshot()['position'])
+                    paths=[(actual,paths[-1][-1])]
+                    efforts=efforts[:1];durations=[sum(durations)]
                 reason=self._entry_reason(paths)
                 if reason:raise ValueError(reason)
                 timeout=goal.execution_timeout.to_sec()
@@ -159,7 +356,7 @@ class PvsNode:
             # its current admissible state. A full future plant rollout belongs
             # to an explicit diagnostic, not every OFFSHORE_JOINT acceptance.
             task_level=(getattr(self.observation_request,'template_id','')=='OFFSHORE_JOINT')
-            if self.native_preflight and not task_level:
+            if self.native_preflight and not task_level and not self.online_mapping:
                 query_deadline=time.monotonic()+self.planning_budget_s
                 backend_snapshot=copy.deepcopy(self.backend)
                 token=dict(handle=handle,id=ident,task=goal.task_id,paths=paths,efforts=efforts,
@@ -177,16 +374,16 @@ class PvsNode:
                 self.last_prediction=dict(goal_id=ident,status='TASK_LEVEL_ADMITTED',
                     reason='LOCAL_STATE_AND_PATH_CHECKED; FUTURE_DYNAMICS_NOT_PREDICTED')
                 self._accept(handle,ident,goal.task_id,paths,efforts,durations,timeout,
-                    bool(getattr(goal,'prepare_only',False)),observations,terminal_wait_s)
+                    bool(getattr(goal,'prepare_only',False)),observations,terminal_wait_s,region_id)
 
-    def _accept(self,handle,ident,task,paths,efforts,durations,timeout,prepare_only=False,observations=None,terminal_wait_s=0.):
+    def _accept(self,handle,ident,task,paths,efforts,durations,timeout,prepare_only=False,observations=None,terminal_wait_s=0.,region_id=""):
         self.generation+=1
         self.work=dict(handle=handle,id=ident,task=task,paths=paths,efforts=efforts,durations=durations,
                        segment=0,point=1,segment_started=self.backend.time_s,
                        coast=False,settled=None,cause='',model_start=self.backend.time_s,waiting_commit=prepare_only,
                        deadline=time.monotonic()+timeout,observations=observations,ros_start=rospy.Time.now().to_sec(),
                        terminal_wait_s=terminal_wait_s,return_left=False,return_reentered=False,
-                       admission='LOCAL_STATE_AND_PATH')
+                       admission='LOCAL_STATE_AND_PATH',region_id=region_id,local_wait=True,local_target=None)
         if self.last_prediction.get('goal_id')==ident:
             self.last_prediction['accepted_model_time_s']=self.backend.time_s
         handle.set_accepted('finite native path fragment accepted')
@@ -201,14 +398,14 @@ class PvsNode:
                ('position','world_velocity','body_angular_velocity','quaternion_wxyz','actuators')):
             return 'NONFINITE_ACTUAL_NATIVE_STATE'
         if state['actual_mode']!=self.mode:return 'ACTUAL_STATE_OUTSIDE_NATIVE_DOMAIN'
-        if math.dist(paths[0][0],state['position'])>NATIVE_START_TOLERANCE_M:
+        if not self.online_mapping and math.dist(paths[0][0],state['position'])>NATIVE_START_TOLERANCE_M:
             return 'START_STATE_CHANGED'
         if math.sqrt(sum(v*v for v in state['world_velocity']))>self.speed_limit:
             return 'NATIVE_ENTRY_NOT_SETTLED'
         if self.scene:
             reason=self.scene.violation(state['position'],self.backend.collision_radius_m)
             if reason:return reason
-            for path in paths:
+            for path in (() if self.online_mapping else paths):
                 reason=self.scene.path_violation(path,self.backend.collision_radius_m)
                 if reason:return reason
         return ''
@@ -305,6 +502,7 @@ class PvsNode:
                     resource_locked=self.locked,model_time_s=self.backend.time_s))
                 return
             if self.work and handle.get_goal_id().id==self.work['id'] and not self.work['cause']:
+                if self.online_mapping:self._end_local_command(self.work)
                 self.work.update(cause='CANCEL_REQUEST',coast=True,settled=None,waiting_commit=False)
                 self.locked=True
 
@@ -356,7 +554,14 @@ class PvsNode:
             effort=0.
             waiting=False
             terminal_homing=False
-            if w and not w['coast'] and not w['waiting_commit']:
+            if self.online_mapping and w and not w['coast'] and not w['waiting_commit']:
+                target=self._mapping_target(w,self.backend.snapshot()['position'])
+                waiting=w.get('local_wait',False)
+                effort=w.get('local_effort',0.) if w.get('local_has_command',False) and not w['coast'] else 0.
+                # Exact forecast backup: zero added propulsion and no new
+                # heading reference. A far business goal is never a fallback
+                # motion command when the observed-space route is unavailable.
+            elif w and not w['coast'] and not w['waiting_commit']:
                 segment=w['segment'];path=w['paths'][segment]
                 waiting=(path[0]==path[1] and w['durations'][segment]>0)
                 if waiting and self.backend.time_s-w['segment_started']+1e-9>=w['durations'][segment]:
@@ -396,9 +601,12 @@ class PvsNode:
                     waiting=(path[0]==path[1] and w['durations'][segment]>0)
                 effort=0. if w['coast'] or waiting else w['efforts'][w['segment']]
                 if w['coast'] or waiting:target=None
-            leg_start=(w['paths'][w['segment']][w['point']-1]
+            leg_start=(None if self.online_mapping and waiting else
+                       w.get('local_leg_start') if self.online_mapping and w and target is not None else
+                       w['paths'][w['segment']][w['point']-1]
                        if w and target is not None and not terminal_homing else None)
-            state=self.backend.step(self.dt,target,effort,leg_start)
+            state=self.backend.step(self.dt,target,effort,leg_start,
+                allow_reverse=self.online_mapping and self.model=='otter' and effort<0.)
             if self.scene:
                 reason=self.scene.violation(state['position'],self.backend.collision_radius_m)
                 if reason:
@@ -413,12 +621,16 @@ class PvsNode:
                     self.finish(False,'ACTUAL_STATE_OUTSIDE_NATIVE_DOMAIN')
                     w=None
             if w:
+                from qn_aav_simulator.time_alignment import DEFAULT_MAX_ABS_DRIFT_S
+                now=rospy.Time.now().to_sec()
+                self.action_model_clock_drift_s=abs((self.backend.time_s-w['model_start'])-(now-w['ros_start']))
+                time_valid=self.action_model_clock_drift_s<=DEFAULT_MAX_ABS_DRIFT_S
+                self.visual_timing_relaxed=self.visual_timing_relaxed or (
+                    self.allow_visual_timing_relaxation and not time_valid)
                 observations=w.get('observations')
-                if observations is not None:
-                    from qn_aav_simulator.time_alignment import DEFAULT_MAX_ABS_DRIFT_S
-                    now=rospy.Time.now().to_sec()
+                if observations is not None and not w.get("region_id"):
                     valid=(not w['cause'] and not w['waiting_commit'] and not self.locked and
-                           abs((self.backend.time_s-w['model_start'])-(now-w['ros_start']))<=DEFAULT_MAX_ABS_DRIFT_S)
+                           (time_valid or self.allow_visual_timing_relaxation))
                     for event in observations.sample(self.backend.time_s,state['position'],state['actual_mode'],now,valid):
                         self.products.publish(String(data=json.dumps(event,allow_nan=False)))
                 if (self._needs_return_entry(w['paths'],observations) and
@@ -439,11 +651,14 @@ class PvsNode:
                     self.finish(False,'OBSERVATION_TIMEOUT_UNVERIFIED')
                 elif self.backend.steps%10==0:
                     w['handle'].publish_feedback(PlatformTaskFeedback(segment_index=w['segment'],
-                    operation='PREPARED' if w['waiting_commit'] else 'PRECOMMITTED_WAIT' if waiting else
+                    operation='PREPARED' if w['waiting_commit'] else
+                              'WAIT_LOCAL_OBSERVATION' if self.online_mapping and waiting else
+                              'PRECOMMITTED_WAIT' if waiting else
                               self.terminal_behavior if w['coast'] else self.mode+'_PATH',
                         reference_source='PVS_NATIVE',actual_mode=self.mode,
                         reference_generation=self.generation,model_time_s=self.backend.time_s))
             stamp=rospy.Time.now()
+            if self.online_mapping:self.survey_poses.append((stamp.to_sec(),tuple(state['position'])))
             odom=Odometry()
             odom.header.stamp=stamp
             odom.header.frame_id=self.world_frame
@@ -454,6 +669,21 @@ class PvsNode:
             odom.twist.twist.angular.x,odom.twist.twist.angular.y,odom.twist.twist.angular.z=state['body_angular_velocity']
             self.odom.publish(odom)
             values={**state,'resource_locked':self.locked,
+                    'visual_timing_relaxed':self.visual_timing_relaxed,
+                    'action_model_clock_drift_s':self.action_model_clock_drift_s,
+                    'local_plan_seq':self.work.get('local_plan_seq',0) if self.work else 0,
+                    'local_plan_stamp':self.work.get('local_plan_stamp',0.) if self.work else 0.,
+                    'local_target':json.dumps(self.work.get('local_target')) if self.work else 'null',
+                    'local_wait':self.work.get('local_wait',False) if self.work else False,
+                    'local_motion_status':self.work.get('local_motion_status','WAITING_FOR_SCAN') if self.work else '',
+                    'local_rejected_commands':self.work.get('local_rejected_commands','') if self.work else '',
+                    'local_geometric_target':json.dumps(self.work.get('local_geometric_target')) if self.work else '',
+                    'local_effort':self.work.get('local_effort',0.) if self.work else 0.,
+                    'local_has_command':self.work.get('local_has_command',False) if self.work else False,
+                    'local_command_until':self.work.get('local_command_until',0.) if self.work else 0.,
+                    'local_activation_step':self.work.get('local_activation_step',-1) if self.work else -1,
+                    'local_command_end_step':self.work.get('local_command_end_step',-1) if self.work else -1,
+                    'local_stop_s':self.work.get('local_stop_s',0.) if self.work else 0.,
                     'pending_goal_id':self.pending['id'] if self.pending else '',
                     'native_prediction':json.dumps(self.last_prediction),
                     'reference_generation':self.generation,

@@ -2,6 +2,7 @@
 # All five physical platforms start by the shore command vessel. The declared
 # corridor between the pier and west jetty constrains outbound motion.
 scene:
+  online_mapping: true
   geometry_enabled: true
   topic: /scene/global_cloud
   frame_id: world

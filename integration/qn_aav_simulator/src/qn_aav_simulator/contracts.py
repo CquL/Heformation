@@ -71,6 +71,9 @@ class ControlCmd:
     desired_yaw_rad: float = 0.0
     desired_attitude_quat_wxyz: Quaternion = (1.0, 0.0, 0.0, 0.0)
     frame_id: str = "map"
+    # Internal qn reference semantics, set only after a verified WATER terminal.
+    # It suppresses LOS recapture surge during the same stationary commitment.
+    water_terminal_hold: bool = False
 
 
 @dataclass(frozen=True)

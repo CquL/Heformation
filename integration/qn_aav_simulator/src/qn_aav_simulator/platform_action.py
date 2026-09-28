@@ -9,6 +9,8 @@ import math
 import hashlib
 import time
 import json
+import threading
+from collections import deque
 import actionlib
 import rospy
 from diagnostic_msgs.msg import DiagnosticArray
@@ -37,10 +39,31 @@ class LocalPlatformAction:
         from std_msgs.msg import String
         request_file=rospy.get_param('/mission/request_file','')
         self.observation_request=load_request(request_file) if request_file else None
+        self.online_mapping=getattr(self.observation_request,'execution_mode','')=='ONLINE_MAPPING'
+        self.allow_visual_timing_relaxation=bool(rospy.get_param('/mission/allow_visual_timing_relaxation',False))
+        self.visual_timing_relaxed=False
+        self.action_model_clock_drift_s=0.
+        self.survey_map=None
+        self.survey_lock=threading.Lock()
+        self.survey_poses=deque(maxlen=400)
+        self.survey_stamp=-math.inf
+        if self.online_mapping:
+            from qn_aav_simulator.observation_coverage import LocalSurveyMap
+            self.survey_map=LocalSurveyMap()
+            for box in rospy.get_param('/scene/known_free_deployment',[]):
+                self.survey_map.declare_free_box(box['low'],box['high'])
+            # Navigation policy is known in advance; physical SOLID geometry
+            # remains unknown until measured and is never seeded here.
+            for obj in rospy.get_param('/scene/objects',[]):
+                if obj['kind']=='FORBIDDEN':
+                    low=tuple(c-v/2 for c,v in zip(obj['center'],obj['size']))
+                    high=tuple(c+v/2 for c,v in zip(obj['center'],obj['size']))
+                    self.survey_map.declare_forbidden_box(low,high)
         self.observation_obstacles=tuple(ObstacleBox(c,s) for _,kind,c,s in self.scene.objects if kind=='SOLID') if self.scene else ()
         self.products=rospy.Publisher('~local_products',String,queue_size=100)
         self.hold_point=node.state.position
         self.hold_yaw=0.
+        self.water_terminal_hold=False
         self.last_air_id=-1
         self.air_floor=-1
         self.floor_at_claim=-1
@@ -73,6 +96,10 @@ class LocalPlatformAction:
         from qn_aav_simulator.srv import StartPreparedAction
         self.start_service=rospy.Service('~start_prepared',StartPreparedAction,self.start_prepared)
         self.subscribers=[]
+        if self.online_mapping:
+            from sensor_msgs.msg import PointCloud2
+            prefix='/'+node.agent_id+('_qn' if node.agent_id.startswith('drone_') else '')
+            self.subscribers.append(rospy.Subscriber(prefix+'/survey_cloud',PointCloud2,self._survey_cloud,queue_size=1))
         if self.handover_enabled:
             self.subscribers.append(rospy.Subscriber('/'+node.agent_id+'_planning/safety_status',
                 DiagnosticArray,self._planner_status,queue_size=1))
@@ -81,6 +108,101 @@ class LocalPlatformAction:
             self.subscribers.extend(rospy.Subscriber(endpoint+'/result',FormationActionResult,
                 self._air_result,queue_size=10) for endpoint in endpoints)
         self.server.start()
+
+    def _survey_cloud(self,message):
+        """Build measured map and query paths outside the physical-step lock."""
+        from sensor_msgs import point_cloud2
+        stamp=message.header.stamp.to_sec()
+        if message.header.frame_id!=self.node.world_frame:return
+        with self.node.lock:
+            # AIR has its own active observation consumer. Do not duplicate
+            # Python voxel integration here while no native fragment owns it.
+            # Preserve the map; a later Goal still needs a fresh measured scan.
+            if self.work is None:return
+            if not self.survey_poses or stamp<=self.survey_stamp:return
+            captured=next((row for row in reversed(self.survey_poses) if row[0]==stamp),None)
+            if captured is None:return
+            pose_time,origin=captured
+        rows=tuple(point_cloud2.read_points(message,field_names=('x','y','z','intensity'),skip_nans=True))
+        with self.survey_lock:
+            self.survey_map.integrate(origin,[row[:3] for row in rows],[row[3]>.5 for row in rows],stamp,
+                mode=actual_mode(medium_flag(origin[2],self.node.backend.constants.hg_m)))
+            self.survey_stamp=stamp
+            with self.node.lock:
+                work=self.work
+                if work is None or work['cause'] or work['waiting_start']:return
+                index=work['index'];segment=work['segments'][index]
+                position=tuple(self.node.state.position)
+                reference=tuple(work['local_ref'])
+                observations=work.get('observations')
+                if work.get('region_id') and observations is not None:
+                    from std_msgs.msg import String
+                    for event in observations.sample_mapping(self.survey_map,self.mode(),stamp):
+                        self.products.publish(String(data=json.dumps(event,allow_nan=False)))
+                remaining=(observations.unobserved_mapping_points(self.survey_map,self.mode())
+                    if work.get('region_id') and segment.operation=='WATER_PATH' and
+                    observations is not None else None)
+            goals=([segment.points[-1]] if not remaining else
+                sorted(remaining,key=lambda point:math.dist(position,point)))
+            radius=self.scene_radius+(self.scene.clearance if self.scene else 0.)+self.position_tolerance
+            waypoint=None
+            query_end=time.monotonic()+.04
+            if rospy.Time.now().to_sec()-stamp<=1.:
+                for goal in goals:
+                    if segment.operation!='WATER_PATH':
+                        # The accepted conversion is a fixed vertical line.
+                        # Rebinding x/y to every measured pose removes the
+                        # restoring reference and turns drift into a new goal.
+                        if self.survey_map.segment_clear(position,goal,radius):waypoint=goal
+                    elif (not remaining and
+                          math.dist(position,segment.points[-1])<=self.position_tolerance and
+                          math.dist(reference,segment.points[-1])<=self.position_tolerance):
+                        # Already in the declared terminal region. Capture the
+                        # accepted reference and decelerate; chasing a point a
+                        # few centimetres behind creates an unnecessary pi turn.
+                        waypoint=reference
+                    else:
+                        waypoint=self.survey_map.next_target(position,
+                            (goal[0],goal[1],segment.points[-1][2]),radius,max_step_m=1.)
+                    if waypoint is not None or time.monotonic()>=query_end:break
+            # An observation or query that raced a Goal/segment change cannot
+            # become the new reference. The qn state itself is never replaced.
+            with self.node.lock:
+                if self.work is not work or work['index']!=index or work['cause']:return
+                if math.dist(self.node.state.position,position)>self.position_tolerance:return
+                work['local_plan_seq']=work.get('local_plan_seq',0)+1
+                work['local_plan_stamp']=stamp
+                work['local_wait']=waypoint is None and bool(goals)
+                work['local_waypoint']=tuple(waypoint) if waypoint is not None else work['local_ref']
+                work['local_survey_done']=remaining is not None and not remaining
+
+    def _mapping_reference(self,work,segment,t):
+        """Advance the accepted short reference; no map search on the model tick."""
+        position=self.node.state.position
+        dt=max(0.,t-work.get('local_tick',t));work['local_tick']=t
+        reference=work['local_ref'];waypoint=work['local_waypoint']
+        if rospy.Time.now().to_sec()-work.get('local_plan_stamp',-math.inf)>1.:
+            waypoint=reference;work['local_wait']=True
+        distance=math.dist(reference,waypoint)
+        if distance>1e-9:
+            length=sum(math.dist(a,b) for a,b in zip(segment.points,segment.points[1:]))
+            speed=((.13 if getattr(self.node,'platform_type','AAV')=='UUV' else .1)
+                   if segment.operation=='WATER_PATH' else length/segment.duration if length else 0.)
+            travel=min(distance,speed*dt)
+            reference=tuple(reference[k]+travel*(waypoint[k]-reference[k])/distance for k in range(3))
+            horizontal=math.hypot(waypoint[0]-work['local_ref'][0],waypoint[1]-work['local_ref'][1])
+            if segment.operation=='WATER_PATH' and horizontal>self.position_tolerance:
+                desired=math.atan2(waypoint[1]-work['local_ref'][1],waypoint[0]-work['local_ref'][0])
+                limit=self.node.backend.water_heading_rate_limit_radps*dt
+                self.hold_yaw+=max(-limit,min(limit,math.remainder(desired-self.hold_yaw,2*math.pi)))
+        work['local_ref']=reference
+        if work.get('region_id') and segment.operation=='WATER_PATH':
+            done=(work.get('local_survey_done',False) and
+                  math.dist(position,segment.points[-1])<=self.position_tolerance)
+        elif segment.operation!='WATER_PATH':
+            done=math.dist(position,segment.points[-1])<=self.position_tolerance
+        else:done=math.dist(position,segment.points[-1])<=self.position_tolerance
+        return reference,done
 
     def _planner_status(self,message):
         stamp=message.header.stamp.to_sec()
@@ -103,8 +225,14 @@ class LocalPlatformAction:
         with self.node.lock:
             if self.owner.source!='AIR_SWARM' or message.status.goal_id.id!=self.owner.goal_id:return
             result=message.result
+            # The explicitly enabled visual run may release a physically
+            # verified AIR terminal with timing validity INCOMPLETE. This does
+            # not rewrite the original time audit or accept safety failures.
+            validity_ok=(result.experiment_validity==1 or
+                (result.experiment_validity==3 and
+                 bool(rospy.get_param('/mission/allow_visual_timing_relaxation',False))))
             verified=(message.status.status==3 and result.task_outcome==1 and
-                      result.safety_outcome==1 and result.experiment_validity==1 and result.reason==0)
+                      result.safety_outcome==1 and validity_ok and result.reason==0)
             self.owner.finish(message.status.goal_id.id,verified)
             if verified:self.terminal_mode='AIR'
 
@@ -127,6 +255,8 @@ class LocalPlatformAction:
         return frozenset({'AIR' if self.owner.source=='AIR_SWARM' else self.terminal_mode})
 
     def note_adopted(self,snapshot):
+        if self.online_mapping:
+            self.survey_poses.append((self.node.state.timestamp_s,tuple(self.node.state.position)))
         self.applied_source=snapshot.reference_source
         self.applied_generation=snapshot.reference_generation
         if self.scene and self.owner.source=='PLATFORM':
@@ -138,12 +268,13 @@ class LocalPlatformAction:
         if self.node.domain_history.violation:
             if self.work:self._begin_disposition('DOMAIN_VIOLATION')
             else:self.owner.locked=True
-        if self.work and self.work.get('observations') is not None:
+        if self.work and self.work.get('observations') is not None and not self.work.get('region_id'):
             from std_msgs.msg import String
             work=self.work;now=rospy.Time.now().to_sec();t=self.node.clock.model_time_s
             valid=(not work['cause'] and not work['waiting_start'] and not self.owner.locked and
                    self.applied_source=='PLATFORM' and self.applied_generation==self.owner.generation and
-                   abs((t-work['clock_start'])-(now-work['ros_start']))<=DEFAULT_MAX_ABS_DRIFT_S)
+                   (abs((t-work['clock_start'])-(now-work['ros_start']))<=DEFAULT_MAX_ABS_DRIFT_S or
+                    self.allow_visual_timing_relaxation))
             for event in work['observations'].sample(t,self.node.state.position,self.mode(),now,valid):
                 self.products.publish(String(data=json.dumps(event,allow_nan=False)))
 
@@ -172,6 +303,7 @@ class LocalPlatformAction:
             if accepted and before!=self.owner.generation:
                 self._flush_reference()
                 if request.source=='AIR_SWARM':
+                    self.water_terminal_hold=False
                     self.floor_at_claim=self.last_air_id
                     self.air_floor=self.last_air_id
                     self.air_adopted=False
@@ -217,7 +349,7 @@ class LocalPlatformAction:
                         raise ValueError('path frame must match the declared scene frame: '+self.node.world_frame)
                     points=tuple((p.pose.position.x,p.pose.position.y,p.pose.position.z) for p in raw.path.poses)
                     segments.append(Segment(raw.operation,points,raw.duration.to_sec()))
-                    if self.scene:
+                    if self.scene and not self.online_mapping:
                         reason=self.scene.path_violation(points,self.scene_radius)
                         if reason:raise ValueError(reason)
                 permitted=(frozenset(('WATER_PATH',)) if getattr(self.node,'platform_type','AAV')=='UUV'
@@ -235,6 +367,17 @@ class LocalPlatformAction:
                             segment.operation in ('ENTER_WATER','EXIT_WATER') and
                             any(p[:2]!=segment.points[0][:2] for p in segment.points)):
                         raise ValueError('transition fault continuation requires an accepted vertical segment')
+                region_id=str(getattr(goal,'region_id',''))
+                if region_id and not self.online_mapping:raise ValueError('REGION_REQUIRES_ONLINE_MAPPING')
+                if self.online_mapping:
+                    actual=tuple(self.node.state.position)
+                    normalized=[]
+                    for segment in segments:
+                        end=segment.points[-1]
+                        if segment.operation in ('ENTER_WATER','EXIT_WATER'):end=(actual[0],actual[1],end[2])
+                        normalized.append(Segment(segment.operation,(actual,end),segment.duration))
+                        actual=end
+                    segments=normalized
                 reason=self._entry_reason(segments)
                 if reason:raise ValueError(reason)
                 timeout=goal.execution_timeout.to_sec()
@@ -257,13 +400,22 @@ class LocalPlatformAction:
                     model_time_s=self.node.clock.model_time_s))
                 return
             self._flush_reference()
+            self.water_terminal_hold=False
+            if self.online_mapping and segments[0].operation in ('ENTER_WATER','EXIT_WATER'):
+                # A vertical mode conversion keeps the measured entry heading,
+                # not the final geometric path's possibly different heading.
+                w,x,y,z=self.node.state.orientation_quat_wxyz
+                self.hold_yaw=math.atan2(2*(w*z+x*y),1-2*(y*y+z*z))
+                self.water_terminal_hold=segments[0].operation=='EXIT_WATER'
             self.work=dict(handle=handle,id=ident,task=goal.task_id,segments=segments,index=0,
                 start=self.node.clock.model_time_s,settled=None,
                 clock_start=self.node.clock.model_time_s,ros_start=rospy.Time.now().to_sec(),
                 waiting_start=self.handover_enabled or bool(getattr(goal,'prepare_only',False)),
                 waiting_commit=bool(getattr(goal,'prepare_only',False)),fault_allowed=None,
                 deadline=time.monotonic()+min(timeout,self.wall_limit),cause='',last_feedback=-1.,observations=observations,
-                terminal_wait_s=terminal_wait_s)
+                terminal_wait_s=terminal_wait_s,region_id=region_id,
+                local_ref=tuple(self.node.state.position),local_waypoint=tuple(self.node.state.position),
+                local_tick=self.node.clock.model_time_s,local_done=False,local_wait=True)
             handle.set_accepted('finite local fragment accepted')
 
     def _entry_reason(self,segments):
@@ -274,14 +426,14 @@ class LocalPlatformAction:
             return 'NONFINITE_ACTUAL_STATE'
         required='AIR' if segments[0].operation=='ENTER_WATER' else 'WATER'
         if self.mode()!=required:return 'ACTUAL_ENTRY_MODE_MISMATCH'
-        if math.dist(segments[0].points[0],state.position)>self.position_tolerance:
+        if not self.online_mapping and math.dist(segments[0].points[0],state.position)>self.position_tolerance:
             return 'START_STATE_CHANGED'
         if math.sqrt(sum(v*v for v in state.velocity))>self.speed_tolerance:
             return 'FRAGMENT_ENTRY_NOT_SETTLED'
         if self.scene:
             reason=self.scene.violation(state.position,self.scene_radius)
             if reason:return reason
-            for segment in segments:
+            for segment in (() if self.online_mapping else segments):
                 reason=self.scene.path_violation(segment.points,self.scene_radius)
                 if reason:return reason
         return ''
@@ -331,7 +483,17 @@ class LocalPlatformAction:
                     segment.operation in ('ENTER_WATER','EXIT_WATER')):
                 # Finish only this already accepted conversion, never the
                 # remaining job. Keep its original clock, endpoint and path.
-                self.fault_transition=(segment,self.work['start'])
+                if self.online_mapping:
+                    # A pre-observation wait is not elapsed conversion motion.
+                    # Continue only the last observed-clear vertical reference,
+                    # with its remaining length and the unchanged native rate.
+                    start=self.work['local_ref'];end=self.work['local_waypoint']
+                    length=math.dist(segment.points[0],segment.points[-1])
+                    if length>0 and math.dist(start,end)>1e-9:
+                        remaining=math.dist(start,end)/(length/segment.duration)
+                        self.fault_transition=(Segment(segment.operation,(start,end),remaining),
+                                               self.node.clock.model_time_s)
+                else:self.fault_transition=(segment,self.work['start'])
             self.work['fault_allowed']=self.allowed_modes()
             self.fault_hold_modes=self.work['fault_allowed']
             self.fault_hold_operation=self.work['segments'][self.work['index']].operation
@@ -351,6 +513,13 @@ class LocalPlatformAction:
         observation_missing=normal and observations is not None and observations.emitted!=set(observations.points)
         if observation_missing:normal=False;reason='OBSERVATION_NOT_SATISFIED'
         if terminal_verified:self.terminal_mode=self.mode()
+        if terminal_verified and not work['cause'] and self.mode()=='WATER':
+            # A completed native terminal keeps its accepted position reference.
+            # Stop generating forward LOS recapture from millimetre residuals;
+            # the same plant damps its remaining velocity and holds depth/yaw.
+            self.water_terminal_hold=True
+            w,x,y,z=self.node.state.orientation_quat_wxyz
+            self.hold_yaw=math.atan2(2*(w*z+x*y),1-2*(y*y+z*z))
         # Missing business coverage does not invalidate a verified physical
         # terminal. Faults and unverified terminals still retain the local lock.
         self.owner.finish(work['id'],terminal_verified and not work['cause'])
@@ -400,6 +569,8 @@ class LocalPlatformAction:
             finishing=self.fault_transition is not None
             if finishing:
                 target=self.fault_transition[0].reference(t-self.fault_transition[1])
+            elif self.online_mapping and not work['cause'] and not work['waiting_start']:
+                target,mapping_done=self._mapping_reference(work,segment,t)
             else:
                 target=self.hold_point if work['cause'] or work['waiting_start'] else segment.reference(elapsed)
             terminal_due=not work['waiting_start'] and (
@@ -407,21 +578,45 @@ class LocalPlatformAction:
             consistent=(self.mode() in self.allowed_modes() if work['cause'] and not finishing
                         else self.mode()==segment.target_mode)
             drift=abs((t-work['clock_start'])-(rospy.Time.now().to_sec()-work['ros_start']))
+            self.action_model_clock_drift_s=drift
             time_valid=drift<=DEFAULT_MAX_ABS_DRIFT_S
+            self.visual_timing_relaxed=self.visual_timing_relaxed or (
+                self.allow_visual_timing_relaxation and not time_valid)
+            # User-authorized visual mode relaxes only model-vs-ROS elapsed
+            # drift. Physical settling and its duration use actual model ticks;
+            # fresh input stamps, Goal identity and safety are still mandatory.
+            terminal_time_ok=time_valid or self.allow_visual_timing_relaxation
             adopted=self.applied_source=='PLATFORM' and self.applied_generation==self.owner.generation
             settled=(terminal_due and consistent and
-                adopted and time_valid and
+                adopted and terminal_time_ok and
                 math.dist(self.node.state.position,target)<=self.position_tolerance and
                 math.sqrt(sum(v*v for v in self.node.state.velocity))<=self.speed_tolerance)
-            if not work['cause'] and not work['waiting_start']:
-                settled=(adopted and time_valid and segment_terminal_ready(segment,elapsed,
+            if self.online_mapping and not work['cause'] and not work['waiting_start']:
+                settled=(mapping_done and adopted and terminal_time_ok and consistent and
+                    math.dist(self.node.state.position,target)<=self.position_tolerance and
+                    math.sqrt(sum(v*v for v in self.node.state.velocity))<=self.speed_tolerance)
+            elif not work['cause'] and not work['waiting_start']:
+                settled=(adopted and terminal_time_ok and segment_terminal_ready(segment,elapsed,
                     self.node.state.position,self.node.state.velocity,self.mode(),
                     self.position_tolerance,self.speed_tolerance))
             if settled:
                 if work['settled'] is None:
                     work['settled']=t
+                    if self.online_mapping and not work['cause'] and self.mode()=='WATER':
+                        # The original position/speed/coverage/adoption checks
+                        # have become true. Verify the following four seconds
+                        # using the actual stationary input, rather than letting
+                        # LOS rotate toward a millimetre capture error while a
+                        # different AIR yaw is waiting at the mode boundary.
+                        w,x,y,z=self.node.state.orientation_quat_wxyz
+                        self.hold_yaw=math.atan2(2*(w*z+x*y),1-2*(y*y+z*z))
+                        self.water_terminal_hold=True
             else:
                 work['settled']=None
+                if (self.online_mapping and not work['cause'] and segment.operation=='WATER_PATH'):
+                    # Leaving the unchanged terminal region resumes ordinary
+                    # guidance; the hold flag is never a success substitute.
+                    self.water_terminal_hold=False
             extra_wait=work.get('terminal_wait_s',0.) if not work['cause'] and work['index']==len(work['segments'])-1 else 0.
             if work['settled'] is not None and t-work['settled']>=self.hold_duration+extra_wait:
                 self.hold_point=target
@@ -431,6 +626,19 @@ class LocalPlatformAction:
                     work['index']+=1
                     work['start']=t
                     work['settled']=None
+                    if self.online_mapping:
+                        following=work['segments'][work['index']]
+                        # The preceding four seconds verified its stationary
+                        # position/speed and measured heading input. Keep that
+                        # x/y and heading through a vertical mode handoff; do
+                        # not restore the old geometric path heading.
+                        begin=tuple(target)
+                        end=following.points[-1]
+                        if following.operation in ('ENTER_WATER','EXIT_WATER'):end=(begin[0],begin[1],end[2])
+                        work['segments'][work['index']]=Segment(following.operation,(begin,end),following.duration)
+                        if following.operation=='WATER_PATH':self.water_terminal_hold=False
+                        work.update(local_ref=target,local_waypoint=target,local_done=False,
+                                    local_plan_stamp=-math.inf,local_tick=t,local_survey_done=False)
             elif time.monotonic()>=work['deadline']:
                 self.hold_point=target
                 self._finish(False,'OBSERVATION_TIMEOUT_UNVERIFIED')
@@ -439,20 +647,30 @@ class LocalPlatformAction:
                 work['handle'].publish_feedback(PlatformTaskFeedback(
                     segment_index=work['index'],operation=('PREPARED' if work.get('waiting_commit',False) and self.planner_ready(True) else
                         'WAIT_PLANNER_ACK' if work['waiting_start'] else
-                        'FAULT_FINISH_'+segment.operation if finishing else work['segments'][work['index']].operation),
+                        'FAULT_FINISH_'+segment.operation if finishing else
+                        'WAIT_LOCAL_OBSERVATION' if self.online_mapping and work.get('local_wait') else
+                        'REGION_MAPPING' if work.get('region_id') else work['segments'][work['index']].operation),
                     reference_source=self.owner.source,actual_mode=self.mode(),
                     reference_generation=self.owner.generation,model_time_s=t))
         return dict(position=target,velocity=(0.,0.,0.),acceleration=(0.,0.,0.),
-                    yaw_rad=self.hold_yaw if self.owner.source=='AIR_SWARM' else 0.,
+                    yaw_rad=self.hold_yaw if self.owner.source=='AIR_SWARM' or self.online_mapping else 0.,
                     stamp_s=rospy.Time.now().to_sec(),received_ros_time_s=rospy.Time.now().to_sec(),
                     trajectory_id=self.owner.generation if self.owner.source=='PLATFORM' else max(0,self.air_floor),
                     trajectory_flag=1 if self.owner.source=='PLATFORM' else 0,
-                    reference_source='PLATFORM',reference_generation=self.owner.generation)
+                    reference_source='PLATFORM',reference_generation=self.owner.generation,
+                    water_terminal_hold=self.water_terminal_hold and self.owner.source=='PLATFORM')
 
     def diagnostics(self):
         return [('reference_source',self.applied_source),('reference_generation',str(self.owner.generation)),
                 ('transition_fault_behavior',self.transition_fault_behavior),
                 ('scene_failure',self.scene_failure),
+                ('water_terminal_hold',str(self.water_terminal_hold).lower()),
+                ('visual_timing_relaxed',str(self.visual_timing_relaxed).lower()),
+                ('action_model_clock_drift_s',str(self.action_model_clock_drift_s)),
+                ('local_plan_seq',str(self.work.get('local_plan_seq',0) if self.work else 0)),
+                ('local_plan_stamp',str(self.work.get('local_plan_stamp',0.) if self.work else 0.)),
+                ('local_target',json.dumps(self.work.get('local_waypoint')) if self.work else 'null'),
+                ('local_wait',str(self.work.get('local_wait',False) if self.work else False).lower()),
                 ('execution_phase',('PREPARED' if self.work and self.work.get('waiting_commit',False) and self.planner_ready(True) else
                     'WAIT_PLANNER_ACK' if self.work and self.work.get('waiting_start',False) else
                     'FAULT_FINISH_'+self.fault_hold_operation if self.fault_transition is not None and

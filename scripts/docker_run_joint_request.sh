@@ -100,12 +100,17 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
     launch_pid="";rviz_pid="";dashboard_pid="";recorder_pid=""
     cleanup() {
       touch /experiments/current/session-ended
-      if [[ -n "$recorder_pid" ]]; then kill -INT "$recorder_pid" 2>/dev/null || true; fi
+      if [[ -n "$recorder_pid" ]]; then
+        kill -INT "$recorder_pid" 2>/dev/null || true
+        wait "$recorder_pid" 2>/dev/null || true
+      fi
       if [[ -n "$dashboard_pid" ]]; then kill -INT "$dashboard_pid" 2>/dev/null || true; fi
       if [[ -n "$rviz_pid" ]]; then kill -INT "$rviz_pid" 2>/dev/null || true; fi
       if [[ -n "$launch_pid" ]]; then kill -INT "$launch_pid" 2>/dev/null || true; fi
     }
     trap cleanup EXIT
+    trap "exit 130" INT
+    trap "exit 143" TERM
     view_prefix=()
     if [[ -n "$JOINT_VIEW_CPUSET" ]]; then view_prefix=(taskset -c "$JOINT_VIEW_CPUSET"); fi
     if [[ "$JOINT_TASK_UI" == true ]]; then
@@ -134,8 +139,11 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
       active_scene=/experiments/current/ui-scene.yaml
     fi
     sim_prefix=()
+    observed_mapping=$(python3 -c "import yaml,sys; print(str(yaml.safe_load(open(sys.argv[1])).get(\"execution_mode\")==\"ONLINE_MAPPING\").lower())" "$active_request")
     if [[ -n "$JOINT_SIM_CPUSET" ]]; then sim_prefix=(taskset -c "$JOINT_SIM_CPUSET"); fi
     "${sim_prefix[@]}" roslaunch qn_aav_simulator five_qualification.launch record:=false \
+      observed_mapping:="$observed_mapping" \
+      visual_timing_relaxation:="$JOINT_VISUAL_TIMING_RELAX" \
       request_file:="$active_request" \
       scene_file:="$active_scene" visualize:="$JOINT_VISUALIZE" \
       usv_initial_position:="$JOINT_USV_INITIAL_POSITION" \
@@ -185,6 +193,14 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
       /drone_0_qn_aav/local_products /drone_1_qn_aav/local_products
       /drone_2_qn_aav/local_products
       /usv/local_products /uuv/local_products)
+    # Record the actual sensor inputs and observed surface output for this one
+    # integrated run; planned paths cannot serve as sensing evidence.
+    record_cmd+=(/drone_0_qn/survey_cloud /drone_1_qn/survey_cloud /drone_2_qn/survey_cloud
+      /usv/survey_cloud /uuv/survey_cloud /scene/observed_cloud
+      /drone_0_qn/used_reference_pose /drone_0_qn/used_reference_twist
+      /drone_1_qn/used_reference_pose /drone_1_qn/used_reference_twist
+      /drone_2_qn/used_reference_pose /drone_2_qn/used_reference_twist
+      /uuv/used_reference_pose /uuv/used_reference_twist)
     if [[ -n "$JOINT_VIEW_CPUSET" ]]; then record_cmd=(taskset -c "$JOINT_VIEW_CPUSET" "${record_cmd[@]}"); fi
     "${record_cmd[@]}" > /experiments/current/recorder.log 2>&1 &
     recorder_pid=$!

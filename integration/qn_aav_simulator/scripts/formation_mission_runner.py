@@ -206,6 +206,10 @@ class MissionRunner:
                         "payload_quality": "UNVERIFIED", "delivery_model": "ZERO_LATENCY_LOCAL_RESULT",
                         "formation_business_shape_verdict": "NOT_DEFINED"}
         self.plan = None
+        if self.request.execution_mode=='ONLINE_MAPPING':
+            self.metrics['observation_model']='MEASURED_RANGE_SCAN_DEPTH_SLICE_MAPPING'
+            self.metrics['mapping_scope']='sampled slice occupancy and observed 3D hits; not full 3D reconstruction'
+        self.metrics['visual_timing_relaxation']=bool(rospy.get_param('/mission/allow_visual_timing_relaxation',False))
         self.finite_delivery=bool(rospy.get_param('/mission/request_file',''))
         self.command_delivery_required=(self.finite_delivery and
             self.planning_mode=='joint_request' and self.request.template_id!='OFFSHORE_JOINT')
@@ -270,11 +274,11 @@ class MissionRunner:
             if (event['request_id']!=self.request.request_id or event['observed'] is not True or
                     (self.request.template_id!='OFFSHORE_JOINT' and
                      event.get('required_bytes')!=32768) or
-                    event['result']['model']!='GEOMETRIC_PROXY' or
+                    event['result']['model']!=('MAPPING_PROXY' if self.request.execution_mode=='ONLINE_MAPPING' else 'GEOMETRIC_PROXY') or
                     not all(math.isfinite(event[k]) for k in ('generated_at','received_at')) or
                     event['received_at']<event['generated_at'] or
                     not math.isfinite(event['result']['dwell_s']) or
-                    event['result']['dwell_s']+1e-9<self.request.requirement.min_dwell_s):
+                    event['result']['dwell_s']+1e-9<(0. if self.request.execution_mode=='ONLINE_MAPPING' else self.request.requirement.min_dwell_s)):
                 raise ValueError('invalid received product contract')
             with self.condition:goals={k:set(v) for k,v in self.goal_ids.items()}
             with self.executor_mutex:
@@ -736,7 +740,7 @@ class MissionRunner:
         geometry=getattr(self,'task_geometry',None) or StaticSceneGeometry.from_mapping(rospy.get_param('/scene',{}))
         if geometry is None:raise RuntimeError('native entry binding needs static geometry')
         radius=1.1891593669479295 if member=='usv' else .25
-        for segment in bound.segments:
+        for segment in bound.segments if self.request.execution_mode!='ONLINE_MAPPING' else ():
             reason=geometry.path_violation(segment.points,radius)
             if reason:raise RuntimeError('bound native reference fails static geometry: '+reason)
         prediction=dict(item.native_prediction,terminal_position=bound.segments[-1].points[-1],
@@ -749,7 +753,7 @@ class MissionRunner:
         with self.executor_mutex:
             self.metrics.setdefault('native_entry_bindings',{})[item.execution_id]=dict(
                 original_entry=old,actual_entry=actual_start,segments=[asdict(segment) for segment in bound.segments],
-                geometry_checked=True,dynamic_safety_certified=False)
+                geometry_checked=self.request.execution_mode!='ONLINE_MAPPING',dynamic_safety_certified=False)
         return replace(item,execution_steps=(step,))
 
     def _wait_task_support_receipts(self,item,step,action):
@@ -880,6 +884,17 @@ class MissionRunner:
                             any(str(values.get(key,'false')).lower()=='true' for key in
                                 ('resource_locked','platform_resource_locked','domain_failure','air_domain_violation')) or
                             bool(values.get('scene_failure'))):
+                        detail=dict(member=hold['member'],at_ros_s=now,
+                            expected_position=hold['position'],radius_m=hold['radius_m'],
+                            actual_position=None if sample is None else tuple(sample.position),
+                            position_stamp=None if sample is None else sample.stamp,
+                            diagnostic_stamp=stamp,actual_mode=values.get('actual_mode'),
+                            local_reference=values.get('local_target'),
+                            locks={key:values.get(key) for key in ('resource_locked','platform_resource_locked',
+                                'domain_failure','air_domain_violation','scene_failure')})
+                        self.metrics['joint_return_hold_failure']=detail
+                        self.metrics.setdefault('first_failure',dict(member=hold['member'],
+                            execution_id=ident,reason='joint return target hold lost',detail=detail))
                         raise RuntimeError('joint return target hold lost: '+hold['member'])
                     ready_states[ident]=dict(member=hold['member'],position=tuple(sample.position),
                                             mode=hold['mode'],diagnostic_at_ros_s=stamp)
@@ -1083,7 +1098,9 @@ class MissionRunner:
         return (state == GoalStatus.SUCCEEDED and result is not None
                 and result.task_id == execution_id and bool(result.goal_id)
                 and result.reason == 0 and result.task_outcome == 1
-                and result.safety_outcome == 1 and result.experiment_validity == 1)
+                and result.safety_outcome == 1 and (result.experiment_validity == 1 or
+                    result.experiment_validity == 3 and bool(rospy.get_param(
+                        '/mission/allow_visual_timing_relaxation',False))))
 
     def _checked_native_prediction(self,item):
         prediction=item.native_prediction
@@ -1097,7 +1114,7 @@ class MissionRunner:
                 raise RuntimeError('task-level estimate lacks its honest execution-pending scope')
         elif prediction.get('status')!='FEASIBLE':
             raise RuntimeError('native plan lacks a complete checked motion prediction')
-        if not prediction.get('geometry_checked'):
+        if not prediction.get('geometry_checked') and self.request.execution_mode!='ONLINE_MAPPING':
             raise RuntimeError('native reference path lacks static geometry checks')
         duration=float(prediction['duration_s']);position=prediction['terminal_position']
         if not math.isfinite(duration) or duration<0 or len(position)!=3 or not all(math.isfinite(v) for v in position):
@@ -1137,6 +1154,7 @@ class MissionRunner:
                 goal.observation_ids=observation_ids
             elif observation_ids:
                 raise RuntimeError('Formation.action lacks observation_ids; rebuild the Noetic message image')
+            goal.region_id=step.region_id if step is not None else ''
             return goal
         if unit.action_type!='PlatformTaskAction':raise RuntimeError('native fragment routed to AIR Action')
         self._checked_native_prediction(item)
@@ -1148,6 +1166,7 @@ class MissionRunner:
         goal=PlatformTaskGoal(task_id=item.execution_id,terminal_behavior=native.terminal_behavior,
                               execution_timeout=rospy.Duration(native.execution_timeout_s),
                               observation_ids=list(native.observation_ids),
+                              region_id=native.region_id,
                               terminal_wait=rospy.Duration(native.terminal_wait_s))
         for segment in native.segments:
             path=RosPath();path.header.frame_id='world'
@@ -1911,6 +1930,13 @@ class MissionRunner:
                     for unit in self.units:
                         if unit.action_endpoint in endpoints or unit.executor_id in occupied_units:
                             self.clients[unit.executor_id].cancel_goal()
+                    # Native disposition may take time. Publish the actual
+                    # failure now, while retaining every uncertain booking;
+                    # the UI must not keep saying RUNNING until all workers end.
+                    with self.executor_mutex:
+                        self.metrics['failure_reason']=str(failure)
+                        self.metrics['status']='UNKNOWN_LOCKED' if self.active_executor_ids else 'FAIL'
+                    self._save_executor()
                 with self.executor_mutex:
                     completed={i.execution_id for i in self.plan.items if i.status=="COMPLETED"}
                     predecessors=activity_predecessors(self.plan)
@@ -2388,7 +2414,9 @@ class MissionRunner:
                 print('联合方案已生成，请在任务控制台点击“确认并执行”。',flush=True)
             else:
                 print(json.dumps(dict(request_id=self.request.request_id,activities=preview,
-                    limits=['geometric observation proxy; payload quality unverified',
+                    limits=[('measured range scan / depth-slice mapping proxy; full 3D surface completion unverified'
+                             if self.request.execution_mode=='ONLINE_MAPPING' else
+                             'geometric observation proxy; payload quality unverified'),
                             ('task-level shared support; actual receipt required'
                              if self.request.template_id=='OFFSHORE_JOINT' else
                              'finite experimental delivery; actual receipt required'),
@@ -2589,7 +2617,8 @@ class MissionRunner:
                 not self.active_executor_ids and delivered==1. and
                 set(self.metrics['results_received'])==set(self.tasks_by_id) and
                 all(row['completed'] for row in self.metrics['return_completion'].values()))
-            self.metrics['status']='PASS_GEOMETRIC_PROXY_QUALIFICATION' if complete else 'FAILED'
+            self.metrics['status']=(('PASS_SAMPLED_MAPPING' if self.request.execution_mode=='ONLINE_MAPPING'
+                else 'PASS_GEOMETRIC_PROXY_QUALIFICATION') if complete else 'FAILED')
             if not complete:self.metrics['failure_reason']='actual work, receipt or return incomplete'
             self._save_executor()
         except BaseException as error:
@@ -3189,7 +3218,7 @@ def main():
     runner = MissionRunner()
     runner.run()
     if runner.metrics["status"] not in ("PASS", "PASS_GEOMETRIC_PROXY",
-                                        "PASS_GEOMETRIC_PROXY_QUALIFICATION", "NOT_CONFIRMED"):
+                                        "PASS_GEOMETRIC_PROXY_QUALIFICATION", "PASS_SAMPLED_MAPPING", "NOT_CONFIRMED"):
         raise SystemExit(1)
 
 

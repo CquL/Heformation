@@ -13,6 +13,135 @@ POINT = {"p": (-28.0, 4.0, 0.0)}
 WEIGHTS = {"p": 1.0}
 
 
+def test_measured_map_cannot_clear_or_observe_through_a_first_hit():
+    from qn_aav_simulator.observation_coverage import LocalSurveyMap
+    local = LocalSurveyMap(.25)
+    origin, rock, behind = (.125, .125, .125), (1.125, .125, .125), (2.125, .125, .125)
+    local.integrate(origin, (rock,), (True,), 1.)
+    assert local.state((.625, .125, .125)) == 'FREE'
+    assert local.state(rock) == 'OCCUPIED'
+    assert local.state(behind) == 'UNKNOWN'
+    # Even an inconsistent later no-hit ray cannot erase the static obstacle.
+    local.integrate(origin, (behind,), (False,), 2.)
+    assert local.covered_ids({'rock': rock, 'behind': behind}) == ('rock',)
+    assert local.state(rock) == 'OCCUPIED' and not local.observed(behind)
+    assert local.hit_points() == (rock,)
+
+
+def test_observed_centreline_does_not_authorize_unknown_body_clearance():
+    from qn_aav_simulator.observation_coverage import LocalSurveyMap
+    local = LocalSurveyMap(.25)
+    origin, goal = (.125, .125, .125), (1.125, .125, .125)
+    local.integrate(origin, (goal,), (False,), 1.)
+    assert local.segment_clear(origin, goal, 0.)
+    assert not local.segment_clear(origin, goal, .2)
+    assert local.next_target(origin, goal, .2) is None
+    assert not local.segment_clear(origin, (2.125, .125, .125), 0.)
+
+
+def test_forbidden_policy_blocks_motion_but_not_measurement_rays():
+    from qn_aav_simulator.observation_coverage import LocalSurveyMap
+    local = LocalSurveyMap(.25)
+    origin, goal = (.125, .125, .125), (2.125, .125, .125)
+    local.declare_free_box((-1., -1., -1.), (3., 1., 1.))
+    local.declare_forbidden_box((.75, -.25, -.25), (1.25, .5, .5))
+    assert not local.observed((1., .125, .125))  # policy alone is no measurement
+    local.integrate(origin, [goal], [False], 1., mode='AIR')
+    assert local.observed(goal, 'AIR') and local.observed((1., .125, .125), 'AIR')
+    assert local.state((1., .125, .125)) == 'FREE' and not local.hit_points()
+    assert not local.segment_clear(origin, goal, .1)
+    assert local.segment_clear((.125, -.5, .125), (2.125, -.5, .125), .1)
+
+
+def test_local_map_short_targets_route_around_a_new_measured_obstacle():
+    from qn_aav_simulator.observation_coverage import LocalSurveyMap
+    local = LocalSurveyMap(.25)
+    origin, goal = (.125, .125, .125), (2.125, .125, .125)
+    endpoints = [((x + .5) * .25, (y + .5) * .25, (z + .5) * .25)
+                 for x in range(-2, 12) for y in range(-4, 5) for z in range(-2, 3)]
+    local.integrate(origin, endpoints, [False] * len(endpoints), 1.)
+    local.integrate(origin, [(1.125, .125, .125)], [True], 2.)
+    current, route = origin, []
+    for _ in range(12):
+        target = local.next_target(current, goal, .05, .5)
+        assert target is not None and local.segment_clear(current, target, .05)
+        route.append(target)
+        current = target
+        if current == goal:
+            break
+    assert current == goal
+    assert any(abs(point[1] - origin[1]) > .1 for point in route)
+
+
+def test_mapping_products_require_measured_cell_and_do_not_fabricate_dwell():
+    from pathlib import Path
+    from qn_aav_simulator.task_line import load_request
+    from qn_aav_simulator.observation_coverage import LocalObservationWindow, LocalSurveyMap
+    request = load_request(Path(__file__).parents[1] / 'config/monitoring_request_joint.yaml')
+    window = LocalObservationWindow(request, ['water_sample'], 'uuv', 'mapping-goal')
+    point = window.points['water_sample'][0]
+    local = LocalSurveyMap(.25)
+    assert not window.sample_mapping(local, 'WATER', 1.)
+    local.integrate((point[0] - 1., point[1], point[2]), [point], [True], 2., mode='WATER')
+    assert not window.sample_mapping(local, 'WATER', 1.9)  # future measurement
+    assert not window.sample_mapping(local, 'AIR', 2.)    # wrong operating mode
+    events = window.sample_mapping(local, 'WATER', 2.)
+    assert len(events) == 1 and events[0]['goal_id'] == 'mapping-goal'
+    assert events[0]['result']['model'] == 'MAPPING_PROXY'
+    assert events[0]['result']['observed_state'] == 'OCCUPIED'
+    assert events[0]['result']['dwell_s'] == 0.
+    assert 'received_at' not in events[0]
+    assert not window.sample_mapping(local, 'WATER', 3.)  # no duplicate product
+
+
+def test_air_scan_cannot_become_a_water_product_after_mode_transition():
+    from pathlib import Path
+    from qn_aav_simulator.task_line import load_request
+    from qn_aav_simulator.observation_coverage import LocalObservationWindow, LocalSurveyMap
+    request = load_request(Path(__file__).parents[1] / 'config/monitoring_request_joint.yaml')
+    window = LocalObservationWindow(request, ['water_sample'], 'drone_0', 'water-mapping-goal')
+    point = window.points['water_sample'][0]
+    local = LocalSurveyMap(.25)
+    local.integrate((point[0] - 1., point[1], 1.), [point], [True], 1., mode='AIR')
+    assert local.observed(point) and local.observed(point, 'AIR')
+    assert not local.observed(point, 'WATER')
+    assert not window.sample_mapping(local, 'WATER', 2.)
+    # A conflicting WATER miss through the old occupied endpoint cannot
+    # manufacture a new WATER hit. A genuine repeat first hit below can.
+    local.integrate((point[0] - 1., point[1], point[2]),
+                    [(point[0] + 1., point[1], point[2])], [False], 3., mode='WATER')
+    assert not window.sample_mapping(local, 'WATER', 3.)
+    local.integrate((point[0] - 1., point[1], point[2]), [point], [True], 4., mode='WATER')
+    events = window.sample_mapping(local, 'WATER', 4.)
+    assert len(events) == 1 and events[0]['result']['source_mode'] == 'WATER'
+    assert local.covered_ids({'cell': point}, mode='WATER') == ('cell',)
+
+
+def test_mapping_report_cell_requires_every_clipped_fine_voxel_not_just_centre():
+    from pathlib import Path
+    from dataclasses import replace
+    from qn_aav_simulator.task_line import load_request
+    from qn_aav_simulator.monitoring_request import InterestPoint, SurveyRegion, mapping_cell_samples
+    from qn_aav_simulator.observation_coverage import LocalObservationWindow, LocalSurveyMap
+    base = load_request(Path(__file__).parents[1] / 'config/monitoring_request_joint.yaml')
+    point = InterestPoint('cell', (.5, .5, -2.), 1.)
+    region = SurveyRegion('water', 'UNDERWATER', (-2., -2., -2.), (2., 2., -2.),
+        (point,), shape='CIRCLE', center=(0., 0., -2.), radius_m=2., coverage_resolution_m=1.)
+    request = replace(base, regions=(region,), execution_mode='ONLINE_MAPPING')
+    window = LocalObservationWindow(request, ['cell'], 'uuv', 'region-goal')
+    local = LocalSurveyMap(.25)
+    cells = mapping_cell_samples((0., 0.), 2., point.position)
+    assert len(cells) == 16 and window.mapping_cells['cell'] == cells
+    local.integrate((.625, .625, -2.), [(.626, .626, -2.)], [False], 1., mode='WATER')
+    assert local.observed(point.position, 'WATER')
+    assert not window.sample_mapping(local, 'WATER', 1.)
+    assert len(window.unobserved_mapping_points(local, 'WATER')) == 15
+    local.integrate((.5, .5, -3.), cells, [False] * len(cells), 2., mode='WATER')
+    events = window.sample_mapping(local, 'WATER', 2.)
+    assert len(events) == 1 and events[0]['result']['sampled_voxel_count'] == 16
+    assert not window.unobserved_mapping_points(local, 'WATER')
+
+
 def test_native_observation_requires_fresh_active_domain_samples_and_emits_once():
     from pathlib import Path
     from qn_aav_simulator.task_line import load_request

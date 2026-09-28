@@ -29,6 +29,10 @@ RUN patch -p1 -d /workspace/src \
 # same frame as the rest of the stack) instead of staying silent.
 RUN patch -p1 -d /workspace/src \
       < /tmp/swarm_qn_patches/renderer_empty_scan_frame_stamp.patch
+# Local measurements use first-return voxel rays (XYZI hit/miss), and the
+# planner fuses them at the acquisition pose rather than reading scene truth.
+RUN patch -p1 -d /workspace/src \
+      < /tmp/swarm_qn_patches/local_sensing_first_return_mapping.patch
 # The replan FSM must honour the goal height so the cruise altitude can clear the
 # declared surface envelope.
 RUN patch -p1 -d /workspace/src \

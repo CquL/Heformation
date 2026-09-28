@@ -206,6 +206,7 @@ class QnAavNode:
             yaw_rad=adopted["yaw_rad"],
             reference_source=adopted.get("reference_source", "AIR_SWARM"),
             reference_generation=adopted.get("reference_generation", 0),
+            water_terminal_hold=adopted.get("water_terminal_hold",False),
         )
 
     # -- control loop ------------------------------------------------------
@@ -271,6 +272,7 @@ class QnAavNode:
                 yaw_rad=latest["yaw_rad"],
                 reference_source=latest.get("reference_source", "INITIAL_HOLD"),
                 reference_generation=latest.get("reference_generation", 0),
+                water_terminal_hold=latest.get("water_terminal_hold",False),
             )
         usage = self.usage.record(snapshot, dt_s, self.clock.model_time_s)
         command = ControlCmd(
@@ -282,6 +284,7 @@ class QnAavNode:
             desired_velocity=usage.velocity,
             desired_acceleration=snapshot.acceleration,
             desired_yaw_rad=snapshot.yaw_rad,
+            water_terminal_hold=snapshot.water_terminal_hold,
             frame_id=self.world_frame,
         )
         prepared = time.monotonic()
@@ -433,6 +436,7 @@ class QnAavNode:
             ("source_trajectory_id", str(usage.source_trajectory_id)),
             ("reference_source", usage.reference_source),
             ("reference_generation", str(usage.reference_generation)),
+            ("water_terminal_hold", str(usage.water_terminal_hold).lower()),
             ("actual_mode", actual_mode(state.medium_flag)),
             ("source_command_stamp", repr(usage.source_command_stamp)),
             ("used_outer_step", str(usage.used_outer_step)),

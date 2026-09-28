@@ -3,6 +3,7 @@
 # Coordinates are metres in the model scene, not a real-sea distance claim.
 request_id: offshore-joint-observation
 template_id: OFFSHORE_JOINT
+execution_mode: ONLINE_MAPPING
 service_time_s: 4.0
 deadline_s: null
 delivery_required: true

@@ -3,6 +3,7 @@
        The other members remain physically present; no qn instance restarts. -->
   <arg name="output_dir" default="/experiments/current"/>
   <arg name="record" default="true"/>
+  <arg name="observed_mapping" default="false"/>
   <arg name="transition_fault_behavior" default="FIXED_REFERENCE"/>
   <!-- A user-selected offshore region can put a member target more than 30 m
        from the deployment area.  This is an observation horizon, not a looser
@@ -10,6 +11,7 @@
        existing hold, clearance and reference-adoption checks. -->
   <arg name="air_observation_timeout_s" default="350.0"/>
   <include file="$(find qn_aav_simulator)/launch/formation_aav3.launch">
+    <arg name="observed_mapping" value="$(arg observed_mapping)"/>
     <arg name="planner_speed" value="0.35"/>
     <arg name="safety_hold_timeout_s" value="$(arg air_observation_timeout_s)"/>
     <arg name="record" value="false"/>

@@ -76,6 +76,9 @@ class MonitoringRequest:
     return_required: bool = False
     # A single fixed joint-operation template; ordinary requests leave it unset.
     template_id: str = ''
+    # ONLINE_MAPPING consumes local range measurements; coordinates below are
+    # map accounting cells, never an operator-supplied flight path.
+    execution_mode: str = 'POINT_OBSERVATION'
 
 
 def circle_sweep_points(center, radius_m, z, spacing_m, prefix):
@@ -106,6 +109,23 @@ def circle_sweep_points(center, radius_m, z, spacing_m, prefix):
                  for index,point in enumerate(points))
 
 
+def mapping_cell_samples(center_xy,radius_m,cell_center,cell_size=1.,resolution=.25):
+    """Declared global voxel centres, clipped to one report cell and the ROI.
+
+    Request area weights and actual-map acceptance use this same discretisation.
+    It is sampled area at this resolution, not exact continuous surface area.
+    """
+    x,y,z=cell_center;low=(x-cell_size/2,y-cell_size/2)
+    high=(x+cell_size/2,y+cell_size/2);points=[]
+    for ix in range(math.floor(low[0]/resolution),math.ceil(high[0]/resolution)):
+        for iy in range(math.floor(low[1]/resolution),math.ceil(high[1]/resolution)):
+            px=(ix+.5)*resolution;py=(iy+.5)*resolution
+            if (low[0]<=px<high[0] and low[1]<=py<high[1] and
+                    math.hypot(px-center_xy[0],py-center_xy[1])<=radius_m):
+                points.append((px,py,z))
+    return tuple(points)
+
+
 def circle_joint_request_mapping(base, center, radius_m):
     """Instantiate the existing joint business template from one UI circle."""
     raw=copy.deepcopy(base)
@@ -118,6 +138,20 @@ def circle_joint_request_mapping(base, center, radius_m):
     spacing=min(requirement.footprint_radius_m*1.25,radius_m)
     air=circle_sweep_points(center,radius_m,0.,spacing,'air_swath')
     deep=circle_sweep_points(center,radius_m,-2.,spacing,'deep_swath')
+    if raw.get('execution_mode')=='ONLINE_MAPPING':
+        # Fixed accounting samples of the declared depth slices. This is not
+        # a scan order or an instruction to fly through every cell centre.
+        spacing=1.
+        def cells(z,prefix):
+            points=[];n=int(math.ceil(radius_m))
+            for ix in range(-n,n):
+                for iy in range(-n,n):
+                    p=(center[0]+ix+.5,center[1]+iy+.5,z)
+                    weight=len(mapping_cell_samples(center,radius_m,p))*.25**2
+                    if not weight:continue
+                    points.append(InterestPoint('{}_{:+d}_{:+d}'.format(prefix,ix,iy),p,weight))
+            return tuple(points)
+        air=cells(0.,'air_map');deep=cells(-2.,'deep_map')
     shallow=InterestPoint('aav_water_sample',(center[0],center[1],-.6),1.)
     by_id={entry['region_id']:entry for entry in raw['regions']}
     if set(by_id)!={'offshore_air','offshore_aav_water','offshore_uuv'}:
@@ -132,6 +166,7 @@ def circle_joint_request_mapping(base, center, radius_m):
                       interest_points=[dict(point_id=p.point_id,position=list(p.position),weight=p.weight)
                                        for p in points])
     raw['request_id']='circle-{:.2f}-{:.2f}-r{:.2f}'.format(center[0],center[1],radius_m)
+    if raw.get('execution_mode')=='ONLINE_MAPPING':raw['request_id']+='-mapping'
     return raw
 
 
@@ -143,6 +178,39 @@ def circle_joint_mission_mappings(base_request, base_scene, center, radius_m):
     geometry=StaticSceneGeometry.from_mapping(scene)
     if geometry is None:raise ValueError('circle selection needs declared static geometry')
     regions={entry['region_id']:entry for entry in request['regions']}
+    if request.get('execution_mode')=='ONLINE_MAPPING':
+        # Region/work intentions use only the user's geometry and deployment
+        # policy. Hidden objects are not inspected to remove tasks or pick paths.
+        cx,cy=(float(v) for v in center);r=float(radius_m)
+        shallow=regions['offshore_aav_water'];sample=shallow['interest_points'][0]['position']
+        shallow.update(shape='BOX',corner_a=list(sample),corner_b=list(sample),
+                       center=list(sample),radius_m=None,coverage_resolution_m=None)
+        mother=scene['mother_ship_receiver_position'];dx,dy=mother[0]-cx,mother[1]-cy
+        norm=math.hypot(dx,dy) or 1.;ux,uy=dx/norm,dy/norm
+        entry=(cx+(r+1.5)*ux,cy+(r+1.5)*uy)
+        scene['transition_sites']=[dict(id='mapping_entry',position=[entry[0],entry[1],0.])]
+        stage=(cx+(r+1.)*ux,cy+(r+1.)*uy,-2.)
+        support=(stage[0]+3.*ux,stage[1]+3.*uy,0.)
+        scene['communication_sites']=[dict(id='mapping_support',position=list(support),radius_m=2.,
+            acoustic_contact_m=8.,mother_contact_m=30.,departure_wait_candidates_s=[0.])]
+        scene['return_sites']['uuv']['staging_position']=list(stage)
+        scene['online_mapping']=True
+        scene['selected_monitoring_area']=dict(shape='CIRCLE',center=[cx,cy,0.],radius_m=r,
+            coverage_resolution_m=1.,coverage_scope='DECLARED_DEPTH_SLICE_SAMPLES')
+        scene['known_free_deployment']=[]
+        for site in scene['return_sites'].values():
+            position=site['position'];half=1.75
+            low=[v-half for v in position];high=[v+half for v in position]
+            # The launch/deployment region is a declared known prior, unlike the
+            # remote task map. Refuse an inconsistent prior instead of carving
+            # a hidden obstacle away. This is not mission coverage evidence.
+            if any(all(low[i]<c[i]+s[i]/2 and high[i]>c[i]-s[i]/2 for i in range(3))
+                   for _,_,c,s in geometry.objects):
+                raise ValueError('deployment free-space prior overlaps a scene obstacle')
+            scene['known_free_deployment'].append(dict(low=low,high=high))
+        scene['observation_targets']=[]
+        scene.pop('water_route_candidates',None);scene.pop('air_route_via',None)
+        return request,root
     # Obstacles inside a selected region are holes in its free workspace, as
     # in obstacle-aware boustrophedon coverage planning.  Keep the business
     # circle intact and remove only witnesses a physical centre cannot occupy.
@@ -398,7 +466,12 @@ def validate_request(request: MonitoringRequest) -> None:
             point_ids.add(point.point_id)
             if not math.isfinite(point.weight) or point.weight <= 0:
                 raise ValueError("point weights must be finite and positive")
-            if (region.shape=='CIRCLE' and
+            if region.shape=='CIRCLE' and request.execution_mode=='ONLINE_MAPPING':
+                samples=mapping_cell_samples(region.center[:2],region.radius_m,point.position,
+                    cell_size=region.coverage_resolution_m)
+                if not samples or abs(point.weight-len(samples)*.25**2)>1e-8:
+                    raise ValueError('mapping report cell must use its clipped measured-grid area')
+            elif (region.shape=='CIRCLE' and
                     math.hypot(point.position[0]-region.center[0],
                                point.position[1]-region.center[1])>region.radius_m+1e-8):
                 raise ValueError('circle coverage witness lies outside its region')

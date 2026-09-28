@@ -426,7 +426,7 @@ def load_request(path: Path) -> MonitoringRequest:
     if not isinstance(raw, dict):
         raise ValueError("a monitoring request must be a mapping")
     allowed={'request_id','template_id','requirement','regions','required_capabilities','service_time_s','deadline_s',
-             'delivery_required','requires_underwater','requires_relay_delivery','return_required','formation_phase'}
+             'delivery_required','requires_underwater','requires_relay_delivery','return_required','formation_phase','execution_mode'}
     if set(raw)-allowed:
         raise ValueError('unsupported request fields: '+str(sorted(set(raw)-allowed)))
     for field in ("request_id", "requirement", "regions",
@@ -460,7 +460,11 @@ def load_request(path: Path) -> MonitoringRequest:
         requires_underwater=bool(raw.get("requires_underwater", False)),
         requires_relay_delivery=bool(raw.get("requires_relay_delivery", False)),
         return_required=raw.get('return_required',False),
-        template_id=str(raw.get('template_id','')))
+        template_id=str(raw.get('template_id','')),
+        execution_mode=str(raw.get('execution_mode','POINT_OBSERVATION')))
+
+    if request.execution_mode not in ('POINT_OBSERVATION','ONLINE_MAPPING'):
+        raise ValueError('unsupported region execution mode')
 
     from .monitoring_request import validate_request
     validate_request(request)

@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-"""Publish the one complete scene map the planners actually consume.
+"""Simulation world, range observations, display and task-level transport.
 
-The upstream CPU renderer builds each drone's local cloud from a single global
-map.  This node is the only publisher on that scene topic, so the map is always
-one complete, consistent description of the world instead of two publishers
-overwriting each other.
+The complete cloud is world truth for the legacy renderer and independent
+evaluation. ONLINE_MAPPING planners consume only per-member survey_cloud rays
+generated from actual poses here, not the complete scene description.
 
 The legacy profile has one optional box. The five-platform profile declares
 multiple SOLID boxes and separate FORBIDDEN/task metadata; only SOLID is sampled
-as physical sensor-map geometry. Seabed clearance is checked analytically, not
-presented as a sonar measurement. A declared empty solid map is an empty cloud,
-not a missing message.
+as physical sensor-map geometry. The ONLINE_MAPPING geometric range model also
+casts against the declared seabed. It does not model sonar propagation or
+camera imagery. A valid no-hit ray is distinct from a missing message.
 
 The box centre and size are defined once and used for both the sampled cloud and
 the analytic clearance the verifier reports.
@@ -60,6 +59,28 @@ class SceneTransport:
         if any(box.blocks(self.mother,self.mother) for box in self.obstacles):
             raise ValueError('declared mother receiver lies inside a solid; set its exterior attachment position')
         self.lock=threading.Lock();self.states={};self.modes={};self.local_diagnostics={};self.events={}
+        self.scan_poses={};self.scan_sent={}
+        self.survey_publishers={}
+        if self.request.execution_mode=='ONLINE_MAPPING':
+            # Declared geometric range-sensor experiment, not a camera/sonar
+            # hardware claim. Ray casting belongs on the simulator side only.
+            import numpy as np
+            self.np=np
+            # Panoramic geometric range scan for this experiment; the existing
+            # forward Swarm camera remains a separate navigation input.
+            az,el=np.meshgrid(np.deg2rad(np.arange(-180.,180.,6.)),
+                             np.deg2rad(np.arange(-90.,91.,6.)))
+            self.scan_directions=np.stack((np.cos(el)*np.cos(az),np.cos(el)*np.sin(az),np.sin(el)),axis=-1).reshape(-1,3)
+            self.scan_range=5.
+            self.scan_seabed=float(scene['seabed_z_m'])
+            self.observed_points={}
+            self.observed_cloud=rospy.Publisher('/scene/observed_cloud',PointCloud2,queue_size=1,latch=True)
+            self.scan_boxes=[(np.array(o['center'])-np.array(o['size'])/2,
+                              np.array(o['center'])+np.array(o['size'])/2)
+                             for o in scene['objects'] if o['kind']=='SOLID']
+            for member in ('drone_0','drone_1','drone_2','usv','uuv'):
+                prefix='/'+member+('_qn' if member.startswith('drone_') else '')
+                self.survey_publishers[member]=rospy.Publisher(prefix+'/survey_cloud',PointCloud2,queue_size=1)
         self.last_time=math.floor(rospy.Time.now().to_sec()*10.)/10.;self.previous={}
         self.started_at=self.last_time
         self.delivery=None if self.task_service else FiniteDelivery(self.last_time)
@@ -84,6 +105,8 @@ class SceneTransport:
         self.subs.append(rospy.Subscriber('/mother/state_claim_requests',String,
             self.state_claim_request,queue_size=20))
         self.timer=rospy.Timer(rospy.Duration(.1),self.tick)
+        if self.survey_publishers:
+            self.scan_timer=rospy.Timer(rospy.Duration(.25),self.publish_scans)
 
     def odom(self,key,msg):
         if msg.header.frame_id!=self.frame:return
@@ -92,6 +115,56 @@ class SceneTransport:
             rows=self.states.setdefault(key,deque(maxlen=64))
             stamp=msg.header.stamp.to_sec()
             if not rows or stamp>rows[-1][0]:rows.append((stamp,(p.x,p.y,p.z)))
+            q=msg.pose.pose.orientation
+            self.scan_poses[key]=(stamp,(p.x,p.y,p.z),(q.w,q.x,q.y,q.z))
+
+    def publish_scans(self,_event):
+        """First intersection or explicit valid max-range miss for each ray.
+
+        XYZI uses intensity 1=hit, 0=valid miss. Missing/stale odometry produces
+        no scan, never a fabricated clear volume. Consumers use the same-stamp
+        actual origin and keep untraversed cells unknown (OctoMap semantics).
+        """
+        from sensor_msgs import point_cloud2
+        np=self.np
+        with self.lock:poses=dict(self.scan_poses)
+        fields=[PointField(name=n,offset=4*i,datatype=PointField.FLOAT32,count=1)
+                for i,n in enumerate(('x','y','z','intensity'))]
+        for member,(stamp,origin,quat) in poses.items():
+            if member not in self.survey_publishers or stamp<=self.scan_sent.get(member,-1):continue
+            if not 0<=rospy.Time.now().to_sec()-stamp<=.5:continue
+            w,x,y,z=quat
+            rotation=np.array(((1-2*(y*y+z*z),2*(x*y-z*w),2*(x*z+y*w)),
+                (2*(x*y+z*w),1-2*(x*x+z*z),2*(y*z-x*w)),
+                (2*(x*z-y*w),2*(y*z+x*w),1-2*(x*x+y*y))))
+            directions=self.scan_directions@rotation.T;origin=np.asarray(origin)
+            distance=np.full(len(directions),self.scan_range);hits=np.zeros(len(directions))
+            # The declared seabed is a physical first return, even though the
+            # aerial planner's compact obstacle cloud omits the seabed plane.
+            downward=directions[:,2]<-1e-10
+            floor_distance=np.full(len(directions),np.inf)
+            floor_distance[downward]=(self.scan_seabed-origin[2])/directions[downward,2]
+            floor_hit=(floor_distance>0.) & (floor_distance<distance)
+            distance[floor_hit]=floor_distance[floor_hit];hits[floor_hit]=1.
+            for low,high in self.scan_boxes:
+                with np.errstate(divide='ignore',invalid='ignore'):
+                    a=(low-origin)/directions;b=(high-origin)/directions
+                parallel=np.abs(directions)<1e-10
+                outside=parallel & ((origin<low)|(origin>high))
+                near=np.max(np.where(parallel,-np.inf,np.minimum(a,b)),axis=1)
+                far=np.min(np.where(parallel,np.inf,np.maximum(a,b)),axis=1)
+                valid=(~np.any(outside,axis=1)) & (far>=np.maximum(near,0.)) & (near>0.) & (near<distance)
+                distance[valid]=near[valid];hits[valid]=1.
+            ends=origin+directions*distance[:,None]
+            payload=np.column_stack((ends,hits)).astype(np.float32)
+            cloud=point_cloud2.create_cloud(Header(frame_id=self.frame,stamp=rospy.Time.from_sec(stamp)),fields,payload)
+            self.survey_publishers[member].publish(cloud);self.scan_sent[member]=stamp
+            for point in ends[hits>0]:
+                key=tuple(int(math.floor(float(v)/.25)) for v in point)
+                self.observed_points[key]=tuple(float(v) for v in point)
+        if self.observed_points:
+            self.observed_cloud.publish(point_cloud2.create_cloud_xyz32(
+                Header(frame_id=self.frame,stamp=rospy.Time.now()),list(self.observed_points.values())))
 
     def mode(self,key,msg):
         from qn_aav_simulator.platform_execution import actual_mode
@@ -429,6 +502,8 @@ class SceneView:
         add('water', M.CUBE, (-9.,0.,self.scene['surface_z_m']), (62.,32.,.025), (.1,.55,.8,.14))
         add('seabed', M.CUBE, (-9.,0.,self.scene['seabed_z_m']), (62.,32.,.08), (.28,.3,.25,.65))
         label('legend', (-9.,14.,4.), self.scene.get('scenario_label','五平台 · 实际状态与障碍'), .85)
+        if self.scene.get('online_mapping'):
+            label('map_legend',(-9.,14.,2.7),'环境模型：仿真真值参照 · 绿色点：实际探测',.55)
         label('water_label', (18.,12.,.2), '海面', .65)
         label('bed_label', (18.,12.,-5.5), '海底', .65)
         for item in self.scene.get('objects', []):
@@ -466,17 +541,20 @@ class SceneView:
                      if item['domain']=='AIR']
         deep_targets=[item for item in self.scene.get('observation_targets', [])
                       if item['id'].startswith('deep_swath_')]
+        selected=self.scene.get('selected_monitoring_area')
+        if selected and selected.get('shape')=='CIRCLE':
+            center=selected['center'];diameter=2*selected['radius_m']
+            add('joint_survey_area',M.CYLINDER,(center[0],center[1],-.06),
+                (diameter,diameter,.04),(.25,.85,1.,.12))
+            label('joint_survey_label',(center[0],center[1]+selected['radius_m']+1.,1.3),
+                  '用户选择的联合监测区',.7)
         if len(air_targets)>1:
             all_targets=self.scene.get('observation_targets', [])
             joint_x=[item['position'][0] for item in all_targets]
             joint_y=[item['position'][1] for item in all_targets]
             selected=self.scene.get('selected_monitoring_area')
             if selected and selected.get('shape')=='CIRCLE':
-                center=selected['center'];diameter=2*selected['radius_m']
-                add('joint_survey_area',M.CYLINDER,(center[0],center[1],-.06),
-                    (diameter,diameter,.04),(.25,.85,1.,.12))
-                label('joint_survey_label',(center[0],center[1]+selected['radius_m']+1.,1.3),
-                      '用户选择的联合监测区',.7)
+                pass  # selected region is drawn independently of legacy points
             else:
                 add('joint_survey_area',M.CUBE,
                     ((min(joint_x)+max(joint_x))/2,(min(joint_y)+max(joint_y))/2,-.06),

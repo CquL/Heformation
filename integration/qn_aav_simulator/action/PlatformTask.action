@@ -9,6 +9,8 @@ bool prepare_only
 # Point IDs in the request loaded once by the local endpoint. Empty means
 # motion only; a successful motion Result is never an observation product.
 string[] observation_ids
+# Region execution replaces the WATER scan segment's placeholder route locally.
+string region_id
 # Additional bounded time in the qualified terminal behavior. Integration,
 # safety checks and physical reservation continue; this is not position reset.
 duration terminal_wait

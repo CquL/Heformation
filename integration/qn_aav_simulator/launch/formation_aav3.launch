@@ -16,6 +16,20 @@
   <arg name="obstacle_center" default="[-24.0, 6.0, 0.5]"/>
   <arg name="obstacle_size" default="[1.0, 1.0, 1.2]"/>
   <arg name="scene_topic" default="/scene/global_cloud"/>
+  <arg name="observed_mapping" default="false"/>
+
+  <!-- Online region execution and native Swarm navigation consume the same
+       actual first-return XYZI rays. The CPU mock renderer is not a second
+       obstacle oracle. Native trajectory checks reject unobserved positions;
+       legacy motion-only launches keep their original input/unknown policy. -->
+  <group if="$(arg observed_mapping)">
+    <param name="/drone_0_ego_planner_node/grid_map/observed_cloud_topic" value="/drone_0_qn/survey_cloud"/>
+    <param name="/drone_1_ego_planner_node/grid_map/observed_cloud_topic" value="/drone_1_qn/survey_cloud"/>
+    <param name="/drone_2_ego_planner_node/grid_map/observed_cloud_topic" value="/drone_2_qn/survey_cloud"/>
+    <param name="/drone_0_ego_planner_node/grid_map/require_known_free" value="true"/>
+    <param name="/drone_1_ego_planner_node/grid_map/require_known_free" value="true"/>
+    <param name="/drone_2_ego_planner_node/grid_map/require_known_free" value="true"/>
+  </group>
 
   <arg name="map_size_x" value="70.0"/>
   <arg name="map_size_y" value="30.0"/>
@@ -108,6 +122,20 @@
     <arg name="formation_config" value="$(arg formation_config)"/>
   </include>
 
+
+  <!-- The upstream default ceiling is 3 m. This scenario declares a 5 m AIR
+       workspace and a 3.5 m return layer. Override included defaults here;
+       actual body/obstacle and inter-member clearances remain unchanged. -->
+  <param name="/drone_0_ego_planner_node/grid_map/virtual_ceil_height" value="4.5"/>
+  <param name="/drone_1_ego_planner_node/grid_map/virtual_ceil_height" value="4.5"/>
+  <param name="/drone_2_ego_planner_node/grid_map/virtual_ceil_height" value="4.5"/>
+  <group if="$(arg observed_mapping)">
+    <!-- Same measured-voxel discretisation as the local region executor. The
+         prior 0.1 m navigation grid cannot invent evidence between 0.25 m rays. -->
+    <param name="/drone_0_ego_planner_node/grid_map/resolution" value="0.25"/>
+    <param name="/drone_1_ego_planner_node/grid_map/resolution" value="0.25"/>
+    <param name="/drone_2_ego_planner_node/grid_map/resolution" value="0.25"/>
+  </group>
 
   <!-- Apply AFTER run_in_sim includes, which otherwise overwrite max_vel with
        their upstream literal 1.5. The operator value must reach the planners. -->

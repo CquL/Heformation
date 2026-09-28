@@ -6,12 +6,16 @@
   <arg name="visualize" default="false"/>
   <arg name="record" default="true"/>
   <arg name="request_file" default=""/>
+  <arg name="observed_mapping" default="false"/>
+  <arg name="visual_timing_relaxation" default="false"/>
+  <param name="/mission/allow_visual_timing_relaxation" value="$(arg visual_timing_relaxation)"/>
   <arg name="usv_initial_position" default="[-5.0, -8.0, 0.0]"/>
   <group if="$(eval arg('request_file') != '')">
     <param name="/mission/request_file" value="$(arg request_file)"/>
   </group>
   <param name="scene_publisher/visualize" value="$(arg visualize)"/>
   <include file="$(find qn_aav_simulator)/launch/swarm_roundtrip.launch">
+    <arg name="observed_mapping" value="$(arg observed_mapping)"/>
     <arg name="output_dir" value="$(arg output_dir)"/>
     <arg name="record" value="$(arg record)"/>
     <arg name="transition_fault_behavior" value="COMPLETE_ACCEPTED_VERTICAL_SEGMENT"/>

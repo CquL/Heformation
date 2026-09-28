@@ -7,12 +7,12 @@ Visualization Manager:
   Class: ''
   Displays:
   - Class: rviz/MarkerArray
-    Name: 场景与实际轨迹
+    Name: 仿真世界真值与实际轨迹
     Enabled: true
     Marker Topic: /scene/view
     Queue Size: 2
   - Class: rviz/PointCloud2
-    Name: 安全几何（体素）
+    Name: 仿真真值（非机器人已知地图）
     Enabled: false
     Topic: /scene/global_cloud
     Color Transformer: FlatColor
@@ -20,6 +20,16 @@ Visualization Manager:
     Color: 255; 150; 60
     Style: Points
     Size (Pixels): 2
+    Queue Size: 1
+  - Class: rviz/PointCloud2
+    Name: 实际探测表面（几何测距）
+    Enabled: true
+    Topic: /scene/observed_cloud
+    Color Transformer: FlatColor
+    Position Transformer: XYZ
+    Color: 116; 218; 198
+    Style: Points
+    Size (Pixels): 3
     Queue Size: 1
   - Class: rviz/Marker
     Name: 无人机1

@@ -204,6 +204,30 @@ class FormationActionServer:
                 for agent_id in self.agent_ids}
 
         self.lock = threading.RLock()
+        self.online_mapping = bool(self.observation_request is not None and
+            getattr(self.observation_request, 'execution_mode', '') == 'ONLINE_MAPPING' and
+            len(self.agent_ids) == 1)
+        # This is declared planner workspace, not hidden obstacle geometry.
+        # A mission target above the native ceiling must be rejected before
+        # dispatch, instead of repeatedly asking Swarm to cross that boundary.
+        ceilings = [float(rospy.get_param(
+            '/drone_{}_ego_planner_node/grid_map/virtual_ceil_height'.format(agent_id), -1.))
+            for agent_id in self.agent_ids]
+        self.air_ceiling_m = min((value for value in ceilings if value > 0.), default=math.inf)
+        self.survey_lock = threading.Lock()
+        self.survey_maps = {}
+        if self.online_mapping:
+            from qn_aav_simulator.observation_coverage import LocalSurveyMap
+            for agent_id in self.agent_ids:
+                local = LocalSurveyMap(.25)
+                for box in scene.get('known_free_deployment', ()):
+                    local.declare_free_box(box['low'], box['high'])
+                for item in scene.get('objects', ()):
+                    if item.get('kind') == 'FORBIDDEN':
+                        local.declare_forbidden_box(
+                            tuple(c - s / 2. for c, s in zip(item['center'], item['size'])),
+                            tuple(c + s / 2. for c, s in zip(item['center'], item['size'])))
+                self.survey_maps[agent_id] = local
         self.terminal_lock = threading.RLock()
         self.cancelled_goals = set()
         self.terminal_goals = set()
@@ -282,6 +306,10 @@ class FormationActionServer:
         sensing_type = (PointCloud2 if self.sensor_backend == SENSOR_BACKEND_CPU
                         else Image)
         for agent_id in self.agent_ids:
+            if self.online_mapping:
+                self.subscribers.append(rospy.Subscriber(
+                    '/drone_{}_qn/survey_cloud'.format(agent_id), PointCloud2,
+                    self._survey_callback, callback_args=agent_id, queue_size=1))
             if self.safety_hold_enabled:
                 self.subscribers.append(rospy.Subscriber(
                     "/drone_{}_planning/safety_status".format(agent_id), DiagnosticArray,
@@ -370,10 +398,12 @@ class FormationActionServer:
             self.peer_odom_history[agent_id].append(sample)
 
     def _fleet_safety(self, now_s):
-        """Discrete fleet clearance, including idle members of other units.
+        """Interpolate fresh, measured histories to one common fleet time.
 
-        Reuse odometry freshness and model alignment window. Missing peers cannot
-        make a one-member Action report collision safety for the whole fleet.
+        The asynchronous publishers need not have identical sample stamps.
+        Interpolation needs a real, fresh bracket for every member; no clock is
+        modified and no extrapolation fills missing state. This remains discrete
+        evidence, not a continuous-time inter-member safety certificate.
         """
         with self.lock:
             samples = dict(self.peer_odom)
@@ -393,23 +423,36 @@ class FormationActionServer:
                     "sample_ages_s": {str(a):(None if a not in samples else now_s-samples[a].stamp)
                                       for a in self.safety_agent_ids}}
         common_stamp = min(v.stamp for v in fresh.values())
-        aligned = {a: min(histories[a], key=lambda sample: abs(sample.stamp-common_stamp))
-                   for a in self.safety_agent_ids if histories[a]}
-        if (len(aligned) != len(self.safety_agent_ids) or
-                any(not sample.is_fresh(now_s,self.odom_timeout) for sample in aligned.values())):
-            return {"ok": False, "reason": "fleet odometry has no fresh aligned history"}
-        stamps = [v.stamp for v in aligned.values()]
-        if max(stamps) - min(stamps) > self.model_time_window:
-            return {"ok": False, "reason": "fleet odometry not time aligned",
-                    "sample_ages_s": {str(a): now_s-aligned[a].stamp for a in aligned}}
-        positions = [aligned[a].position for a in sorted(aligned)]
+        aligned, brackets = {}, {}
+        for agent_id in self.safety_agent_ids:
+            before = max((row for row in histories[agent_id] if row.stamp <= common_stamp),
+                         key=lambda row: row.stamp, default=None)
+            after = min((row for row in histories[agent_id] if row.stamp >= common_stamp),
+                        key=lambda row: row.stamp, default=None)
+            if (before is None or after is None or
+                    not before.is_fresh(now_s, self.odom_timeout) or
+                    not after.is_fresh(now_s, self.odom_timeout) or
+                    after.stamp - before.stamp > self.odom_timeout):
+                return {'ok': False, 'reason': 'fleet odometry has no valid interpolation bracket',
+                        'member': agent_id, 'common_stamp_s': common_stamp,
+                        'bracket_stamps_s': [None if before is None else before.stamp,
+                                             None if after is None else after.stamp],
+                        'evidence_kind': 'INTERPOLATED_DISCRETE'}
+            gap = after.stamp - before.stamp
+            alpha = (common_stamp - before.stamp) / gap if gap > 0. else 0.
+            aligned[agent_id] = tuple(a + alpha * (b - a)
+                                      for a, b in zip(before.position, after.position))
+            brackets[str(agent_id)] = [before.stamp, after.stamp]
+        positions = [aligned[a] for a in sorted(aligned)]
         clearances = [math.dist(p, q) - 2*self.platform_radius_m
                       for i, p in enumerate(positions) for q in positions[i+1:]]
         minimum = min(clearances, default=None)
         ok = minimum is None or minimum >= self.inter_agent_clearance
         return {"ok": ok, "reason": "" if ok else "fleet inter-agent clearance violated",
                 "min_surface_clearance_m": minimum, "agent_ids": self.safety_agent_ids,
-                "evidence_kind": "DISCRETE_SAMPLED"}
+                'common_stamp_s': common_stamp, 'bracket_stamps_s': brackets,
+                'max_bracket_gap_s': max((b - a for a, b in brackets.values()), default=0.),
+                "evidence_kind": "INTERPOLATED_DISCRETE"}
 
     def _diagnostics_callback(self, message, agent_id):
         values = {}
@@ -597,6 +640,43 @@ class FormationActionServer:
         with self.lock:
             self.readiness.note_message(
                 topic, rospy.Time.now().to_sec(), valid=valid, empty=empty)
+
+    def _survey_callback(self, message, agent_id):
+        """Actual first-return scan; map work never holds the qn/state lock."""
+        from sensor_msgs import point_cloud2
+        stamp = message.header.stamp.to_sec()
+        if message.header.frame_id != 'world':
+            return
+        with self.lock:
+            # The shared formation endpoint does not subscribe at all, and an
+            # idle singleton has no mapping consumer. Retain its previous map;
+            # the first active goal waits for a fresh actual scan before moving.
+            if self.active_diagnostics is None:
+                return
+            samples = tuple(self.odom_history[agent_id])
+            floor = self.air_state.get(agent_id, {}).get('air_floor_m')
+        if not samples:
+            return
+        sample = next((row for row in reversed(samples) if row.stamp == stamp), None)
+        if sample is None:
+            return
+        # The floor is the immutable qn hg/2 model parameter received through
+        # diagnostics. Classify the matched scan pose, not today's callback
+        # phase; this subscriber remains alive during AIR/WATER transitions.
+        source_mode = None
+        if floor is not None and math.isfinite(floor) and floor > 0.:
+            source_mode = ('AIR' if sample.position[2] >= floor else
+                           'WATER' if sample.position[2] <= -floor else 'TRANSITION')
+        try:
+            rows = tuple(point_cloud2.read_points(message,
+                field_names=('x', 'y', 'z', 'intensity'), skip_nans=True))
+            with self.survey_lock:
+                local = self.survey_maps[agent_id]
+                if local.stamp is None or stamp > local.stamp:
+                    local.integrate(sample.position, [row[:3] for row in rows],
+                                    [row[3] > .5 for row in rows], stamp, mode=source_mode)
+        except (ValueError, TypeError) as error:
+            rospy.logwarn_throttle(3., 'invalid local survey: %s', error)
 
     def _publish_routed_goal(self, command):
         semantics, route = self.goal_route()
@@ -913,7 +993,17 @@ class FormationActionServer:
     def _validate_goal(self, goal):
         if not str(goal.task_id).strip():
             raise ValueError("task_id must not be empty")
+        if (self.online_mapping and goal.formation_center.point.z +
+                self.platform_radius_m + self.obstacle_clearance >= self.air_ceiling_m):
+            raise ValueError('AIR target envelope exceeds declared native planner ceiling')
         requested=tuple(getattr(goal,'observation_ids',()))
+        region_id = str(getattr(goal, 'region_id', ''))
+        if region_id:
+            regions = {region.region_id: region for region in self.observation_request.regions} if self.observation_request else {}
+            if (not self.online_mapping or len(self.agent_ids) != 1 or
+                    region_id not in regions or not requested or
+                    set(requested) != {point.point_id for point in regions[region_id].interest_points}):
+                raise ValueError('region action needs its complete declared mapping cells')
         if requested:
             if self.observation_request is None or len(self.agent_ids)!=1:
                 raise ValueError('AIR observation needs one local member and a declared request')
@@ -1344,14 +1434,15 @@ class FormationActionServer:
             diagnostics.get("actual_finish_time", diagnostics["actual_start_time"]))
         result.reason = reason
         verdict = diagnostics.get("verdict") or {}
+        visual_accepted = bool(diagnostics.get('visual_execution_accepted'))
         result.task_outcome = (FormationResult.TASK_PASS
-                               if verdict.get("task_outcome") == TASK_PASS
+                               if visual_accepted or verdict.get("task_outcome") == TASK_PASS
                                else FormationResult.TASK_FAIL)
         result.safety_outcome = {
             "PASS": FormationResult.SAFETY_PASS,
             "FAIL": FormationResult.SAFETY_FAIL,
         }.get(verdict.get("safety_outcome"), FormationResult.SAFETY_NOT_VERIFIED)
-        result.experiment_validity = {
+        result.experiment_validity = FormationResult.VALIDITY_INCOMPLETE if visual_accepted else {
             "VALID": FormationResult.VALIDITY_VALID,
             "INVALID": FormationResult.VALIDITY_INVALID,
         }.get(verdict.get("experiment_validity"), FormationResult.VALIDITY_INCOMPLETE)
@@ -1391,6 +1482,126 @@ class FormationActionServer:
         temporary.replace(index_path)
 
     # ------------------------------------------------------------ execution
+    def _mapping_step(self, work, window, suppress, monitor, adoption, diagnostics, samples, now_s):
+        """One region/action update; short targets remain inside this GoalID.
+
+        Sensor evidence decides progress. Only the native Swarm goal changes;
+        qn state, safety latches, resource ownership and the action clock remain.
+        The original target is the declared final staging/return location, not
+        a prescribed observation waypoint or a whole-route obstacle oracle.
+        """
+        member = self.agent_ids[0]
+        current_sample = self._latest_sample(samples.get(member, ()))
+        if current_sample is None or not self.survey_lock.acquire(blocking=False):
+            return adoption, False
+        target = None
+        try:
+            local = self.survey_maps[member]
+            if local.stamp is None or not 0. <= now_s - local.stamp <= self.cloud_timeout:
+                diagnostics['mapping_wait_reason'] = 'WAITING_FOR_ACTUAL_LOCAL_SCAN'
+                return adoption, False
+            if window is not None and not suppress:
+                for event in window.sample_mapping(local, 'AIR', now_s):
+                    self.local_product_publishers[member].publish(
+                        String(data=json.dumps(event, allow_nan=False)))
+            complete = window is None or window.emitted == set(window.points)
+            diagnostics['mapping_observed_cells'] = len(window.emitted) if window else 0
+            diagnostics['mapping_required_cells'] = len(window.points) if window else 0
+            final = tuple(diagnostics['formation_center'])
+            final_reference = math.dist(monitor.center, final) <= 1e-8
+            if complete and final_reference:
+                diagnostics['mapping_wait_reason'] = 'VERIFYING_NATIVE_TERMINAL'
+                return adoption, True
+            if now_s < diagnostics.get('mapping_next_plan_s', 0.):
+                return adoption, False
+            diagnostics['mapping_next_plan_s'] = now_s + .5
+            current = current_sample.position
+            radius = self.platform_radius_m + self.obstacle_clearance + self.epsilon_p
+            arrived = math.dist(current, monitor.center) <= self.epsilon_p
+            path_clear = local.segment_clear(current, monitor.center, radius)
+            if not arrived and path_clear:
+                return adoption, False
+            # Do not retire an as-yet-unconfirmed local reference by silently
+            # claiming that the next one belongs to this task.
+            if adoption.verdict().state != 'ADOPTED':
+                diagnostics['mapping_wait_reason'] = 'WAITING_FOR_REFERENCE_ADOPTION'
+                return adoption, False
+            goals = [final]
+            if not complete and window is not None:
+                goals = [(point[0], point[1], final[2])
+                         for point in window.unobserved_mapping_points(local, 'AIR')]
+                goals.sort(key=lambda point: math.dist(current, point))
+            query_end = time.monotonic() + .035
+            for goal in goals:
+                target = local.next_target(current, goal, radius, max_step_m=1.)
+                if target is not None and math.dist(current, target) > .05:
+                    break
+                if not complete and math.dist(current, goal) <= self.epsilon_p:
+                    # A forward sensor may not see the cell directly below its
+                    # current position. Reposition to a measured-free neighbour;
+                    # the following native movement changes the real view.
+                    for dx, dy in ((1., 0.), (0., 1.), (-1., 0.), (0., -1.)):
+                        viewpoint = (goal[0] + dx, goal[1] + dy, goal[2])
+                        candidate = local.next_target(current, viewpoint, radius, max_step_m=1.)
+                        if candidate is not None and math.dist(current, candidate) > .2:
+                            target = candidate
+                            break
+                        if time.monotonic() >= query_end:
+                            break
+                    if target is not None and math.dist(current, target) > .2:
+                        break
+                if time.monotonic() >= query_end:
+                    break
+            if target is None:
+                diagnostics['mapping_wait_reason'] = 'NO_KNOWN_FREE_LOCAL_TARGET'
+                # If fresh observations invalidate the remaining short segment,
+                # ask the native planner to end at the actual position. No free
+                # space is fabricated and physical braking is still monitored.
+                if not path_clear:
+                    target = current
+            else:
+                diagnostics['mapping_wait_reason'] = 'SCANNING_REGION' if not complete else 'MOVING_TO_TERMINAL'
+        finally:
+            self.survey_lock.release()
+        if target is not None and target[2] + self.platform_radius_m + self.obstacle_clearance >= self.air_ceiling_m:
+            diagnostics['mapping_wait_reason'] = 'LOCAL_TARGET_OUTSIDE_DECLARED_AIR_WORKSPACE'
+            target = None
+        if target is None or math.dist(target, monitor.center) <= 1e-8 or (
+                math.dist(target, monitor.center) <= .05 and math.dist(target, final) > 1e-8):
+            return adoption, False
+        # Keep compact adoption evidence for completed segments, and require a
+        # fresh native trajectory/used_outer_step boundary for the next segment.
+        diagnostics.setdefault('local_adopted_trajectory_ids', []).append(
+            adoption.evidence[member].adopted_trajectory_id)
+        next_adoption = TrajectoryAdoptionTracker(
+            self.agent_ids, authorized_goal_publishers=(rospy.get_name(),))
+        with self.lock:
+            command_row = self.command_trajectory.get(member)
+            source = self.qn_source.get(member)
+            if command_row is not None:
+                next_adoption.note_position_command(member, command_row[0], command_row[1], now_s)
+            if source is not None and source['source_trajectory_id'] >= 0:
+                next_adoption.note_qn_source(member, source['source_trajectory_id'],
+                    source['used_outer_step'], source['ros_time_s'], source['source_command_stamp'])
+            next_adoption.begin_dispatch(work.goal.task_id, diagnostics['goal_id'], now_s)
+            diagnostics['adoption'] = next_adoption
+        command = PoseStamped()
+        command.header.frame_id = 'world'
+        command.header.stamp = rospy.Time.now()
+        command.pose.position.x, command.pose.position.y, command.pose.position.z = target
+        command.pose.orientation.w = 1.
+        with self.terminal_lock:
+            if self._safety_trigger(diagnostics['goal_id']):
+                return next_adoption, False
+            monitor.retarget(target)
+            _, _, topics = self._publish_routed_goal(command)
+        diagnostics['goal_publish_count'] += 1
+        diagnostics['goal_messages_published'] += len(topics)
+        diagnostics['local_target'] = list(target)
+        diagnostics['local_reference_updates'] += 1
+        diagnostics['planner_nominal_finish_times'] = {}
+        return next_adoption, False
+
     def _run_task(self, work):
         goal = work.goal
         handover=self._claim_air_references(work.goal_handle.get_goal_id().id)
@@ -1398,13 +1609,33 @@ class FormationActionServer:
         diagnostics = self._new_diagnostics(work, start)
         diagnostics['reference_handover']=handover
         self.executing_diagnostics = diagnostics
+        online = self.online_mapping and len(self.agent_ids) == 1
+        initial_target = tuple(diagnostics['formation_center'])
+        if online:
+            with self.lock:
+                current = self.odom[self.agent_ids[0]].position
+            with self.survey_lock:
+                local = self.survey_maps[self.agent_ids[0]]
+                scan_fresh = (local.stamp is not None and
+                              0. <= start.to_sec() - local.stamp <= self.cloud_timeout)
+                candidate = (local.next_target(current, initial_target,
+                    self.platform_radius_m + self.obstacle_clearance + self.epsilon_p)
+                    if scan_fresh else None)
+            initial_target = candidate or current
+            if initial_target[2] + self.platform_radius_m + self.obstacle_clearance >= self.air_ceiling_m:
+                initial_target = current
+            diagnostics['execution_mode'] = 'ONLINE_MAPPING'
+            diagnostics['region_id'] = str(getattr(goal, 'region_id', ''))
+            diagnostics['local_target'] = list(initial_target)
+            diagnostics['local_reference_updates'] = 0
+            diagnostics['mapping_next_plan_s'] = start.to_sec() + .5
         monitor = GroupCompletionMonitor(
-            diagnostics["formation_center"], goal.hold_duration.to_sec(), start.to_sec(),
+            initial_target, goal.hold_duration.to_sec(), start.to_sec(),
             agent_ids=self.agent_ids, relative_slots=self.slots, swarm_scale=self.scale,
             epsilon_p=self.epsilon_p, epsilon_v=self.epsilon_v,
             odom_timeout=self.odom_timeout, execution_timeout=self.execution_timeout,
             platform_radius_m=self.platform_radius_m,
-            target_z=goal.formation_center.point.z)
+            target_z=initial_target[2])
         alignment = self._new_alignment_monitor()
         with self.lock:
             self._alignment_fed_ros = {
@@ -1436,7 +1667,7 @@ class FormationActionServer:
         command = PoseStamped()
         command.header.frame_id = "world"
         command.header.stamp = start
-        command.pose.position = goal.formation_center.point
+        command.pose.position.x, command.pose.position.y, command.pose.position.z = initial_target
         command.pose.orientation.w = 1.0
         dispatch_time = rospy.Time.now().to_sec()
         adoption.begin_dispatch(goal.task_id, diagnostics["goal_id"], dispatch_time)
@@ -1466,7 +1697,7 @@ class FormationActionServer:
         suppress_observation=False
         if getattr(goal,'observation_ids',()):
             from qn_aav_simulator.observation_coverage import LocalObservationWindow,ObstacleBox
-            obstacles=tuple(ObstacleBox(c,s) for _,kind,c,s in self.static_scene.objects if kind=='SOLID')
+            obstacles=(() if online else tuple(ObstacleBox(c,s) for _,kind,c,s in self.static_scene.objects if kind=='SOLID'))
             observation_window=LocalObservationWindow(self.observation_request,goal.observation_ids,
                 'drone_{}'.format(self.agent_ids[0]),diagnostics['goal_id'],obstacles,
                 sample_timeout_s=self.odom_timeout)
@@ -1502,13 +1733,24 @@ class FormationActionServer:
                         references = dict(self.used_reference)
                     now = rospy.Time.now()
                     now_s = now.to_sec()
+                    completion_enabled = True
+                    if online:
+                        adoption, completion_enabled = self._mapping_step(
+                            work, observation_window, suppress_observation, monitor,
+                            adoption, diagnostics, samples, now_s)
+                        if completion_enabled and not diagnostics.get('mapping_completion_ready'):
+                            # A wait accumulated before the last map product is
+                            # not the final task's required settled interval.
+                            monitor.hold_started = None
+                            diagnostics['mapping_completion_ready'] = now_s
                     snapshot = monitor.evaluate(
                         now_s, samples,
                         model_hold_satisfied=lambda a, b: self._model_hold_elapsed(
                             a, b, diagnostics),
                         hold_not_before_s=adoption.adopted_at_s(),
                         reference_confirmed=(
-                            adoption.verdict().state == "ADOPTED"))
+                            adoption.verdict().state == "ADOPTED"),
+                        completion_enabled=completion_enabled)
                     status = self.state_machine.note_phase(snapshot.phase)
                     diagnostics["run_state"] = status
                     if snapshot.phase != previous_phase:
@@ -1563,6 +1805,8 @@ class FormationActionServer:
                         distances = [v for v in (fleet.get("min_surface_clearance_m"),
                                      previous.get("min_surface_clearance_m")) if v is not None]
                         fleet["min_surface_clearance_m"] = min(distances, default=None)
+                        fleet['max_bracket_gap_s'] = max(fleet.get('max_bracket_gap_s', 0.),
+                            previous.get('max_bracket_gap_s', 0.))
                         diagnostics["fleet_safety"] = fleet
                     self._record_member_samples(
                         member_samples, samples, references, monitor, now_s)
@@ -1587,7 +1831,7 @@ class FormationActionServer:
                         if self._safety_trigger(diagnostics["goal_id"]):
                             self._observe_safety_hold(work, diagnostics, alignment, member_samples)
                         break
-                    if (observation_window is not None and not suppress_observation and
+                    if (not online and observation_window is not None and not suppress_observation and
                             snapshot.phase=='HOLDING' and adoption.verdict().state=='ADOPTED'):
                         try:
                             events=self._air_observation_events(observation_window,member_samples,now_s)
@@ -1782,7 +2026,9 @@ class FormationActionServer:
                 safety.reasons += ("online inter-agent surface clearance {:.3f} m below {:.2f} m".format(
                     minimum, self.inter_agent_clearance),)
         if fleet.get("ok") is False and fleet.get("reason") in (
-                "missing or stale fleet odometry", "fleet odometry not time aligned"):
+                "missing or stale fleet odometry", "fleet odometry not time aligned",
+                "fleet odometry has no fresh aligned history",
+                "fleet odometry has no valid interpolation bracket"):
             if safety.outcome != "FAIL":
                 safety.outcome = "NOT_VERIFIED"
             safety.reasons += (fleet["reason"],)
@@ -1933,8 +2179,8 @@ class FormationActionServer:
         baseline_report = self._cached_baseline_report()
         diagnostics["time_alignment_baseline"] = baseline_report.as_dict()
         visual_timing_relaxed=bool(rospy.get_param('/mission/allow_visual_timing_relaxation',False))
-        diagnostics['visual_timing_relaxed']=visual_timing_relaxed and not baseline_report.within_thresholds
-        time_ok = ((baseline_report.within_thresholds or visual_timing_relaxed)
+        diagnostics['visual_timing_relaxation_requested'] = visual_timing_relaxed
+        time_ok = (baseline_report.within_thresholds
                    and alignment_report.within_thresholds
                    and not alignment_report.alignment_failure_count)
         if (alignment_report.induced_reference_displacement_m is not None
@@ -1996,7 +2242,9 @@ class FormationActionServer:
             obstacle_check_expected=self.obstacle_present)
         self._merge_online_safety(safety, diagnostics)
         hold_gaps = [row["reason"] for row in (diagnostics.get("safety_hold") or {}).get("safety_failures", [])
-                     if row["reason"] in ("missing or stale fleet odometry", "fleet odometry not time aligned")]
+                     if row["reason"] in ("missing or stale fleet odometry", "fleet odometry not time aligned",
+                        "fleet odometry has no fresh aligned history",
+                        "fleet odometry has no valid interpolation bracket")]
         if hold_gaps:
             if safety.outcome != "FAIL":
                 safety.outcome = "NOT_VERIFIED"
@@ -2035,6 +2283,27 @@ class FormationActionServer:
             hold_duration_s=diagnostics["hold_duration"],
             min_valid_sample_ratio=self.min_valid_sample_ratio)
         diagnostics["verdict"] = verdict.as_dict()
+        # User-authorized visualization can continue after a timing-only audit
+        # failure. Keep the strict report INVALID: this is not a new calibrated
+        # experiment and no clock, odometry or model integration is rewritten.
+        # All physical completion/adoption/safety and freshness conditions stay
+        # mandatory; broad "ignore failure" acceptance would be incorrect.
+        visual_accepted = bool(visual_timing_relaxed and
+            verdict.experiment_validity != VALIDITY_VALID and motion_completed and
+            model_hold_satisfied and adoption_verdict.state == 'ADOPTED' and air['ok'] and
+            verdict.safety_outcome == SAFETY_PASS and
+            ledger.valid_sample_ratio >= self.min_valid_sample_ratio and
+            ledger.max_continuous_gap_s <= self.odom_timeout and
+            metrics.final_slot_error_m is not None and metrics.final_slot_error_m <= self.epsilon_p and
+            metrics.hold_velocity_mps is not None and metrics.hold_velocity_mps <= self.epsilon_v and
+            not diagnostics.get('violation_reason') and not diagnostics.get('safety_hold') and
+            not diagnostics.get('odometry_contract_errors'))
+        diagnostics['visual_execution_accepted'] = visual_accepted
+        diagnostics['visual_timing_relaxed'] = visual_accepted
+        if visual_accepted:
+            diagnostics['execution_task_outcome'] = TASK_PASS
+            diagnostics['execution_validity'] = 'INCOMPLETE'
+            diagnostics['execution_acceptance_scope'] = 'EXPLICIT_VISUALIZATION_ONLY_TIMING_AUDIT_NOT_PASSED'
         diagnostics["task_outcome"] = verdict.task_outcome
         diagnostics["safety_outcome"] = verdict.safety_outcome
         diagnostics["experiment_validity"] = verdict.experiment_validity
@@ -2052,6 +2321,8 @@ class FormationActionServer:
         reason = FormationResult.NONE
         text = "task_outcome={} safety_outcome={} experiment_validity={}".format(
             verdict.task_outcome, verdict.safety_outcome, verdict.experiment_validity)
+        if visual_accepted:
+            text += '; visual_execution_accepted=true; Result validity=INCOMPLETE; strict timing audit retained'
         if diagnostics.get("violation_reason"):
             reason = FormationResult.UNKNOWN_LOCKED
             text += "; " + diagnostics["violation_reason"]
@@ -2073,7 +2344,7 @@ class FormationActionServer:
             # The task may have reached its slots, but the run violated the
             # operating or safety envelope.  Lock instead of continuing.
             reason = FormationResult.UNKNOWN_LOCKED
-        elif not time_ok or verdict.task_outcome != TASK_PASS:
+        elif (not time_ok or verdict.task_outcome != TASK_PASS) and not visual_accepted:
             reason = FormationResult.MODEL_TIME_MISMATCH
         diagnostics["reason"] = reason
         diagnostics["reason_text"] = text
@@ -2086,11 +2357,11 @@ class FormationActionServer:
             motion_completed
             and reason == FormationResult.NONE
             and adoption_verdict.state == "ADOPTED"
-            and time_ok
+            and (time_ok or visual_accepted)
             and air["ok"]
-            and verdict.task_outcome == TASK_PASS
+            and (verdict.task_outcome == TASK_PASS or visual_accepted)
             and verdict.safety_outcome == SAFETY_PASS
-            and verdict.experiment_validity == VALIDITY_VALID)
+            and (verdict.experiment_validity == VALIDITY_VALID or visual_accepted))
         with self.terminal_lock:
             if diagnostics["goal_id"] in self.terminal_goals:
                 return True

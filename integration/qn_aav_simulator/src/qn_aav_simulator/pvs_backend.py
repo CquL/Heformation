@@ -115,10 +115,26 @@ class PvsBackend:
         if np.linalg.norm(residual)>.000001:
             raise ValueError('static trim fails native zero-acceleration check')
 
-    def step(self,dt,target=None,effort=0.,leg_start=None):
+    def freeze_heading_reference(self):
+        """End one local steering command at the current physical heading.
+
+        Change only the input to Fossen's existing refModel3/PID. Its reference
+        model derivatives, integral state, vehicle rates and actuators continue
+        unchanged, so this is a heading request, never an attitude reset.
+        """
+        if self.model!='otter':raise ValueError('local heading freeze requires Otter')
+        self.vehicle.ref=math.degrees(self.vehicle.psi_d+math.remainder(
+            float(self.eta[5])-self.vehicle.psi_d,2*math.pi))
+
+    def step(self,dt,target=None,effort=0.,leg_start=None,*,allow_reverse=False):
         from python_vehicle_simulator.lib.gnc import attitudeEuler
-        if not math.isfinite(dt) or not 0<dt<=.05 or not math.isfinite(effort) or effort<0:
+        if (not math.isfinite(dt) or not 0<dt<=.05 or not math.isfinite(effort) or
+                (effort<0 and not (allow_reverse and self.model=='otter'))):
             raise ValueError('invalid native model step/control effort')
+        # Negative surge is used only by checked local Otter retreat commands.
+        # Fossen otter.controlAllocation already maps signed tau_X to signed
+        # shaft speed; dynamics retains k_neg, n_min and actuator lag. External
+        # PlatformTask effort validation remains nonnegative.
         if target is not None:
             if len(target)!=3 or not all(math.isfinite(v) for v in target):
                 raise ValueError('target must be a finite ENU point')
@@ -163,6 +179,78 @@ class PvsBackend:
         self.steps+=1
         self.time_s+=dt
         return self.snapshot()
+
+    def predict_local_command(self,target,effort,leg_start,observed_map,clearance,deadline,
+                              command_duration=.25,dt=.01,terminal_speed=.03,hold_duration=4.,coast_delay_s=0.):
+        """Nominal short native motion plus the exact zero-effort backup.
+
+        Only the execution endpoint calls this, on its current full native
+        state. It is not an allocation rollout. Controller integrals, reference
+        model and actuator lag are retained in each candidate copy. The local
+        admissibility principle follows Fox/Burgard/Thrun DWA (1997): admit a
+        command only with an observed-free stopping continuation. This sampled
+        Otter check does not inherit DWA/SUPER guarantees for another plant.
+        Source: https://www.cs.cmu.edu/~dfox/abstracts/colli-ieee.abstract.html
+        """
+        model=copy.deepcopy(self)
+        radius=self.collision_radius_m+clearance
+        initial=self.snapshot();start=initial['position'];previous=start
+        if not observed_map.segment_clear(start,start,radius):
+            return dict(status='UNKNOWN',reason='CURRENT_BODY_NOT_OBSERVED_FREE')
+        # A fixed future activation time lets the live node coast while this
+        # query runs. It will require exact full-state equality at activation,
+        # not merely a close position from an aged snapshot.
+        import hashlib
+        delay_steps=int(math.ceil(coast_delay_s/dt-1e-9))
+        for _ in range(delay_steps):
+            if time.monotonic()>=deadline:return dict(status='UNKNOWN',reason='LOCAL_MOTION_BUDGET')
+            state=model.step(dt,None,0.,None)
+            if not observed_map.segment_clear(previous,state['position'],radius):
+                return dict(status='INFEASIBLE',reason='NATIVE_QUERY_COAST_PREFIX_NOT_OBSERVED_FREE')
+            previous=state['position']
+        activation_time=model.time_s
+        activation_step=model.steps
+        command_steps=max(1,int(math.ceil(command_duration/dt-1e-9)))
+        activation_digest=hashlib.sha256(model.execution_state_bytes()).hexdigest()
+        settled=None;elapsed=0.;next_check=0.;coast_started=False;executed_steps=0
+        # A bounded native coast must actually settle; exhausting this horizon
+        # is UNKNOWN, never permission to assume an instantaneous stop.
+        # The terminal reference is frozen at the actual heading when the
+        # short command ends. The retained native reference/actuator transient
+        # still has to settle inside this bounded search horizon.
+        turn_allowance=(math.pi/max(float(self.vehicle.r_max),1e-6)
+                        if self.model=='otter' else 6.)
+        horizon=command_duration+hold_duration+max(6.,turn_allowance)
+        while elapsed<horizon:
+            if time.monotonic()>=deadline:
+                return dict(status='UNKNOWN',reason='LOCAL_MOTION_BUDGET')
+            moving=executed_steps<command_steps
+            if not moving and not coast_started:
+                if model.model=='otter':model.freeze_heading_reference()
+                coast_started=True
+            state=model.step(dt,target if moving else None,effort if moving else 0.,
+                             leg_start if moving else None,allow_reverse=moving and effort<0.)
+            executed_steps+=1
+            elapsed=executed_steps*dt
+            speed=math.sqrt(sum(value*value for value in state['world_velocity']))
+            if elapsed+1e-9>=next_check:
+                if not observed_map.segment_clear(previous,state['position'],radius):
+                    return dict(status='INFEASIBLE',reason='NATIVE_BRAKING_PATH_NOT_OBSERVED_FREE')
+                previous=state['position'];next_check=elapsed+.1
+            if state['actual_mode']!=initial['actual_mode']:
+                return dict(status='INFEASIBLE',reason='NATIVE_LOCAL_DOMAIN')
+            if not moving and speed<=terminal_speed:
+                if settled is None:settled=elapsed
+            else:settled=None
+            if settled is not None and elapsed-settled>=hold_duration:
+                if not observed_map.segment_clear(previous,state['position'],radius):
+                    return dict(status='INFEASIBLE',reason='NATIVE_BRAKING_TERMINAL_NOT_OBSERVED_FREE')
+                return dict(status='FEASIBLE',reason='NATIVE_COMMAND_AND_COAST',
+                    source_model_time_s=self.time_s,command_duration_s=command_duration,
+                    activation_model_time_s=activation_time,activation_step=activation_step,
+                    command_end_step=activation_step+command_steps,activation_state_digest=activation_digest,
+                    predicted_stop_s=elapsed-hold_duration,effort=effort)
+        return dict(status='UNKNOWN',reason='NATIVE_LOCAL_COAST_NOT_SETTLED')
 
     def predict_native_fragment(self,paths,effort,scene,deadline,dt=.01,
                                 terminal_speed=.03,hold_duration=4.,max_model_time=180.,include_state=False,terminal_wait_s=0.,resume=None,
