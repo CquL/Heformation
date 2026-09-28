@@ -1786,11 +1786,10 @@ class ExecutorTravelTimeProvider:
             usv_at=position(trajectories['usv'],contact_at)
             uuv_at=position(trajectories['uuv'],contact_at)
             if (not support_start-1e-6<=contact_at<=support_end+1e-6 or
-                    math.dist(usv_at,uuv_at)>site['acoustic_contact_m'] or
-                    math.dist(usv_at,self.mother_position)>site['mother_contact_m']):
+                    math.dist(usv_at,uuv_at)>site['acoustic_contact_m']):
                 return dict(status='INFEASIBLE',reason='TASK_SUPPORT_CONTACT_NOT_AVAILABLE:'+site['id']+
-                    ':uuv_distance={:.3f}:mother_distance={:.3f}:contact={:.3f}:window={:.3f}-{:.3f}'.format(
-                        math.dist(usv_at,uuv_at),math.dist(usv_at,self.mother_position),
+                    ':uuv_distance={:.3f}:contact={:.3f}:window={:.3f}-{:.3f}'.format(
+                        math.dist(usv_at,uuv_at),
                         contact_at,support_start,support_end))
         members=sorted(trajectories)
         from qn_aav_simulator.experiment_verdict import _MIN_INTER_AGENT_CLEARANCE_M

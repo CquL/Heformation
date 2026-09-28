@@ -332,8 +332,7 @@ class SceneTransport:
                                 source[1]=='WATER' and
                                 math.dist(usv[0],source[0])<=site['acoustic_contact_m']):
                             self.task_relayed[ident]=now
-                        if (ident not in self.task_relayed or now<=self.task_relayed[ident] or
-                                usv is None or math.dist(usv[0],self.mother)>self.air_contact_m):
+                        if ident not in self.task_relayed or now<=self.task_relayed[ident]:
                             continue
                     else:
                         source=states.get(producer)
@@ -344,8 +343,7 @@ class SceneTransport:
                         # resource.  Radio packet scheduling remains outside
                         # this first-version abstraction.
                         relayed=(source is not None and source[1]=='AIR' and site is not None and
-                                 math.dist(source[0],usv[0])<=self.air_contact_m and
-                                 math.dist(usv[0],self.mother)<=self.air_contact_m)
+                                 math.dist(source[0],usv[0])<=self.air_contact_m)
                         if not (direct or relayed):
                             continue
                 self.delivered.add(ident)

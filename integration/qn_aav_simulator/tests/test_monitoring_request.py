@@ -66,6 +66,18 @@ def test_circle_selection_generates_one_request_scene_pair_without_fixed_routes(
                for site in scene['scene']['transition_sites'])
 
 
+def test_circle_obstacle_is_a_coverage_hole_not_a_whole_request_rejection():
+    import yaml
+    root=Path(__file__).parents[1]/'config'
+    base_request=yaml.safe_load((root/'monitoring_request_offshore.yaml').read_text())
+    base_scene=yaml.safe_load((root/'five_scene_offshore.yaml').read_text())
+    request,scene=circle_joint_mission_mappings(base_request,base_scene,(6.,1.),3.)
+    selected=scene['scene']['selected_monitoring_area']
+    assert selected['excluded_deep_witnesses']>0
+    deep=next(region for region in request['regions'] if region['region_id']=='offshore_uuv')
+    assert deep['interest_points']
+
+
 def test_two_points_inside_one_footprint_become_one_task():
     """A footprint covers both, so flying twice would be redundant."""
     tasks = expand(request([region(points=[point("a", -28.0, 4.0),

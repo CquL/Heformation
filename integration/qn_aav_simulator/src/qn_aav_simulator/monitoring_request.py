@@ -143,15 +143,19 @@ def circle_joint_mission_mappings(base_request, base_scene, center, radius_m):
     geometry=StaticSceneGeometry.from_mapping(scene)
     if geometry is None:raise ValueError('circle selection needs declared static geometry')
     regions={entry['region_id']:entry for entry in request['regions']}
-    air=regions['offshore_air']['interest_points']
-    deep=regions['offshore_uuv']['interest_points']
-    for entry in air:
-        position=(entry['position'][0],entry['position'][1],request['requirement']['cruise_altitude_m'])
-        reason=geometry.violation(position,.25)
-        if reason:raise ValueError('selected AIR coverage intersects declared obstacle: '+reason)
-    for entry in deep:
-        reason=geometry.violation(tuple(entry['position']),.25)
-        if reason:raise ValueError('selected deep coverage intersects declared obstacle: '+reason)
+    # Obstacles inside a selected region are holes in its free workspace, as
+    # in obstacle-aware boustrophedon coverage planning.  Keep the business
+    # circle intact and remove only witnesses a physical centre cannot occupy.
+    raw_air=regions['offshore_air']['interest_points']
+    raw_deep=regions['offshore_uuv']['interest_points']
+    air=[entry for entry in raw_air if not geometry.violation(
+        (entry['position'][0],entry['position'][1],request['requirement']['cruise_altitude_m']),.25)]
+    deep=[entry for entry in raw_deep if not geometry.violation(tuple(entry['position']),.25)]
+    if not air:raise ValueError('selected circle has no free AIR coverage witness')
+    if not deep:raise ValueError('selected circle has no free deep-water coverage witness')
+    regions['offshore_air']['interest_points']=air
+    regions['offshore_uuv']['interest_points']=deep
+    excluded_air=len(raw_air)-len(air);excluded_deep=len(raw_deep)-len(deep)
     cx,cy=(float(v) for v in center);radius_m=float(radius_m)
     air_xy=tuple((entry['position'][0],entry['position'][1]) for entry in air)
     # The airborne survey and the amphibious approach run concurrently.  An
@@ -180,14 +184,16 @@ def circle_joint_mission_mappings(base_request, base_scene, center, radius_m):
         shape='BOX',radius_m=None,coverage_resolution_m=None)
     stage=tuple(deep[-1]['position'])
     mother=tuple(scene.get('mother_ship_receiver_position',scene['mother_ship_position']))
-    acoustic=8.;radio=30.;depth=abs(stage[2]);receiver_height=abs(mother[2])
+    acoustic=8.;radio=30.;depth=abs(stage[2])
     # Keep finite geometric margin; a boundary-equality contact is brittle to
     # integration and state timestamp differences.
     acoustic_xy=max(0.,math.sqrt(max(0.,acoustic*acoustic-depth*depth))-.5)
-    radio_xy=max(0.,math.sqrt(max(0.,radio*radio-receiver_height*receiver_height))-1.)
     dx,dy=mother[0]-stage[0],mother[1]-stage[1];distance=math.hypot(dx,dy)
-    lower=max(0.,distance-radio_xy);upper=min(distance,acoustic_xy)
-    if lower>upper+1e-9:raise ValueError('selected circle is outside one-USV contact geometry')
+    # The first-version task service requires the USV to meet the UUV; its
+    # backhaul is deliberately abstracted once support is active.  Do not
+    # reject a user region merely because one static point cannot also be in
+    # direct RF range of the mother ship.
+    lower=0.;upper=min(distance,acoustic_xy)
     start=tuple(scene['return_sites']['usv']['position'])
     support_candidates=[]
     for index in range(17):
@@ -200,7 +206,8 @@ def circle_joint_mission_mappings(base_request, base_scene, center, radius_m):
     if not support_candidates:raise ValueError('selected circle has no free USV contact point')
     support=min(support_candidates)[1]
     scene['selected_monitoring_area']=dict(shape='CIRCLE',center=[cx,cy,0.],radius_m=radius_m,
-                                           coverage_resolution_m=regions['offshore_air']['coverage_resolution_m'])
+        coverage_resolution_m=regions['offshore_air']['coverage_resolution_m'],
+        excluded_air_witnesses=excluded_air,excluded_deep_witnesses=excluded_deep)
     scene['observation_targets']=[dict(id=point['point_id'],position=[point['position'][0],point['position'][1],
         request['requirement']['cruise_altitude_m']],domain='AIR') for point in air]+[
         dict(id=shallow['point_id'],position=shallow['position'],domain='WATER')]+[

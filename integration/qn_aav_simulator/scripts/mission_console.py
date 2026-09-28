@@ -18,7 +18,7 @@ from actionlib_msgs.msg import GoalID
 from python_qt_binding.QtCore import QTimer,Qt,QPointF,QRectF
 from python_qt_binding.QtGui import QFont,QFontDatabase,QPainter,QPen,QBrush,QColor
 from python_qt_binding.QtWidgets import (QApplication,QFileDialog,QHBoxLayout,QLabel,
-    QPlainTextEdit,QPushButton,QSplitter,QVBoxLayout,QWidget)
+    QMessageBox,QPlainTextEdit,QPushButton,QSplitter,QVBoxLayout,QWidget)
 from qn_aav_simulator.task_line import load_request
 from qn_aav_simulator.monitoring_request import circle_joint_mission_mappings
 
@@ -108,6 +108,7 @@ class CircleMissionSelector(QWidget):
         if smoke:QTimer.singleShot(100,self.confirm)
 
     def changed(self,center,radius):
+        self.status.setStyleSheet('')
         self.status.setText('圆心 ({:.2f}, {:.2f}) m　半径 {:.2f} m（允许 2–10 m）'.format(
             center[0],center[1],radius))
 
@@ -118,7 +119,18 @@ class CircleMissionSelector(QWidget):
             self.output_request.write_text(self.yaml.safe_dump(request,allow_unicode=True,sort_keys=False))
             self.output_scene.write_text(self.yaml.safe_dump(scene,allow_unicode=True,sort_keys=False))
             load_request(self.output_request);self.accepted=True;self.close()
-        except Exception as error:self.status.setText('区域不可用：'+str(error))
+        except Exception as error:
+            reason=str(error)
+            translations=(
+                ('no free AIR coverage witness','圈内没有可供空中平台执行的自由观测位置'),
+                ('no free deep-water coverage witness','圈内没有可供UUV执行的自由深水观测位置'),
+                ('no qualified entry/exit point','圈区周围没有满足障碍净距的入水/出水位置'),
+                ('no free USV contact point','圈区附近没有满足障碍净距的USV支援位置'),
+                ('radius must be within','半径必须在2至10模型米之间'))
+            message=next((cn for token,cn in translations if token in reason),reason)
+            self.status.setStyleSheet('color: #ff6666; font-weight: bold;')
+            self.status.setText('区域不可用：'+message)
+            QMessageBox.warning(self,'监测区域不可用',message+'\n请重新圈选。')
 
 
 class MissionConsole(QWidget):
