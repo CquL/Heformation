@@ -70,6 +70,44 @@ def test_runner_without_explicit_mode_cannot_enter_legacy_sorting(runner_module,
         runner_module.MissionRunner()
 
 
+def test_ui_confirmation_rejects_old_revision_before_accepting_displayed_plan(runner_module,tmp_path,monkeypatch):
+    runner=make_runner(runner_module,tmp_path);runner.plan_revision=4
+    runner.metrics={};saved=[]
+    runner._save_executor=lambda:saved.append(dict(runner.metrics))
+    monkeypatch.setattr(runner_module.rospy,'get_param',lambda key,default=None:'ui',raising=False)
+    monkeypatch.setattr(runner_module.rospy,'is_shutdown',lambda:False,raising=False)
+    path=tmp_path/'operator-confirmation.json'
+    command=dict(request_id=runner.request.request_id,plan_revision=3,decision='confirm')
+    path.write_text(json.dumps(command))
+    def update_command(_):
+        assert saved and 'confirmation_error' in saved[-1]
+        command['plan_revision']=4;path.write_text(json.dumps(command))
+    monkeypatch.setattr(runner_module.time,'sleep',update_command)
+    assert runner._confirm_joint_plan() is True
+    assert runner.metrics['confirmation_source']=='TASK_UI'
+    assert 'confirmation_error' not in runner.metrics and not path.exists()
+
+
+def test_ui_closed_before_confirmation_never_authorizes_dispatch(runner_module,tmp_path,monkeypatch):
+    runner=make_runner(runner_module,tmp_path);runner.plan_revision=0
+    monkeypatch.setattr(runner_module.rospy,'get_param',lambda key,default=None:'ui',raising=False)
+    monkeypatch.setattr(runner_module.rospy,'is_shutdown',lambda:False,raising=False)
+    (tmp_path/'operator-closed').touch()
+    assert runner._confirm_joint_plan() is False
+
+
+def test_ui_stop_only_targets_this_request_and_does_not_release_resources(runner_module,tmp_path):
+    runner=make_runner(runner_module,tmp_path)
+    runner.active_executor_ids={'aav_1','uuv'}
+    path=tmp_path/'operator-stop.json'
+    path.write_text(json.dumps(dict(request_id='another-request')))
+    assert not runner._consume_operator_stop()
+    path.write_text(json.dumps(dict(request_id=runner.request.request_id)))
+    assert runner._consume_operator_stop()
+    assert runner.metrics['operator_stop_requested'] is True
+    assert runner.active_executor_ids=={'aav_1','uuv'}
+
+
 def native_setup(module,tmp_path):
     runner=make_runner(module,tmp_path)
     unit=load_routing([dict(executor_id='uuv_native',physical_agent_ids=['uuv'],

@@ -7,6 +7,7 @@ JOINT_IMAGE="${JOINT_IMAGE:-swarm-formation-qn:joint-wip}"
 JOINT_VISUALIZE="${JOINT_VISUALIZE:-true}"
 JOINT_GPU_RENDER="${JOINT_GPU_RENDER:-false}"
 JOINT_REGION_UI="${JOINT_REGION_UI:-$JOINT_VISUALIZE}"
+JOINT_TASK_UI="${JOINT_TASK_UI:-$JOINT_VISUALIZE}"
 JOINT_PLANNING_BUDGET_S="${JOINT_PLANNING_BUDGET_S:-10}"
 JOINT_REPAIR_BUDGET_S="${JOINT_REPAIR_BUDGET_S:-10}"
 JOINT_SIM_CPUSET="${JOINT_SIM_CPUSET:-}"
@@ -23,12 +24,16 @@ JOINT_VISUAL_TIMING_RELAX="${JOINT_VISUAL_TIMING_RELAX:-false}"
 case "$JOINT_VISUALIZE" in true|false) ;; *) echo 'JOINT_VISUALIZE must be true or false' >&2; exit 2 ;; esac
 case "$JOINT_GPU_RENDER" in true|false) ;; *) echo 'JOINT_GPU_RENDER must be true or false' >&2; exit 2 ;; esac
 case "$JOINT_REGION_UI" in true|false) ;; *) echo 'JOINT_REGION_UI must be true or false' >&2; exit 2 ;; esac
+case "$JOINT_TASK_UI" in true|false) ;; *) echo 'JOINT_TASK_UI must be true or false' >&2; exit 2 ;; esac
+if [[ "$JOINT_TASK_UI" == true && "$JOINT_VISUALIZE" != true ]]; then
+  echo 'JOINT_TASK_UI=true requires JOINT_VISUALIZE=true' >&2; exit 2
+fi
 if [[ "$JOINT_REGION_UI" == true && "$JOINT_VISUALIZE" != true ]]; then
   echo 'JOINT_REGION_UI=true requires JOINT_VISUALIZE=true' >&2; exit 2
 fi
 mkdir -p "$JOINT_OUTPUT"
 JOINT_OUTPUT="$(realpath "$JOINT_OUTPUT")"
-if [[ -e "$JOINT_OUTPUT/metrics.json" ]]; then
+if [[ -e "$JOINT_OUTPUT/metrics.json" || -e "$JOINT_OUTPUT/ui-scene.yaml" ]]; then
   echo "Choose a new output directory: $JOINT_OUTPUT" >&2
   exit 2
 fi
@@ -65,6 +70,7 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
   --env ROS_HOME=/tmp/joint-request-ros \
   --env JOINT_VISUALIZE="$JOINT_VISUALIZE" \
   --env JOINT_REGION_UI="$JOINT_REGION_UI" \
+  --env JOINT_TASK_UI="$JOINT_TASK_UI" \
   --env JOINT_PLANNING_BUDGET_S="$JOINT_PLANNING_BUDGET_S" \
   --env JOINT_REPAIR_BUDGET_S="$JOINT_REPAIR_BUDGET_S" \
   --env JOINT_SIM_CPUSET="$JOINT_SIM_CPUSET" \
@@ -91,7 +97,35 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
     }
     active_request="$JOINT_REQUEST_FILE"
     active_scene=/experiments/scene.yaml
-    if [[ "$JOINT_REGION_UI" == true ]]; then
+    launch_pid="";rviz_pid="";dashboard_pid="";recorder_pid=""
+    cleanup() {
+      touch /experiments/current/session-ended
+      if [[ -n "$recorder_pid" ]]; then kill -INT "$recorder_pid" 2>/dev/null || true; fi
+      if [[ -n "$dashboard_pid" ]]; then kill -INT "$dashboard_pid" 2>/dev/null || true; fi
+      if [[ -n "$rviz_pid" ]]; then kill -INT "$rviz_pid" 2>/dev/null || true; fi
+      if [[ -n "$launch_pid" ]]; then kill -INT "$launch_pid" 2>/dev/null || true; fi
+    }
+    trap cleanup EXIT
+    view_prefix=()
+    if [[ -n "$JOINT_VIEW_CPUSET" ]]; then view_prefix=(taskset -c "$JOINT_VIEW_CPUSET"); fi
+    if [[ "$JOINT_TASK_UI" == true ]]; then
+      echo "在任务控制台选择区域并生成方案；RViz 随后在独立窗口打开。"
+      "${view_prefix[@]}" python3 /workspace/src/src/qn_aav_simulator/scripts/mission_console.py \
+        --joint-panel --request "$active_request" --scene "$active_scene" \
+        --output /experiments/current --select-region "$JOINT_REGION_UI" \
+        > /experiments/current/task-ui.log 2>&1 &
+      dashboard_pid=$!
+      # The panel writes the scene last, atomically. The same files are used by
+      # ROS, the transport boundary and the one runner for this request.
+      until [[ -f /experiments/current/ui-scene.yaml ]]; do
+        if ! kill -0 "$dashboard_pid" 2>/dev/null; then
+          echo "任务控制台已关闭，未启动任务。"; exit 2
+        fi
+        sleep .2
+      done
+      active_request=/experiments/current/ui-request.yaml
+      active_scene=/experiments/current/ui-scene.yaml
+    elif [[ "$JOINT_REGION_UI" == true ]]; then
       python3 /workspace/src/src/qn_aav_simulator/scripts/mission_console.py \
         --select-circle --request "$active_request" --scene "$active_scene" \
         --output-request /experiments/current/ui-request.yaml \
@@ -107,14 +141,6 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
       usv_initial_position:="$JOINT_USV_INITIAL_POSITION" \
       > /experiments/current/launch.log 2>&1 &
     launch_pid=$!
-    rviz_pid="";dashboard_pid="";recorder_pid=""
-    cleanup() {
-      if [[ -n "$recorder_pid" ]]; then kill -INT "$recorder_pid" 2>/dev/null || true; fi
-      if [[ -n "$dashboard_pid" ]]; then kill -INT "$dashboard_pid" 2>/dev/null || true; fi
-      if [[ -n "$rviz_pid" ]]; then kill -INT "$rviz_pid" 2>/dev/null || true; fi
-      kill -INT "$launch_pid" 2>/dev/null || true
-    }
-    trap cleanup EXIT
     for attempt in {1..120}; do
       if rosparam get /uuv/agent_id >/dev/null 2>&1; then break; fi
       kill -0 "$launch_pid"
@@ -133,6 +159,9 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
     rosparam set /formation_mission_runner/output_dir /experiments/current
     rosparam set /formation_mission_runner/planning_budget_s "$JOINT_PLANNING_BUDGET_S"
     rosparam set /formation_mission_runner/repair_budget_s "$JOINT_REPAIR_BUDGET_S"
+    if [[ "$JOINT_TASK_UI" == true ]]; then
+      rosparam set /formation_mission_runner/confirmation_mode ui
+    fi
     timeout 15 rosbag record --lz4 -l 1 -O /experiments/current/scene-once.bag \
       /scene/global_cloud > /experiments/current/scene-recorder.log 2>&1
     record_cmd=(rosbag record --lz4 --buffsize=256 -O /experiments/current/execution.bag
@@ -160,17 +189,17 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
     "${record_cmd[@]}" > /experiments/current/recorder.log 2>&1 &
     recorder_pid=$!
     if [[ "$JOINT_VISUALIZE" == true ]]; then
-      view_prefix=()
-      if [[ -n "$JOINT_VIEW_CPUSET" ]]; then view_prefix=(taskset -c "$JOINT_VIEW_CPUSET"); fi
       "${view_prefix[@]}" rviz -d /workspace/src/src/qn_aav_simulator/config/five_qualification.rviz \
         > /experiments/current/rviz.log 2>&1 &
       rviz_pid=$!
-      "${view_prefix[@]}" python3 /workspace/src/src/qn_aav_simulator/scripts/mission_dashboard.py \
-        _planning_mode:=water_cooperation _window:=true _rate:=2 \
-        > /experiments/current/dashboard.log 2>&1 &
-      dashboard_pid=$!
+      if [[ "$JOINT_TASK_UI" != true ]]; then
+        "${view_prefix[@]}" python3 /workspace/src/src/qn_aav_simulator/scripts/mission_dashboard.py \
+          _planning_mode:=water_cooperation _window:=true _rate:=2 \
+          > /experiments/current/dashboard.log 2>&1 &
+        dashboard_pid=$!
+      fi
       sleep 2
-      if ! kill -0 "$rviz_pid" 2>/dev/null || ! kill -0 "$dashboard_pid" 2>/dev/null; then
+      if ! kill -0 "$rviz_pid" 2>/dev/null; then
         echo "RViz or the Chinese task view exited before planning; see its log" >&2
         tail -n 20 /experiments/current/rviz.log /experiments/current/dashboard.log >&2
         exit 1
@@ -182,6 +211,7 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
     "${runner_cmd[@]}" 2>&1 | tee /experiments/current/runner.log
     runner_result=${PIPESTATUS[0]}
     set -e
+    echo "$runner_result" > /experiments/current/runner-exit-code.txt
     kill -INT "$recorder_pid" 2>/dev/null || true
     wait "$recorder_pid" || true
     recorder_pid=""

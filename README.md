@@ -6,7 +6,11 @@
 
 [场景配置](integration/qn_aav_simulator/config/five_scene_offshore.yaml)把三台 AAV、USV、UUV 和母船放在同一岸边部署区；[任务请求](integration/qn_aav_simulator/config/monitoring_request_offshore.yaml)声明障碍通道另一侧的空中与水下观测、必要结果接收及返回。RViz 显示同一 ROS 会话中的实际平台状态。坐标以米计，是现有模型的缩比任务场景，不能解释为真实数公里航程或设备通信性能。
 
-实时入口现在先打开“选择联合监测区域”窗口：在海域图中按下鼠标确定圆心，拖动确定半径，确认后才启动 ROS 场景和联合求解。用户只输入业务区域；程序据覆盖路径规划中的往复式条带方法生成有限 AIR/UUV 观测见证点，并从场景几何生成候选入水点和USV接触点。圈内岩石、码头和禁入实体作为覆盖孔洞从自由空间扣除，不再导致整个圆区被拒绝。场景不保存某次完整的 `air_route_via` 或 `water_route_candidates`。过渡路线由执行几何层按实际起点、目标、障碍和机体包络生成；AIR动作随后由原Swarm在线规划执行，qn WATER和Otter/PVS跟踪生成的航点。当前观测仍是有限几何足迹/驻留代理，支持圆区，不宣称真实载荷的连续像素覆盖。
+实时入口采用**独立任务控制台＋独立RViz**。控制台按设计图保留顶部任务阶段、左侧任务/分工、右侧作业/支援/收件/事件、底部并行时间线；中央为二维区域与方案切换，不嵌入三维画面。点击“编辑区域”或直接在中央地图按下鼠标、拖动半径，再点击“生成协同方案”；RViz随后在独立窗口显示同一场景。方案生成后，在UI核对实际分工并点击“确认并执行”，无需到终端输入yes。关闭控制台不结束已确认任务；“停止任务”须在UI确认，交给原runner取消处置，不将点击停止当作平台已停稳或资源已释放。
+
+用户只输入业务区域；现有覆盖层生成有限AIR/UUV见证点及转换/支援候选，执行层按场景与所选目标生成过渡路线。圈内岩石和禁入实体为覆盖孔洞。观测仍为有限几何足迹/驻留代理，支持圆区，不宣称真实载荷连续覆盖。
+
+[查看新任务控制台截图](docs/images/task-console-reference.png)（加载已保存的成功任务记录展示完成态；三维实况仍在独立RViz窗口）。
 
 **当前最新状态：用户选择圆区的实时完整请求已实跑通过。** [同次运行](experiments/20260927-circle-live-r11)使用圆心 `(2,4)`、半径 `2 m` 的界面输出实例，在默认10秒预算内0.664秒生成联合Plan。AAV2完成5个AIR条带见证点，AAV1从监测区外侧合格入口完成AIR→WATER→AIR点测，UUV完成5个深水条带见证点，USV共享支援AIR与UUV结果交付；11份结果全部实收后，四方从目标区共同释放返航。20个实际步骤全部成功，资源锁为空。[任务审计](experiments/20260927-circle-live-r11/circle-mission-audit.json)和[同次安全/时间审计](experiments/20260927-circle-live-r11/safety-audit.json)均通过；6780个执行期对齐位置样本零缺，全平台最小代理净距约0.777m（门槛0.5m）。
 
@@ -26,7 +30,9 @@ bash scripts/docker_run_three_class_qualification.sh \
   "experiments/$(date -u +%Y%m%dT%H%M%SZ)-offshore-live"
 ```
 
-区域确认后，脚本打印一份完整的任务级方案，再询问 `yes`；没有方案就不会派发 Goal。默认共享规划预算为 10 秒；任务层用轻量几何路线和声明速度快速排序，实际到位、安全和观测仍由派发后的原生端点及反馈确认。可选 `JOINT_GPU_RENDER=true` 只影响 RViz 渲染，不加速联合求解或动力学。该入口使用本机 CPU 核组和中文实时面板；需要 Docker、Noto CJK 字体及本机非交互式 `sudo`。其他机器可直接使用 `scripts/docker_run_joint_request.sh` 并按自身环境设置核组。非交互实验可设 `JOINT_REGION_UI=false`，此时读取配置中的默认区域。
+默认共享规划预算为10秒。UI显示的是原runner同一份Plan与实际结果；预计时间不驱动完成判定，实际模式/支援状态在未收到或过期时显示未知。可选 `JOINT_GPU_RENDER=true` 只影响RViz渲染。这个入口使用本机CPU核组、Docker和Noto CJK字体，本机时钟处理需要非交互式sudo。其他机器可使用 `scripts/docker_run_joint_request.sh` 并按自身环境设置核组。
+
+非图形实验使用 `JOINT_VISUALIZE=false JOINT_TASK_UI=false JOINT_REGION_UI=false`，保留终端确认。只关闭圈选、仍使用新任务控制台时可设 `JOINT_REGION_UI=false`，此时生成配置中的请求。一次运行只提交一个批次，已提交后若需更换区域，请退出该运行并使用新目录启动。
 
 缺少当前镜像时构建：
 

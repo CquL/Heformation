@@ -1863,6 +1863,8 @@ class MissionRunner:
         failure=None
         with ThreadPoolExecutor(max_workers=len(self.units)) as workers:
             while not rospy.is_shutdown():
+                if failure is None and self._consume_operator_stop():
+                    failure=RuntimeError('用户请求停止任务；等待原生终态处置，不提前释放成员')
                 if self.request.template_id=='OFFSHORE_JOINT' and failure is None:
                     try:self._check_tasklevel_fleet_clearance()
                     except RuntimeError as error:
@@ -1936,6 +1938,18 @@ class MissionRunner:
                     self.condition.notify_all()
                 raise failure
             if rospy.is_shutdown():raise RuntimeError("runner shutdown with accepted commitments")
+
+    def _consume_operator_stop(self):
+        path=self.output/'operator-stop.json'
+        try:command=json.loads(path.read_text())
+        except (OSError,ValueError):return False
+        path.unlink(missing_ok=True)
+        if not isinstance(command,dict) or command.get('request_id')!=self.request.request_id:return False
+        # The existing failure path wakes held workers, blocks new dispatch,
+        # cancels the currently accepted Goals and keeps uncertain bookings.
+        with self.executor_mutex:self.metrics['operator_stop_requested']=True
+        self._save_executor()
+        return True
 
     def _check_opaque_hold(self):
         """Monitor accepted returns whose internal model state is unavailable."""
@@ -2076,6 +2090,38 @@ class MissionRunner:
         # The local Result carries access to the observation evidence. Receipt is
         # explicit and zero-latency in this simulator; no radio link is claimed.
         if not getattr(self,'finite_delivery',False):record_delivery(self.coverage, task.covers)
+
+    def _confirm_joint_plan(self):
+        """The operator approves the displayed revision, via UI or terminal.
+
+        The launcher owns this unique run directory and the runner outlives the
+        panel. No UI state or transport process can dispatch a robot Goal.
+        """
+        if rospy.get_param('~confirmation_mode','terminal')!='ui':
+            try:return input('Confirm this exact joint plan? Type yes to dispatch: ').strip().lower()=='yes'
+            except (EOFError,KeyboardInterrupt):return False
+        path=self.output/'operator-confirmation.json'
+        while not rospy.is_shutdown():
+            if (self.output/'operator-closed').exists():return False
+            try:
+                command=json.loads(path.read_text())
+            except (OSError,ValueError):
+                command=None
+            if command is not None:
+                # Consume once. A stale revision never authorizes the plan
+                # that happens to be current when the file is read.
+                path.unlink(missing_ok=True)
+                if (isinstance(command,dict) and command.get('request_id')==self.request.request_id and
+                        type(command.get('plan_revision')) is int and
+                        command['plan_revision']==self.plan_revision and
+                        command.get('decision') in ('confirm','decline')):
+                    self.metrics.pop('confirmation_error',None)
+                    self.metrics['confirmation_source']='TASK_UI'
+                    return command['decision']=='confirm'
+                self.metrics['confirmation_error']='确认的请求或方案版本已失效，请查看当前方案后重新确认。'
+            self._save_executor()
+            time.sleep(.25)
+        return False
 
     def _run_joint_request(self):
         """Run the fixed five-platform request through the existing task worker.
@@ -2328,20 +2374,22 @@ class MissionRunner:
                 members=item.coalition,endpoint=endpoints[item.executor_id],
                 start_s=item.planned_start,finish_s=item.planned_finish,
                 method=[step.target_ref for step in item.execution_steps]) for item in self.plan.items]
-            print(json.dumps(dict(request_id=self.request.request_id,activities=preview,
-                limits=['geometric observation proxy; payload quality unverified',
-                        ('task-level shared support; actual receipt required'
-                         if self.request.template_id=='OFFSHORE_JOINT' else
-                         'finite experimental delivery; actual receipt required'),
-                        'return required; native endpoint decides actual terminal',
-                        ('task-level estimates only; dynamic safety decided during execution' if task_level else
-                         'complete model/trajectory in nominal-plan.json')]),
-                indent=2,default=json_default),flush=True)
-            try:answer=input('Confirm this exact joint plan? Type yes to dispatch: ')
-            except (EOFError,KeyboardInterrupt):answer=''
-            if answer.strip().lower()!='yes':
+            if rospy.get_param('~confirmation_mode','terminal')=='ui':
+                print('联合方案已生成，请在任务控制台点击“确认并执行”。',flush=True)
+            else:
+                print(json.dumps(dict(request_id=self.request.request_id,activities=preview,
+                    limits=['geometric observation proxy; payload quality unverified',
+                            ('task-level shared support; actual receipt required'
+                             if self.request.template_id=='OFFSHORE_JOINT' else
+                             'finite experimental delivery; actual receipt required'),
+                            'return required; native endpoint decides actual terminal',
+                            ('task-level estimates only; dynamic safety decided during execution' if task_level else
+                             'complete model/trajectory in nominal-plan.json')]),
+                    indent=2,default=json_default),flush=True)
+            if not self._confirm_joint_plan():
                 self.metrics['status']='NOT_CONFIRMED';self._save_executor();return
-            self.metrics['confirmation']={'answer':'yes','at_ros_s':rospy.Time.now().to_sec()}
+            self.metrics['confirmation']={'answer':'yes','at_ros_s':rospy.Time.now().to_sec(),
+                'request_id':self.request.request_id,'plan_revision':self.plan_revision}
             self.metrics['initial_position_deviation_m']=checked_start()
             self.epoch=rospy.Time.now().to_sec()
             self.metrics['status']='RUNNING' if task_level else 'RUNNING_DIAGNOSTIC';self._save_executor()
