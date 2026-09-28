@@ -14,7 +14,7 @@ import rospy
 from diagnostic_msgs.msg import DiagnosticArray
 from qn_aav_simulator.msg import PlatformTaskAction, PlatformTaskFeedback, PlatformTaskResult, FormationActionResult
 from qn_aav_simulator.srv import TakeReference, TakeReferenceResponse
-from qn_aav_simulator.platform_execution import ReferenceOwnership, Segment, actual_mode, validate_fragment, PlannerAcknowledgement, segment_terminal_ready
+from qn_aav_simulator.platform_execution import ReferenceOwnership, Segment, actual_mode, validate_fragment, PlannerAcknowledgement, segment_terminal_ready, QN_PLATFORM_POSITION_TOLERANCE_M
 from qn_aav_simulator.qn_dynamics import medium_flag
 from qn_aav_simulator.time_alignment import DEFAULT_MAX_ABS_DRIFT_S
 from qn_aav_simulator.experiment_verdict import StaticSceneGeometry
@@ -62,7 +62,7 @@ class LocalPlatformAction:
             raise ValueError('unsupported transition fault behavior')
         if not self.qualification_only:
             raise ValueError('Swarm round-trip and mode fault qualification are incomplete; this endpoint is experimental only')
-        self.position_tolerance=float(rospy.get_param('~platform_position_tolerance_m',.2))
+        self.position_tolerance=float(rospy.get_param('~platform_position_tolerance_m',QN_PLATFORM_POSITION_TOLERANCE_M))
         self.speed_tolerance=float(rospy.get_param('~platform_speed_tolerance_mps',.03))
         self.hold_duration=float(rospy.get_param('~platform_terminal_duration_s',4.))
         self.wall_limit=float(rospy.get_param('~platform_observation_timeout_s',180.))

@@ -7,8 +7,10 @@ from dataclasses import dataclass
 import math
 from typing import Tuple
 
+QN_PLATFORM_POSITION_TOLERANCE_M = .2
 
-def plan_static_path(source,target,radius,scene_geometry,deadline):
+
+def plan_static_path(source,target,radius,scene_geometry,deadline,*,tracking_margin_m=0.):
     """Lower-layer geometric route query over the declared static map.
 
     It returns waypoints only. Swarm/qn/PVS still generate and execute their
@@ -18,19 +20,28 @@ def plan_static_path(source,target,radius,scene_geometry,deadline):
     import time
     source=tuple(source);target=tuple(target)
     if scene_geometry is None:raise ValueError('MOTION_SCENE_MISSING')
+    if not math.isfinite(tracking_margin_m) or tracking_margin_m<0:
+        raise ValueError('MOTION_TRACKING_MARGIN_INVALID')
+    # Reserve room around the geometric route for the tracking controller.
+    # This is an engineering margin, NOT a proved dynamic tracking bound.
+    # All graph edges (including the straight-line shortcut) use this envelope;
+    # the executed collision radius and actual safety threshold stay unchanged.
+    planning_radius=radius+tracking_margin_m
+    if scene_geometry.violation(source,planning_radius) or scene_geometry.violation(target,planning_radius):
+        raise ValueError('MOTION_ENDPOINT_CLEARANCE_INSUFFICIENT')
     prefix=[source]
     if source[2]!=target[2]:prefix.append((source[0],source[1],target[2]))
-    if len(prefix)>1 and scene_geometry.path_violation(prefix,radius):
+    if len(prefix)>1 and scene_geometry.path_violation(prefix,planning_radius):
         raise ValueError('MOTION_VERTICAL_ROUTE_BLOCKED')
     origin=prefix[-1]
-    if not scene_geometry.path_violation((origin,target),radius):return tuple(prefix+[target])
-    margin=radius+scene_geometry.clearance+1e-6
+    if not scene_geometry.path_violation((origin,target),planning_radius):return tuple(prefix+[target])
+    margin=planning_radius+scene_geometry.clearance+1e-6
     vertices=[origin,target]
     for _,_,center,size in scene_geometry.objects:
         if abs(target[2]-center[2])>size[2]/2+margin:continue
         for sx,sy in ((-1,-1),(-1,1),(1,-1),(1,1)):
             point=(center[0]+sx*(size[0]/2+margin),center[1]+sy*(size[1]/2+margin),target[2])
-            if not scene_geometry.violation(point,radius):vertices.append(point)
+            if not scene_geometry.violation(point,planning_radius):vertices.append(point)
     distances={0:0.};previous={};queue=[(0.,0)]
     while queue:
         if time.monotonic()>=deadline:raise TimeoutError('motion geometry budget exhausted')
@@ -44,7 +55,7 @@ def plan_static_path(source,target,radius,scene_geometry,deadline):
             if other==index:continue
             candidate=cost+math.dist(vertices[index],point)
             if candidate>=distances.get(other,float('inf')):continue
-            if scene_geometry.path_violation((vertices[index],point),radius):continue
+            if scene_geometry.path_violation((vertices[index],point),planning_radius):continue
             distances[other]=candidate;previous[other]=index
             heapq.heappush(queue,(candidate,other))
     raise ValueError('MOTION_STATIC_ROUTE_UNREACHABLE')

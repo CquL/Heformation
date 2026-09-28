@@ -421,8 +421,12 @@ class ExecutorTravelTimeProvider:
 
     def _task_path(self,source,target,radius,deadline):
         """Ask the existing execution geometry layer for finite waypoints."""
-        from qn_aav_simulator.platform_execution import plan_static_path
-        try:return plan_static_path(source,target,radius,self.scene_geometry,deadline)
+        from qn_aav_simulator.platform_execution import plan_static_path,QN_PLATFORM_POSITION_TOLERANCE_M
+        # WATER waypoints must not skim the obstacle threshold: the real qn
+        # plant has transient tracking error. Use its existing terminal
+        # tolerance as an explicit engineering reserve, not a certified tube.
+        reserve=QN_PLATFORM_POSITION_TOLERANCE_M if source[2]<0 and target[2]<0 else 0.
+        try:return plan_static_path(source,target,radius,self.scene_geometry,deadline,tracking_margin_m=reserve)
         except TimeoutError as error:raise PlanningBudgetExceeded(str(error)) from error
 
     @staticmethod

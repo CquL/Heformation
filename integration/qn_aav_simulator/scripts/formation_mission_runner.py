@@ -669,7 +669,13 @@ class MissionRunner:
             radius=1.1891593669479295 if member=='usv' else .25
             if geometry is not None:
                 reason=geometry.violation(positions[member],radius)
-                if reason:raise RuntimeError('actual fleet safety: '+member+' '+reason)
+                if reason:
+                    reason='actual fleet safety: '+member+' '+reason
+                    with self.executor_mutex:
+                        item=next((i for i in self.plan.items if member in i.coalition and i.status=='RUNNING'),None)
+                        self.metrics.setdefault('first_failure',dict(member=member,
+                            execution_id=item.execution_id if item else '',reason=reason))
+                    raise RuntimeError(reason)
             for other in self.fleet[index+1:]:
                 clearance=math.dist(positions[member],positions[other])-radius-(1.1891593669479295 if other=='usv' else .25)
                 minimum=min(minimum,clearance)
@@ -1640,9 +1646,12 @@ class MissionRunner:
                 if step.native_action else self._release_result_ok(state,result,view.execution_id))
             row=dict(activity_id=item.execution_id,execution_id=view.execution_id,endpoint=unit.action_endpoint,
                      native_state=state,goal_id=getattr(result,'goal_id',None),verified=False,
-                     observation_missing=bool(missing))
+                     observation_missing=bool(missing),reason=str(getattr(result,'reason','RESULT_UNAVAILABLE')))
             with self.executor_mutex:self.metrics.setdefault('step_results',[]).append(row)
             if not ok:
+                with self.executor_mutex:
+                    self.metrics.setdefault('first_failure',dict(member=unit.physical_agent_ids[0],
+                        execution_id=view.execution_id,reason=row['reason']))
                 self._save_executor()
                 raise RuntimeError('step {} failed or unverified; parent remains occupied'.format(index))
             goal_id,envelope=self.native_result(view.execution_id)
@@ -1868,19 +1877,20 @@ class MissionRunner:
                 if self.request.template_id=='OFFSHORE_JOINT' and failure is None:
                     try:self._check_tasklevel_fleet_clearance()
                     except RuntimeError as error:
-                        failure=error
+                        failure=failure or error
                         with self.executor_mutex:
                             self.metrics['runtime_safety_failure']=str(error)
+                            self.metrics.setdefault('first_failure',dict(member='',execution_id='',reason=str(error)))
                 if getattr(self,'opaque_hold',None) is not None or getattr(self,'opaque_holds',None):
                     try:self._check_opaque_hold()
                     except RuntimeError as error:
-                        failure=error
+                        failure=failure or error
                 dispatch=[]
                 for execution_id,(future,activity_ids) in list(running.items()):
                     if future.done():
                         try:future.result()
                         except Exception as error:
-                            failure=error
+                            failure=failure or error
                             with self.executor_mutex:
                                 for ident in activity_ids:
                                     if self.plan.item(ident).status in ('COMPLETED','REJECTED_BEFORE_ACCEPTANCE'):continue

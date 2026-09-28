@@ -8,6 +8,7 @@ import argparse
 import json
 import math
 from pathlib import Path
+import re
 import subprocess
 import sys
 import threading
@@ -163,6 +164,52 @@ MEMBER_NAMES=dict(zip(MEMBERS,('AAV 1','AAV 2','AAV 3','USV','UUV')))
 COLORS=dict(zip(MEMBERS,('#00add7','#7c32eb','#7a879c','#00a368','#edab00')))
 
 
+def terminal_kind(state):
+    status=state.get('status','')
+    if status.startswith('PASS'):return 'success'
+    if status=='NOT_CONFIRMED':return 'unconfirmed'
+    stopped=status in ('STOPPED','CANCELLED','CANCELED')
+    if status.startswith('FAIL') or status=='UNKNOWN_LOCKED' or stopped:
+        first=state.get('first_failure') or {}
+        reason=first.get('reason') or state.get('failure_reason') or ''
+        if state.get('runtime_safety_failure') or any(token in reason for token in
+                ('SAFETY_VIOLATION','SCENE_CLEARANCE','DOMAIN_VIOLATION','actual fleet safety:',
+                 'actual fleet clearance')):return 'failure'
+        # The runner records only a validated stop request. Its later native
+        # Result may say CANCEL_REQUEST or timeout while bookings stay locked.
+        if state.get('operator_stop_requested') or stopped:return 'stopped'
+        return 'failure'
+    return ''
+
+
+def failure_summary(state,items,scene):
+    """Use the runner's first cause; old snapshots may only retain safety text."""
+    first=state.get('first_failure') or {}
+    member=first.get('member','');ident=first.get('execution_id','')
+    reason=first.get('reason') or state.get('runtime_safety_failure') or ''
+    if not reason:
+        failed=next((row for row in state.get('executions',())
+            if row.get('result') in ('FAILED','FAIL','ABORTED','REJECTED_BEFORE_ACCEPTANCE','UNKNOWN_LOCKED')),None)
+        failed=failed or next((row for row in state.get('step_results',()) if row.get('verified') is False),{})
+        ident=ident or failed.get('activity_id') or failed.get('execution_id','')
+        action=state.get('current_actions',{}).get(ident,{})
+        reason=failed.get('reason') or failed.get('failure_reason') or action.get('failure_reason') or state.get('failure_reason') or ''
+    if not reason:return ''
+    # This names the member explicitly identified by the existing safety record.
+    match=re.search(r'actual fleet safety: (\S+) SCENE_CLEARANCE: ([^=]+)=([-+\d.eE]+)m',reason)
+    if match:
+        member,obstacle,clearance=match.groups()
+        obstacle={'rock':'岩石','quay':'码头','seabed':'海底'}.get(obstacle,obstacle)
+        threshold=scene.get('required_clearance_m')
+        reason='与{}净距不足：{} m'.format(obstacle,clearance)
+        if threshold is not None:reason+='（要求 ≥ {:.2f} m）'.format(threshold)
+    if not member and ident:
+        item=next((i for i in items if ident==i['execution_id'] or ident.startswith(i['execution_id']+':step:')),None)
+        if item:member='、'.join(MEMBER_NAMES.get(m,m) for m in item.get('coalition',()))
+    name=MEMBER_NAMES.get(member,member)
+    return (name+(' ' if reason.startswith('与') else '：') if name else '')+reason
+
+
 def icon_label(kind,color='#132d57',size=26):
     """Small vector icons shared by the member rows and section headings."""
     shapes={
@@ -220,7 +267,7 @@ class PlanTimeline(QWidget):
         horizon=max((i.get('planned_finish',0) for i in items),default=1) or 1
         left=68.;width=max(1.,self.width()-left-10);row_height=24
         verified={row['execution_id'] for row in self.state.get('step_results',()) if row.get('verified')}
-        current=self.state.get('current_actions',{})
+        current={} if terminal_kind(self.state) else self.state.get('current_actions',{})
         painter.setFont(QFont(self.font().family(),9))
         for tick in range(5):
             x=left+width*tick/4
@@ -544,7 +591,7 @@ class JointMissionPanel(QWidget):
                 self.state=json.loads(path.read_text());self.last_snapshot=stamp;self.last_update=time.monotonic()
         except (OSError,ValueError):pass
         state=self.state;status=state.get('status','STARTING' if self.submitted else 'SELECT_REGION')
-        terminal=status.startswith(('PASS','FAIL')) or status in ('UNKNOWN_LOCKED','NOT_CONFIRMED')
+        kind=terminal_kind(state);terminal=bool(kind)
         try:exit_code=(self.output/'runner-exit-code.txt').read_text().strip()
         except OSError:exit_code=None
         failed_start=(self.output/'session-ended').exists() and not terminal
@@ -555,11 +602,16 @@ class JointMissionPanel(QWidget):
             'UNKNOWN_LOCKED':'任务异常锁定','FAIL':'任务未完成','FAILED':'任务未完成',
             'PASS_GEOMETRIC_PROXY_QUALIFICATION':'协同任务完成'}
         title=names.get(status,status)
+        if kind=='success':title='协同任务完成'
+        elif kind=='failure':title='任务异常锁定' if status=='UNKNOWN_LOCKED' else '任务未完成'
+        elif kind=='stopped':title='任务已停止 · 状态待确认' if state.get('resource_locks') else '任务已停止'
         if failed_start or (exit_code is not None and not terminal):title='任务进程已退出'
         elif stale:title='状态更新中断'
         elif state.get('operator_stop_requested') and not terminal:title='停止处置中'
         self.status.setText('● '+title)
-        color='#b84537' if failed_start or stale or status in ('FAIL','FAILED','UNKNOWN_LOCKED') else '#0967ff'
+        color=('#b84537' if failed_start or stale or (exit_code is not None and not terminal) else
+            {'failure':'#b84537','stopped':'#b96900','unconfirmed':'#738197','success':'#079b62'}.get(kind,
+                '#b96900' if state.get('operator_stop_requested') else '#0967ff'))
         self.status.setStyleSheet('color: '+color+'; font-weight: 750; font-size: 23px;')
         self.edit_button.setEnabled(self.select_region and not self.submitted)
         self.edit_button.setText('运行中不可修改' if status.startswith('RUNNING') else '已提交区域' if self.submitted else '编辑区域')
@@ -569,14 +621,16 @@ class JointMissionPanel(QWidget):
             self.confirmation_sent=False;self.confirm_button.setText('重新确认')
         if state.get('confirmation'):self.confirm_button.setText('已确认执行')
         self.stop_button.setEnabled(status.startswith('RUNNING') and not self.stop_sent and not stale)
-        stage=(4 if state.get('joint_return_release_at_ros_s') or status.startswith('PASS') else
-            3 if status.startswith('RUNNING') else 2 if status=='AWAITING_CONFIRMATION' else 1 if self.submitted else 0)
+        stage=(4 if state.get('joint_return_release_at_ros_s') or kind=='success' else
+            3 if status.startswith('RUNNING') or state.get('confirmation') or state.get('step_results') or state.get('current_actions') else
+            2 if status=='AWAITING_CONFIRMATION' or kind=='unconfirmed' else 1 if self.submitted else 0)
         for i,(label,name) in enumerate(self.workflow):
             digit=('①','②','③','④','⑤')[i]
-            label.setText(digit+'  '+name+('  ✓' if i<stage else ''))
-            label.setStyleSheet('font-size: 16px; color: '+('#0967ff' if i==stage else '#112951' if i<stage else '#8998ac')+
+            label.setText(digit+'  '+name+('  ✓' if i<stage or kind=='success' else '  !' if i==stage and kind=='failure' else ''))
+            label.setStyleSheet('font-size: 16px; color: '+(color if i==stage else '#112951' if i<stage else '#8998ac')+
                 '; font-weight: '+('750' if i==stage else '500')+';')
         items=(state.get('plan') or state.get('selected_plan') or {}).get('items',[])
+        failure=failure_summary(state,items,self.base_scene['scene'])
         self.map.plan_items=(state.get('selected_plan') or {}).get('items',items);self.map.update()
         actions=state.get('current_actions',{});products=state.get('received_products',{})
         received={p['point_id'] for p in products.values() if p.get('observed') is True}
@@ -599,13 +653,16 @@ class JointMissionPanel(QWidget):
             if item:
                 role=activity_role(item);action=actions.get(item['execution_id'],{})
                 phase=phases.get(action.get('phase'),{'PLANNED':'待确认' if status=='AWAITING_CONFIRMATION' else '等待派发',
-                    'COMPLETED':'活动已完成','FAILED':'执行失败','RUNNING':'执行中'}.get(item.get('status'),'状态待同步'))
+                    'COMPLETED':'活动已完成','FAILED':'执行失败','UNKNOWN_LOCKED':'异常锁定','RUNNING':'执行中'}.get(item.get('status'),'状态待同步'))
                 index=action.get('step');steps=item.get('execution_steps',())
                 if isinstance(index,int) and 0<=index<len(steps) and action.get('phase') not in ('WAITING_FOR_RECEIPTS','WAITING_FOR_GROUP_RETURN','UNKNOWN_LOCKED'):
                     step=step_label(steps[index])
                     if step in ('返航','扫测','等待出发'):phase=step+('中' if step!='等待出发' else '')
                 resource=('异常锁定' if status=='UNKNOWN_LOCKED' else '执行占用') if item['executor_id'] in state.get('resource_locks',()) else '未占用'
                 if item.get('status')=='COMPLETED':resource='已释放'
+                elif terminal:
+                    phase=('异常锁定' if item['executor_id'] in state.get('resource_locks',()) else
+                        '未执行' if kind=='unconfirmed' else '已停止 · 终态待确认' if kind=='stopped' else '任务未完成')
             own={p['point_id'] for p in products.values() if p.get('producer')==member and p.get('observed') is True}
             for col,value in enumerate((MEMBER_NAMES[member],role,phase,str(len(own))+' 份' if member!='usv' else '共享支援',resource)):
                 cell=QTableWidgetItem(value);cell.setForeground(QColor(COLORS[member] if col==0 else '#263d53'));self.table.setItem(row,col,cell)
@@ -616,18 +673,23 @@ class JointMissionPanel(QWidget):
             frame,phase_label=self.action_rows[member];phase_label.setText(phase)
             frame.setVisible(member in selected if items else member!='drone_2')
         if items:
-            active=len(actions)
-            self.status_detail.setText(('{} 项活动完成 · {} 台待命'.format(len(items),len(set(MEMBERS)-selected))
-                if status.startswith('PASS') else '{} 项活动执行 · {} 台待命'.format(active,len(set(MEMBERS)-selected))
-                if active else '{} 项计划活动 · {} 台待命'.format(len(items),len(set(MEMBERS)-selected))))
+            active=sum(a.get('phase') not in ('UNKNOWN_LOCKED','FAILED','SAFETY_HOLD') for a in actions.values())
+            completed=sum(i.get('status')=='COMPLETED' for i in items)
+            detail=('{} 项活动完成 · {} 台待命'.format(completed,len(set(MEMBERS)-selected)) if kind=='success' else
+                '{} / {} 项活动完成 · {} 项占用待确认'.format(completed,len(items),len(state.get('resource_locks',()))) if kind in ('failure','stopped') else
+                '{} 项计划活动 · 未确认执行'.format(len(items)) if kind=='unconfirmed' else
+                '{} 项活动执行 · {} 台待命'.format(active,len(set(MEMBERS)-selected)) if active else
+                '{} 项计划活动 · {} 台待命'.format(len(items),len(set(MEMBERS)-selected)))
+            self.status_detail.setText(detail)
         else:self.status_detail.setText('生成方案后核对分工，确认后启动。')
         plan_wall=state.get('planning_wall_s')
         self.plan_info.setText('方案版本 {} · 决策 {:.2f} 秒'.format(state.get('plan_revision',0),plan_wall)
             if plan_wall is not None else '生成后显示方案版本与决策用时')
         service_fresh=time.monotonic()-transport.get('received_monotonic',0)<2
         support_active=service_fresh and transport.get('support_active',False)
-        self.support_status.setText('支援已结束' if status.startswith('PASS') else '● USV 已到位' if support_active else '● 支援待就绪' if service_fresh else '状态待同步')
-        self.support_status.setStyleSheet('color: '+('#069e67' if support_active else '#8190a7')+'; background: #effaf5; border-radius: 11px; padding: 4px 7px; font-size: 11px;')
+        self.support_status.setText('支援已结束' if kind=='success' else '支援已中止' if kind in ('failure','stopped') else
+            '未确认执行' if kind=='unconfirmed' else '● USV 已到位' if support_active else '● 支援待就绪' if service_fresh else '状态待同步')
+        self.support_status.setStyleSheet('color: '+(color if terminal else '#069e67' if support_active else '#8190a7')+'; background: #effaf5; border-radius: 11px; padding: 4px 7px; font-size: 11px;')
         clients=[MEMBER_NAMES.get(i.get('coalition',[''])[0],'') for i in items if i.get('fulfills_task',True)]
         self.support_members.setText('服务对象：'+'、'.join(clients) if clients else '等待方案选择服务对象')
         self.cooperation.setText('USV 同时支援作业平台\n结果收齐、作业到位后共同返航' if items else '按当前状态选择分工与支援\n必要条件满足后共同返航')
@@ -638,16 +700,26 @@ class JointMissionPanel(QWidget):
             self.return_title.setText('✓ 共同返航已放行');self.returns.setText('分别按实际到位完成，尚未完成的成员继续执行。')
         else:
             self.return_title.setText('ⓘ 共同返航尚未放行');self.returns.setText('等待作业完成及必要结果收齐。')
-        if status in ('FAIL','FAILED','UNKNOWN_LOCKED'):
-            self.return_title.setText('! 任务未完成');self.returns.setText('查看任务记录及资源占用，失败不按完成计。')
-        self.central_hint.setText('请核对当前分工，再确认执行。' if status=='AWAITING_CONFIRMATION' else
+        if kind in ('failure','stopped','unconfirmed'):
+            self.return_title.setText('! 任务未完成' if kind=='failure' else 'ⓘ 任务已停止' if kind=='stopped' else 'ⓘ 未确认执行')
+            self.returns.setText(('首个异常：'+failure if failure and kind=='failure' else
+                '已请求停止，未确认终态的成员保留占用。' if kind=='stopped' else
+                '本次方案未获确认，未启动执行。' if kind=='unconfirmed' else '未收到任务完成依据，请查看任务记录。'))
+        self.return_title.setStyleSheet('color: '+(color if terminal else '#b96900')+'; font-weight: 700; font-size: 15px;')
+        self.central_hint.setText('首个异常：'+failure if kind=='failure' and failure else
+            '任务已停止，请查看右侧处置与资源状态。' if kind=='stopped' else
+            '本次任务未确认执行。' if kind=='unconfirmed' else
+            '请核对当前分工，再确认执行。' if status=='AWAITING_CONFIRMATION' else
             '区域已提交，正在启动独立 RViz。' if status in ('STARTING','STANDBY') else
             '二维区域与方案视图 · 实际仿真在独立 RViz 中显示' if self.submitted else
             '在地图上拖动圈选区域，再生成协同方案。')
-        self.connection.setText('● 任务已结束' if terminal else '● 进程已退出' if failed_start or exit_code is not None else
+        self.central_hint.setStyleSheet('color: '+(color if terminal else '#8390a4')+'; font-size: 11px;')
+        self.connection.setText('● '+{'success':'任务已完成','failure':'任务异常锁定' if status=='UNKNOWN_LOCKED' else '任务未完成',
+            'stopped':'任务已停止','unconfirmed':'任务未确认'}[kind] if terminal else '● 进程已退出' if failed_start or exit_code is not None else
             '● 更新中断' if stale else '● 仿真已连接' if state else '● 等待仿真')
-        self.connection.setStyleSheet('color: '+('#9a7657' if stale else '#079b62' if state else '#8794a8')+
-            '; background: #effbf5; border: 1px solid #c0ead9; border-radius: 13px; padding: 4px 10px;')
+        badge_color=color if terminal or failed_start or stale or exit_code is not None else '#079b62' if state else '#8794a8'
+        self.connection.setStyleSheet('color: '+badge_color+'; background: '+self.tint(badge_color)+
+            '; border: 1px solid '+self.tint(badge_color)+'; border-radius: 13px; padding: 4px 10px;')
         epoch=(state.get('confirmation') or {}).get('at_ros_s')
         elapsed=max(0,state.get('updated_at_ros_s',epoch or 0)-(epoch or 0)) if epoch else 0
         self.elapsed.setText('已运行 {:02d}:{:02d}'.format(int(elapsed)//60,int(elapsed)%60) if epoch else '尚未开始')
@@ -664,11 +736,11 @@ class JointMissionPanel(QWidget):
                     events.append((result['result_received_at'],MEMBER_NAMES.get(item['coalition'][0],'平台')+
                         (' 返回完成' if final_return else ' 完成作业步骤')))
             if state.get('joint_return_release_at_ros_s'):events.append((state['joint_return_release_at_ros_s'],'全体共同返航已放行'))
-        self.recent.setText('\n\n'.join('{:02d}:{:02d}  {}'.format(int(max(0,t-epoch))//60,int(max(0,t-epoch))%60,text)
+        self.recent.setText('\n'.join('{:02d}:{:02d}  {}'.format(int(max(0,t-epoch))//60,int(max(0,t-epoch))%60,text)
             for t,text in sorted(events,reverse=True)[:3]) or '等待实际任务事件')
         self.timeline.state=state;self.timeline.update()
         if self.details_dialog.isVisible():
-            text=state.get('failure_reason') or state.get('confirmation_error') or '当前无失败记录。'
+            text=('首个异常：'+failure+'\n' if failure else '')+(state.get('failure_reason') or state.get('confirmation_error') or '当前无失败记录。')
             if state.get('request_id'):text+='\n请求：'+state['request_id']
             if exit_code is not None:text+='\n任务进程退出码：'+exit_code
             for filename in ('runner.log','launch.log'):
