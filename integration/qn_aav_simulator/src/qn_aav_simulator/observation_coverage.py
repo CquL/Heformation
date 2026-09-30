@@ -42,8 +42,22 @@ class LocalSurveyMap:
         self.stamp = None
         self._measured = set()
         self.measured_modes = {}
+        self.observation_epoch_s = 0.
         self._forbidden_boxes = []
         self._free_bounding_boxes = set()
+
+    def begin_observation_epoch(self, stamp):
+        """Retain navigation knowledge, but require fresh sensing for a new job.
+
+        A repeated region is a new monitoring request, not permission to emit
+        the preceding request's products again. Delayed older scans may still
+        refine the navigation map but cannot fulfil this observation epoch.
+        """
+        if not math.isfinite(stamp) or stamp < self.observation_epoch_s:
+            raise ValueError('observation epoch must be finite and monotone')
+        self.observation_epoch_s = float(stamp)
+        self._measured.clear()
+        self.measured_modes.clear()
 
     def declare_forbidden_box(self, low, high):
         """Known navigation policy, not a sensed solid or an occluding object."""
@@ -133,13 +147,14 @@ class LocalSurveyMap:
             raise ValueError('invalid or stale measured scan')
         self._free_bounding_boxes.clear()
         rows = sorted(zip(endpoints, hits), key=lambda row: math.dist(origin, row[0]))
+        current_observation = stamp >= self.observation_epoch_s
         for endpoint, hit in rows:
             terminal = self._key(endpoint)
             for key in self._ray_keys(origin, endpoint):
                 if key in self.occupied:
                     # A real repeat hit may provide the first measurement in
                     # another medium. A contradictory miss cannot do so.
-                    if key == terminal and hit:
+                    if key == terminal and hit and current_observation:
                         self._measured.add(key)
                         if mode is not None:
                             self.measured_modes.setdefault(key, set()).add(mode)
@@ -150,9 +165,10 @@ class LocalSurveyMap:
                     self._hits[key] = endpoint
                 else:
                     self.free.add(key)
-                self._measured.add(key)
-                if mode is not None:
-                    self.measured_modes.setdefault(key, set()).add(mode)
+                if current_observation:
+                    self._measured.add(key)
+                    if mode is not None:
+                        self.measured_modes.setdefault(key, set()).add(mode)
         # Empty scans do not create a known-free seed around the vehicle.
         self.stamp = float(stamp)
         origin_key = self._key(origin)

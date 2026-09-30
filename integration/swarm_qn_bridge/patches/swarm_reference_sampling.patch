@@ -119,9 +119,9 @@
 +#include <utility>
 +
 +namespace ego_planner {
-+// Original traj_server yaw rule, shared unchanged with the read-only query.
-+// The query supplies a declared sampling period; the server supplies measured
-+// callback elapsed time. This is not a second yaw controller.
++// Original traj_server yaw-rate rule, shared with the read-only query.
++// Only horizontal lookahead changes yaw; vertical legs retain the last yaw.
++// Server and query differ only in how their sampling period is supplied.
 +template <typename Trajectory>
 +std::pair<double,double> trajectoryYaw(const Trajectory &trajectory,
 +    double traj_duration_, double time_forward_, double t_cur,
@@ -137,7 +137,7 @@
 +  Eigen::Vector3d dir = t_cur + time_forward_ <= traj_duration_
 +                            ? trajectory.getPos(t_cur + time_forward_) - pos
 +                            : trajectory.getPos(traj_duration_) - pos;
-+  double yaw_temp = dir.norm() > 0.1
++  double yaw_temp = dir.head<2>().norm() > 0.1
 +                        ? atan2(dir(1), dir(0))
 +                        : last_yaw_;
 +  double max_yaw_change = YAW_DOT_MAX_PER_SEC * dt;

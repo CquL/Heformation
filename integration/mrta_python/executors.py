@@ -513,6 +513,8 @@ class ExecutorTravelTimeProvider:
         ids=tuple(p.point_id for p in region.interest_points)
         source=tuple(state['position']);radius=float(state.get('collision_radius_m',.25))
         home=tuple(self.return_sites[member]['position']) if self.return_sites else source
+        return_lane_altitude=(self.air_return_altitude_m if 'AIR' in unit.capabilities
+                              else self.amphibious_return_altitude_m)
         methods=[]
         try:
             if 'AIR' in unit.capabilities:
@@ -561,8 +563,8 @@ class ExecutorTravelTimeProvider:
                     steps[-1]=replace(self._task_step(unit,'survey:'+task.target_ref,
                         (last.native_prediction['reference_path'][0],target),'AIR',
                         duration=last.duration_s+estimate,hold=4.,observations=ids,radius=radius),region_id=region.region_id)
-                if self.air_return_altitude_m is not None:
-                    waypoint=(position[0],position[1],self.air_return_altitude_m)
+                if return_lane_altitude is not None:
+                    waypoint=(position[0],position[1],return_lane_altitude)
                     steps.append(self._task_step(unit,'return-climb:'+task.target_ref,
                         self._task_path(position,waypoint,radius,deadline),'AIR',hold=4.,radius=radius))
                     position=waypoint
@@ -571,8 +573,8 @@ class ExecutorTravelTimeProvider:
                     steps.append(self._task_step(unit,'return-via:'+task.target_ref+':'+str(index),
                         self._task_path(position,waypoint,radius,deadline),'AIR',hold=4.,radius=radius))
                     position=waypoint
-                if self.air_return_altitude_m is not None:
-                    overhead=(home[0],home[1],self.air_return_altitude_m)
+                if return_lane_altitude is not None:
+                    overhead=(home[0],home[1],return_lane_altitude)
                     steps.append(self._task_step(unit,'return-overhead:'+member,
                         self._task_path(position,overhead,radius,deadline),'AIR',hold=4.,radius=radius))
                     position=overhead
@@ -622,11 +624,11 @@ class ExecutorTravelTimeProvider:
                         (28.+water_duration,exit_position),(32.+water_duration,exit_position))
                     steps.append(native)
                     return_start=exit_position
-                    if self.amphibious_return_altitude_m is not None:
-                        high=(exit_position[0],exit_position[1],self.amphibious_return_altitude_m)
+                    if return_lane_altitude is not None:
+                        high=(exit_position[0],exit_position[1],return_lane_altitude)
                         steps.append(self._task_step(air,'return-climb:'+task.target_ref,
                             self._task_path(exit_position,high,radius,deadline),'AIR',hold=4.,radius=radius))
-                        overhead=(home[0],home[1],self.amphibious_return_altitude_m)
+                        overhead=(home[0],home[1],return_lane_altitude)
                         steps.append(self._task_step(air,'return-overhead:'+member,
                             self._task_path(high,overhead,radius,deadline),'AIR',hold=4.,radius=radius))
                         return_start=overhead
@@ -752,7 +754,7 @@ class ExecutorTravelTimeProvider:
                         # the associated complete cooperation estimate, not the
                         # old fixed 300 s single-path experiment. No business
                         # deadline is inferred from this execution watchdog.
-                        observation_limit=(max(300.,duration+120.) if
+                        observation_limit=(max(600.,duration+240.) if
                             self.observation_request.execution_mode=='ONLINE_MAPPING' else 300.)
                         route=NativeActionSpec(segments,'TRIM_PROPULSION',
                             execution_timeout_s=observation_limit+float(wait))
@@ -2634,15 +2636,18 @@ def _build_complete_candidate_plan(executors,tasks,provider,member_states,deadli
                         remaining_water=[other.physical_agent_ids[0] for other in executors
                             if other.physical_agent_ids!=(member,) and 'WATER' in other.capabilities
                             and 'AAV' in other.capabilities and len(other.physical_agent_ids)==1]
-                        complement=min((math.dist(snapshot[other]['position'],water)
+                        complement=min(((snapshot[other].get('verified_cross_medium_uses',0),
+                                         math.dist(snapshot[other]['position'],water))
                             for other in remaining_water if not snapshot[other].get('locked',False)),
-                            default=float('inf'))
+                            default=(float('inf'),float('inf')))
                         # State-dependent ordering only; the native motion and
                         # whole-plan check still decide actual feasibility.
-                        return (math.dist(snapshot[member]['position'],target)+complement,unit.executor_id)
+                        return (complement[0],math.dist(snapshot[member]['position'],target)+complement[1],
+                                unit.executor_id)
                     if task.target_ref=='offshore_aav_water':
-                        return (math.dist(snapshot[member]['position'],target),unit.executor_id)
-                    return (0.,unit.executor_id)
+                        return (snapshot[member].get('verified_cross_medium_uses',0),
+                                math.dist(snapshot[member]['position'],target),unit.executor_id)
+                    return (0.,0.,unit.executor_id)
                 # Cheap ordering hint only. Every complete candidate still
                 # needs its native motion/receipt check; distance is never a
                 # feasibility assertion or a pruning lower bound.

@@ -1,3 +1,208 @@
+## 2026-09-30 — 同次最终记录核对、当前说明与产物整理
+
+- 实际：仅核对r42已有完整bag，未再跑实验。独立可对齐样本19066，五平台最小代理净距0.746672m≥0.5m，USV/pier最小余量0.286077m≥0.2m；无无效原生多项式、无paused期间普通参考发布。严格审计仍FAIL：UUV累计模型/ROS漂移最大46.451202秒，执行区间14个位置对齐缺样；按用户视觉时钟授权保留原失败结论，不能称严格时间或连续安全通过。
+- 整理：README、当前状态、交接、冻结政策与plan同步本次有限场景动态链PASS；提交简要事实 `docs/reviews/dynamic-session-result-20260930.json`、实际HOME面板及实际编队返回RViz截图。r40/r41重复原始bag删除3.298GiB，加此前27.410GiB约30.708GiB；本次r42原始记录保留，本地忽略的大bag不推GitHub。
+- 证据：r42 `safety-audit.json`、`previous-raw-records-cleanup.json`、原 `execution.bag`及上述简要事实和图片。旧失败与工程修正保留WORKLOG，不用最新PASS抹去失败。
+- 下一步：只完成main源码/文档提交与推送，交付主要实时入口；无其他实验。
+
+## 2026-09-30 — r42 完整动态协同会话实际通过
+
+- 计划：同次独立中文UI/RViz完成确认、运动替换、排队接续、监测实收、目标驻留、Swarm编队转场途中换区及最终共同返回。
+- 实际：r42记录 `PASS_SESSION_SEQUENCE`；最终任务权威 `PASS_SAMPLED_MAPPING`，33/33成果实收，五平台 `ACTUAL_TERMINAL_IN_RETURN_SITE`、资源锁为空，随后明确结束会话成为 `SESSION_ENDED/HOME`。三台同型AAV分别完成一次跨介质；两个旧请求均以受控取消归档，旧成果未计入新请求。每轮监测实收33产品；首个被替换请求零成果。完整会话约1908.854秒，方案预览0.467/0.439/0.491秒，最终重新绑定0.448秒。
+- 实际断点修复：最终组级集结误差0.001533m、模型保持4.15秒；编队到部署区上方误差0.000198m、保持4.01秒，随后下降和三成员返回成功。证明原A*同格短段与无消费者建图锁的修复在这次主链生效；没有放宽0.2m到位、4秒模型保持、参考采用或净距条件。
+- 证据：`experiments/20260930-formation-session-live-r42/{metrics.json,mission-0000-final.json,mission-0001-final.json,mission-0002-final.json,mission-0003-final.json,session-acceptance-driver.jsonl,execution.bag,scene-once.bag,live-ui-4-HOME--None.png,rviz-live-ui-4-HOME--None.png}`。操作驱动使用UI同一命令接口，界面显示实际ROS状态，无轨迹回放或生成图。原runtime采样最小净距0.746415m；独立原bag审计正在执行，原严格时间结论将保留。
+- 整理：同步当前状态、交接、README、当前验收plan与简要可推送记录；旧重复bag再清理，源码与本次完整记录保留。控制器handover注释改为准确的垂直RBF/记忆通道预置范围，不改变已实跑函数行为。
+- 范围：固定缩比场景、声明深度切片采样占据及实际3D命中、任务级共享支援和用户授权视觉时钟政策。本轮动态链通过不等于完整3D重建、真实设备载荷、严格时钟/连续安全或无限次跨介质保证。
+- 下一步：核对本次bag、完成文档与main提交推送；不开展其他实验。
+
+## 2026-09-30 — r41 终态保持被重复建图锁阻断，r42去掉无消费者的更新
+
+- 实际：r41此前全部动态作业事件通过；最终组级集结三成员ADOPTED、误差0.015666m、速度约5e-13m/s、安全PASS。350秒仍未完成：CSV多次保持超过4秒却 `model_hold_pending=False`、最终 `model_hold=None`，说明未进入模型保持判断，不是该判断失败。
+- 定位：`_mapping_step`在检查“全部观测已产生且已下发最终参考”之前，先尝试非阻塞survey_lock。组级三路重复建图持续占用该锁，`completion_enabled=False`不断跳过终态判定；此时已无下一视点需要查询。
+- 修改：完成观测/最终参考的分支在原函数中先返回允许原生终态检查，无需建图锁。原survey回调在原动作进入最终保持或受控替换保持时停止无消费者的Python地图积分；下一Goal重新等待实际新扫描。原Swarm云处理、物理安全监测、传感健康、GoalID/参考采用、0.2m位置与速度/4秒模型保持不改，严格时钟报告仍保留原结论。
+- 证据：r41最终group step0 diagnostics与monitor.csv、原survey回调/_mapping_step。只在现有函数删掉不必要的终态建图耦合，无新层/服务。r42继续同一完整业务链验证最终返回。
+- 未完成／下一步：最终HOME/全员实际返回/零锁；不以稳定画面或前轮阶段通过宣布完成。
+
+## 2026-09-30 — r41 同次实时窗口记录
+
+- 实际：本次目录中的现有实时面板捕获脚本同时抓取独立 RViz 视口，在同一任务阶段变化时保留两窗口画面；仅重开面板，物理节点、Plan 和会话持续运行。此前已直接检查 RViz 实际窗口截图，无轨迹回放或生成图片。
+- 证据：r41 `live-ui-*.png` 与 `rviz-live-ui-*.png`；仍等待当前新区域结束及最终共同返航。
+
+## 2026-09-30 — r41 同一动态 UI/RViz 业务链复验
+
+- 计划：修复同格短段后，仅重复当前完整会话：初次确认→运动中替换→排队接续→实收/驻留→Swarm编队转场中替换→新区域实收/驻留→明确共同返航→全员HOME/零锁。
+- 实际：镜像完整构建成功，manifest `sha256:65f6798e0c259dfd920f9b1c41b2c43c0b20503470bd6526ab4ae06e814a5817`。使用与r40相同的当前初始请求/场景和原界面；变化仅原A*同格短段处理及五成员时间线显示。预算仍10秒，实际终态/采用/净距条件不变。
+- 证据：`experiments/20260930-formation-session-live-r41`；同次独立RViz、实时中文面板、原Action Goal/Result、实际位姿和任务权威记录。驱动脚本只提交与UI相同的确认/排队/替换/返航命令，不回放轨迹。
+- 未完成／下一步：等待实际完整链终态，不把构建或前轮事件计为最终完成。
+
+## 2026-09-30 — r40 最终编队短段的同网格单点路径缺口
+
+- 实际：r40 同次完成运动替换、排队、三轮跨介质/区域成果接收、15 秒驻留、实际 Swarm 编队转场及编队途中替换。最终编队到部署区上方时，drone0/2 的实际位置精确跟踪旧参考尾点，距本次目标约0.212014m；drone1已到目标。原0.2m终态条件与新参考采用条件未满足，350秒后 UNKNOWN_LOCKED，不能算完成。
+- 根因证据：最终诊断记录 drone0/2 无新的 trajectory_id；launch.log 同时持续 A* “path only have two points”/初始化失败。原 `astarSearchAndGetSimplePath` 在起止同一栅格时返回单个栅格中心，原 `astarWithMinTraj` 的安全补丁正确拒绝少于两点，但没有生成到精确目标的短段。不是 qn 跟踪误差或任务完成条件过严。
+- 修改：在现有 A* 补丁处理单格路径：沿实际起点到目标用原 ESDF 占据谓词逐1cm检查；通过才返回精确起/终点，交给原 MinJerk、Swarm 优化和有限轨迹/邻机安全校核。失败仍返回无路。保留原位置容差、GoalID、新参考采用和物理状态；不开发新规划器、不直接改机器人位置。
+- 证据：r40 最终 group step1 diagnostics/member_samples/adoption_verdict 与 launch.log。原始本次记录保留；修复后仅重复完整业务会话。
+- 未完成／下一步：最终全员返回、零锁、HOME；本次其余动态事件已有实际证据。
+
+## 2026-09-30 — 编队 Plan 的时间线按真实成员显示
+
+- 问题：共同返航加入集结与组级活动后，原面板按 PlanItem 画四行，前三行都变成 AAV1，USV/UUV 被截掉；这是实际运行画面发现的任务解释缺口。
+- 修改：只在原 PlanTimeline 将活动归入五个真实成员行，编队活动同时显示在三台 AAV 行；组级返回激活后隐藏仅供估计的 handoff 占位段。时间线增加一行高度，不改 Plan、派发、状态或物理执行。
+- 验证／证据：在当前 r40 同一 ROS 会话重开原面板查看实际 Plan，无新增单机试验；最终截图留在本次目录。
+- 未完成／下一步：当前新区域已收件，编队与USV/UUV返回正在运行；仍等待全员返回终态。
+
+## 2026-09-30 — 连续会话与编队返航操作说明同步
+
+- 计划／实际：README 按已接通的同一 UI 入口说明运行中圈区、排队／替换、完成后驻留、明确返航、返航中接任务和 HOME 结束会话；删去“一次运行只能一个批次”的旧操作说明。说明共同高度、原 Swarm 三成员编队和真实预订，不称最终验收完成。
+- 证据：本次实际 r40 已取得运动中替换、排队接续、驻留、编队转场及编队途中替换；最终新区域和返回仍在运行。来源为上游 Swarm 编队实现及原 Plan/Action 执行链，无新增服务。
+- 未完成／下一步：最终 HOME/全员返回/零锁取得后同步当前状态、交接和交付记录。
+
+## 2026-09-30 — r40 动态主链进展与重复大型记录清理
+
+- 计划：只完成同一 UI/RViz 会话的替换、排队、驻留、Swarm 编队返回及返回途中再接任务；按用户已授权清理旧产物，避免失败重跑的 bag 持续积累。
+- 实际：r40 首次运动中替换、排队任务接续、33/33 收件、15 秒驻留和明确返航已通过；三台 AAV 由原组级端点开始实际编队转场，在转场中确认新区域后受控取消并从实际状态采用新 Plan。新区域仍执行中，最终 HOME 尚未取得。
+- 清理范围：只删除此前 dynamic-session-live / formation-session-live r1–r39 目录中的原始 .bag/.active 重复记录，保留紧凑任务事实、失败原因、诊断及日志；当前 r40 全部记录保留。清理前统计 78 个文件、27.410 GiB。源码、模型和当前运行文件不在范围内。
+- 证据：`experiments/20260930-formation-session-live-r40/{metrics.json,session-acceptance-driver.jsonl,live-ui-*.png}`；清理清单为同目录 `previous-raw-records-cleanup.json`，逐文件记载路径和字节。
+- 未完成／下一步：以 r40 实际最终收件、返回与资源释放判断本次业务完成，不用中间事件或画面代替终态。
+
+## 2026-09-29：r12非UI初始场景仍旧，r13统一初始/动态生成入口
+
+- r12仍在首个transition-climb被INVALID_TARGET拒绝，零跨介质运动。原因是测试命令关闭圈区UI后直接挂载r17旧`input-scene.yaml`；动态后续请求会调用新圈区生成函数，初始批次却绕过该函数，场景仍声明2.0m。
+- r13在启动前用当前`circle_joint_mission_mappings`从基础请求/场景生成圆心(2,4)半径2m的request/scene，与运行中新增区域采用完全相同的入口；不为测试单独放宽Action。
+
+## 2026-09-29：r11声明高度接口拒绝，r12统一场景转场层
+
+- r11在首批跨介质AAV的`transition-climb`即被Action拒绝，零跨介质运动：方法按AAV/USV包络算出2.189159m安全转场层，但场景仍只声明旧`amphibious_return_altitude_m=2.0`，原Action正确拒绝未声明高度。
+- 修改：圈区任务实例同时把`amphibious_return_altitude_m`提升为同一个包络计算值；联合Plan、Action高度白名单、UI和返航后缀共享该参数。未放宽空域上界、物理净距或Action验证。
+- r12重复同一完整会话；r11只是接口负例，不是物理失败或通过。
+
+## 2026-09-29：r10成员调度生效，隔离低空接近穿越USV；r11复验
+
+- 动态分配实际生效：第二批drone0、第三批drone1各完成一次跨介质；第四批联合方案选择未使用的drone2，未再让同一AAV重复第二轮。
+- r10失败发生在drone2的AIR step0，尚未ENTER：从岸边以0.8m低空直飞entry，穿过已到位USV附近；共同时间实际净距最小约0.191m（原guard更早在0.492032m触发）。端点相隔3m不构成整段路径证明。
+- 修改所选跨介质方法：ONLINE_MAPPING先用原Swarm从实际位置垂直爬升到由USV半径+AAV半径+0.5m净距+一AAV半径计算的转场层，再高空转场到entry上方，最后垂直下降到入水入口。局部绕障仍属原Swarm，不固定全程路径、不增加协调服务。
+- r11继续同一四区域序列，须最终HOME/零锁及全员返回才通过。
+
+## 2026-09-29：r9竖直AIR修复通过，重复跨介质资格不足；r10按实际使用状态调度
+
+- r9实际：返航中替换后的竖直AIR爬升从z1.9999到3.4979，最低z1.9999，yaw保持不变；第四批AIR16+UUV16成果已收。跨介质AAV在ENTER/WATER及EXIT前11秒参考/姿态正常，之后突然翻滚落海底，浅水产品缺失，任务锁定。
+- 边界：bag缺最初148个模型步，state digest仅SHA256；不能完整恢复controller/RBF/actuator状态，也不能声称已证明RBF累积根因。没有用trim补缺步或发明reset law。
+- 调度修正：runner只统计实际验证成功的跨介质完整Goal，member state携带`verified_cross_medium_uses`；固定模板联合搜索优先把跨介质角色交给使用次数更少的同型AAV，并在选择AIR角色时为该成员留位。直接方案检查在AAV1/AAV2各用一次、AAV3未用时选择AAV3跨介质。不是能耗结论或永久能力差异。
+- r10将重复同一四区域会话；仍须第四批AAV3实际跨介质、33收件、人工返航和最终HOME/零锁后才通过。
+
+## 2026-09-29：r9原生航向修复完成构建，开始最终连续会话复验
+
+- 修改落在现有`trajectory_yaw.hpp`共享实现：航向只由水平lookahead超过原0.1m门槛时更新，竖直段保持上一航向。真实轨迹位置、速度、加速度、plant和控制器不变；server与只读query继续共用一个算法。
+- 完整Docker/Cython/ROS/Swarm构建通过。r9将重复运动中replace、queue、目标区驻留15秒、人工返航、返航中replace、第四区域和最终共同返航；只有同次HOME/零锁才通过。
+
+## 2026-09-29：r8三方几何通过，隔离竖直轨迹航向计算错误；r9构建中
+
+- r8 实际组合：同步后的支援几何在前三批可对齐样本中取得 AAV–USV 约1.482m、AAV–UUV约1.022m、UUV–USV约2.638m的最小净距，原0.5m门槛未改。
+- 新失败：返航中替换后，新AIR轨迹头状态正确、参考z持续上升，但实际AAV大幅转向下沉，造成drone1/USV净距0.468353m。取消终态与新Goal时序已经核对，新任务只在验证取消后派发。
+- 确定边界：`traj_server::calculate_yaw`用三维`dir.norm()>0.1`决定航向；本次爬升约1m、水平总位移仅0.0484m，仍触发`atan2`和近π转向。修改为只用水平分量范数；纯竖直段保持上一航向。参考轨迹/实际plant、PID、任务高度和净距均未重置或放宽。
+- 证据：`experiments/20260929-dynamic-session-live-r8/native-continuity-check.json`和同次bag；r8未总通过。完整镜像r9正在构建，随后重复同一四区域动态会话序列。
+
+## 2026-09-28 — 动态替换期间 UI 状态表达修正
+
+## 2026-09-29：r7确认AAV-UUV间距修复，暴露旧USV点冲突；r8同步三方几何
+
+- r7实际：新AAV转换柱使AAV-UUV最小净距0.804708m；第三批开始时AAV-USV净距0.496339m<0.5m，任务锁定。原因是USV support仍相对UUV stage外3m，entry外移后两者仅1.75m。
+- 修改：沿已有stage→mother方向保留原3m支援偏移，但改为从AAV entry起算。对(3,5)r2：entry-stage水平1.25m、entry-support3m、UUV-support三维4.697m<声明8m。没有新通信模型、阈值或等待规则。
+- 边界：名义几何不代替实际执行；r8继续完整四区域/两替换/排队/驻留/返航验证。r7不算总通过。
+
+
+## 2026-09-29：r6参考时域修复有效，组合转换柱零余量反例；r7复验
+
+- 原生修复证据：r6捕获130条新PolyTraj，头速度最大0.4045m/s；一条在旧轨迹结束7.4365s后重规划的新轨迹以旧终点、零参考v/a开始，r5的3.448m/s越时域外推未再现。
+- 新失败：第四批AAV入水实际[-0.444823,5.673002,-1.138226]、UUV[0.051992,5.626164,-2]，对齐中心距0.995828m，表面净距0.495828m<0.5m。旧在线模板entry与UUV stage水平仅0.5m，名义依赖1.4m深度差；转换暂态削弱深度分离。
+- 修改：沿原stage→mother方向保留现有UUV stage，把AAV转换柱再外移现有两机中心需求2×0.25+0.5，加一平台半径0.25作为非边界余量，水平间隔1.25m。该逻辑与旧非online transition的two-body envelope plus one radius一致；未改安全阈值/半径或plant。
+- 边界：几何检查通过不等于实际安全，r7同四区域完整会话验证中；r6不算总通过。
+
+
+## 2026-09-29：r5定位原生旧多项式越结束时刻外推
+
+- 实际：同次两轮安全替换/排队/驻留返航确认再次通过，但第四批AIR接近入水点时（尚未ENTER）Goal31越海面，严格时钟/对齐均正常，未总通过。
+- 确定根因：真实traj80在1790655268.5720735结束，traj81于5269.262825开始；traj81头速度3.44823m/s和头位置与traj80越结束外推0.68987s匹配，位置/速度误差分别7.73e-6m/3.06e-5m/s。实际traj_server原代码此时使用终点、零参考速度/加速度；FSM却外推，二者不一致。
+- 修复范围：原swarm_reference_time.patch统一planFromLocalTraj/预测头的有限时间域；旧段结束使用已经执行的参考终点/零v/a，旧尾段已不存在时走已有A*初始化。不是清实际机器人速度，不改PID/目标容差，不用限速截断掩盖错误系数。
+- 证据：`experiments/20260929-dynamic-session-live-r5/air-reference-boundary-check.json`、原Action诊断/同bag。下一步完整构建并r6同序列验收。
+
+
+## 2026-09-29：r4多次跨介质已通过，修AIR无路等待参考正反馈；r5继续完整会话
+
+- 已实际通过：r4四区域中两轮安全替换、排队接续、驻留确认、第四批完整入水/水下/出水与33成果收件。
+- 失败：第四批AIR返航阶段，NO_KNOWN_FREE_LOCAL_TARGET分支反复将target设为actual，把高度暂态1.804→1.353→0.709m变成下降目标，最终海面包络越界；严格时钟/对齐此处正常，不是时间误报。
+- 修正：原_mapping_step仅首次采纳通过观测地图柱检查的(actual_x,actual_y,声明final.z)固定锚点；后续不逐帧追实际xy/z，柱不可行不派新目标；可行局部路线恢复后清锚点。原模型、业务高度、净距不变。r4十个实际下降样本的直接逻辑核对通过，但不当物理验收。
+- 证据：`experiments/20260928-dynamic-session-live-r4/native-replacement-and-conversion-check.json`的return_failure；r5路径`experiments/20260929-dynamic-session-live-r5`继续相同完整序列，不拼接为总成功。
+
+
+- 计划：真实切换期间不能继续把已取消平台显示为扫描，也不能因旧返航放行事件显示仍在返航。
+- 实际：仅 `mission_console.py` 的显示优先级调整。SWITCHING 时已 `CANCELED_BY_REPLACEMENT` 显示已安全停止／已释放，有 current_actions 的显示停止并确认终态，其余等待切换；右卡显示新任务已确认／等待旧动作安全结束，未确认占用保留。
+- 效果：采用 r3 `mission-0002-final.json` 原始真实归档重绘检查：该记录含旧 joint_return_release 事件且四平台已安全取消，四行均显示安全停止／释放，右卡不再误显示返航已放行。
+- 证据：`experiments/20260928-dynamic-session-ui/{switching-ui-check.json,switching-archived-redraw.png}`，范围是 ARCHIVED_ACTUAL_METRICS_UI_REDRAW。Python语法与文件diff检查通过。
+- 未完成／下一步：r4物理仿真未重启、未发业务命令；新界面代码在下一次控制台加载时生效。
+
+## 2026-09-28 — 动态会话 UI 与原 runner 状态对齐
+
+## 2026-09-28：r3封住重复ENTER缺陷，另隔离EXIT参考偏差
+
+- 实际：同次再次通过运动中替换/排队/驻留确认/返航中替换。第四批ENTER统一零surge后保持稳定（最大roll0.000631、pitch0.001512rad），不再出现r2首次入水翻滚。
+- 失败：第四批EXIT仍失稳，实际drone0/USV净距0.485098m低于原0.5m，原任务UNKNOWN_LOCKED。EXIT入口实际xy与仍保留的水下参考差0.100618m，实际yaw与参考差约0.0594rad；这一批没有先前入水翻滚污染，可单独定位从水下允许偏差到AIR位置通道的交接。
+- 修改方向：原WATER段已完成原四秒终态验证后，只在EXIT边界一次采纳实际xy/yaw为竖直参考；保留z目标/原plant与控制器状态，原LocalMap仍验证实际竖直柱，不每tick追actual、不放宽原容差/净距。
+- 证据：`experiments/20260928-dynamic-session-live-r3/native-replacement-and-conversion-check.json`及同次metrics/bag；不算完整动态会话通过。下一步r4同序列复验。
+
+
+## 2026-09-28：重复入水垂直方法输入修正，r3复验中
+
+- 定位：r2第四批最早大姿态偏差在ENTER_WATER混合介质激活后，外部xy和yaw已一致；旧垂直ENTER仍允许LOS按小水平残差给巡航引导，EXIT才启用零surge。未记录内部Tf/desired-heading，不能声称内部力矩根因已完整证明。
+- 修改：只在原platform_action稳定入口，让ENTER与EXIT均保持测量航向并设置已有water_terminal_hold；WATER_PATH仍清该标志正常导航。原PID/plant/阈值/EXIT坐标未改，不用trim替代历史状态。
+- 下一步：r3重复同一会话的运动中替换→排队→驻留确认→返航中替换→最终返回；原r2失败和已实现事件证据分别保留。
+
+
+## 2026-09-28：r2动态调度链实际推进；第四区域跨介质失稳未通过
+
+- 已实际完成：运动中替换四方旧Goal安全取消并接新Goal；排队区域等待旧观测/收件结束，从目标附近直接续作业；第三区域33实收后驻留15秒无返航，明确return_home后才放行；返航中第二次replace四方再次安全取消并接第四区域。两台AAV在后续区域可重分配角色，仿真/模型未重启。
+- 失败：第四区域(3,5)r2已有33成果实收，但drone_0跨介质执行失稳，实际reef_west净距0.108257m，原任务明确UNKNOWN_LOCKED并取消其他成员；不算连续任务最终通过。
+- 证据：`experiments/20260928-dynamic-session-live-r2/session-acceptance-driver.jsonl`、分批final.json、controlled-replacement-check.json、同次bag。
+- 下一步：根据第四批原生姿态/参考记录定位重复转换失稳，保持原物理安全要求；不以已完成的UI/调度事件覆盖物理失败。
+
+
+## 2026-09-28：动态会话r2运动中替换已采用，排队任务保持待执行
+
+- 实际：同一容器/同一原模型继续运行；旧区域运动中preview新圆(3,4)r2，0.453秒生成方案，确认后约7.6秒取得四方安全取消并采用新请求。旧业务明确归档CANCELED_BY_REPLACEMENT，0产品未伪记完成。
+- 新区域执行中又preview圆(4,4)r2，0.491秒，确认queue后新区域保持排队，当前任务没有被取消。
+- 证据：`experiments/20260928-dynamic-session-live-r2/session-acceptance-driver.jsonl`、`mission-0000-final.json`、同次实时metrics；这是端到端会话进展，后续驻留/排队真正执行/返航中替换及最终返回仍待。
+- 当前：Docker59cb8f929fde，继续同次会话，不重启或降低执行门槛。
+
+
+## 2026-09-28：动态会话r1取消边界失败与修正
+
+- 实际：运动中从UI命令协议生成新区域预览（0.468秒）并确认replace；AIR、跨介质AAV与USV均实际验证取消、保持原模型且释放。UUV已停稳但相对取消瞬间参考滑行0.212333m，超过原0.2m，结果保持未确认而未切新任务。
+- 修正：原qn worker用既有控制减速；达到原速度阈值/参考采用/模式/安全条件后，一次性将实际停止点作为新的保持参考，再验证原4秒及0.2m条件。未移动plant、清速度或扩大容差。
+- 证据：`experiments/20260928-dynamic-session-live-r1/controlled-replacement-check.json`、原metrics/bag；r1未完成动态换任务。
+- 下一步：r2同一会话实跑运动中替换、排队、驻留确认与返航中替换，仍不以Qt契约检查代替物理实跑。
+
+
+## 2026-09-28：连续任务会话集成中（尚未实跑验收）
+
+- 用户新政策：运动、作业、返航中可圈选新区域，明确选择排队或立即替换；作业收件完成后驻留，用户决定下一区域或返航。
+- 修改：原runner持久会话/异步任务级预览/版本确认/唯一请求ID/原Plan执行；queue保留当前承诺，replace匹配GoalID受控停止后才换批。旧业务未完成会明确记取消，不当成功。三个原执行端在空闲接纳新Goal时换request，plant/controller/导航图保留，本批观测证据清零；原SceneTransport/View在同一世界换任务元数据。Qt新增独立草稿和计划预览、排队/替换、驻留返航/结束会话按钮，无新服务/包装层。
+- 来源：Calvo T-RO2025 §VI新任务与pending重排（https://arxiv.org/html/2411.02062v3#S6）、D-ITAGS RA-L2023针对性修复（https://arxiv.org/abs/2209.13092）、APEX-MR RSS2025实际事件释放（https://www.roboticsproceedings.org/rss21/p098.html）。主动replace与人工返航确认是用户政策，海洋平台受控停止须原模型验证，不继承论文驻留/最优性保证。
+- 初步验证：Qt真实控件命令/草稿隔离、旧请求成果拒收、观测epoch更新、旧Goal/真实fault不解锁边界通过，Python语法与差异检查通过。尚非动态仿真验收；下一步同一次会话实跑排队、替换、驻留、新任务与返航。
+
+
+- 计划：核对原 runner 的驻留、HOME 和闭会状态，避免任务作业结束误锁新圈区。
+- 实际：`AWAITING_OPERATOR/HOLDING`、`SESSION_HOME/HOME` 保持新区域输入；只有 `SESSION_ENDED` 闭会只读。驻留依据 `monitoring_complete=True` 才显示监测完成，缺测则明确显示“作业结束，仍有缺测”；更新 active_request 后切回当前任务，清除已采用的匹配草稿，收件按当前请求隔离。
+- 效果：与原 runner 的 pending_plan／active_request／command_ack 字段一致；所有活跃会话状态超过5秒无更新显示中断，不通过静态UI推断进程正常。
+- 证据：更新 `experiments/20260928-dynamic-session-ui/check.json` 与Qt自身窗口图，额外通过缺测不误报成功和闭会只读检查；仅 UI_COMMAND_CONTRACT_ONLY。语法和该文件 diff 检查通过。
+- 未完成／下一步：主任务正在进入真实动态协同运行；本记录不代替换批执行证据。
+
+## 2026-09-28 — 动态任务会话 Qt 入口接线（界面契约验证）
+
+- 计划：在原控制台支持运动／作业／返航时圈选新任务；完成后驻留，由用户确认返航，不增加任务权威。
+- 实际：仅修改 `mission_console.py`。新任务草稿以黄虚线显示，不覆盖正在执行的请求、青色区域或实际收件网格；新增排队／立即替换政策、独立新 Plan 预览及 revision 确认、驻留返航按钮和 HOME 结束会话。所有操作写原输出目录 `operator-command.json`，等待匹配 command_ack 后才可发下一命令。
+- 效果：实际 Qt 控件验证通过草稿隔离、命令字段、版本确认、重复点击防护、驻留／返航／HOME 操作开放；预览明确采用前按实际状态重算，未把预览当作已采用计划。
+- 证据：`experiments/20260928-dynamic-session-ui/{check.json,new-plan-preview.png,holding-for-operator.png}`。截图为已保存任务事实加会话状态 fixture 的 Qt 自身窗口重绘；范围是 UI_COMMAND_CONTRACT_ONLY，不是新动态协同实跑。Python 语法与该文件 diff 检查通过。
+- 未完成／下一步：原 runner 会话处理与动态请求实跑由本轮主任务继续接通；不以本界面检查代替真实取消、驻留、换批与返回结果。
+
 ## 2026-09-28 — r11持续保持通过、r12首次共同返航与r13启动锁修复，r14运行中
 
 ## 2026-09-28：r17 审计结论与阶段清理
@@ -3163,3 +3368,207 @@
 - 结果：项目目录约6.7 GB降到2.6 GB；`experiments/`约4.1 GB降到171 MB，现只保留 `README.md` 与 `20260927-target-return-live-r3`。r3的 metrics、Plan、两个bag、安全审计、共同返航审计及可重跑审计脚本逐项存在且非空。当前运行入口和Dockerfile无上述被删文件引用。
 - 恢复／磁盘边界：缓存和旧实验约3.9 GB位于 `/home/lhj/.local/share/Trash`，仍可通过桌面回收站恢复；在用户清空回收站前，工作区体积已下降但文件系统空间尚未真正释放。五个受版本管理文件可从 Git 历史恢复。
 - 未处理：未删除任何上游参考源码、旧控制回归入口、测试、文献台账、Git对象或最终r3证据；这些需要单独决定，不能混入本次授权范围。
+# 2026-09-29 — 动态同次协同 r14a：侧向支援与实际到位同步接通，严格时钟审计中止
+
+- 计划：撤销跨介质 AAV 的临时高空绕行，把 USV 支援位移到入水柱侧向 3 m；在现有 runner 中以 USV 实际到位、低速稳定 4 s 作为跨介质进场释放事件，随后执行换区、排队、驻留、返航中替换和最终回收。
+- 实际：前端首次及两次动态方案均在约 0.46–0.50 s 形成；第一次执行中替换已安全采用，下一任务排队成功。空中 AAV、USV、UUV 并行运行，跨介质 AAV 显示 `WAITING_FOR_SUPPORT_CLEARANCE` 且未提前收到 Goal；UUV 完成区域扫测后在目标区等待。空中 AAV 第二段到位后，5459 个时序样本有 3 个未对齐，严格实验有效性判为 INVALID，任务按原锁定路径中止；物理安全仍 PASS，失败前五平台最小净距 1.497 m。
+- 效果：证明侧向支援位置、实际事件等待和动态任务命令已经进入同一实时执行，而非计划时间假设；本次不构成完整通过。失败对应用户已明确允许忽略的可视化 qn 时钟门槛，未降低运动与安全条件。
+- 证据：`experiments/20260929-dynamic-session-live-r14a/{metrics.json,mission-0000-final.json,session-acceptance-driver.jsonl,runner.log,execution.bag}`。
+- 未完成／下一步：仅在三类可视化入口启用现有 `visual_timing_relaxation` 并保留严格审计原值；重跑同一动态序列，继续验证 USV 到位后跨介质释放、队列采用、显式驻留、返航中替换与最终 HOME。
+# 2026-09-29 — 动态同次协同 r15：首个区域与排队采用通过，第二次入水暴露 qn 切换冲击
+
+- 计划：在可视化入口按用户决定保留严格时钟原值但不让少量 qn 对齐缺样单独否决 Action；重跑执行中替换、排队、驻留、返航中替换和最终 HOME。
+- 实际：首次替换后的完整区域任务成功：USV 实际到位后释放跨介质 AAV，33/33 结果接收，跨介质次数增加，四方在目标区共同等待；排队区域随后从实际终态直接采用，未先返岸。第二区域改派另一 AAV 执行跨介质作业，入水转换期间实际速度升至约 5 m/s 并进入 USV 安全区，运行监控在净距 0.341 m 时中止。bag 对齐的更低后续值包含故障处置运动，不用于提前改写首次失败。
+- 效果：动态会话、任务排队、实际状态接续、共享支援与一次完整跨介质作业已同次通过；第二次模式切换失败证明原 qn 的累计 AIR 控制器状态不能直接带入混合介质。不能靠移动障碍、放宽 0.5 m 净距或只换成员宣布完成。
+- 设计依据与修改：按 switched-system bumpless transfer 的控制器状态预置思想，在 qn 原后端增加显式混合模式 reset map；只预置 RBF/observer/controller memory 到 AIR/WATER 静态平衡，保留同一 6DOF plant 的位置、速度、姿态、执行器和浮力记忆。ENTER 采用 AIR 平衡＋未激活 WATER 零态，EXIT 同时预置两侧静态平衡；不声明继承论文的稳定性结论。初始状态的完整 ENTER/WATER/EXIT 原生预测仍为 FEASIBLE，105.92 s，且 handover 前后物理快照一致。
+- 证据：`experiments/20260929-dynamic-session-live-r15/{metrics.json,mission-0001-final.json,session-acceptance-driver.jsonl,execution.bag}`；Malloci et al., *Automatica* 2012, DOI `10.1016/j.automatica.2012.05.027`；`integration/qn_aav_simulator/src/qn_aav_simulator/{qn_python_backend.py,platform_action.py}`。
+- 未完成／下一步：用同一动态序列验证 controller-only reset map 的实际重复转换、队列驻留、返航中替换和最终 HOME；若仍失败，保留为控制方法未资格，不以调度层规避。
+# 2026-09-29 — 动态同次协同 r16：启动前 Swarm 本地参考锁定，零任务派发
+
+- 计划：用 controller-only bumpless reset map 重跑完整动态会话。
+- 实际：物理链启动后，`/aav_1/formation_action` 在任何业务 Goal 派发前报告 `member 0 local reference fault locked`；runner 按入口资格拒绝，零协同任务执行。该故障早于新跨介质 handover，不能用于评价修改效果。
+- 效果：保持 FAIL，不清锁继续、不把启动失败写成控制修正失败。
+- 证据：`experiments/20260929-dynamic-session-live-r16/{metrics.json,runner.log,launch.log,execution.bag}`。
+- 未完成／下一步：全链重启后再运行相同请求；若入口锁定复现，再单独定位 Swarm 启动参考，而不是改变任务方法。
+# 2026-09-29 — 动态同次协同 r17：复现启动锁定并定位 reset 尾部误位
+
+- 计划：全链重启，区分 r16 是否为一次性 Swarm 启动故障。
+- 实际：零 Goal 时再次出现三台 AAV `actual_mode=WATER`、`air_domain_violation=true`。代码复核发现新增 handover 方法插入在 `reset()` 静态配平和 INITIAL_HOLD 尾部之前，使该尾部成为新方法 `return` 后的不可达代码。
+- 效果：定位为本轮编辑错误，不是 Swarm 随机故障，也不是业务 Plan；已把静态配平及初始保持恢复到 `reset()` 内，直接核对 AIR 初态旋翼输出 `(19.608,19.608)`、`INITIAL_HOLD` 存在。
+- 证据：`experiments/20260929-dynamic-session-live-r17/{metrics.json,runner.log,execution.bag}`；修正后 `qn_python_backend.py` 语法、初始化物理输出和 `git diff --check` 通过。
+- 未完成／下一步：重新运行相同完整动态序列，实际评价 controller-only handover；r16/r17 均保持启动失败，不计任务验收。
+# 2026-09-29 — 动态同次协同 r18：三次跨介质及动态会话通过，最终共同返航线交叉
+
+- 计划：验证修正后的 qn 初始化与 controller-only bumpless handover，完成替换、排队、驻留、返航中替换及最终 HOME。
+- 实际：首次替换、排队采用、33/33 收件、15 s 显式驻留、返航授权、返航中替换和第三任务均实际通过；drone_0、drone_1、drone_2 各完成一次 AIR→WATER→AIR，三轮 bumpless handover 未再出现转换失稳。最终返航开始后，当前成员与历史保留成员的 AIR 路线交叉，drone_0/drone_1 实际净距 0.495132 m，低于 0.5 m，安全监控中止。
+- 效果：动态任务会话和三次跨介质作业已贯通至最终返航阶段；不能因只差 4.868 mm 放宽净距并改判。失败来自共同返航空间冲突，不是任务生成、收件或模式切换。
+- 修改：三台 AAV 的返航上升/平移段使用确定性高度层。层间距由 `2×0.25 m` 机体半径＋`0.5 m` 必要净距＋`0.25 m` 跟踪余量得到 1.25 m；仍同时从目标区返航，到各自部署点上方再下降。当前活动和历史保留返航复用同一 Plan step，不增加协调服务。
+- 证据：`experiments/20260929-dynamic-session-live-r18/{metrics.json,mission-0001-final.json,mission-0002-final.json,session-acceptance-driver.jsonl,execution.bag}`。
+- 未完成／下一步：相同动态序列重跑，验证分层共同返航、五平台 HOME、零资源锁和会话结束；通过前不作最终交付声明。
+# 2026-09-29 — 动态同次协同 r19：任务与驻留再通过，返航高度超出原生工作域被拒
+
+- 计划：验证 1.25 m 分层共同返航及最终 HOME。
+- 实际：执行中替换、排队、两轮完整监测、33/33 收件和 15 s 驻留再次通过；用户确认返航后，drone_1 的第一条返航上升 Goal 为 4.75 m，原生 Swarm 入口因场景 4.5 m ceiling 返回 `INVALID_TARGET`，未产生该段运动。runner 保留物理预订并中止。
+- 效果：Action 边界正确阻止调度层生成的越域层；本次不评价最终返航安全。说明高度去冲突还必须属于场景/执行合同，不能只由上层私自添加。
+- 修改：在圆形任务场景声明 `air_return_lanes_m=[1.0,2.25,3.5]`；最高层保持原 3.5 m，层间仍为 1.25 m。provider 按成员读取该字段，Formation Action 将声明层纳入合法返航高度，动态请求热更新同一字段。
+- 证据：`experiments/20260929-dynamic-session-live-r19/{metrics.json,mission-0001-final.json,session-acceptance-driver.jsonl,execution.bag}`。
+- 未完成／下一步：同一完整序列重跑，验证低于 ceiling 的空间分层以及最终全员返回；低层障碍仍由原 Swarm/场景安全实际决定，不预设通过。
+# 2026-09-29 — 动态同次协同 r20：返航层已被入口接受，AIR 进场偶发本地参考锁定
+
+- 计划：以场景声明的 1.0/2.25/3.5 m 返航层运行完整动态序列。
+- 实际：Plan 与 Formation Action 均接受新层，替换、排队、AIR/USV/UUV 并行正常；第一轮跨介质 AAV 的 AIR 进场中，Swarm 报告 `LOCAL_REFERENCE_CONTEXT_STALE` 并进入不可在线清除的 safety hold。失败发生在返航前，未出现净距越限，不能评价新返航层。按锁定合同结束仿真并全链重启，没有绕过本地安全保护。
+- 效果：场景/Plan/Action 的层接口接通；本次整体 FAIL。
+- 证据：`experiments/20260929-dynamic-session-live-r20/{metrics.json,launch.log,execution.bag}`。
+- 未完成／下一步：相同代码和请求重跑；若本地参考锁定持续复现，再定位 Swarm 参考健康，不以放宽保护解决。
+# 2026-09-29 — 动态同次协同 r21：两轮任务通过，返航替换的 AIR 安全停止未收敛
+
+- 计划：复验 1.0/2.25/3.5 m 合法返航层、返航中替换和最终 HOME。
+- 实际：首轮、排队轮、收件和 15 s 驻留通过；返航后 18 s 用户确认立即替换。旧任务只剩 drone_0 AIR Goal，系统保持 `PREEMPTING` 和资源预订，没有提前采用新 Plan。平台在 1.0 m 附近长期垂向振荡（抽查约 0.14 m/s），350 s 安全处置窗口未形成连续 4 s 停止，Action 未验证，任务中止。
+- 效果：队列与取消因果正确，替换安全性未通过；不允许超时解锁。该现象与跨介质前已定位的累计控制器状态冲击一致，但发生在 AIR Action 交接。
+- 修改：在现有 `TakeReference` 的 AIR_SWARM 所有权交接中加入同一 controller-only bumpless reset map。只在新 AIR GoalID/代次接纳、实际 AIR 且低速时预置 AIR controller equilibrium；物理 plant 不变，Swarm Action 内部重规划不触发。沿用 Malloci et al. 2012 的控制器状态预置思想，不继承其线性稳定性结论。
+- 证据：`experiments/20260929-dynamic-session-live-r21/{metrics.json,mission-0001-final.json,session-acceptance-driver.jsonl,execution.bag}`。
+- 未完成／下一步：完整序列重跑，重点验证返航中取消实际停止、新任务采用、最终分层返航和 HOME。
+# 2026-09-30 — 动态同次协同 r22：AIR Action 起点 handover 正常，Goal 内替换仍需事件刷新
+
+- 计划：验证每个新 AIR Action 接纳时的 controller-only handover 能否闭合返航中替换与最终返航。
+- 实际：首轮、排队轮、收件、驻留与返航均通过至立即替换；同一返回 Goal 进入 PREEMPTING 后仍在 1.0 m 附近出现垂向振荡。说明 Action 起点预置有效但不能覆盖同一 GoalID 内 18 s 后发生的取消保持；运行在确定不可继续后结束，未释放旧承诺。
+- 效果：失败边界进一步缩到“已接纳 AIR Goal 内的受控替换事件”，不是新任务求解或所有权初次接纳。
+- 修改：FormationAction 首次进入 `controlled_replacement` 时复用现有 `TakeReference`，以相同 GoalID/代次请求一次 controller-only refresh；qn 的 `ALREADY_ACCEPTED` 分支预置 AIR 平衡但不 flush 当前命令、不改变 generation、plant、任务时钟或预订。仍需采用后继保持轨迹并通过原 4 s 终端检查。
+- 证据：`experiments/20260929-dynamic-session-live-r22/{metrics.json,mission-0001-final.json,session-acceptance-driver.jsonl,execution.bag}`。
+- 未完成／下一步：完整动态序列重跑，重点核对 `replacement_controller_handover`、安全停止、新 Plan 实际采用及最终 HOME。
+# 2026-09-30 — 动态同次协同 r23：运动中替换的 controller refresh 需等待低速入口
+
+- 计划：验证同 GoalID 的 AIR 替换事件 controller refresh。
+- 实际：首次执行中替换在新 AIR step 刚开始运动时到达；refresh 复用服务返回 `AIR_ENTRY_NOT_SETTLED`，FormationAction 将该返回误作执行异常并锁定。USV/UUV 的相同替换均完成 `REPLACED_SAFE_HOLD`；AIR 未释放。
+- 效果：证明刷新必须服从现有实际速度入口，不能在取消消息到达时强制改控制器状态。
+- 修改：`_claim_air_references(...,defer_unsettled=True)` 将且仅将 `AIR_ENTRY_NOT_SETTLED` 视为可等待；受控替换继续原保持轨迹并每 0.5 s 重试，首次低速时执行同 GoalID refresh。其他拒绝和超时仍锁定。
+- 证据：`experiments/20260930-dynamic-session-live-r23/{metrics.json,runner.log,execution.bag}`。
+- 未完成／下一步：完整动态序列重跑，验证运动中与返航中的两次替换都能先减速、再刷新、再连续保持 4 s。
+# 2026-09-30 — 动态同次协同 r24：确认“完成原目标再停”不满足立即替换
+
+- 计划：让 AIR refresh 等实际低速后执行，并重跑完整动态序列。
+- 实际：首次执行中替换不再因 `AIR_ENTRY_NOT_SETTLED` 立即锁定，但 FormationAction 的旧受控替换逻辑仍要求完成原已采纳目标；取消发生在长转场开端，任务长期保持 `RUNNING_REPLACEMENT`，不能称为立即替换。运行在结论明确后结束，旧承诺未被提前释放。
+- 效果：低速延迟刷新修正有效，但暴露原取消语义只适合短局部目标，不适合用户要求的长转场直接替换。
+- 修改：受控替换首次被观察时，从最新实际 Odometry 捕获停止点，在同一 GoalID 内发布新的 Swarm 目标并建立新的 adoption tracker；到位低速后才做 controller refresh，再验证 4 s 保持。原任务终态仍是 CANCELED，新任务不提前采用。
+- 证据：`experiments/20260930-dynamic-session-live-r24/{metrics.json,runner.log,execution.bag}`。
+- 未完成／下一步：完整序列重跑，先验证首次运动中替换可在有界时间形成 `REPLACED_SAFE_HOLD`，再继续最终返航。
+# 2026-09-30 — 动态同次协同 r25：制动与刷新成功，最终保持仍引用旧停止点
+
+- 计划：受控替换发布实际位置停止轨迹，低速后刷新控制器并验证保持。
+- 实际：首次运动中替换发布停止目标，AIR 达到低速并完成 `replacement_controller_handover`；安全 PASS、adoption ADOPTED。平台制动期间从首次捕获点滑移约 0.24 m，终端仍校验旧点，超过 0.20 m 位置门槛，Result 按 `MODEL_TIME_MISMATCH`/未接受锁定。USV/UUV 安全替换继续通过。
+- 效果：不再卡在长原目标或低速入口；剩余问题是两阶段停止的终端参考必须在实际停止后更新，不能放宽误差。
+- 修改：controller refresh 成功的同一步读取实际停止位，再发布最终 Swarm 保持参考并建立新的 adoption tracker；monitor 改为该实际停止位，随后仍需采用、位置/速度及 4 s 连续保持全部通过。
+- 证据：`experiments/20260930-dynamic-session-live-r25/{metrics.json,runner.log,execution.bag}`。
+- 未完成／下一步：重跑动态序列，验证首次替换以 CANCELED/安全终端结束，并继续至返航中替换和最终 HOME。
+# 2026-09-30 — 动态同次协同 r26：实际停止终态通过，旧跨重定向 ledger 阻断可视化接纳
+
+- 计划：制动低速后采用实际停止位作为最终保持目标，重跑动态序列。
+- 实际：停止目标、低速 controller refresh、最终实际保持参考和 adoption 均完成；终端误差 0.00624 m，安全 PASS，连续保持 4.048 s。当前 Action 独立 time alignment 为 167/167、ratio 1.0、无 gap，Odometry 约 64 Hz且无合同错误；但旧全段 sample ledger 将两次重定向间网格计为 118 个对齐失败，visual relaxation 未接纳，Result 锁定。
+- 效果：运动与终态问题已闭合，剩余是用户已明确允许忽略的时钟/重定向审计口径；不能删除原 INVALID 报告，也不能放宽位置、安全或采用条件。
+- 修改：显式可视化接纳改读当前 Action 的独立 time-alignment ratio/gap 和原始 Odometry 速率，同时仍要求 motion、model hold、ADOPTED、AIR 域、安全、位置、速度、无 violation/safety hold/odometry contract error。严格 verdict 与旧 ledger 原样保存。
+- 证据：`experiments/20260930-dynamic-session-live-r26/{metrics.json,runner.log,execution.bag}`及 step-1 diagnostics。
+- 未完成／下一步：同一完整序列重跑，确认受控替换 Result 为 CANCELED 且资源释放，再继续最终 HOME。
+# 2026-09-30 — 动态同次协同 r27：可视化接纳读取了不存在的 gap 字段
+
+- 计划：验证当前 Action 对齐证据驱动的显式可视化接纳。
+- 实际：初始 AIR step 物理到位、安全 PASS、误差 0.0029 m，当前 time alignment 218/218、零失败，Odometry 57.7 Hz；但该结构不含 `max_continuous_gap_s`，代码以默认无穷大判为未观察，Result 锁定。旧 ledger 同时记录 437/437、gap 0.05 s。
+- 效果：实现字段错误，非运动或安全失败。
+- 修改：当前 Action 连续观测使用其实际提供的 `alignment_failure_count==0` 与 valid ratio，并继续要求原始 Odometry 速率、无合同错误及全部物理终端/安全条件；不补造不存在的 gap。
+- 证据：`experiments/20260930-dynamic-session-live-r27/{metrics.json,runner.log,execution.bag}`及 step-0 diagnostics。
+- 未完成／下一步：重跑完整动态序列。
+# 2026-09-30 — 动态同次协同 r28：动态会话全通过至最终返航，低层返回未到终端
+
+- 计划：完成三轮动态任务、两种替换、驻留和 1.0/2.25/3.5 m 最终分层返航。
+- 实际：首次运动中替换约 14 s 形成安全 CANCELED 终态；排队区域、33/33 收件、15 s 驻留、返航中替换约 16.6 s、第三轮任务全部通过。最终返航实际放行，最低净距 0.506 m 未越限；历史 drone_1 在 2.25 m 低层回航 247 s 后仍距岸侧终端约 1.14 m，缺有效 fleet interpolation bracket，Action 锁定。其他成员因该失败按合同停止。
+- 效果：动态任务会话本身已实跑闭合；最终 HOME 仍未通过。低层回航受码头/局部路径影响，不能用延长任务或删除终端条件代替。
+- 修改：空间层改为以原已验证 3.5 m 为最低层的 3.5/4.75/6.0 m；场景 Swarm map z 范围声明为 8 m、planner ceiling 7 m。最高机体＋障碍包络为 6.45 m，仍有 0.55 m 工作域余量；0.5 m 实际净距和所有 Action 校验保持。
+- 证据：`experiments/20260930-dynamic-session-live-r28/{metrics.json,mission-0001-final.json,mission-0002-final.json,session-acceptance-driver.jsonl,execution.bag}`。
+- 未完成／下一步：重跑相同完整序列，验证高层回航及最终 HOME；通过后再进行带 UI/RViz 的最终可视化运行。
+# 2026-09-30 — 动态同次协同 r29：高层返航到位，少量时间网格缺点仍阻断
+
+- 计划：以 3.5/4.75/6.0 m 高层完成最终共同返航和 HOME。
+- 实际：动态替换、排队、驻留、返航中替换、三轮监测均通过；最终分层返航最低净距 0.617 m。drone_2 实际到达 6.0 m 岸侧上空，误差 0.0152 m、安全 PASS、保持 4.05 s；当前 alignment 2409/2420、ratio 0.995，缺 11 个网格点，原 ledger 最大连续 gap 0.20 s 小于 0.25 s Odometry 门槛。代码仍要求当前零缺点，Result 以 timing INVALID 锁定，其余返航被取消。
+- 效果：高层空间去冲突和物理返航有效；失败仅剩用户已授权不作为可视化门槛的少量时序网格缺点。
+- 修改：显式可视化连续观测条件改为 current ratio 达标，且“当前零缺点或原 ledger 连续 gap≤Odometry timeout”；仍要求原始 Odometry 速率、无合同错误以及全部位置/速度/采用/AIR 域/安全/保持条件。严格 INVALID 报告不改写。
+- 证据：`experiments/20260930-dynamic-session-live-r29/{metrics.json,mission-0001-final.json,mission-0002-final.json,session-acceptance-driver.jsonl,execution.bag}`及 drone_2 step-3 diagnostics。
+- 未完成／下一步：同一完整序列重跑并取得最终 HOME/零锁；之后运行带 UI/RViz 的可视化入口。
+# 2026-09-30 — 动态同次协同 r30：高层安全通过，固定 180 s 执行观察窗先于远程返航终态
+
+- 计划：在调整后的可视化时序口径下取得最终 HOME。
+- 实际：三轮动态任务、两种替换、排队、驻留和最终高层返航均运行；最低净距 0.623 m。历史 drone_0 的 3.5 m 回航在 180 s Action 观察窗到期时距岸侧上空约 1.37 m，尚未形成终端保持，因 `fleet odometry has no valid interpolation bracket`/motion incomplete 锁定；没有碰撞或业务遗漏。
+- 效果：空间分层已避免原路线交叉；固定 180 s 是工程观察超时，不是业务截止，也不足以覆盖当前真实局部规划航程。不能在超时时判成功。
+- 修改：三 AAV 场景的 `safety_hold_timeout_s`/`execution_timeout` 默认改为 350 s，覆盖已观察的约 200–250 s 远程回航；实际位置、速度、4 s 保持、采用、净距和障碍条件不变。
+- 证据：`experiments/20260930-dynamic-session-live-r30/{metrics.json,mission-0001-final.json,mission-0002-final.json,session-acceptance-driver.jsonl,execution.bag}`。
+- 未完成／下一步：同一完整序列重跑至 HOME；通过后再做 UI/RViz 最终可视化运行。
+# 2026-09-30 — 动态同次协同 r31：最终返航启动时单次异步 Odometry 括号缺口被永久锁定
+
+- 计划：用 350 s 观察窗完成高层最终返航。
+- 实际：动态会话全部阶段再次通过；最终返航开始约 13 s，drone_2 上升段出现一次 `fleet odometry has no valid interpolation bracket`。该段已观测净距 1.71 m，ledger ratio 0.978、最大 gap 0.15 s < 0.25 s，但代码立即将信息缺口锁成安全违规，未继续运动。
+- 效果：不是碰撞、路径失败或超时；是异步状态流短暂缺口的处置过严。
+- 修改：与 runner 现有信息边界一致，fleet 信息缺口≤1 s 时标记 transient、保留预订并等待；持续>1 s 才成为 violation。真实净距越限、场景/高度违规仍立即锁定。终态 safety 合并仅在 ledger ratio/gap 不满足声明门槛时因最新信息缺口降为 NOT_VERIFIED。
+- 证据：`experiments/20260930-dynamic-session-live-r31/{metrics.json,mission-0001-final.json,mission-0002-final.json,session-acceptance-driver.jsonl,execution.bag}`及 drone_2 step-2 diagnostics。
+- 未完成／下一步：重跑完整动态序列并取得最终 HOME/零锁，然后运行 UI/RViz 最终入口。
+# 2026-09-30 — 动态同次协同 r32：fleet 缺口已容忍，本 Action 单次 Odometry 超时仍立即终止
+
+- 计划：验证 transient fleet 信息缺口后完成最终返航。
+- 实际：动态全流程再次通过至最终返航，最低净距 0.545 m。drone_1 4.75 m 回航 266 s 时自身 GroupCompletionMonitor 遇到一个 >0.25 s 新鲜度样本，立即返回 `ODOMETRY_TIMEOUT`；该 Action time alignment 2660/2660、Odometry 55 Hz、安全 PASS，终端尚差约 1.06 m，350 s 总窗口尚未耗尽。
+- 效果：fleet 层修正有效；同一信息等待政策尚未作用于本 Action 监视器。
+- 修改：对 GroupCompletionMonitor reason=ODOMETRY_TIMEOUT 应用 1 s 有界信息等待；短缺口清除本次 terminal、重置连续保持窗口并继续，持续>1 s 才锁定。EXECUTION_TIMEOUT、实际安全/场景违规不受影响。
+- 证据：`experiments/20260930-dynamic-session-live-r32/{metrics.json,mission-0001-final.json,mission-0002-final.json,session-acceptance-driver.jsonl,execution.bag}`及 drone_1 step-5 diagnostics。
+- 未完成／下一步：重跑完整动态序列并取得 HOME/零锁，再运行最终可视化入口。
+# 2026-09-30 — 动态同次协同 r33：AAV/UUV 最终返回全部通过，仅 USV 观察窗耗尽
+
+- 计划：容忍有界状态缺口并完成最终 HOME。
+- 实际：完整动态序列通过；最终分层返航中三台 AAV（含历史保留成员）和 UUV 的每个 Action 均实际 SUCCEEDED，最低净距 0.619 m。USV 从支援位回岸约 23.8 m，以 Otter/PVS 实际约 0.05–0.06 m/s 航行，在 431.05 s Goal 观察上限到期时尚未形成终端，返回 `OBSERVATION_TIMEOUT_UNVERIFIED`；未伪造成功。
+- 效果：状态缺口处置和高层返航通过；最终 HOME 只剩 USV 执行观察预算。
+- 修改：ONLINE_MAPPING 的 USV Action 观察窗从 `max(300,duration+120)` 调整为 `max(600,duration+240)`，覆盖当前实际水面模型远海往返；这是执行 watchdog，不是业务期限或名义工期。实际到位、低速、4 s 终端及安全条件不变。
+- 证据：`experiments/20260930-dynamic-session-live-r33/{metrics.json,mission-0001-final.json,mission-0002-final.json,session-acceptance-driver.jsonl,execution.bag}`。
+- 未完成／下一步：完整序列重跑取得 USV HOME 和零资源锁；随后运行 UI/RViz 最终可视化入口。
+# 2026-09-30 — 按最新业务决定接通 Swarm 编队返航，撤销高度分层
+
+- 计划：围绕动态区域任务主链，使用已有 Swarm 三机编队返回能力；不继续扩展分层返航策略或无关测试。
+- 实际：核对 r34 续跑最终返航仍因 AIR 单次 Odometry 新鲜度失败锁定；原失败保持。已将现有 `/aav_formation/formation_action` 注册到业务执行单元。用户确认返航后，AAV 作业在实际终态与收件通过后释放单机预订，同一 Plan 增加一个实际三成员组级返回活动，依赖全部 AAV 作业释放；USV/UUV 同时返回。组级执行依次为实际位置重心集结、Swarm 编队转场到部署区上空、共同下降，使用原 2 m 槽位及同一 3.5 m 高度。重心来自当前状态，最小化集结位移平方和；路径由现有 Swarm 决定。
+- 接线：原 group Action 支持动态请求更新及精确 GoalID 的受控替换；相同 GoalID controller refresh 不再错误重置 reference floor。界面显示“编队集结／编队返航”，recording 包含现有组级 Action。删除 `air_return_lanes_m`、撤回 8 m map/7 m ceiling，恢复原 5 m map/4.5 m ceiling。
+- 来源：Swarm 官方实现及 ICRA2022 的 spatial-temporal formation optimization：https://github.com/ZJU-FAST-Lab/Swarm-Formation；任务在线修复沿现有 runner/Plan/Action 与 Calvo/Capitán：https://arxiv.org/abs/2411.02062。编队返回是本次用户明确作业政策，不推导 Swarm 实际跟踪的未证安全界。
+- 证据：`integration/qn_aav_simulator/{config/joint_request_executors.yaml,scripts/formation_mission_runner.py,scripts/formation_action_server.py,scripts/mission_console.py}`、`task_line.py`；r34 失败在 `experiments/20260930-dynamic-session-live-r34/metrics.json`。Python 语法和 diff check 通过。
+- 未完成／下一步：直接开启带独立 UI/RViz 的完整动态业务会话，核对组级返回、返航中替换和最终 HOME；不重复无关组件回归。
+# 2026-09-30 — r35 同次 UI/RViz 动态链进入 Swarm 组级返回，待命成员首条组轨迹缺已知空间
+
+- 计划：使用现有 Swarm 组级 Action 完成共同返航与返航途中替换，撤销高度分层。
+- 实际：同次真实 UI/RViz 已显示快速 Plan、执行中替换、排队区域、33/33 收件、驻留15 s和返航授权。单 AAV工作预订结束，原子转交三机 group，USV/UUV并行返回。组级首Goal中AAV1/2已采用普通参考，AAV3一直保持岸侧；原生日志反复 `Ran out of pool,index=554 98 40`、A*无法处理未观测端点，随后本地 reference context 锁定。受控替换刷新也因三次 `rosservice` 进程造成约3 s监视空档，未验证业务终态；安全停止已通过，但整体 FAIL。
+- 效果：资源交接和真实组级派发通过；从分散位置向远集结点一次发 group Goal 不适用于当前 observed-map 入口。不能放开 unknown 地图或以取消停止成功冒充任务成功。
+- 修改：同一Plan增加三条并行单成员集结动作（同一3.5 m上升→实际重心槽位），复用原单机局部感知/Swarm；组级返回依赖三项集结实际完成。原组级端点复用三成员 LocalSurveyMap，对每个候选中心的槽位路径检查 fresh/known-free，再按短目标推进。已有 TakeReference 改为有界 typed ROS RPC，删除 YAML/CLI中转；不新增协议或服务。
+- 证据：`experiments/20260930-formation-session-live-r35/{metrics.json,launch.log,execution.bag,session-acceptance-driver.jsonl,live-ui-*.png}`及组级Goal diagnostics。组级目标、每成员采用和安全停止均为实际记录。Python/diff检查通过。
+- 未完成／下一步：仅重跑带UI/RViz的完整业务链，验证局部集结、编队返回、途中替换与HOME；不开展其他组件试验。
+# 2026-09-30 — r36 三机集结与 Swarm 组级转场实跑通过，短缺样终态缓存阻止恢复
+
+- 计划：带UI/RViz完成并行局部集结、Swarm组级返航、实际组级运动中替换和最终HOME。
+- 实际：两轮监测、收件、排队、驻留通过；三条并行单机集结全部实际SUCCEEDED，三机组级集结Goal通过（约2 m成员间距，实际slot误差0.0095 m），组级转场三成员均采用新参考并开始移动。随后一次GroupCompletionMonitor的ODOMETRY_TIMEOUT被缓存，外层transient逻辑只替换输出snapshot，未清monitor.snapshot；即使后续真实Odometry已到，evaluate继续返回旧终态，1 s后锁定。当前流约52 Hz、最大回调lag0.337 s，安全PASS，实际机体净距约1.279 m。没有执行到返航中替换。
+- 效果：未观测远集结点/A*问题已由本业务的局部集结和组级短目标处理；剩余断点是明确的监视器缓存错误，不是Swarm冲突功能失效。
+- 修改：仅在≤1 s的ODOMETRY transient分支清除monitor.snapshot和连续hold起点；保留Action总时钟、GoalID、资源和真实状态，后继tick必须读到新鲜实际Odometry才能恢复。持续缺样仍锁定。
+- 证据：`experiments/20260930-formation-session-live-r36/{metrics.json,execution.bag,session-acceptance-driver.jsonl,live-ui-*.png}`，组级step0/step1 diagnostics。驱动程序曾为等待实际组级转场被外部暂停，导致其自身return_home ack观察窗超时；下一轮将等待组级转场写在驱动程序内，不再暂停程序，不改变任务执行时间。
+- 未完成／下一步：直接同次UI/RViz完整业务重跑至组级途中替换及最终HOME，不开展其他测试。
+# 2026-09-30 — r37 缓存修正接线后，定位 Swarm 所有权诊断短延迟的永久锁定门槛
+
+- 计划：修正短Odometry终态缓存，完成实际组级运动途中替换与HOME。
+- 实际：首次运动中替换安全通过；第二请求AIR转场15 s时原生Swarm再次因 `LOCAL_REFERENCE_CONTEXT_STALE` 永久锁定。当前Action自身alignment146/146、无位置碰撞或AIR域违规，本地安全停止实际通过，业务保持FAIL。
+- 定位：`plan_manage_reference_handover.patch` 的 safetyHoldTick 把所有权诊断年龄>0.25 s直接锁定；这个流用于参考所有权/代次，不是机体Odometry。本地普通参考发布已有独立0.25 s新鲜度守卫，短诊断缺口无需同时变成永久故障。
+- 修改：普通参考允许条件保留0.25 s，所有权诊断持续缺失>max(1s,odom timeout)才永久锁定；新鲜诊断到达后可继续规划。与runner/Action已有1s信息等待一致；GoalID/代次核对、机体净距与场景条件未放宽。
+- 证据：`experiments/20260930-formation-session-live-r37/{metrics.json,execution.bag,session-acceptance-driver.jsonl,live-ui-*.png}`；对应Swarm补丁。
+- 未完成／下一步：重建原Swarm镜像并仅运行完整业务链；不增加其他测试或控制框架。
+# 2026-09-30 — r38 实际三机集结终态通过，严格网格比例再次阻断视觉流程
+
+- 计划：使用重建的Swarm所有权1s信息恢复规则完成组级途中换区及最终返回。
+- 实际：完整两区域、收件、驻留及三机并行集结通过；原组级集结Goal三成员ADOPTED，slot误差0.00216 m，模型保持4.33 s、实际保持4.34 s，安全PASS、成员机体净距1.50 m。严格alignment ratio0.877、ledger ratio0.843导致既有visual_current_timing门仍不接纳，Result保持FAIL/资源锁。
+- 效果：实际组级控制与终态没有失败；用户已明确授权视觉不以qn/ROS时间精度为门，但本轮仍将网格比例作为第二道门，造成反复阻断。
+- 修改：在显式visual模式中，仅用完整成员实际Odometry流>=10Hz作为流存在条件；继续要求native motion完成、实际4s model hold、ADOPTED、AIR域、安全PASS、终端位置/速度、无violation/safety hold/odometry contract error。严格alignment/ledger报告原样INVALID保存，视觉Result仍INCOMPLETE，不称严格实验通过。1s持续状态缺失、所有权/GoalID和真实碰撞规则不变。
+- 证据：`experiments/20260930-formation-session-live-r38/{metrics.json,execution.bag,session-acceptance-driver.jsonl,live-ui-*.png}`及group step0 diagnostics。
+- 未完成／下一步：同一完整UI/RViz动态任务接线重跑，实际组级运动中替换及最终HOME。
+# 2026-09-30 — r39 实际编队途中替换通过，最终报告时短 safety-status 缺口触发停止
+
+- 计划：完整可视化动态任务链，使用同高度Swarm组级返航。
+- 实际：首次执行中替换、排队任务、33/33收件、15s驻留、三机并行集结、组级到位与实际编队转场通过；在编队已运动后确认新区域，组级Action以 `REPLACED_SAFE_HOLD` CANCELED结束，三成员资源释放，新Plan约7.6s后按实际状态采用。第三轮监测33/33收件通过，UUV最终返回通过。最终group转场在短safety-status缺口/终态报告分支进入默认停止；未出现运行净距越限，停止时实际成员净距>1.45m，业务仍未完成。
+- 定位：Action `_safety_trigger`把一次safety-status年龄>0.25s直接当永久处置；`_finalize`又在较重组级报告计算后立刻核对，缺口恢复前返回False，随后默认 `CANCEL_REQUEST`停止。信息缺口与硬安全锁存未区分。
+- 修改：运行中同Goal safety-status缺口≤1s保留预订，不永久锁；终态提交前在terminal lock外等待最多1s的新鲜status，锁内继续实际硬锁存/Goal核对。新Goal派发门仍为0.25s新鲜度；碰撞/域/本地真实锁存立即阻断。没有放宽运动净距或伪造终态。
+- 证据：`experiments/20260930-formation-session-live-r39/{metrics.json,mission-0001-final.json,mission-0002-final.json,execution.bag,session-acceptance-driver.jsonl,live-ui-*.png}`；组级途中取消step1明确记录三成员采用、CANCELED、安全PASS和释放。
+- 未完成／下一步：相同主链继续跑最终组级返回与HOME；不增加其他试验。

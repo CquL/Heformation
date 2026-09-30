@@ -311,6 +311,23 @@ def build_request_executor_plan(request,scene,executors,provider,member_states,*
     plan=build_executor_plan(executors,tasks,provider,initial_target_ref='start',budget_s=remaining,
         member_states=member_states,execution_candidates=provider.execution_candidates,
         hard_deadlines=True,first_feasible=first_feasible)
+    if task_level and scene.get('aav_return_policy')=='SWARM_FORMATION':
+        # The group return is activated from actual target holds after operator
+        # authorization. Keep one explicit estimated handoff in the confirmed
+        # work Plan, rather than displaying obsolete independent return chains.
+        from dataclasses import replace
+        for item in plan.items:
+            if len(item.coalition)!=1 or not item.coalition[0].startswith('drone_'):continue
+            boundary=next(n for n,s in enumerate(item.execution_steps)
+                          if s.native_prediction.get('joint_return_boundary'))
+            suffix=item.execution_steps[boundary:]
+            duration=sum(s.duration_s for s in suffix)
+            handoff=replace(suffix[0],target_ref='return:swarm-formation-handoff',duration_s=duration,
+                service_time_s=0.,native_prediction=dict(suffix[0].native_prediction,duration_s=duration,
+                    terminal_position=suffix[-1].native_prediction['terminal_position'],
+                    aav_return_policy='SWARM_FORMATION',
+                    estimate_basis='group return estimate; Swarm group targets bound at actual authorization'))
+            item.execution_steps=item.execution_steps[:boundary]+(handoff,)
     return plan,tasks
 
 
@@ -423,6 +440,11 @@ def load_request(path: Path) -> MonitoringRequest:
     import yaml
 
     raw = yaml.safe_load(Path(path).read_text())
+    return request_from_mapping(raw)
+
+
+def request_from_mapping(raw) -> MonitoringRequest:
+    """Validate either the loaded file or an operator's in-session preview."""
     if not isinstance(raw, dict):
         raise ValueError("a monitoring request must be a mapping")
     allowed={'request_id','template_id','requirement','regions','required_capabilities','service_time_s','deadline_s',

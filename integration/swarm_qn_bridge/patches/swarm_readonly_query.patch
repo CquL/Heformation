@@ -143,6 +143,27 @@
          path = getPath();
      }
      
+@@ -278,6 +279,20 @@
+     // generate the simple path
+     vector<Vector3d> simple_path;
+     int size = path.size();
++    // A successful same-cell search has one grid centre, not an exact
++    // start/end path. Keep the native ESDF check before initializing the
++    // short MinJerk segment; a grid centre alone cannot reach the goal.
++    if (size == 1)
++    {
++        const int checks = std::max(1, int(ceil((end_pt - start_pt).norm() / 0.01)));
++        for (int j = 0; j <= checks; ++j)
++        {
++            const double alpha = double(j) / checks;
++            if (checkOccupancy_esdf((1.0 - alpha) * start_pt + alpha * end_pt))
++                return {};
++        }
++        return {start_pt, end_pt};
++    }
+     if (size <= 2){
+         ROS_WARN("the path only have two points");
+         return path;
 --- a/src/planner/plan_manage/CMakeLists.txt
 +++ b/src/planner/plan_manage/CMakeLists.txt
 @@ -54,3 +54,6 @@

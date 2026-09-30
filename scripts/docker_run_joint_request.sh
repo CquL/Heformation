@@ -8,6 +8,7 @@ JOINT_VISUALIZE="${JOINT_VISUALIZE:-true}"
 JOINT_GPU_RENDER="${JOINT_GPU_RENDER:-false}"
 JOINT_REGION_UI="${JOINT_REGION_UI:-$JOINT_VISUALIZE}"
 JOINT_TASK_UI="${JOINT_TASK_UI:-$JOINT_VISUALIZE}"
+JOINT_CONTINUOUS_SESSION="${JOINT_CONTINUOUS_SESSION:-true}"
 JOINT_PLANNING_BUDGET_S="${JOINT_PLANNING_BUDGET_S:-10}"
 JOINT_REPAIR_BUDGET_S="${JOINT_REPAIR_BUDGET_S:-10}"
 JOINT_SIM_CPUSET="${JOINT_SIM_CPUSET:-}"
@@ -25,6 +26,7 @@ case "$JOINT_VISUALIZE" in true|false) ;; *) echo 'JOINT_VISUALIZE must be true 
 case "$JOINT_GPU_RENDER" in true|false) ;; *) echo 'JOINT_GPU_RENDER must be true or false' >&2; exit 2 ;; esac
 case "$JOINT_REGION_UI" in true|false) ;; *) echo 'JOINT_REGION_UI must be true or false' >&2; exit 2 ;; esac
 case "$JOINT_TASK_UI" in true|false) ;; *) echo 'JOINT_TASK_UI must be true or false' >&2; exit 2 ;; esac
+case "$JOINT_CONTINUOUS_SESSION" in true|false) ;; *) echo 'JOINT_CONTINUOUS_SESSION must be true or false' >&2; exit 2 ;; esac
 if [[ "$JOINT_TASK_UI" == true && "$JOINT_VISUALIZE" != true ]]; then
   echo 'JOINT_TASK_UI=true requires JOINT_VISUALIZE=true' >&2; exit 2
 fi
@@ -71,6 +73,7 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
   --env JOINT_VISUALIZE="$JOINT_VISUALIZE" \
   --env JOINT_REGION_UI="$JOINT_REGION_UI" \
   --env JOINT_TASK_UI="$JOINT_TASK_UI" \
+  --env JOINT_CONTINUOUS_SESSION="$JOINT_CONTINUOUS_SESSION" \
   --env JOINT_PLANNING_BUDGET_S="$JOINT_PLANNING_BUDGET_S" \
   --env JOINT_REPAIR_BUDGET_S="$JOINT_REPAIR_BUDGET_S" \
   --env JOINT_SIM_CPUSET="$JOINT_SIM_CPUSET" \
@@ -163,6 +166,7 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
     rosparam load "$JOINT_EXECUTORS_FILE" /formation_mission_runner
     rosparam set /formation_mission_runner/planning_mode joint_request
     rosparam set /formation_mission_runner/executor_serial false
+    rosparam set /formation_mission_runner/continuous_session "$JOINT_CONTINUOUS_SESSION"
     rosparam set /formation_mission_runner/request_file "$active_request"
     rosparam set /formation_mission_runner/output_dir /experiments/current
     rosparam set /formation_mission_runner/planning_budget_s "$JOINT_PLANNING_BUDGET_S"
@@ -176,6 +180,7 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
       /aav_1/formation_action/goal /aav_1/formation_action/result
       /aav_2/formation_action/goal /aav_2/formation_action/result
       /aav_3/formation_action/goal /aav_3/formation_action/result
+      /aav_formation/formation_action/goal /aav_formation/formation_action/result
       /drone_0_qn_aav/platform_task/goal /drone_0_qn_aav/platform_task/result
       /drone_1_qn_aav/platform_task/goal /drone_1_qn_aav/platform_task/result
       /drone_2_qn_aav/platform_task/goal /drone_2_qn_aav/platform_task/result

@@ -1,4 +1,10 @@
-# 最新交接：分层监测需求基线与 AAV 本地停止保持
+# 最新交接：动态协同区域监测与共同编队返航
+
+> **2026-09-30 当前阶段已完成**：r42同次UI/RViz动态链PASS_SESSION_SEQUENCE，最终监测PASS_SAMPLED_MAPPING、33/33实收、5/5实际返回、零锁，随后明确结束会话SESSION_ENDED/HOME。运行容器已正常退出，没有仍待处理的Goal；无需再跑原序列。主要入口见README：圈区→方案→确认→作业/实收→驻留→下一任务/人工返航，执行/返航中可排队或替换。AAV共同返回用原Swarm三成员组级Action，不再分层；USV/UUV分别返回。实际替换、排队和编队转场中换区均在同一持续世界完成，3台AAV分别完成一次跨介质。原A*同格短段与终态建图锁缺口已在本次实际修复。原始bag/诊断在r42本地目录；简要事实与实际两窗口截图在docs/reviews和docs/images随源码提交main。严格时间审计仍FAIL：UUV累计漂移46.451202s、14位置对齐缺样；可对齐样本净距0.746672m、USV/pier0.286077m，无无效原生轨迹/paused普通发布。保持有限采样/视觉政策口径，不称完整3D、真实设备或严格连续安全。以下历史“r41/r35仍在运行”已失效，勿据此重启旧实验。旧重复bag已清理约30.708GiB，不恢复旧产物。
+
+> **2026-09-30 本轮继续点优先于以下历史条目**：当前运行 r41 (`experiments/20260930-formation-session-live-r41`)，Docker `6f7641bb5bc3`，主命令 session4064、实际Qt捕获session44806。仅继续同一动态协同业务链；不要重开单机资格/排行榜。r40已通过两次实际替换（其中一次在Swarm编队转场中）、排队、三轮监测/实收、驻留/人工返航；最终short group target起止同A*栅格只返回单个中心，无新trajectory_id，实际跟踪旧尾点距目标0.212014m，原0.2m到位条件拒绝。原A*补丁已以ESDF逐1cm校核的精确起终点补齐同格短段，新镜像manifest `sha256:65f6798e0c259dfd920f9b1c41b2c43c0b20503470bd6526ab4ae06e814a5817`。r41只复验完整会话，等待最终HOME/全员返回/零锁。完成后同步README/当前状态/plan，提交推main。当前修改未提交，基线ce45e4d。失败简要记录保留，重复原始bag释放27.410GiB，不恢复旧大型产物。
+
+> **连续任务会话当前未完成（2026-09-28）**：原UI/runner/Action/SceneTransport已接queue/replace、作业后驻留与返航确认、HOME继续任务。r2/r3同次真实完成两轮受控替换、排队执行、驻留15秒及确认返航，但第四区域跨介质失稳：r2 ENTER激活LOS已修；r3 ENTER稳定，EXIT入口实际xy/旧ref差0.1006m触发另一姿态问题，准备原worker边界一次采纳实际终态xy/yaw，保留LocalMap检查/原控制器/安全门槛。r4同序列待跑。源码未提交（基线ce45e4d）。不要重复从方案研究开始，不把已经通过的动态调度事件升级为最终物理通过；详细WORKLOG和experiments/20260928-dynamic-session-live-r1,r2,r3。
 
 > **2026-09-28 当前验收：r17 有限采样建图协同闭环已跑通。** `experiments/20260928-online-mapping-live-r17`：圆心(2,4)、半径2m，0.397745秒联合分工；同次 AIR AAV 区域观测、另一 AAV 入水/浅水观测/出水、qn UUV 区域观测、Otter USV 共享支援。33成果实际收到后共同放行返航，16步骤验证、四返回、零资源锁，原任务权威 `PASS_SAMPLED_MAPPING`，实际732.640秒。AIR/UUV各208个0.25m细格完成，另1浅水产品。任务事件检查通过；独立bag审计可对齐样本最小成员净距0.535626m、USV/码头0.534464m，未检出净距越限，但严格审计仍FAIL（模型/ROS最大漂移0.210107s、1个位置对齐缺样）；显式用户授权视觉例外，不改原审计。阶段范围是几何切片占据+实际三维命中点，不是完整3D表面重建或任意未知区域保证；新链业务缺测再分配未验收。UI已显示实际收件细格、独立RViz；命令见README。重复r1–r16大型记录已清理4.206GiB，只留紧凑失败记录，最终r17原始bag完整。
 
@@ -469,3 +475,11 @@ USV/UUV 动力学
 本轮已验证的整链重启入口是结束并重新启动独立仿真容器及其 ROS master、规划器、轨迹服务器、qn 和 Action；不通过手动删除资源参数恢复。
 先读新需求表与实施报告，再用 `scripts/docker_test_safety_hold.sh <模式> <新目录>` 复跑；`VISUALIZE=true` 可显示 RViz，request_cancel/request_normal 还显示任务权威仪表盘。危险负例不等同业务成功，不改写旧原始结果。
 最终镜像 `swarm-formation-qn:noetic` 与 `swarm-formation-qn:safety-hold` 指向本轮构建；上一轮镜像保留在 `swarm-formation-qn:baseline-1840b08`。所有仿真已结束。当前修改位于 main 工作树，未提交/推送。
+# 2026-09-30 优先交接：正在运行 Swarm 编队返回的完整动态业务
+
+- 现有容器 `62690908bbe7`，输出 `experiments/20260930-formation-session-live-r35`，真正中文 `JointMissionPanel` 与独立 RViz 同时运行。不要重启物理链；先读取 metrics/driver。主要 shell session 51870、UI 68302、原组三机 Action 重启后的节点 session 7029（重启时零已接受 Goal，只为载入 group retarget 修正）。
+- 用户最新要求：任务链“圈选区域→快速联合Plan→确认→协同扫描→收件→驻留→下一任务/共同返航”，执行中排队/替换，返航中可替换。返航必须使用现有 Swarm 组级能力，临时高层错开方案已经撤销。专业范围是在线异构任务分配与反馈重规划驱动的协同区域监测。
+- 组级返回接在原 runner `return_home`：单 AAV 在 `_wait_joint_return` 收件与目标 hold 合格后 WORK_COMPLETED，解除自身预订；增加现有 Plan group activity，依赖每个 AAV 工作实际释放后原子占用三真实成员。集结中心是当时实际重心，目标3.5 m；之后 group centre到(-30,6,3.5)，再回(-30,6,.8)，原槽位2 m。USV/UUV同时返回。group task非观测，不冒充新覆盖成果。
+- `FormationAction` group request hot reload与精确受控替换已接；`GroupCompletionMonitor.retarget`恢复槽位目标以支持组级中途停止。同Goal controller refresh不再retire reference floor。`task_line`确认前以“共同编队返航”handoff代替旧单机返回段。该新业务还未实际完成，需要继续这一次集成运行。
+- r34续跑仍因单次自身Odometry年龄错误锁定；r33三台AAV和UUV返回通过、USV431s watchdog耗尽。当前代码已有600s USV watchdog，350s AIR watchdog，有界1s信息等待和显式视觉时钟策略；安全/实际终端不改判。
+- 主分支main，基线ce45e4d，未提交改动较多。阶段最终验收完成后整理当前文稿/WORKLOG、推main；不恢复删掉的旧实验。

@@ -13,6 +13,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 
 import rospy
 from actionlib_msgs.msg import GoalID
@@ -22,7 +23,7 @@ from python_qt_binding.QtSvg import QSvgRenderer
 from python_qt_binding.QtWidgets import (QApplication,QFileDialog,QHBoxLayout,QLabel,
     QMessageBox,QPlainTextEdit,QPushButton,QSplitter,QVBoxLayout,QWidget,
     QDialog,QFrame,QTableWidget,QTableWidgetItem,
-    QHeaderView,QAbstractItemView,QProgressBar,QStackedWidget)
+    QHeaderView,QAbstractItemView,QProgressBar,QStackedWidget,QComboBox)
 from qn_aav_simulator.task_line import load_request
 from qn_aav_simulator.monitoring_request import circle_joint_mission_mappings
 
@@ -33,6 +34,7 @@ class CircleMap(QWidget):
         super().__init__();self.scene=scene;self.center=tuple(center);self.radius=float(radius)
         self.dragging=False;self.on_change=on_change;self.setMinimumSize(800,560)
         self.editable=True;self.plan_items=[];self.observed_points=()
+        self.draft_circle=None;self.editing_draft=False
         self.online_mapping=bool(scene.get('online_mapping',False))
         self.mapping_layers={};self.mapping_layer='offshore_uuv'
         self.mapping_request_id='';self.received_mapping_ids=set()
@@ -81,10 +83,14 @@ class CircleMap(QWidget):
     def fit_scene(self):
         xmin,xmax,ymin,ymax=self.base_bounds;cx,cy=self.center;r=self.radius
         self.bounds=(min(xmin,cx-r-2),max(xmax,cx+r+2),min(ymin,cy-r-2),max(ymax,cy+r+2))
+        if self.draft_circle:
+            (cx,cy),r=self.draft_circle;xmin,xmax,ymin,ymax=self.bounds
+            self.bounds=(min(xmin,cx-r-2),max(xmax,cx+r+2),min(ymin,cy-r-2),max(ymax,cy+r+2))
         self.update()
 
     def fit_region(self):
-        cx,cy=self.center;half_y=max(self.radius+1.,2.)
+        center,radius=self.draft_circle if self.editing_draft and self.draft_circle else (self.center,self.radius)
+        cx,cy=center;half_y=max(radius+1.,2.)
         half_x=half_y*max(1.,self.width()-40)/max(1.,self.height()-40)
         self.bounds=(cx-half_x,cx+half_x,cy-half_y,cy+half_y);self.update()
 
@@ -102,16 +108,22 @@ class CircleMap(QWidget):
 
     def mousePressEvent(self,event):
         if self.editable and event.button()==Qt.LeftButton:
-            self.center=self.to_world(event.pos());self.radius=0.;self.dragging=True;self.update()
+            center=self.to_world(event.pos())
+            if self.editing_draft:self.draft_circle=(center,0.)
+            else:self.center=center;self.radius=0.
+            self.dragging=True;self.update()
 
     def mouseMoveEvent(self,event):
         if self.dragging:
-            point=self.to_world(event.pos());self.radius=math.hypot(point[0]-self.center[0],point[1]-self.center[1])
-            self.on_change(self.center,self.radius);self.update()
+            point=self.to_world(event.pos());center=self.draft_circle[0] if self.editing_draft else self.center
+            radius=math.hypot(point[0]-center[0],point[1]-center[1])
+            if self.editing_draft:self.draft_circle=(center,radius)
+            else:self.radius=radius
+            self.on_change(center,radius);self.update()
 
     def mouseReleaseEvent(self,event):
         if self.dragging and event.button()==Qt.LeftButton:
-            self.mouseMoveEvent(event);self.dragging=False;self.on_change(self.center,self.radius)
+            self.mouseMoveEvent(event);self.dragging=False
 
     def paintEvent(self,event):
         painter=QPainter(self);painter.setRenderHint(QPainter.Antialiasing)
@@ -177,6 +189,10 @@ class CircleMap(QWidget):
             for step in observations:
                 point=step.get('native_prediction',{}).get('terminal_position')
                 if point:painter.drawEllipse(self.to_screen(point),3,3)
+        if self.draft_circle:
+            center,radius=self.draft_circle;c=self.to_screen(center);r=radius*self._scale()
+            painter.setPen(QPen(QColor('#ffca5a'),2,Qt.DashLine));painter.setBrush(Qt.NoBrush)
+            painter.drawEllipse(c,r,r);painter.drawText(c+QPointF(12,r+20),'新任务草稿 · 尚未采用')
         painter.setPen(QColor('#b5c9d7'))
         painter.drawText(QRectF(14,self.height()-30,self.width()-28,22),Qt.AlignLeft,
             '青色点：实测命中 · 虚线仅为目标意图 · 填色仅来自母船实际收件' if self.online_mapping else
@@ -304,6 +320,8 @@ def icon_label(kind,color='#132d57',size=26):
 
 
 def activity_role(item):
+    if item.get('executor_id')=='aav_formation':return 'Swarm 编队返航'
+    if '::formation-assembly:' in item.get('task_id',''):return '编队集结'
     if not item.get('fulfills_task',True):return '共享通信支援'
     if 'uuv' in item.get('coalition',()):return '深水扫测'
     if any(s.get('operation')=='ENTER_WATER' for step in item.get('execution_steps',())
@@ -313,6 +331,11 @@ def activity_role(item):
 
 def step_label(step):
     ref=step.get('target_ref','')
+    if ref=='return:swarm-formation-handoff':return '共同编队返航'
+    if ref=='return:formation-assemble':return '编队集结'
+    if ref=='return:formation-transit':return '编队返航'
+    if ref=='return:formation-home':return '编队返回部署区'
+    if ref.startswith(('return:formation-climb:','return:formation-slot:')):return '编队集结'
     if ref.startswith(('return:','return-climb:','return-overhead:','return-via:')):return '返航'
     if ref.startswith('departure-wait:'):return '等待出发'
     if ref.startswith(('outbound-','air-route:','survey-entry:','transition:','transition-stage:')):return '转场'
@@ -337,17 +360,21 @@ class PlanTimeline(QWidget):
             return
         horizon=max((i.get('planned_finish',0) for i in items),default=1) or 1
         left=68.;width=max(1.,self.width()-left-10);row_height=24
+        rows=[(MEMBERS.index(member),member,item) for item in items
+              for member in item.get('coalition',()) if member in MEMBERS]
+        group_return=any(item.get('executor_id')=='aav_formation' for item in items)
+        bottom=30+(len(MEMBERS)-1)*row_height+21
         verified={row['execution_id'] for row in self.state.get('step_results',()) if row.get('verified')}
         current={} if terminal_kind(self.state) else self.state.get('current_actions',{})
         painter.setFont(QFont(self.font().family(),9))
         for tick in range(5):
             x=left+width*tick/4
-            painter.setPen(QColor('#dce6ed'));painter.drawLine(QPointF(x,20),QPointF(x,130))
+            painter.setPen(QColor('#dce6ed'));painter.drawLine(QPointF(x,20),QPointF(x,bottom))
             painter.setPen(QColor('#738197'));painter.drawText(QRectF(min(x-28,self.width()-60),0,60,20),Qt.AlignCenter,
                 '{:02d}:{:02d}'.format(int(horizon*tick/4)//60,int(horizon*tick/4)%60))
         return_gate=None
-        for row,item in enumerate(items[:4]):
-            member=item.get('coalition',[''])[0];color=QColor(COLORS.get(member,'#159aaf'))
+        for row,member,item in rows:
+            color=QColor(COLORS.get(member,'#159aaf'))
             y=30+row*row_height;painter.setPen(color)
             painter.drawText(QRectF(0,y,65,22),Qt.AlignVCenter,MEMBER_NAMES.get(member,member))
             clock=item.get('planned_start',0.);groups=[]
@@ -359,6 +386,8 @@ class PlanTimeline(QWidget):
                 label=step_label(step);duration=step.get('duration_s',0.)
                 prediction=step.get('native_prediction',{})
                 if prediction.get('joint_return_boundary'):return_gate=clock
+                if group_return and step.get('target_ref')=='return:swarm-formation-handoff':
+                    clock+=duration;continue
                 wait=prediction.get('joint_wait_s',0.)
                 if wait:
                     groups.append((clock,duration-wait,label,done,active))
@@ -386,14 +415,15 @@ class PlanTimeline(QWidget):
                     painter.drawText(rect,Qt.AlignCenter,label)
         if return_gate is not None:
             x=left+width*return_gate/horizon;painter.setPen(QPen(QColor('#8998ac'),1.3,Qt.DashLine))
-            painter.drawLine(QPointF(x,24),QPointF(x,130))
+            painter.drawLine(QPointF(x,24),QPointF(x,bottom))
             painter.setPen(QColor('#456083'))
-            painter.drawText(QRectF(x+5,3,min(190,self.width()-x-5),18),Qt.AlignLeft,'共同返航条件满足后')
+            painter.drawText(QRectF(x+5,3,min(190,self.width()-x-5),18),Qt.AlignLeft,
+                '确认共同返航后' if self.state.get('session_phase') else '共同返航条件满足后')
         epoch=(self.state.get('confirmation') or {}).get('at_ros_s')
         if epoch and self.state.get('status','').startswith('RUNNING'):
             elapsed=max(0,self.state.get('updated_at_ros_s',epoch)-epoch)
             x=left+min(1.,elapsed/horizon)*width;painter.setPen(QPen(QColor('#086bff'),2))
-            painter.drawLine(QPointF(x,21),QPointF(x,130))
+            painter.drawLine(QPointF(x,21),QPointF(x,bottom))
             painter.drawText(QRectF(max(left,min(x-25,self.width()-80)),0,78,18),Qt.AlignCenter,
                 '当前' if elapsed<=horizon else '超出预计时长')
 
@@ -406,6 +436,8 @@ class JointMissionPanel(QWidget):
         self.yaml=yaml;self.output=output;output.mkdir(parents=True,exist_ok=True)
         self.base_request=yaml.safe_load(request.read_text());self.base_scene=yaml.safe_load(scene.read_text())
         self.select_region=select_region;self.state={};self.confirmation_sent=False
+        self.draft_circle=None;self.pending_command_id=None;self.confirmed_preview_revision=None
+        self.preview_revision_shown=None;self.active_request_id=None
         self.submitted=(output/'ui-scene.yaml').exists()
         if self.submitted:
             self.base_request=yaml.safe_load((output/'ui-request.yaml').read_text())
@@ -499,8 +531,10 @@ class JointMissionPanel(QWidget):
         title=QLabel('区域与协同方案');title.setObjectName('section');toolbar.addWidget(title);toolbar.addStretch()
         self.area_tab=QPushButton('二维区域');self.area_tab.setObjectName('tab');self.area_tab.setCheckable(True)
         self.plan_tab=QPushButton('任务方案');self.plan_tab.setObjectName('tab');self.plan_tab.setCheckable(True)
+        self.preview_tab=QPushButton('新方案预览');self.preview_tab.setObjectName('tab');self.preview_tab.setCheckable(True);self.preview_tab.setVisible(False)
         self.area_tab.clicked.connect(lambda:self.show_page(0));self.plan_tab.clicked.connect(lambda:self.show_page(1))
-        toolbar.addWidget(self.area_tab);toolbar.addWidget(self.plan_tab);toolbar.addStretch()
+        self.preview_tab.clicked.connect(lambda:self.show_page(2))
+        toolbar.addWidget(self.area_tab);toolbar.addWidget(self.plan_tab);toolbar.addWidget(self.preview_tab);toolbar.addStretch()
         self.fit_button=QPushButton('适应场景');self.fit_button.clicked.connect(lambda:self.map.fit_scene());toolbar.addWidget(self.fit_button)
         self.detail_button=QPushButton('任务记录');self.detail_button.clicked.connect(self.show_details);toolbar.addWidget(self.detail_button)
         middle_layout.addLayout(toolbar)
@@ -520,6 +554,20 @@ class JointMissionPanel(QWidget):
         self.table.verticalHeader().hide();self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows);self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.verticalHeader().setDefaultSectionSize(55);self.pages.addWidget(self.table);middle_layout.addWidget(self.pages,1)
+        preview_page=QWidget();preview_layout=QVBoxLayout(preview_page)
+        self.preview_summary=QLabel();self.preview_summary.setWordWrap(True);preview_layout.addWidget(self.preview_summary)
+        self.preview_table=QTableWidget(0,4);self.preview_table.setHorizontalHeaderLabels(('平台','任务角色','动作链','预计时段'))
+        self.preview_table.verticalHeader().hide();self.preview_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.preview_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.preview_table.verticalHeader().setDefaultSectionSize(64);preview_layout.addWidget(self.preview_table,1)
+        note=QLabel('切换前按实际状态重算分工与时序，当前动作安全结束前不派发。预计时段不含人工驻留，返航需另行确认。')
+        note.setWordWrap(True);note.setObjectName('muted');preview_layout.addWidget(note);self.pages.addWidget(preview_page)
+        draft_row=QHBoxLayout();draft_row.setContentsMargins(12,5,12,0)
+        self.draft_hint=QLabel('');self.draft_hint.setWordWrap(True);draft_row.addWidget(self.draft_hint,1)
+        self.policy_box=QComboBox();self.policy_box.addItem('排队执行 · 当前任务完成后','queue')
+        self.policy_box.addItem('立即替换 · 中断当前任务','replace');draft_row.addWidget(self.policy_box)
+        self.current_button=QPushButton('查看当前任务');self.current_button.clicked.connect(self.view_current);draft_row.addWidget(self.current_button)
+        self.draft_controls=QWidget();self.draft_controls.setLayout(draft_row);self.draft_controls.setVisible(False);middle_layout.addWidget(self.draft_controls)
         commands=QHBoxLayout();commands.setContentsMargins(12,9,12,9)
         self.central_hint=QLabel('圈选区域 → 生成方案 → 确认执行');self.central_hint.setWordWrap(True);self.central_hint.setObjectName('muted')
         commands.addWidget(self.central_hint,1)
@@ -555,6 +603,9 @@ class JointMissionPanel(QWidget):
         rr=QVBoxLayout(self.return_card);rr.setContentsMargins(11,10,11,10)
         self.return_title=QLabel('ⓘ 共同返航尚未放行');self.return_title.setStyleSheet('color: #b96900; font-weight: 700; font-size: 15px;');rr.addWidget(self.return_title)
         self.returns=QLabel('等待作业完成与必要结果收齐。');self.returns.setWordWrap(True);rr.addWidget(self.returns);right_layout.addWidget(self.return_card)
+        self.return_button=QPushButton('确认共同返航');self.return_button.clicked.connect(self.return_home);rr.addWidget(self.return_button)
+        self.end_button=QPushButton('结束本次会话');self.end_button.clicked.connect(self.end_session);rr.addWidget(self.end_button)
+        self.return_button.setVisible(False);self.end_button.setVisible(False)
         recent=QHBoxLayout();recent.addWidget(icon_label('clock',size=23));label=QLabel('最近事件');label.setObjectName('section');recent.addWidget(label);recent.addStretch();right_layout.addLayout(recent)
         self.recent=QLabel('等待任务事件');self.recent.setWordWrap(True);self.recent.setMinimumHeight(68);right_layout.addWidget(self.recent)
         right_layout.addStretch()
@@ -565,7 +616,7 @@ class JointMissionPanel(QWidget):
         timeline=QFrame();timeline.setObjectName('panel');tl=QVBoxLayout(timeline);tl.setContentsMargins(16,8,16,6);tl.setSpacing(3)
         th=QHBoxLayout();th.addWidget(icon_label('clock',size=23));label=QLabel('协同执行时间线');label.setObjectName('section');th.addWidget(label);th.addStretch()
         small=QLabel('实色：已完成步骤　 描边：当前步骤　 浅色：预计');small.setObjectName('muted');th.addWidget(small);tl.addLayout(th)
-        self.timeline=PlanTimeline();self.timeline.setMinimumHeight(134);self.timeline.setMaximumHeight(134);tl.addWidget(self.timeline)
+        self.timeline=PlanTimeline();self.timeline.setMinimumHeight(158);self.timeline.setMaximumHeight(158);tl.addWidget(self.timeline)
         self.timeline_note=QLabel('同时放行返航，分别按实际到位完成。');self.timeline_note.setObjectName('muted');self.timeline_note.setAlignment(Qt.AlignRight);tl.addWidget(self.timeline_note)
         outer.addWidget(timeline)
         self.details=QPlainTextEdit();self.details.setReadOnly(True)
@@ -591,7 +642,8 @@ class JointMissionPanel(QWidget):
         return QColor(*[round(.07*v+.93*255) for v in (c.red(),c.green(),c.blue())]).name()
 
     def show_page(self,index):
-        self.pages.setCurrentIndex(index);self.area_tab.setChecked(index==0);self.plan_tab.setChecked(index==1)
+        self.pages.setCurrentIndex(index);self.area_tab.setChecked(index==0);self.plan_tab.setChecked(index==1);self.preview_tab.setChecked(index==2)
+        if index==2:self.preview_revision_shown=(self.state.get('pending_plan') or {}).get('revision')
 
     def select_mapping_layer(self,layer):
         self.deep_layer.setChecked(layer=='offshore_uuv');self.air_layer.setChecked(layer=='offshore_air')
@@ -601,7 +653,9 @@ class JointMissionPanel(QWidget):
         self.details_dialog.show();self.refresh()
 
     def region_changed(self,center,radius):
-        self.center,self.radius=tuple(center),radius;self.update_region()
+        if self.submitted:
+            self.draft_circle=(tuple(center),radius);self.update_draft_hint()
+        else:self.center,self.radius=tuple(center),radius;self.update_region()
 
     def update_region(self):
         if self.select_region:
@@ -609,11 +663,45 @@ class JointMissionPanel(QWidget):
         else:self.region.setText('已加载配置中的监测区域\n'+self.base_request['request_id'])
 
     def edit_region(self):
-        if self.submitted:return
+        if self.submitted:
+            if not self.state.get('session_phase'):return
+            self.draft_circle=self.draft_circle or (self.center,self.radius)
+            self.map.draft_circle=self.draft_circle;self.map.editing_draft=True
+            self.map.editable=True;self.draft_controls.setVisible(True);self.update_draft_hint()
         self.show_page(0);self.map.setFocus();self.central_hint.setText('按下鼠标确定圆心，拖动确定半径。')
 
+    def update_draft_hint(self):
+        if self.draft_circle:
+            center,radius=self.draft_circle
+            self.draft_hint.setText('新区域草稿：({:.2f}, {:.2f}) m，半径 {:.2f} m'.format(*center,radius))
+        else:self.draft_hint.setText('可在执行、驻留和返航中圈选下一任务区域。')
+        queued=len(self.state.get('task_queue') or ())
+        if queued:self.draft_hint.setText(self.draft_hint.text()+' · 已排队 {} 项'.format(queued))
+
+    def view_current(self):
+        self.map.editing_draft=False;self.map.draft_circle=None;self.map.editable=False
+        self.show_page(0);self.map.update()
+
+    def send_session_command(self,action,**values):
+        if self.pending_command_id:return False
+        command=dict(command_id=uuid.uuid4().hex,request_id=self.state.get('request_id'),action=action,**values)
+        path=self.output/'operator-command.json';temp=path.with_suffix('.tmp')
+        try:temp.write_text(json.dumps(command,ensure_ascii=False));temp.replace(path)
+        except OSError as error:
+            QMessageBox.warning(self,'命令未提交',str(error));return False
+        self.pending_command_id=command['command_id'];self.refresh();return True
+
     def generate(self):
-        if self.submitted:return
+        if self.submitted:
+            if not self.draft_circle or not self.state.get('session_phase'):return
+            center,radius=self.draft_circle
+            # Only the runner expands/solves a dynamic request. This validation
+            # does not replace the active request, scene or received map cells.
+            if not math.isfinite(radius) or not all(math.isfinite(v) for v in center) or not 2.<=radius<=10.:
+                QMessageBox.warning(self,'区域暂不可用','圆形监测半径需在 2～10 模型米之间。');return
+            policy='replace' if self.state.get('session_phase') in ('HOLDING','HOME') else self.policy_box.currentData()
+            self.send_session_command('preview_region',center=list(center),radius_m=radius,policy=policy)
+            return
         try:
             request,scene=(circle_joint_mission_mappings(self.base_request,self.base_scene,self.center,self.radius)
                 if self.select_region else (self.base_request,self.base_scene))
@@ -635,6 +723,15 @@ class JointMissionPanel(QWidget):
         # Re-read authority when clicking, not a cached rendering of an old Plan.
         try:state=json.loads((self.output/'metrics.json').read_text())
         except (OSError,ValueError):return
+        pending=state.get('pending_plan') or {}
+        if state.get('session_phase') and self.pages.currentIndex()==2:
+            if (pending.get('state')!='READY' or pending.get('revision')!=self.preview_revision_shown or
+                    state.get('request_id')!=self.state.get('request_id') or
+                    self.pending_command_id or pending.get('revision')==self.confirmed_preview_revision):
+                self.refresh();return
+            if self.send_session_command('confirm_plan',preview_revision=pending['revision']):
+                self.confirmed_preview_revision=pending['revision']
+            return
         if (self.confirmation_sent or state.get('status')!='AWAITING_CONFIRMATION' or
                 state.get('request_id')!=self.state.get('request_id') or
                 state.get('plan_revision')!=self.state.get('plan_revision')):
@@ -644,6 +741,16 @@ class JointMissionPanel(QWidget):
         temp.write_text(json.dumps(command));temp.replace(path)
         self.confirmation_sent=True;self.confirm_button.setEnabled(False)
         self.confirm_button.setText('已确认，等待派发')
+
+    def return_home(self):
+        if self.state.get('session_phase')!='HOLDING':return
+        if QMessageBox.question(self,'确认共同返航','当前区域任务已结束。现在从驻留位置共同返航？',
+                QMessageBox.Yes|QMessageBox.No,QMessageBox.No)==QMessageBox.Yes:
+            self.send_session_command('return_home')
+
+    def end_session(self):
+        if self.state.get('session_phase')!='HOME':return
+        self.send_session_command('end_session')
 
     def subscribe_display(self):
         """Passive live modes/support only; task progress still comes from runner."""
@@ -697,22 +804,45 @@ class JointMissionPanel(QWidget):
                 self.state=json.loads(path.read_text());self.last_snapshot=stamp;self.last_update=time.monotonic()
         except (OSError,ValueError):pass
         state=self.state;status=state.get('status','STARTING' if self.submitted else 'SELECT_REGION')
+        session_phase=state.get('session_phase','')
+        session_closed=status=='SESSION_ENDED'
+        ack=state.get('command_ack') or {}
+        if self.pending_command_id and ack.get('command_id')==self.pending_command_id:self.pending_command_id=None
+        active_request=state.get('active_request') or {}
+        if active_request.get('request_id')==state.get('request_id') and active_request.get('request_id')!=self.active_request_id:
+            previous_request_id=self.active_request_id
+            self.active_request_id=active_request['request_id'];self.base_request=active_request
+            air=next((r for r in active_request.get('regions',()) if r.get('region_id')=='offshore_air'),None)
+            if air and air.get('shape')=='CIRCLE':
+                self.center=tuple(air['center'][:2]);self.radius=air['radius_m']
+                self.map.center=self.center;self.map.radius=self.radius
+                if previous_request_id and self.draft_circle and self.draft_circle==(self.center,self.radius):
+                    self.draft_circle=None;self.map.draft_circle=None;self.map.editing_draft=False;self.show_page(0)
+            self.map.set_mapping_request(active_request)
+            self.point_count=sum(len(r.get('interest_points',())) for r in active_request.get('regions',()))
+            self.update_region();self.confirmation_sent=bool(state.get('confirmation'));self.stop_sent=False
         # Reattaching to a request launched through the terminal has no
         # ui-scene.yaml. Its authoritative Plan still makes the input read-only.
         if (state.get('request_id')==self.base_request.get('request_id') and
                 (state.get('plan') or state.get('selected_plan'))):
             self.submitted=True
-        kind=terminal_kind(state);terminal=bool(kind)
+        kind=terminal_kind(state)
+        if session_phase in ('EXECUTING','HOLDING','RETURNING','HOME') and kind=='success':kind=''
+        terminal=bool(kind) or session_closed
         try:exit_code=(self.output/'runner-exit-code.txt').read_text().strip()
         except OSError:exit_code=None
         failed_start=(self.output/'session-ended').exists() and not terminal
-        stale=(status.startswith('RUNNING') or status=='AWAITING_CONFIRMATION') and time.monotonic()-self.last_update>5
+        stale=(status.startswith('RUNNING') or status=='AWAITING_CONFIRMATION' or (session_phase and not terminal)) and time.monotonic()-self.last_update>5
         names={'SELECT_REGION':'等待选择区域','STARTING':'正在启动仿真','STANDBY':'等待平台就绪',
             'PLANNING':'正在联合求解','AWAITING_CONFIRMATION':'等待确认执行',
             'RUNNING':'协同作业中','RUNNING_RETEST':'补测执行中','NOT_CONFIRMED':'任务未确认',
             'UNKNOWN_LOCKED':'任务异常锁定','FAIL':'任务未完成','FAILED':'任务未完成',
             'PASS_GEOMETRIC_PROXY_QUALIFICATION':'协同任务完成'}
         title=names.get(status,status)
+        if not kind and session_phase:
+            title={'EXECUTING':'协同作业中','HOLDING':'监测完成 · 原地驻留' if state.get('monitoring_complete') is True else '作业结束 · 仍有缺测','RETURNING':'共同返航中',
+                'HOME':'已返回 · 等待新任务','SWITCHING':'正在安全切换任务'}.get(session_phase,title)
+        if session_closed:title='会话已结束'
         if kind=='success':title='协同任务完成'
         elif kind=='failure':title='任务异常锁定' if status=='UNKNOWN_LOCKED' else '任务未完成'
         elif kind=='stopped':title='任务已停止 · 状态待确认' if state.get('resource_locks') else '任务已停止'
@@ -721,16 +851,57 @@ class JointMissionPanel(QWidget):
         elif state.get('operator_stop_requested') and not terminal:title='停止处置中'
         self.status.setText('● '+title)
         color=('#b84537' if failed_start or stale or (exit_code is not None and not terminal) else
+            '#738197' if session_closed else
             {'failure':'#b84537','stopped':'#b96900','unconfirmed':'#738197','success':'#079b62'}.get(kind,
                 '#b96900' if state.get('operator_stop_requested') else '#0967ff'))
         self.status.setStyleSheet('color: '+color+'; font-weight: 750; font-size: 23px;')
-        self.edit_button.setEnabled(self.select_region and not self.submitted)
-        self.edit_button.setText('运行中不可修改' if status.startswith('RUNNING') else '已提交区域' if self.submitted else '编辑区域')
-        self.generate_button.setEnabled(not self.submitted);self.map.editable=self.select_region and not self.submitted
-        self.confirm_button.setEnabled(status=='AWAITING_CONFIRMATION' and not self.confirmation_sent and not stale and not failed_start and exit_code is None)
+        session_open=bool(session_phase) and not terminal and not stale and not failed_start and exit_code is None
+        pending=state.get('pending_plan') or {};pending_state=pending.get('state','')
+        self.edit_button.setEnabled(self.select_region and (not self.submitted or session_open))
+        self.edit_button.setText('圈选新任务' if session_open else '已提交区域' if self.submitted else '编辑区域')
+        self.generate_button.setText('生成新任务方案' if session_open else '生成协同方案')
+        self.generate_button.setEnabled(not self.submitted or (session_open and bool(self.draft_circle) and not self.pending_command_id))
+        self.map.editable=self.select_region and (not self.submitted or (session_open and self.map.editing_draft))
+        self.draft_controls.setVisible(session_open)
+        self.update_draft_hint()
+        self.policy_box.setVisible(session_phase not in ('HOLDING','HOME'))
+        self.policy_box.setEnabled(not self.pending_command_id)
+        self.current_button.setEnabled(session_open)
+        self.preview_tab.setVisible(bool(pending))
+        if not pending and self.pages.currentIndex()==2:self.show_page(0)
+        if pending:
+            region=pending.get('region') or {};center=region.get('center') or ('—','—')
+            self.preview_summary.setText('新区域方案 · {} · {}\n圆心 ({}, {}) m · 半径 {} m\n请求 {} · 版本 {}\n{}'.format(
+                {'READY':'等待确认','PLANNING':'正在求解','QUEUED':'已排队','STALE':'状态已变化，需重新生成','ERROR':'方案生成失败',
+                 'WAITING_SAFE_STATE':'等待当前模式转换结束后生成方案',
+                 'ADOPTED':'已采用'}.get(pending_state,pending_state),
+                '立即替换当前任务' if pending.get('policy')=='replace' else '当前任务完成后执行',
+                center[0],center[1],region.get('radius_m','—'),
+                pending.get('request_id','—'),pending.get('revision','—'),pending.get('error','')))
+            preview_items=(pending.get('plan') or {}).get('items',[])
+            self.preview_table.setRowCount(len(preview_items))
+            for row,item in enumerate(preview_items):
+                labels=[]
+                for step in item.get('execution_steps',()):
+                    label=step_label(step)
+                    if not labels or labels[-1]!=label:labels.append(label)
+                values=('、'.join(MEMBER_NAMES.get(m,m) for m in item.get('coalition',())),activity_role(item),
+                    ' → '.join(labels),
+                    '{:.0f}～{:.0f} s'.format(item.get('planned_start',0),item.get('planned_finish',0)))
+                for col,value in enumerate(values):self.preview_table.setItem(row,col,QTableWidgetItem(value))
+            if pending_state=='READY' and self.preview_revision_shown!=pending.get('revision'):
+                self.show_page(2)
+        preview_ready=(session_open and self.pages.currentIndex()==2 and pending_state=='READY' and
+            not self.pending_command_id and pending.get('revision')!=self.confirmed_preview_revision)
+        self.confirm_button.setEnabled(preview_ready or (status=='AWAITING_CONFIRMATION' and not self.confirmation_sent and not stale and not failed_start and exit_code is None))
+        if self.pages.currentIndex()==2 and pending:
+            self.confirm_button.setText('确认新方案' if pending_state=='READY' else '新方案已排队' if pending_state=='QUEUED' else '等待新方案')
+        else:self.confirm_button.setText('已确认执行' if state.get('confirmation') else '确认并执行')
         if state.get('confirmation_error'):
             self.confirmation_sent=False;self.confirm_button.setText('重新确认')
-        if state.get('confirmation'):self.confirm_button.setText('已确认执行')
+        if state.get('confirmation') and self.pages.currentIndex()!=2:self.confirm_button.setText('已确认执行')
+        self.return_button.setVisible(session_phase=='HOLDING' and not session_closed);self.return_button.setEnabled(session_open and not self.pending_command_id)
+        self.end_button.setVisible(session_phase=='HOME' and not session_closed);self.end_button.setEnabled(session_open and not self.pending_command_id)
         self.stop_button.setEnabled(status.startswith('RUNNING') and not self.stop_sent and not stale)
         stage=(4 if state.get('joint_return_release_at_ros_s') or kind=='success' else
             3 if status.startswith('RUNNING') or state.get('confirmation') or state.get('step_results') or state.get('current_actions') else
@@ -745,8 +916,10 @@ class JointMissionPanel(QWidget):
         self.map.plan_items=(state.get('selected_plan') or {}).get('items',items);self.map.update()
         actions=state.get('current_actions',{});products=state.get('received_products',{})
         self.map.set_received_mapping(products,state.get('request_id',''))
-        received={p['point_id'] for p in products.values() if p.get('observed') is True}
-        observed=received|{point for r in state.get('received_terminal_reports',{}).values() for point in r.get('observed_ids',())}
+        required_points={p['point_id'] for region in self.base_request.get('regions',()) for p in region.get('interest_points',())}
+        received={p['point_id'] for p in products.values() if p.get('observed') is True and p.get('request_id')==state.get('request_id')}
+        observed=received|{point for r in state.get('received_terminal_reports',{}).values() for point in r.get('observed_ids',())
+            if point in required_points}
         for label,bar,count in ((self.received,self.progress,len(received)),(self.observed,self.observation_progress,len(observed))):
             label.setText('{} / {}'.format(count,self.point_count) if self.submitted else '— / —')
             bar.setRange(0,max(1,self.point_count));bar.setValue(count)
@@ -757,13 +930,17 @@ class JointMissionPanel(QWidget):
             self.map.observed_points=tuple(self.survey_hits.values())
         phases={'MOVING':'空中转场','HOLDING':'到位确认','AIR_MOVE':'空中转场','ENTER_WATER':'入水中',
             'EXIT_WATER':'出水中','WATER_PATH':'水下航行 / 观测','SURFACE_PATH':'水面转场','PREPARED':'等待启动',
+            'WAITING_FOR_SUPPORT_CLEARANCE':'等待无人船到达侧向支援位',
+            'SUPPORT_CLEARANCE_CONFIRMED':'支援到位，释放跨介质进场',
             'REGION_MAPPING':'区域扫描建图','WAIT_LOCAL_OBSERVATION':'等待安全局部运动',
             'TRIM_PROPULSION':'减速与终态确认','COAST_STOP':'滑行减速',
             'WAITING_FOR_RECEIPTS':'等待作业结果','WAITING_FOR_GROUP_RETURN':'等待共同返航',
             'DISPATCHING':'正在派发','SAFETY_HOLD':'安全保持','UNKNOWN_LOCKED':'异常锁定'}
         selected={m for item in items for m in item.get('coalition',())}
         for row,member in enumerate(MEMBERS):
-            item=next((i for i in reversed(items) if member in i.get('coalition',())),None)
+            item=next((i for i in reversed(items) if member in i.get('coalition',()) and
+                       i['execution_id'] in actions),None)
+            if item is None:item=next((i for i in reversed(items) if member in i.get('coalition',())),None)
             phase='岸边待命' if items else '待分配';role='备用' if items else '待分配';resource='未占用' if items else '—'
             if item:
                 role=activity_role(item);action=actions.get(item['execution_id'],{})
@@ -772,12 +949,18 @@ class JointMissionPanel(QWidget):
                 index=action.get('step');steps=item.get('execution_steps',())
                 if isinstance(index,int) and 0<=index<len(steps) and action.get('phase') not in ('WAITING_FOR_RECEIPTS','WAITING_FOR_GROUP_RETURN','UNKNOWN_LOCKED'):
                     step=step_label(steps[index])
-                    if step in ('返航','扫测','等待出发'):phase=step+('中' if step!='等待出发' else '')
+                    if step in ('返航','扫测','等待出发','编队集结','编队返航','编队返回部署区'):
+                        phase=step+('中' if step!='等待出发' else '')
                 resource=('异常锁定' if status=='UNKNOWN_LOCKED' else '执行占用') if item['executor_id'] in state.get('resource_locks',()) else '未占用'
-                if item.get('status')=='COMPLETED':resource='已释放'
+                if item.get('status') in ('COMPLETED','CANCELED_BY_REPLACEMENT'):resource='已释放'
                 elif terminal:
                     phase=('异常锁定' if item['executor_id'] in state.get('resource_locks',()) else
                         '未执行' if kind=='unconfirmed' else '已停止 · 终态待确认' if kind=='stopped' else '任务未完成')
+                if session_phase=='HOLDING' and not terminal:phase='目标区驻留'
+                elif session_phase=='HOME' and not kind:phase='已返回 · 待命'
+                elif session_phase=='SWITCHING' and not terminal:
+                    phase=('已安全停止' if item.get('status')=='CANCELED_BY_REPLACEMENT' else
+                        '停止并确认终态' if action else '等待切换')
             own={p['point_id'] for p in products.values() if p.get('producer')==member and p.get('observed') is True}
             for col,value in enumerate((MEMBER_NAMES[member],role,phase,str(len(own))+' 份' if member!='usv' else '共享支援',resource)):
                 cell=QTableWidgetItem(value);cell.setForeground(QColor(COLORS[member] if col==0 else '#263d53'));self.table.setItem(row,col,cell)
@@ -796,20 +979,34 @@ class JointMissionPanel(QWidget):
                 '{} 项活动执行 · {} 台待命'.format(active,len(set(MEMBERS)-selected)) if active else
                 '{} 项计划活动 · {} 台待命'.format(len(items),len(set(MEMBERS)-selected)))
             self.status_detail.setText(detail)
+            if session_phase=='HOLDING':self.status_detail.setText('{} 台目标区驻留 · {} 项后续任务已排队'.format(len(selected),len(state.get('task_queue') or ())))
+            elif session_phase=='HOME':self.status_detail.setText('{} 台已返回 · {} 台待命'.format(len(selected),len(set(MEMBERS)-selected)))
+            elif session_phase=='SWITCHING':self.status_detail.setText('{} 项旧活动已安全停止 · {} 项占用待确认'.format(
+                sum(i.get('status')=='CANCELED_BY_REPLACEMENT' for i in items),len(state.get('resource_locks',()))))
         else:self.status_detail.setText('生成方案后核对分工，确认后启动。')
         plan_wall=state.get('planning_wall_s')
         self.plan_info.setText('方案版本 {} · 决策 {:.2f} 秒'.format(state.get('plan_revision',0),plan_wall)
             if plan_wall is not None else '生成后显示方案版本与决策用时')
         service_fresh=time.monotonic()-transport.get('received_monotonic',0)<2
         support_active=service_fresh and transport.get('support_active',False)
-        self.support_status.setText('支援已结束' if kind=='success' else '支援已中止' if kind in ('failure','stopped') else
+        self.support_status.setText('支援已结束' if kind=='success' or session_phase=='HOME' else '支援已中止' if kind in ('failure','stopped') else
             '未确认执行' if kind=='unconfirmed' else '● USV 已到位' if support_active else '● 支援待就绪' if service_fresh else '状态待同步')
         self.support_status.setStyleSheet('color: '+(color if terminal else '#069e67' if support_active else '#8190a7')+'; background: #effaf5; border-radius: 11px; padding: 4px 7px; font-size: 11px;')
         clients=[MEMBER_NAMES.get(i.get('coalition',[''])[0],'') for i in items if i.get('fulfills_task',True)]
         self.support_members.setText('服务对象：'+'、'.join(clients) if clients else '等待方案选择服务对象')
         self.cooperation.setText('USV 同时支援作业平台\n结果收齐、作业到位后共同返航' if items else '按当前状态选择分工与支援\n必要条件满足后共同返航')
+        if session_phase:self.cooperation.setText('USV 同时支援作业平台\n完成后驻留，可继续新任务或确认返航')
         returned=state.get('return_completion',{})
-        if status.startswith('PASS'):
+        if session_phase=='SWITCHING':
+            self.return_title.setText('ⓘ 新任务已确认 · 正在切换')
+            self.returns.setText('等待旧动作安全结束，未确认占用保留。')
+        elif session_phase=='HOLDING':
+            self.return_title.setText('ⓘ '+('监测完成' if state.get('monitoring_complete') is True else '作业结束 · 仍有缺测')+' · 等待安排')
+            self.returns.setText('作业终态驻留；可圈选新区域，或确认返航。' if state.get('monitoring_complete') is True else
+                '缺测仍保留；可重新监测或确认返航。')
+        elif session_phase=='HOME':
+            self.return_title.setText('✓ 共同返航已完成');self.returns.setText('会话已结束，当前画面保留最终任务记录。' if session_closed else '可从当前部署位置生成下一监测任务，也可结束会话。')
+        elif status.startswith('PASS'):
             self.return_title.setText('✓ 共同返航已完成');self.returns.setText('规定返回已确认：{} / {}'.format(sum(bool(v.get('completed')) for v in returned.values()),len(items)))
         elif state.get('joint_return_release_at_ros_s'):
             self.return_title.setText('✓ 共同返航已放行');self.returns.setText('分别按实际到位完成，尚未完成的成员继续执行。')
@@ -829,8 +1026,17 @@ class JointMissionPanel(QWidget):
             ('切片占据建图（几何采样）· 点云不是完整三维重建证明' if self.map.online_mapping else
              '二维区域与方案视图 · 实际仿真在独立 RViz 中显示') if self.submitted else
             '在地图上拖动圈选区域，再生成协同方案。')
+        if session_open:
+            self.central_hint.setText('正在提交命令，等待任务程序接纳。' if self.pending_command_id else
+                ('监测完成，保持驻留；可圈选新区域或确认返航。' if state.get('monitoring_complete') is True else
+                 '作业结束，仍有缺测；可重新监测或确认返航。') if session_phase=='HOLDING' else
+                '黄色虚线为新任务草稿；当前任务与实际收件保持显示。' if self.map.editing_draft else
+                '可圈选新区域；生成和预览方案不会中断当前任务。')
+        if state.get('command_error'):
+            self.central_hint.setText('命令未采用：'+str(state['command_error']))
+        if session_closed:self.central_hint.setText('会话已结束；本窗口保留最终成果与执行记录。')
         self.central_hint.setStyleSheet('color: '+(color if terminal else '#8390a4')+'; font-size: 11px;')
-        self.connection.setText('● '+{'success':'任务已完成','failure':'任务异常锁定' if status=='UNKNOWN_LOCKED' else '任务未完成',
+        self.connection.setText('● 会话已结束' if session_closed else '● '+{'success':'任务已完成','failure':'任务异常锁定' if status=='UNKNOWN_LOCKED' else '任务未完成',
             'stopped':'任务已停止','unconfirmed':'任务未确认'}[kind] if terminal else '● 进程已退出' if failed_start or exit_code is not None else
             '● 更新中断' if stale else '● 仿真已连接' if state else '● 等待仿真')
         badge_color=color if terminal or failed_start or stale or exit_code is not None else '#079b62' if state else '#8794a8'
@@ -857,6 +1063,7 @@ class JointMissionPanel(QWidget):
         self.timeline.state=state;self.timeline.update()
         if self.details_dialog.isVisible():
             text=('首个异常：'+failure+'\n' if failure else '')+(state.get('failure_reason') or state.get('confirmation_error') or '当前无失败记录。')
+            if state.get('command_error'):text+='\n最近命令：'+str(state['command_error'])
             if state.get('request_id'):text+='\n请求：'+state['request_id']
             if exit_code is not None:text+='\n任务进程退出码：'+exit_code
             for filename in ('runner.log','launch.log'):

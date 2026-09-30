@@ -11,7 +11,7 @@
   <arg name="output_dir" default="/experiments/current"/>
   <arg name="planner_speed" default="1.5"/>
   <arg name="record" default="false"/>
-  <arg name="safety_hold_timeout_s" default="180.0"/>
+  <arg name="safety_hold_timeout_s" default="350.0"/>
   <arg name="obstacle" default="false"/>
   <arg name="obstacle_center" default="[-24.0, 6.0, 0.5]"/>
   <arg name="obstacle_size" default="[1.0, 1.0, 1.2]"/>
@@ -33,7 +33,7 @@
 
   <arg name="map_size_x" value="70.0"/>
   <arg name="map_size_y" value="30.0"/>
-  <!-- Selected-area execution uses separated AIR return layers up to 3.5 m. -->
+  <!-- Group return uses the existing common 3.5 m AIR cruise layer. -->
   <arg name="map_size_z" value="5.0"/>
   <arg name="odom_topic" value="visual_slam/odom"/>
   <arg name="formation_config" value="$(find qn_aav_simulator)/config/formation_aav3.yaml"/>
@@ -123,8 +123,9 @@
   </include>
 
 
-  <!-- The upstream default ceiling is 3 m. This scenario declares a 5 m AIR
-       workspace and a 3.5 m return layer. Override included defaults here;
+  <!-- The scenario declares a 5 m AIR workspace and one 3.5 m cruise layer.
+       Native Swarm peer avoidance and formation optimization coordinate
+       the return references. Override included defaults here;
        actual body/obstacle and inter-member clearances remain unchanged. -->
   <param name="/drone_0_ego_planner_node/grid_map/virtual_ceil_height" value="4.5"/>
   <param name="/drone_1_ego_planner_node/grid_map/virtual_ceil_height" value="4.5"/>

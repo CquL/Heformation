@@ -34,7 +34,18 @@
      jerkOpt_.reset(iniState, finState, piece_num_);
 --- a/src/planner/plan_manage/src/planner_manager.cpp
 +++ b/src/planner/plan_manage/src/planner_manager.cpp
-@@ -234,7 +234,8 @@
+@@ -50,6 +50,9 @@
+     static bool flag_first_call = true;
+     /*** case 1: use A* initialization ***/
+-    if (flag_first_call || flag_polyInit)
++    // An ended reference has no remaining local tail to initialize from.
++    // Reuse the existing A* initialization, preserving the supplied head state.
++    if (flag_first_call || flag_polyInit || traj_.local_traj.traj_id <= 0 ||
++        ros::Time::now().toSec() - traj_.local_traj.start_time >= traj_.local_traj.duration)
+     {
+       flag_first_call = false;
+       /* basic params */
+@@ -234,6 +237,7 @@
      tailState << initTraj.getJuncPos(PN), initTraj.getJuncVel(PN), initTraj.getJuncAcc(PN);
      flag_success = ploy_traj_opt_->OptimizeTrajectory_lbfgs(headState, tailState,
                                                              innerPts, initTraj.getDurations(),
@@ -43,14 +54,57 @@
 +                                                            have_local_traj && use_formation ? trajectory_start_time : -1.0);
   
      t_opt = ros::Time::now() - t_start;
- 
 --- a/src/planner/plan_manage/src/ego_replan_fsm.cpp
 +++ b/src/planner/plan_manage/src/ego_replan_fsm.cpp
-@@ -786,6 +786,6 @@
- 
+@@ -763,10 +763,18 @@
+     double t_debug_start = ros::Time::now().toSec();
+     LocalTrajData *info = &planner_manager_->traj_.local_traj;
+     double t_cur = ros::Time::now().toSec() - info->start_time;
+-
++    const bool reference_finished = t_cur >= info->duration;
++    // Match traj_server's terminal hold. Beyond its interval a quintic
++    // extrapolates; those fictitious positions/velocities are not executed.
++    t_cur = std::max(0.0, std::min(t_cur, info->duration));
+     start_pt_ = info->traj.getPos(t_cur);
+     start_vel_ = info->traj.getVel(t_cur);
+     start_acc_ = info->traj.getAcc(t_cur);
++    if (reference_finished)
++    {
++      start_vel_.setZero();
++      start_acc_.setZero();
++    }
+
+     bool success = callReboundReplan(flag_use_poly_init, false, use_formation);
+
+@@ -786,16 +794,24 @@
+         local_target_pt_, local_target_vel_);
+
      Eigen::Vector3d desired_start_pt, desired_start_vel, desired_start_acc;
 -    double desired_start_time;
 +    double desired_start_time = ros::Time::now().toSec();
      if (have_local_traj_ && use_formation)
      {
        desired_start_time = ros::Time::now().toSec() + replan_trajectory_time_;
+-      desired_start_pt =
+-          planner_manager_->traj_.local_traj.traj.getPos(desired_start_time - planner_manager_->traj_.local_traj.start_time);
+-      desired_start_vel =
+-          planner_manager_->traj_.local_traj.traj.getVel(desired_start_time - planner_manager_->traj_.local_traj.start_time);
+-      desired_start_acc =
+-          planner_manager_->traj_.local_traj.traj.getAcc(desired_start_time - planner_manager_->traj_.local_traj.start_time);
++      const auto &previous = planner_manager_->traj_.local_traj;
++      const double relative_start = desired_start_time - previous.start_time;
++      const bool reference_finished = relative_start >= previous.duration;
++      const double sample_time = std::max(0.0, std::min(relative_start, previous.duration));
++      desired_start_pt = previous.traj.getPos(sample_time);
++      desired_start_vel = previous.traj.getVel(sample_time);
++      desired_start_acc = previous.traj.getAcc(sample_time);
++      if (reference_finished)
++      {
++        // This is the reference already held by traj_server, not a reset
++        // of the measured robot velocity, plant or controller state.
++        desired_start_vel.setZero();
++        desired_start_acc.setZero();
++      }
+     }
+     else
+     {

@@ -135,6 +135,7 @@ class GroupCompletionMonitor:
         if not math.isfinite(start_time):
             raise ValueError("start_time must be finite")
         self.agent_ids = tuple(agent_ids)
+        self.scale = float(swarm_scale)
         self.targets = {
             agent_id: tuple(self.center[axis] + swarm_scale * self.slots[agent_id][axis]
                             for axis in range(3))
@@ -174,10 +175,10 @@ class GroupCompletionMonitor:
         """
         if self.snapshot is not None and self.snapshot.terminal_state is not None:
             raise ValueError('cannot retarget a terminal action')
-        if len(self.agent_ids) != 1:
-            raise ValueError('online region retarget belongs to one physical member')
         self.center = _vector(center)
-        self.targets = {agent_id: self.center for agent_id in self.agent_ids}
+        self.targets = {
+            agent_id:tuple(self.center[a]+self.scale*self.slots[agent_id][a] for a in range(3))
+            for agent_id in self.agent_ids}
         self.hold_started = None
         self.snapshot = None
 

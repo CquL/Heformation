@@ -55,7 +55,9 @@ class PvsNode:
         from qn_aav_simulator.task_line import load_request
         from qn_aav_simulator.observation_coverage import ObstacleBox
         request_file=rospy.get_param('/mission/request_file','')
+        self.observation_request_file=str(request_file)
         self.observation_request=load_request(request_file) if request_file else None
+        self.observation_request_ids={self.observation_request.request_id} if self.observation_request else set()
         self.online_mapping=getattr(self.observation_request,'execution_mode','')=='ONLINE_MAPPING'
         self.allow_visual_timing_relaxation=bool(rospy.get_param('/mission/allow_visual_timing_relaxation',False))
         self.visual_timing_relaxed=False
@@ -120,10 +122,18 @@ class PvsNode:
             pose_time,origin=captured
         rows=tuple(point_cloud2.read_points(message,field_names=('x','y','z','intensity'),skip_nans=True))
         with self.survey_lock:
+            epoch=getattr(self,'observation_epoch_pending',None)
+            if epoch is not None:
+                self.survey_map.begin_observation_epoch(epoch)
+                self.observation_epoch_pending=None
             self.survey_map.integrate(origin,[row[:3] for row in rows],[row[3]>.5 for row in rows],stamp,
                 mode=self.mode)
             self.survey_stamp=stamp
             with self.lock:
+                epoch=getattr(self,'observation_epoch_pending',None)
+                if epoch is not None:
+                    self.survey_map.begin_observation_epoch(epoch)
+                    self.observation_epoch_pending=None
                 work=self.work
                 if work is None or work['cause'] or work['waiting_commit'] or work['coast']:return
                 index=work['segment'];position=tuple(self.backend.snapshot()['position'])
@@ -290,6 +300,7 @@ class PvsNode:
             try:
                 if self.work is not None or self.pending is not None or self.locked or ident in self.retired:
                     raise ValueError('MEMBER_BUSY_OR_LOCKED')
+                self._refresh_observation_request()
                 if not ident:raise ValueError('INVALID_GOAL_ID')
                 if self.generation>=2147483647:raise ValueError('GENERATION_EXHAUSTED')
                 if goal.terminal_behavior!=self.terminal_behavior:
@@ -375,6 +386,22 @@ class PvsNode:
                     reason='LOCAL_STATE_AND_PATH_CHECKED; FUTURE_DYNAMICS_NOT_PREDICTED')
                 self._accept(handle,ident,goal.task_id,paths,efforts,durations,timeout,
                     bool(getattr(goal,'prepare_only',False)),observations,terminal_wait_s,region_id)
+
+    def _refresh_observation_request(self):
+        path=str(rospy.get_param('/mission/request_file',''))
+        if path==self.observation_request_file:return
+        from qn_aav_simulator.task_line import load_request
+        try:request=load_request(path)
+        except (OSError,TypeError,ValueError) as error:
+            raise ValueError('cannot load next monitoring request: '+str(error))
+        if request.request_id in self.observation_request_ids:
+            raise ValueError('next monitoring request must have a new request_id')
+        if getattr(request,'execution_mode','')!='ONLINE_MAPPING' or not self.online_mapping:
+            raise ValueError('live request changes require the existing ONLINE_MAPPING mode')
+        self.observation_epoch_pending=rospy.Time.now().to_sec()
+        self.observation_request=request
+        self.observation_request_file=path
+        self.observation_request_ids.add(request.request_id)
 
     def _accept(self,handle,ident,task,paths,efforts,durations,timeout,prepare_only=False,observations=None,terminal_wait_s=0.,region_id=""):
         self.generation+=1
@@ -502,24 +529,32 @@ class PvsNode:
                     resource_locked=self.locked,model_time_s=self.backend.time_s))
                 return
             if self.work and handle.get_goal_id().id==self.work['id'] and not self.work['cause']:
+                replacement=(self.online_mapping and self.work['id'] in
+                    rospy.get_param('/mission/replacement_goal_ids',[]) and not self.locked and
+                    not self.scene_failure and not self.domain_failure)
                 if self.online_mapping:self._end_local_command(self.work)
-                self.work.update(cause='CANCEL_REQUEST',coast=True,settled=None,waiting_commit=False)
-                self.locked=True
+                self.work.update(cause='CANCEL_REQUEST',coast=True,settled=None,waiting_commit=False,
+                    controlled_replacement=replacement)
+                if not replacement:self.locked=True
 
     def finish(self,verified,reason):
         w=self.work
         normal=verified and not w['cause']
+        replacement_verified=(verified and w['cause']=='CANCEL_REQUEST' and
+            w.get('controlled_replacement',False) and not self.locked and
+            not self.scene_failure and not self.domain_failure)
+        if replacement_verified:reason='REPLACED_SAFE_HOLD'
         observations=w.get('observations')
         observation_missing=normal and observations is not None and observations.emitted!=set(observations.points)
         if observation_missing:normal=False;reason='OBSERVATION_NOT_SATISFIED'
         needs_return_entry=self._needs_return_entry(w['paths'],observations)
-        if verified and needs_return_entry and not w.get('return_reentered',False):
+        if verified and not w['cause'] and needs_return_entry and not w.get('return_reentered',False):
             normal=False;reason='RETURN_SITE_NOT_REENTERED';self.locked=True
-        elif (verified and not needs_return_entry and self._returns_to_declared_site(w['paths']) and
+        elif (verified and not w['cause'] and not needs_return_entry and self._returns_to_declared_site(w['paths']) and
                 math.dist(self.backend.snapshot()['position'],self.return_site['position'])>
                 self.return_site['radius_m']):
             normal=False;reason='RETURN_SITE_NOT_REACHED';self.locked=True
-        self.locked=self.locked or not verified or bool(w['cause'])
+        self.locked=self.locked or not verified or (bool(w['cause']) and not replacement_verified)
         if verified and observations is not None and not w['cause']:
             self.products.publish(String(data=json.dumps(observations.terminal_report(rospy.Time.now().to_sec()),allow_nan=False)))
         self.retired.add(w['id'])
@@ -641,7 +676,8 @@ class PvsNode:
                           (observations is None or observations.emitted==set(observations.points))):
                         w['return_reentered']=True
                 speed=math.sqrt(sum(v*v for v in state['world_velocity']))
-                if w['coast'] and speed<=self.speed_limit:
+                if (w['coast'] and speed<=self.speed_limit and
+                        (time_valid or self.allow_visual_timing_relaxation)):
                     if w['settled'] is None:w['settled']=self.backend.time_s
                 else:w['settled']=None
                 extra_wait=w.get('terminal_wait_s',0.) if not w['cause'] else 0.

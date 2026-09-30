@@ -206,6 +206,13 @@ class MissionRunner:
                         "payload_quality": "UNVERIFIED", "delivery_model": "ZERO_LATENCY_LOCAL_RESULT",
                         "formation_business_shape_verdict": "NOT_DEFINED"}
         self.plan = None
+        self.session_enabled=bool(rospy.get_param('~continuous_session',True)) and self.request.template_id=='OFFSHORE_JOINT'
+        self.session_replacing=False
+        self.session_advance=False
+        self.session_return_authorized=False
+        self.session_cancel_goal_ids=set()
+        self.verified_cross_medium_uses={member:0 for member in self.fleet if member.startswith('drone_')}
+        self.counted_cross_medium_goal_ids=set()
         if self.request.execution_mode=='ONLINE_MAPPING':
             self.metrics['observation_model']='MEASURED_RANGE_SCAN_DEPTH_SLICE_MAPPING'
             self.metrics['mapping_scope']='sampled slice occupancy and observed 3D hits; not full 3D reconstruction'
@@ -777,6 +784,7 @@ class MissionRunner:
         radius=float(sites[0]['radius_m'])
         with self.executor_mutex:action.update(phase='WAITING_FOR_RECEIPTS',support_site=position)
         while not rospy.is_shutdown():
+            if getattr(self,'session_replacing',False):return
             if getattr(self,'joint_return_abort',''):
                 raise RuntimeError('support blocked by failed commitment: '+self.joint_return_abort)
             now=rospy.Time.now().to_sec()
@@ -844,6 +852,7 @@ class MissionRunner:
         # waiting for them. A received negative report is complete information,
         # but every positive product in that report must also have arrived.
         while not rospy.is_shutdown():
+            if getattr(self,'session_replacing',False):return False
             if getattr(self,'joint_return_abort',''):
                 raise RuntimeError('joint return blocked by failed commitment: '+self.joint_return_abort)
             with self.executor_mutex:
@@ -868,6 +877,7 @@ class MissionRunner:
             self.joint_return_ready.add(item.execution_id)
             self.condition.notify_all()
             while not self.joint_return_released:
+                if getattr(self,'session_replacing',False):return False
                 if rospy.is_shutdown():raise RuntimeError('shutdown during joint return; keep reservations')
                 if self.joint_return_abort:
                     raise RuntimeError('joint return blocked by failed commitment: '+self.joint_return_abort)
@@ -899,9 +909,20 @@ class MissionRunner:
                     ready_states[ident]=dict(member=hold['member'],position=tuple(sample.position),
                                             mode=hold['mode'],diagnostic_at_ros_s=stamp)
                 if self.joint_return_ready==self.joint_return_ids:
+                    if getattr(self,'session_running',False):
+                        self.metrics.setdefault('monitoring_completed_at_ros_s',now)
+                        self.metrics['monitoring_complete']=(self.coverage.delivered_fraction(self.weights)==1.)
+                        self.metrics['session_phase']='HOLDING'
+                        self.metrics['status']='AWAITING_OPERATOR'
+                        if self.session_advance:return False
+                        if not self.session_return_authorized:
+                            self.condition.wait(.05)
+                            continue
                     self.joint_return_released=True
                     self.joint_return_release_at=now
                     self.joint_return_release_states=ready_states
+                    if getattr(self,'session_running',False):
+                        self.metrics.update(status='RUNNING_RETURN',session_phase='RETURNING')
                     self.condition.notify_all()
                     break
                 if time.monotonic()>=deadline:
@@ -912,6 +933,14 @@ class MissionRunner:
             self.metrics['joint_return_members']=sorted(self.joint_return_ids)
             self.metrics['joint_return_release_states']=self.joint_return_release_states
         self._save_executor()
+        if (getattr(self,'session_running',False) and
+                rospy.get_param('/scene/aav_return_policy','')=='SWARM_FORMATION' and
+                member.startswith('drone_')):
+            # Work/receipts are complete. Release this single-member activity
+            # to the already selected group return; its formation booking can
+            # start only after every AAV work reservation has ended.
+            return False
+        return True
 
     def _executor_plan(self, observations, *, include_formation=False, release=0.0):
         from mrta_python import Executor, ExecutorPlan, ExecutorTravelTimeProvider, build_executor_plan
@@ -1265,7 +1294,7 @@ class MissionRunner:
         raise RuntimeError('shutdown before Action terminal notice; keep member reserved')
 
     def _dispatch_executor_item(self, item, reserved=False,retain_booking=False):
-        if len(item.execution_steps)>1:
+        if len(item.execution_steps)>1 or getattr(self,'session_running',False):
             return self._dispatch_executor_chain(item,reserved,retain_booking)
         from mrta_python.repair import process_executor_completion
         task=self.tasks_by_id[item.task_id]
@@ -1620,12 +1649,23 @@ class MissionRunner:
             self.metrics.setdefault('current_actions',{})[item.execution_id]=action
             if self.executor_serial:self.metrics['current_action']=action
         self._save_executor()
-        rows=[];deferred=[]
+        if (self.request.template_id=='OFFSHORE_JOINT' and
+                any(step.native_action is not None and
+                    any(segment.operation=='ENTER_WATER' for segment in step.native_action.segments)
+                    for step in item.execution_steps)):
+            self._wait_cross_medium_support_ready(item,action)
+        rows=[];deferred=[];work_only=False;interrupted=False
         for index,(step,unit) in enumerate(zip(item.execution_steps,units)):
+            if getattr(self,'session_replacing',False):
+                interrupted=True
+                break
             if (step.native_prediction.get('joint_return_boundary') and self.request.template_id=='OFFSHORE_JOINT' and
                     item.execution_id in getattr(self,'joint_return_ids',())):
-                self._wait_joint_return(item,action,deferred)
-            view=replace(item,execution_id='{}:step:{}'.format(item.execution_id,index),
+                if self._wait_joint_return(item,action,deferred) is False:
+                    interrupted=self.session_replacing;work_only=not interrupted
+                    break
+            view=replace(item,execution_id=(item.execution_id if len(units)==1 else
+                         '{}:step:{}'.format(item.execution_id,index)),
                          executor_id=step.executor_id,travel_time=step.duration_s-step.service_time_s,
                          service_time=step.service_time_s,execution_steps=(step,))
             self._wait_executor_ready(unit)
@@ -1641,6 +1681,9 @@ class MissionRunner:
                     defer_terminal_receipt=True)
             else:
                 state,result=self._send_executor_goal(view,unit,goal,action)
+            if getattr(self,'session_running',False) and self._session_cancel_result(item,view,unit,state,result):
+                interrupted=True
+                break
             self._reject_unaccepted_item(item,view,state,result)
             if step.native_action is not None and not continuing:
                 self._wait_native_observation_receipt(state,result,step.native_action)
@@ -1691,13 +1734,24 @@ class MissionRunner:
                         report=self.metrics['received_terminal_reports'][result.goal_id]
                         row['observation_missing']=set(report['observed_ids'])!=set(step.observation_ids)
             row.update(verified=True,result_received_at=rospy.Time.now().to_sec())
+            if (step.native_action is not None and result.goal_id not in self.counted_cross_medium_goal_ids and
+                    {'ENTER_WATER','EXIT_WATER'}<=set(segment.operation
+                        for segment in step.native_action.segments)):
+                member=item.coalition[0]
+                self.counted_cross_medium_goal_ids.add(result.goal_id)
+                self.verified_cross_medium_uses[member]=self.verified_cross_medium_uses.get(member,0)+1
+                self.metrics['verified_cross_medium_uses']=dict(self.verified_cross_medium_uses)
             rows.append(row)
-            if (continuing and index==0 and not item.fulfills_task and
+            if (continuing and index==0 and not item.fulfills_task and item.coalition==('usv',) and
+                    not step.target_ref.startswith('return') and
                     self.request.template_id=='OFFSHORE_JOINT'):
                 self._wait_task_support_receipts(item,step,action)
             if continuing:
                 deferred.append((view,unit,step,state,result,evidence if not step.native_action else None))
             self._save_executor()
+        if interrupted:
+            self._session_finish_interrupted(item)
+            return
         # A local successful step may lead into an already selected return
         # while its notice/product is still travelling. Keep one reservation
         # for the whole chain; receive and verify every deferred result before
@@ -1739,7 +1793,10 @@ class MissionRunner:
                         raise RuntimeError('composite terminal reached without required received products; keep member locked')
             received=rospy.Time.now().to_sec()
             event=DelayEvent(rows[-1]['goal_id'],item.execution_id,item.task_id,item.planned_finish,received-self.epoch)
-            self.plan,changed=process_executor_completion(self.plan,event,self.final_events)
+            if work_only:
+                item.status='WORK_COMPLETED';item.actual_finish=received-self.epoch;changed=False
+            else:
+                self.plan,changed=process_executor_completion(self.plan,event,self.final_events)
             if changed and (self.plan.activity_edges or
                             len({i.task_id for i in self.plan.items})!=len(self.plan.items)):
                 if self.request.template_id!='OFFSHORE_JOINT':
@@ -1747,10 +1804,11 @@ class MissionRunner:
                 self.plan_revision+=1
                 self.metrics['plan_history'].append({'revision':self.plan_revision,'plan':asdict(self.plan)})
             self.metrics['executions'].append(dict(task_id=item.task_id,execution_id=item.execution_id,
-                result='OBSERVATION_MISSING' if any(row['observation_missing'] for row in rows) else 'SUCCEEDED',
+                result='OBSERVATION_MISSING' if any(row['observation_missing'] for row in rows) else
+                       'WORK_COMPLETED_RETURN_DEFERRED' if work_only else 'SUCCEEDED',
                 scope='COMPOSITE_MOTION',plan_updated=changed,result_received_at=received,
                 step_goal_ids=[r['goal_id'] for r in rows]))
-            if all(i.status=='COMPLETED' for i in self.plan.items if i.task_id==item.task_id):
+            if all(i.status in ('COMPLETED','WORK_COMPLETED') for i in self.plan.items if i.task_id==item.task_id):
                 self.metrics['results_received'].append(item.task_id)
             self.metrics['native_qualification_only']=True
             if not retain_booking:self.active_executor_ids.remove(item.executor_id)
@@ -1759,6 +1817,65 @@ class MissionRunner:
             # Completion propagation preserves remaining commitments. Full
             # method re-evaluation, not scalar centre distance, is needed next.
         self._save_executor()
+
+    def _wait_cross_medium_support_ready(self,item,action):
+        """Release the selected amphibious approach on actual support arrival.
+
+        This is an execution event of the accepted Plan.  It does not create a
+        second scheduler or infer a route from task-level timing estimates.
+        The AAV remains booked and has no active Goal while it waits.
+        """
+        scene=rospy.get_param('/scene',{})
+        sites=scene.get('communication_sites',())
+        transitions=scene.get('transition_sites',())
+        if len(sites)!=1 or len(transitions)!=1:
+            raise RuntimeError('cross-medium release needs one declared support and transition site')
+        support=tuple(float(v) for v in sites[0]['position'])
+        entry=tuple(float(v) for v in transitions[0]['position'])
+        radius=float(sites[0]['radius_m'])
+        if (not math.isfinite(radius) or radius<=0 or
+                math.dist(support,entry)<1.1891593669479295+.25+.5):
+            raise RuntimeError('declared support site does not clear the amphibious entry')
+        deadline=time.monotonic()+max(120.,self.plan.makespan+60.)
+        stable_since=None
+        with self.executor_mutex:
+            action.update(phase='WAITING_FOR_SUPPORT_CLEARANCE',support_site=support,
+                          waiting_reason='等待无人船实际到达侧向支援位')
+            self.metrics.setdefault('events',[]).append(dict(
+                kind='CROSS_MEDIUM_WAIT_SUPPORT',execution_id=item.execution_id,
+                at_ros_s=rospy.Time.now().to_sec()))
+        self._save_executor()
+        while not rospy.is_shutdown():
+            if getattr(self,'session_replacing',False):return
+            if getattr(self,'joint_return_abort',''):
+                raise RuntimeError('cross-medium release blocked by failed commitment: '+self.joint_return_abort)
+            now=rospy.Time.now().to_sec()
+            with self.condition:
+                sample=self.actual.get('usv')
+                stamp,values=self.executor_diagnostics.get('usv',(None,{}))
+            speed=(float('inf') if sample is None else
+                   math.sqrt(sum(float(v)*float(v) for v in sample.velocity)))
+            ready=(sample is not None and sample.is_fresh(now,.25) and
+                   stamp is not None and 0<=now-stamp<=.25 and
+                   values.get('actual_mode')=='SURFACE' and
+                   math.dist(sample.position,support)<=radius and speed<=.03 and
+                   not any(str(values.get(key,'false')).lower()=='true' for key in
+                           ('resource_locked','platform_resource_locked','domain_failure')))
+            if ready:
+                stable_since=stable_since or time.monotonic()
+                if time.monotonic()-stable_since>=4.:
+                    with self.executor_mutex:
+                        action.update(phase='SUPPORT_CLEARANCE_CONFIRMED',waiting_reason='')
+                        self.metrics.setdefault('events',[]).append(dict(
+                            kind='CROSS_MEDIUM_SUPPORT_READY',execution_id=item.execution_id,
+                            support_position=list(sample.position),speed_mps=speed,at_ros_s=now))
+                    self._save_executor();return
+            else:
+                stable_since=None
+            if time.monotonic()>=deadline:
+                raise RuntimeError('USV did not establish a stable support clearance window')
+            time.sleep(.05)
+        raise RuntimeError('shutdown before cross-medium support clearance')
 
     def _commit_executor_result(self,item,unit,state,result,retain_booking=False):
         from mrta_python.repair import process_executor_completion
@@ -1891,6 +2008,7 @@ class MissionRunner:
         failure=None
         with ThreadPoolExecutor(max_workers=len(self.units)) as workers:
             while not rospy.is_shutdown():
+                if getattr(self,'session_running',False):self._session_pump()
                 if failure is None and self._consume_operator_stop():
                     failure=RuntimeError('用户请求停止任务；等待原生终态处置，不提前释放成员')
                 if self.request.template_id=='OFFSHORE_JOINT' and failure is None:
@@ -1938,11 +2056,12 @@ class MissionRunner:
                         self.metrics['status']='UNKNOWN_LOCKED' if self.active_executor_ids else 'FAIL'
                     self._save_executor()
                 with self.executor_mutex:
-                    completed={i.execution_id for i in self.plan.items if i.status=="COMPLETED"}
+                    completed={i.execution_id for i in self.plan.items
+                               if i.status in ("COMPLETED","WORK_COMPLETED")}
                     predecessors=activity_predecessors(self.plan)
                     pending=[i for i in self.plan.items if i.status=="PLANNED"]
                     now=rospy.Time.now().to_sec()-self.epoch
-                    if failure is None:
+                    if failure is None and not getattr(self,'session_replacing',False):
                         for item in pending:
                             if item.status!='PLANNED':continue
                             group=([item] if self.request.template_id=='OFFSHORE_JOINT' else
@@ -1960,6 +2079,9 @@ class MissionRunner:
                                 self.active_executor_ids.add(activity.executor_id)
                             dispatch.append(tuple(group))
                     finished=not running and not dispatch and (failure is not None or not pending)
+                    if getattr(self,'session_replacing',False) and not running and not dispatch:
+                        for item in pending:item.status='CANCELED_BEFORE_DISPATCH'
+                        finished=True
                 if dispatch:
                     self._save_executor()
                     for group in dispatch:
@@ -2158,6 +2280,418 @@ class MissionRunner:
             self._save_executor()
             time.sleep(.25)
         return False
+
+    def _session_snapshot(self,preview=False):
+        states=self._tasklevel_current_states()
+        for member,state in states.items():
+            state['verified_cross_medium_uses']=self.verified_cross_medium_uses.get(member,0)
+        if preview:
+            # Busy members are candidates for a future handoff, never released
+            # by this preview. Actual activation reads the state again below.
+            with self.condition:diagnostics=dict(self.executor_diagnostics)
+            for member,state in states.items():
+                values=diagnostics.get(member,(None,{}))[1]
+                fault=bool(values.get('scene_failure')) or any(str(values.get(k,'false')).lower()=='true'
+                    for k in ('resource_locked','platform_resource_locked','domain_failure','air_domain_violation'))
+                if not fault:state['locked']=False
+        return states
+
+    def _session_build_plan(self,raw,scene,states):
+        from mrta_python.executors import Executor,ExecutorTravelTimeProvider
+        from qn_aav_simulator.task_line import request_from_mapping,build_request_executor_plan
+        request=request_from_mapping(raw)
+        units=[Executor(u.executor_id,u.physical_agent_ids,frozenset(u.capabilities)) for u in self.units]
+        positions={m:tuple(s['position']) for m,s in states.items()}
+        provider=ExecutorTravelTimeProvider({'start':positions['drone_0']},
+            {u.executor_id:(.2 if 'usv' in u.physical_agent_ids else .13 if 'uuv' in u.physical_agent_ids else .4)
+             for u in units},member_positions=positions,native_models={},
+             native_efforts={'usv':float(rospy.get_param('/usv/propulsion_effort'))})
+        began=time.monotonic()
+        plan,tasks=build_request_executor_plan(request,scene,units,provider,states,
+            budget_s=float(rospy.get_param('~planning_budget_s',10.)),first_feasible=True)
+        return request,plan,tasks,time.monotonic()-began
+
+    def _session_request_preview(self,command):
+        import uuid
+        from qn_aav_simulator.monitoring_request import circle_joint_mission_mappings
+        policy=command.get('policy','queue')
+        if policy not in ('queue','replace'):raise ValueError('请选择排队执行或立即替换')
+        raw,root=circle_joint_mission_mappings(self.session_base_request,
+            {'scene':self.session_base_scene},command['center'],command['radius_m'])
+        raw['request_id']+='-'+uuid.uuid4().hex[:10]
+        self.session_preview_revision+=1
+        job=dict(request=raw,scene=root['scene'],policy=policy,revision=self.session_preview_revision,
+                 region=dict(center=list(command['center']),radius_m=float(command['radius_m'])))
+        self.session_preview_job=job
+        self.metrics['pending_plan']=dict(request_id=raw['request_id'],revision=job['revision'],
+            state='PLANNING',policy=policy,region=job['region'],source_request=self.request.request_id,
+            note='切换前按实际状态重新求解；当前承诺结束前不派发新任务')
+        self.session_preview_future=None
+
+    def _session_begin_replacement(self,job):
+        self.session_next_job=job
+        with self.executor_mutex:
+            self.session_replacing=True
+            self.metrics.update(status='RUNNING_REPLACEMENT',session_phase='SWITCHING')
+        # The scheduler now stops dispatching new steps. Each waiting sender
+        # registers its exact current GoalID before using the existing cancel.
+        self._session_cancel_active_goals()
+        with self.condition:self.condition.notify_all()
+
+    def _session_cancel_active_goals(self):
+        with self.executor_mutex:actions=list(self.metrics.get('current_actions',{}).values())
+        for action in actions:
+            ident=action.get('step_execution_id',action.get('execution_id',''))
+            endpoint=action.get('endpoint')
+            unit=next((u for u in self.units if u.action_endpoint==endpoint),None)
+            if unit is None:continue
+            client=self.clients[unit.executor_id]
+            if client.get_state() not in (GoalStatus.PENDING,GoalStatus.ACTIVE,GoalStatus.PREEMPTING):continue
+            with self.condition:ids=tuple(self.goal_ids.get(ident,()))
+            if len(ids)!=1 or ids[0] in self.session_cancel_goal_ids:continue
+            self.session_cancel_goal_ids.add(ids[0])
+            rospy.set_param('/mission/replacement_goal_ids',sorted(self.session_cancel_goal_ids))
+            client.cancel_goal()
+
+    def _session_pump(self):
+        if not getattr(self,'session_running',False):return
+        path=self.output/'operator-command.json'
+        try:command=json.loads(path.read_text())
+        except (OSError,ValueError):command=None
+        if command is not None:
+            path.unlink(missing_ok=True)
+            ident=command.get('command_id')
+            if ident and ident not in self.session_commands:
+                self.session_commands.add(ident)
+                try:
+                    if command.get('request_id')!=self.request.request_id:raise ValueError('任务已变化，请使用当前任务生成方案')
+                    action=command.get('action')
+                    if action=='preview_region':
+                        if self.session_preview_future is not None and not self.session_preview_future.done():
+                            raise ValueError('上一个方案仍在计算，请稍候')
+                        self.metrics.pop('pending_plan',None)
+                        self.session_preview_job=None
+                        self._session_request_preview(command)
+                    elif action=='confirm_plan':
+                        pending=self.metrics.get('pending_plan',{})
+                        if (pending.get('state')!='READY' or command.get('preview_revision')!=pending.get('revision') or
+                                pending.get('source_request')!=self.request.request_id):
+                            raise ValueError('方案版本已变化，请重新生成并确认')
+                        job=self.session_preview_job
+                        job['confirmation']=dict(command_id=ident,at_ros_s=rospy.Time.now().to_sec(),
+                                                 source_request=self.request.request_id)
+                        pending['state']='QUEUED'
+                        if job['policy']=='replace' and self.metrics.get('session_phase') not in ('HOME','HOLDING'):
+                            self._session_begin_replacement(job)
+                        else:
+                            self.session_queue.append(job)
+                            if self.metrics.get('session_phase')=='HOLDING':self.session_advance=True
+                    elif action=='return_home':
+                        if self.metrics.get('session_phase')!='HOLDING':raise ValueError('请等待当前监测作业和成果接收完成后确认返航')
+                        if self.session_queue:raise ValueError('已有确认的排队任务，将先执行该任务')
+                        self._session_add_retained_returns()
+                        self.session_return_authorized=True
+                        self.metrics['return_authorization']=dict(command_id=ident,at_ros_s=rospy.Time.now().to_sec())
+                        with self.condition:self.condition.notify_all()
+                    elif action=='end_session':
+                        if self.metrics.get('session_phase')!='HOME' or self.active_executor_ids:
+                            raise ValueError('参与成员全部返回并释放后才可结束会话')
+                        self.session_end=True
+                    else:raise ValueError('未知任务命令')
+                    self.metrics.pop('command_error',None)
+                    self.metrics['command_ack']=dict(command_id=ident,accepted=True)
+                except (ValueError,KeyError,RuntimeError) as error:
+                    self.metrics['command_error']=str(error)
+                    self.metrics['command_ack']=dict(command_id=ident,accepted=False,reason=str(error))
+        pending=self.metrics.get('pending_plan',{})
+        if pending.get('state') in ('PLANNING','WAITING_SAFE_STATE'):
+            if self.session_preview_future is None:
+                try:states=self._session_snapshot(preview=True)
+                except RuntimeError:
+                    pending['state']='WAITING_SAFE_STATE'
+                else:
+                    pending['state']='PLANNING'
+                    job=self.session_preview_job
+                    self.session_preview_future=self.session_pool.submit(
+                        self._session_build_plan,copy.deepcopy(job['request']),copy.deepcopy(job['scene']),states)
+            elif self.session_preview_future.done():
+                try:
+                    _,plan,_,wall=self.session_preview_future.result()
+                    pending.update(state='READY',plan=asdict(plan),planning_wall_s=wall,
+                                   validation_scope='CURRENT_STATE_PREVIEW_DEFERRED')
+                except Exception as error:
+                    pending.update(state='ERROR',error=str(error));self.metrics['command_error']=str(error)
+                self.session_preview_future=None
+        if self.session_replacing:self._session_cancel_active_goals()
+        self.metrics['task_queue']=[dict(request_id=j['request']['request_id'],region=j['region'],policy=j['policy'])
+                                    for j in self.session_queue]
+        if self.metrics.get('session_phase')=='HOLDING' and self.session_queue:self.session_advance=True
+
+    def _session_cancel_result(self,parent,view,unit,state,result):
+        if not self.session_replacing or state!=GoalStatus.PREEMPTED or result is None:return False
+        if result.task_id!=view.execution_id or result.goal_id not in self.session_cancel_goal_ids:return False
+        goal_id,envelope=self.native_result(view.execution_id)
+        if goal_id!=result.goal_id or envelope.status.status!=GoalStatus.PREEMPTED:return False
+        if view.native_action is not None:
+            valid=(result.terminal_verified and not result.resource_locked and not result.task_completed and
+                   result.reason=='REPLACED_SAFE_HOLD')
+        else:
+            evidence_path=self.output/result.evidence_file
+            if evidence_path.parent!=self.output:return False
+            try:evidence=json.loads(evidence_path.read_text())
+            except (OSError,ValueError):return False
+            valid=(evidence.get('goal_id')==result.goal_id and evidence.get('controlled_replacement') is True and
+                   evidence.get('resource_released') is True and
+                   result.safety_outcome==result.SAFETY_PASS and result.reason==result.NONE)
+        if not valid:return False
+        with self.executor_mutex:
+            self.metrics.setdefault('step_results',[]).append(dict(activity_id=parent.execution_id,
+                execution_id=view.execution_id,endpoint=unit.action_endpoint,goal_id=result.goal_id,
+                native_state=state,verified=False,controlled_replacement=True,terminal_verified=True,
+                reason='REPLACED_SAFE_HOLD',result_received_at=rospy.Time.now().to_sec()))
+        return True
+
+    def _session_finish_interrupted(self,item):
+        with self.executor_mutex:
+            item.status='CANCELED_BY_REPLACEMENT'
+            self.active_executor_ids.discard(item.executor_id)
+            self.metrics.get('current_actions',{}).pop(item.execution_id,None)
+            self.metrics['executions'].append(dict(task_id=item.task_id,execution_id=item.execution_id,
+                result='CANCELED_BY_REPLACEMENT',result_received_at=rospy.Time.now().to_sec()))
+        self._save_executor()
+
+    def _session_archive(self,status):
+        self.metrics['status']=status
+        self._save_executor()
+        filename='mission-{:04d}-final.json'.format(self.session_round)
+        save_json(self.output/filename,self.metrics)
+        self.session_history.append(dict(request_id=self.request.request_id,status=status,
+            received_products=len(self.metrics.get('received_products',{})),
+            observed_fraction=self.coverage.observed_fraction(self.weights),
+            delivered_fraction=self.coverage.delivered_fraction(self.weights),evidence_file=filename))
+        self.metrics['session_history']=list(self.session_history)
+
+    def _session_remember_returns(self,plan):
+        for item in plan.items:
+            boundary=next((n for n,s in enumerate(item.execution_steps)
+                           if s.native_prediction.get('joint_return_boundary')),None)
+            if boundary is not None:
+                self.session_member_returns[item.coalition[0]]=(copy.deepcopy(item),item.execution_steps[boundary:])
+
+    def _session_add_retained_returns(self):
+        """Also recover a member held after a previous batch was replaced."""
+        from mrta_python.models import ExecutionStep,NativeActionSpec,NativeSegmentSpec
+        from mrta_python.executors import ExecutorPlanItem
+        current={m for item in self.plan.items for m in item.coalition}
+        states=self._session_snapshot(preview=True)
+        scene=rospy.get_param('/scene')
+        if scene.get('aav_return_policy')=='SWARM_FORMATION':
+            members=('drone_0','drone_1','drone_2')
+            unit=unit_for_coalition(self.routing,members,executor_id='aav_formation',operations=('AIR_MOVE',))
+            if unit is None:raise ValueError('共同返航缺少现有三机 Swarm 编队端点')
+            if any(states[m]['locked'] or states[m]['mode']!='AIR' for m in members):
+                raise ValueError('共同编队返航需要全部 AAV 已安全出水并解除本地动作')
+            altitude=float(scene['air_return_altitude_m'])
+            # The barycentre minimizes total squared assembly displacement.
+            # It is an intention, not an obstacle-free path: native Swarm uses
+            # the actual sensed map and peer trajectories during assembly.
+            center=tuple(sum(states[m]['position'][axis] for m in members)/3. for axis in (0,1))+(altitude,)
+            home=tuple(sum(scene['return_sites'][m]['position'][axis] for m in members)/3.
+                       for axis in range(3))
+            overhead=home[:2]+(altitude,)
+            targets=(center,overhead,home)
+            slots=self.member_slots.get('aav_formation') or {
+                'drone_0':(0.,0.,0.),'drone_1':(0.,-2.,0.),'drone_2':(0.,2.,0.)}
+            work_ids=tuple(i.execution_id for i in self.plan.items
+                           if any(m.startswith('drone_') for m in i.coalition))
+            assembly_ids=[]
+            start=max(0.,rospy.Time.now().to_sec()-self.epoch)
+            for m in members:
+                air=unit_for_coalition(self.routing,(m,),executor_id='aav_'+str(int(m.rsplit('_',1)[1])+1),
+                                       operations=('AIR_MOVE',))
+                source=tuple(states[m]['position']);high=source[:2]+(altitude,)
+                target=tuple(center[a]+slots[m][a] for a in range(3))
+                approach=[]
+                for ref,end in (("return:formation-climb:"+m,high),("return:formation-slot:"+m,target)):
+                    duration=math.dist(source,end)/.4+4.
+                    approach.append(ExecutionStep(air.executor_id,duration,ref,service_time_s=4.,
+                        native_prediction=dict(status='TASK_LEVEL',duration_s=duration,
+                            terminal_position=end,terminal_mode='AIR',geometry_checked=False,
+                            dynamic_safety_certified=False,estimate_basis='Swarm sensed-space formation assembly',
+                            reference_path=(source,end))))
+                    source=end
+                ident=self.request.request_id+'::formation-assembly:'+m
+                duration=sum(s.duration_s for s in approach)
+                self.tasks_by_id[ident]=Task(ident,frozenset({'AIR'}),1,0.,None,'return:formation-slot:'+m)
+                self.plan.items.append(ExecutorPlanItem(ident,ident,air.executor_id,(m,),start,
+                    start+duration,duration,0.,0.,execution_steps=tuple(approach),fulfills_task=False))
+                self.plan.activity_edges=tuple(self.plan.activity_edges)+tuple((i,ident) for i in work_ids)
+                assembly_ids.append(ident)
+            steps=[];positions={m:tuple(states[m]['position']) for m in members}
+            for ref,target in zip(('return:formation-assemble','return:formation-transit','return:formation-home'),targets):
+                destinations={m:tuple(target[a]+slots[m][a] for a in range(3)) for m in members}
+                duration=max(math.dist(positions[m],destinations[m]) for m in members)/.4+4.
+                steps.append(ExecutionStep('aav_formation',duration,ref,service_time_s=4.,
+                    native_prediction=dict(status='TASK_LEVEL',duration_s=duration,
+                        terminal_position=target,terminal_mode='AIR',geometry_checked=False,
+                        dynamic_safety_certified=False,estimate_basis='Swarm group target; actual adoption/terminal required',
+                        reference_path=(tuple(sum(positions[m][a] for m in members)/3. for a in range(3)),target))))
+                positions=destinations
+            ident=self.request.request_id+'::formation-return'
+            duration=sum(s.duration_s for s in steps)
+            start=max(0.,rospy.Time.now().to_sec()-self.epoch)
+            self.tasks_by_id[ident]=Task(ident,frozenset({'AIR'}),3,0.,None,'return:formation-home')
+            group=ExecutorPlanItem(ident,ident,'aav_formation',members,start,start+duration,duration,0.,0.,
+                execution_steps=tuple(steps),fulfills_task=False)
+            predecessors=tuple((i,ident) for i in assembly_ids)
+            self.plan.items.append(group)
+            self.plan.activity_edges=tuple(self.plan.activity_edges)+predecessors
+            for m in members:self.session_member_returns.setdefault(m,(copy.deepcopy(group),tuple(steps)))
+            self.metrics['aav_return_policy']='SWARM_FORMATION'
+            self.metrics['formation_return_members']=list(members)
+            self.metrics['selected_plan']=asdict(self.plan)
+        for member,(old,stored) in self.session_member_returns.items():
+            if member.startswith('drone_') and scene.get('aav_return_policy')=='SWARM_FORMATION':continue
+            if member in current:continue
+            state=states[member];home=tuple(scene['return_sites'][member]['position'])
+            if state['locked']:raise ValueError('旧任务成员仍锁定，不能为其派发返航：'+member)
+            if math.dist(state['position'],home)<=scene['return_sites'][member]['radius_m']:continue
+            steps=tuple(replace(s,native_prediction={k:v for k,v in s.native_prediction.items()
+                                if k!='joint_return_boundary'}) for s in stored)
+            if member.startswith('drone_') and state['mode']=='WATER':
+                source=tuple(state['position']);target=(source[0],source[1],self.request.requirement.cruise_altitude_m)
+                duration=max(14.,math.dist(source,target)/.1)
+                unit=next(u for u in self.units if u.physical_agent_ids==(member,) and 'EXIT_WATER' in u.operations)
+                native=NativeActionSpec((NativeSegmentSpec('EXIT_WATER',(source,target),duration),),
+                    'FIXED_REFERENCE',execution_timeout_s=duration+180.)
+                step=ExecutionStep(executor_id=unit.executor_id,duration_s=duration+4.,
+                    target_ref='return-exit:'+member,native_action=native,
+                    native_prediction=dict(status='TASK_LEVEL',terminal_position=target,terminal_mode='AIR',
+                         duration_s=duration+4.,estimate_basis='native vertical exit from actual verified WATER hold',
+                         geometry_checked=False,dynamic_safety_certified=False))
+                steps=(step,)+steps
+            task_id=self.request.request_id+'::retained-return:'+member
+            self.tasks_by_id[task_id]=Task(task_id,frozenset(),1,0.,None,'return:'+member)
+            duration=sum(s.duration_s for s in steps)
+            extra=replace(old,execution_id=task_id,task_id=task_id,planned_start=0.,planned_finish=duration,
+                status='PLANNED',actual_finish=None,execution_steps=steps,fulfills_task=False,
+                support_execution_ids=(),travel_time=duration,wait_time=0.,service_time=0.)
+            self.plan.items.append(extra)
+        self.plan_revision+=1
+
+    def _session_activate(self,job):
+        import yaml
+        from qn_aav_simulator.observation_coverage import CoverageResult
+        # All old worker futures have finished before this method. Never clear
+        # an uncertain physical reservation merely because a new request exists.
+        if self.active_executor_ids:raise RuntimeError('old activity reservations remain unresolved')
+        expiry=time.monotonic()+3.
+        while True:
+            try:
+                states=self._session_snapshot()
+                if any(s['locked'] for s in states.values()):raise RuntimeError('waiting for native ownership release')
+                break
+            except RuntimeError:
+                if time.monotonic()>=expiry:raise
+                time.sleep(.05)
+        request,plan,tasks,wall=self._session_build_plan(job['request'],job['scene'],states)
+        self.session_round+=1
+        path=self.output/'mission-{:04d}-request.yaml'.format(self.session_round)
+        path.write_text(yaml.safe_dump(job['request'],allow_unicode=True,sort_keys=False))
+        scene_path=self.output/'mission-{:04d}-scene.yaml'.format(self.session_round)
+        scene_path.write_text(yaml.safe_dump({'scene':job['scene']},allow_unicode=True,sort_keys=False))
+        for key in ('communication_sites','transition_sites','selected_monitoring_area','observation_targets',
+                    'return_sites','rendezvous_sites','aav_return_policy'):
+            if key in job['scene']:rospy.set_param('/scene/'+key,job['scene'][key])
+            elif rospy.has_param('/scene/'+key):rospy.delete_param('/scene/'+key)
+        rospy.set_param('/mission/request_file',str(path))
+        expiry=time.monotonic()+5.
+        while rospy.get_param('/mission/transport_request_id','')!=request.request_id:
+            if time.monotonic()>=expiry:raise RuntimeError('new request transport boundary not ready')
+            time.sleep(.05)
+        from qn_aav_simulator.monitoring_request import ObservationTask
+        with self.condition,self.executor_mutex:
+            self.request=request;self.request_path=path;self.plan=plan;self.plan_revision+=1
+            self.coverage=CoverageResult();self.final_events={}
+            self.points={p.point_id:p.position for r in request.regions for p in r.interest_points}
+            self.weights={p.point_id:p.weight for r in request.regions for p in r.interest_points}
+            regions={r.region_id:r for r in request.regions}
+            self.tasks_by_id={t.task_id:t for t in tasks}
+            self.observation_tasks={t.task_id:ObservationTask(t.task_id,regions[t.target_ref].interest_points[0].position,
+                tuple(p.point_id for p in regions[t.target_ref].interest_points),t.target_ref,
+                request.service_time_s,request.deadline_s,t.required_capabilities) for t in tasks}
+            for key in ('received_products','received_terminal_reports','received_action_results','current_actions'):
+                self.metrics[key]={}
+            for key in ('executions','results_received','step_results','events'):
+                self.metrics[key]=[]
+            for key in ('first_failure','runtime_safety_failure','joint_return_release_at_ros_s',
+                        'joint_return_release_states','return_completion','return_distance_m','monitoring_completed_at_ros_s',
+                        'monitoring_complete','return_authorization'):
+                self.metrics.pop(key,None)
+            self.metrics.update(request_id=request.request_id,status='RUNNING',session_phase='EXECUTING',
+                active_request=copy.deepcopy(job['request']),selected_plan=asdict(plan),planning_wall_s=wall,
+                confirmation=dict(answer='yes',at_ros_s=rospy.Time.now().to_sec(),request_id=request.request_id,
+                    plan_revision=self.plan_revision,policy=job['policy'],
+                    operator_command_id=job.get('confirmation',{}).get('command_id'),
+                    authorized_at_ros_s=job.get('confirmation',{}).get('at_ros_s')),failure_reason='')
+            self.metrics['plan_history'].append(dict(revision=self.plan_revision,plan=asdict(plan)))
+            self.metrics.pop('pending_plan',None)
+            self.session_replacing=False;self.session_advance=False;self.session_return_authorized=False
+            self.session_next_job=None;self.session_cancel_goal_ids.clear()
+            self.epoch=rospy.Time.now().to_sec()
+            self._session_remember_returns(plan)
+        rospy.set_param('/mission/replacement_goal_ids',[])
+        self._save_executor()
+
+    def _run_joint_session(self,scene):
+        import yaml
+        self.session_running=True;self.session_round=0;self.session_history=[];self.session_commands=set()
+        self.session_queue=[];self.session_preview_revision=0;self.session_preview_future=None
+        self.session_next_job=None;self.session_end=False
+        self.session_base_request=yaml.safe_load(self.request_path.read_text())
+        self.session_base_scene=copy.deepcopy(scene)
+        self.session_member_returns={};self._session_remember_returns(self.plan)
+        self.session_pool=ThreadPoolExecutor(max_workers=1)
+        self.metrics.update(session_phase='EXECUTING',continuous_session=True,
+                            active_request=copy.deepcopy(self.session_base_request),session_history=[],task_queue=[],
+                            verified_cross_medium_uses=dict(self.verified_cross_medium_uses))
+        try:
+            while not rospy.is_shutdown() and not self.session_end:
+                self._execute_parallel_pending()
+                if self.active_executor_ids:raise RuntimeError('session boundary retains unverified commitments')
+                if self.session_replacing:
+                    self._session_archive('CANCELED_BY_REPLACEMENT')
+                    job=self.session_next_job
+                elif self.session_advance:
+                    self._session_archive('MONITORING_COMPLETED_RETURN_DEFERRED' if
+                        self.coverage.delivered_fraction(self.weights)==1. else 'MONITORING_INCOMPLETE')
+                    job=self.session_queue.pop(0)
+                else:
+                    now=rospy.Time.now().to_sec()
+                    with self.condition:samples={m:self.actual.get(m) for m in self.session_member_returns}
+                    current_scene=rospy.get_param('/scene')
+                    returns={m:dict(completed=s is not None and s.is_fresh(now,.25) and
+                        math.dist(s.position,current_scene['return_sites'][m]['position'])<=current_scene['return_sites'][m]['radius_m'],
+                        evidence='ACTUAL_TERMINAL_IN_RETURN_SITE') for m,s in samples.items()}
+                    self.metrics['return_completion']=returns
+                    if not all(v['completed'] for v in returns.values()):raise RuntimeError('session return not completed')
+                    self._session_archive('PASS_SAMPLED_MAPPING' if
+                        self.coverage.delivered_fraction(self.weights)==1. and
+                        set(self.metrics['results_received'])>=set(self.observation_tasks) else 'FAIL_MAPPING')
+                    self.metrics.update(status='SESSION_HOME',session_phase='HOME')
+                    self._save_executor()
+                    while not rospy.is_shutdown() and not self.session_end and not self.session_queue:
+                        self._session_pump();self._check_tasklevel_fleet_clearance();time.sleep(.05)
+                    if self.session_end:break
+                    job=self.session_queue.pop(0)
+                self.metrics['session_phase']='SWITCHING';self._save_executor()
+                self._session_activate(job)
+            if self.session_end:
+                self.metrics.update(status='SESSION_ENDED',session_phase='HOME');self._save_executor()
+        finally:
+            self.session_running=False
+            self.session_pool.shutdown(wait=False)
+
 
     def _run_joint_request(self):
         """Run the fixed five-platform request through the existing task worker.
@@ -2432,6 +2966,9 @@ class MissionRunner:
             self.epoch=rospy.Time.now().to_sec()
             self.metrics['status']='RUNNING' if task_level else 'RUNNING_DIAGNOSTIC';self._save_executor()
             timer=rospy.Timer(rospy.Duration(1.),lambda _:self._save_executor())
+            if task_level and self.session_enabled:
+                self._run_joint_session(scene)
+                return
             self._execute_parallel_pending()
             delivered=self.coverage.delivered_fraction(self.weights)
             missing=retest_tasks(self.request,(),self.coverage,self.weights,

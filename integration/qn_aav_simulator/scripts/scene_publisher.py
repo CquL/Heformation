@@ -32,6 +32,8 @@ from std_msgs.msg import Header
 from qn_aav_simulator.experiment_verdict import box_sample_points,StaticSceneGeometry
 
 DEFAULT_TOPIC = "/scene/global_cloud"
+TASK_SCENE_FIELDS = ('communication_sites', 'selected_monitoring_area',
+                     'observation_targets', 'transition_sites', 'rendezvous_sites')
 
 
 class SceneTransport:
@@ -48,6 +50,7 @@ class SceneTransport:
         from qn_aav_simulator.task_line import load_request
         from qn_aav_simulator.observation_coverage import FiniteDelivery,ObstacleBox
         self.String=String;self.request=load_request(request_file);self.frame=frame
+        self.request_file=request_file;self.used_request_ids={self.request.request_id}
         self.task_service=self.request.template_id=='OFFSHORE_JOINT'
         self.support_sites=tuple(scene.get('communication_sites',()))
         self.mother=tuple(scene.get('mother_ship_receiver_position',scene['mother_ship_position']))
@@ -107,6 +110,37 @@ class SceneTransport:
         self.timer=rospy.Timer(rospy.Duration(.1),self.tick)
         if self.survey_publishers:
             self.scan_timer=rospy.Timer(rospy.Duration(.25),self.publish_scans)
+
+    def replace_request(self,request_file,task_scene):
+        """Adopt a new business batch after the runner ends the old workers.
+
+        The request-file parameter is the final commit written by the existing
+        runner. Only its task ledger/contact geometry changes here: physical
+        state, sensor history, simulation time and world obstacles stay alive.
+        """
+        from qn_aav_simulator.task_line import load_request
+        from qn_aav_simulator.observation_coverage import FiniteDelivery
+        request=load_request(request_file)
+        if (request.template_id!=self.request.template_id or
+                request.execution_mode!=self.request.execution_mode):
+            raise ValueError('live request must retain the running template and sensor mode')
+        sites=tuple(task_scene.get('communication_sites',()))
+        air_contact=max((float(site['mother_contact_m']) for site in sites),default=0.)
+        if self.task_service and (not sites or air_contact<=0 or
+                any(float(site['acoustic_contact_m'])<=0 for site in sites)):
+            raise ValueError('new task service needs declared positive contact geometry')
+        with self.lock:
+            if request.request_id in self.used_request_ids:
+                raise ValueError('live request_id must be new; old receipts cannot be reused')
+            now=rospy.Time.now().to_sec()
+            self.request=request;self.request_file=request_file
+            self.used_request_ids.add(request.request_id)
+            self.support_sites=sites;self.air_contact_m=air_contact
+            self.events.clear();self.delivered.clear();self.task_relayed.clear()
+            self.started_at=now;self.last_time=now;self.last_progress=-1.
+            self.previous={}
+            if not self.task_service:self.delivery=FiniteDelivery(now)
+        return request
 
     def odom(self,key,msg):
         if msg.header.frame_id!=self.frame:return
@@ -215,6 +249,11 @@ class SceneTransport:
             if not math.isfinite(generated) or not start_time<=generated<=now:
                 raise ValueError('product generation outside current run')
             with self.lock:
+                # Validation above may overlap a request switch. Recheck at
+                # insertion so an old Goal's delayed product cannot enter the
+                # new batch even when its payload happened to pass earlier.
+                if event['request_id']!=self.request.request_id:
+                    raise ValueError('product belongs to the previous request')
                 if ident in self.events:
                     if self.events[ident]!=event:raise ValueError('conflicting duplicate product')
                     return
@@ -247,6 +286,8 @@ class SceneTransport:
                     not math.isfinite(generated) or not self.delivery.start_time<=generated<=now):
                 raise ValueError('invalid mother command identity, size or generation time')
             with self.lock:
+                if event['request_id']!=self.request.request_id:
+                    raise ValueError('command belongs to the previous request')
                 if ident in self.events:
                     if self.events[ident]!=event:raise ValueError('conflicting duplicate command')
                     return
@@ -270,6 +311,8 @@ class SceneTransport:
                     not (self.started_at if self.task_service else self.delivery.start_time)<=generated<=now):
                 raise ValueError('invalid finite state-claim request')
             with self.lock:
+                if event['request_id']!=self.request.request_id:
+                    raise ValueError('state claim belongs to the previous request')
                 key='claim-request:'+ident
                 if key in self.events:
                     if self.events[key]!=event:raise ValueError('conflicting state-claim request')
@@ -306,6 +349,9 @@ class SceneTransport:
             except (ValueError,KeyError,TypeError,rospy.ROSException,rospy.ServiceException):
                 return
         with self.lock:
+            # A state-digest service call may finish after its request has been
+            # retired. Do not publish or store that reply in the next batch.
+            if event['request_id']!=self.request.request_id:return
             sample=next((row for row in reversed(self.states.get(member,()))
                          if row[0]<=stamp),None)
             diagnostic=self.local_diagnostics.get(member)
@@ -362,7 +408,8 @@ class SceneTransport:
                                  dict(self.events[key],received_at=now)))
             self.last_time=now;self.previous=states
             if now-self.last_progress>=.5:
-                progress=dict(at_ros_s=now,scope='INDEPENDENT_TRANSPORT_VIEW',products=[
+                progress=dict(at_ros_s=now,request_id=self.request.request_id,
+                    scope='INDEPENDENT_TRANSPORT_VIEW',products=[
                     dict(point_id=self.events[key]['point_id'],
                          required_bytes=p.required_bytes,
                          relay_bytes=p.received_prefix.get('usv',0.),
@@ -423,7 +470,8 @@ class SceneTransport:
                 out.append((self.notifications if notification else self.receipts,
                     dict(event,received_at=now)))
             self.last_time=now
-            progress=dict(at_ros_s=now,scope='TASK_SERVICE',support_active=supported,
+            progress=dict(at_ros_s=now,request_id=self.request.request_id,
+                scope='TASK_SERVICE',support_active=supported,
                 products=[dict(point_id=event['point_id'],received=ident in self.delivered)
                     for ident,event in self.events.items() if event.get('point_id')])
         self.progress.publish(self.String(data=json.dumps(progress,allow_nan=False)))
@@ -437,7 +485,7 @@ class SceneView:
     Odometry is independent evaluation truth, NOT mother-ship received state.
     Detailed action state belongs in the existing dashboard, not scene labels.
     """
-    def __init__(self, scene, frame):
+    def __init__(self, scene, frame, request_id=None):
         from visualization_msgs.msg import Marker, MarkerArray
         from nav_msgs.msg import Odometry
         self.Marker, self.MarkerArray = Marker, MarkerArray
@@ -457,13 +505,31 @@ class SceneView:
         self.last_publish = 0.
         self.marker_keys = None
         self.cooperative=bool(rospy.get_param('/mission/request_file',''))
+        self.request_id=request_id
         self.received_points=set()
         if self.cooperative:
             from std_msgs.msg import String
             def received(msg):
-                event=json.loads(msg.data)
-                with self.lock:self.received_points.add(event['point_id'])
+                try:
+                    event=json.loads(msg.data)
+                    with self.lock:
+                        if event.get('request_id')==self.request_id:
+                            self.received_points.add(event['point_id'])
+                except (ValueError,KeyError,TypeError):
+                    return
             self.subs.append(rospy.Subscriber('/mother/received_products',String,received,queue_size=10))
+
+    def replace_request(self,request,task_scene):
+        with self.lock:
+            for key in TASK_SCENE_FIELDS:
+                if key in task_scene:self.scene[key]=copy.deepcopy(task_scene[key])
+                else:self.scene.pop(key,None)
+            self.request_id=request.request_id
+            self.received_points.clear()
+        # The next full marker snapshot replaces matching IDs and deletes IDs
+        # no longer present. Keep marker_keys so old region marks are removed;
+        # keep real odometry trails across successive business requests.
+        self.last_publish=0.
 
     def odom(self, key, msg):
         if msg.header.frame_id != self.frame:
@@ -583,6 +649,11 @@ class SceneView:
             p = item['position']
             add('transition', M.CYLINDER, p, (1.5,1.5,.08), (.5,1.,.7,.5))
             label('transition_label', (p[0]-4.,p[1],p[2]-.5), '入水与出水区', .55)
+        for item in self.scene.get('communication_sites', []):
+            p=item['position'];diameter=2*float(item['radius_m'])
+            add('shared_support',M.CYLINDER,(p[0],p[1],.03),
+                (diameter,diameter,.06),(.1,.9,.5,.2))
+            label('shared_support_label',(p[0],p[1],1.),'共享支援区',.55)
         p = self.scene['mother_ship_position']
         assets=self.scene.get('visual_assets')
         if assets:
@@ -702,7 +773,7 @@ def main():
     view = None
     if geometry and rospy.get_param('~visualize', False):
         try:
-            view = SceneView(scene, frame_id)
+            view = SceneView(scene, frame_id,transport.request.request_id if transport else None)
         except Exception as error:
             rospy.logerr('Scene view unavailable; sensor map continues: %s', error)
     rospy.loginfo("scene publisher: %d points on %s (obstacle=%s, frame=%s)",
@@ -712,7 +783,22 @@ def main():
     # timestamp. Dense scenes must not repack hundreds of thousands of vertices
     # every frame merely to keep the existing sensor heartbeat fresh.
     cloud = cloud_message(frame_id, rospy.Time.now(), points)
+    if transport:rospy.set_param('/mission/transport_request_id',transport.request.request_id)
     while not rospy.is_shutdown():
+        if transport:
+            next_file=rospy.get_param('/mission/request_file',transport.request_file)
+            if next_file and next_file!=transport.request_file:
+                try:
+                    task_scene={key:rospy.get_param('/scene/'+key) for key in TASK_SCENE_FIELDS
+                                if rospy.has_param('/scene/'+key)}
+                    request=transport.replace_request(next_file,task_scene)
+                    if view:view.replace_request(request,task_scene)
+                    # Existing runner waits for this identity before issuing
+                    # new Goals; it remains the sole task/commitment authority.
+                    rospy.set_param('/mission/transport_request_id',request.request_id)
+                    rospy.loginfo('scene task request switched to %s; world/state retained',request.request_id)
+                except (ValueError,KeyError,TypeError,OSError) as error:
+                    rospy.logerr_throttle(2.,'Scene task request update rejected: %s',str(error))
         cloud.header.stamp=rospy.Time.now()
         publisher.publish(cloud)
         if view:

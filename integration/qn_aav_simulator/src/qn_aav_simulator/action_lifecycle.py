@@ -9,9 +9,10 @@ Original P1 defaults, with an opt-in local safety disposition:
   task loop,
 * the idle check and the resource reservation are one atomic operation,
 * a running task refuses new goals,
-* cancellation never releases resources or dispatches the next task. The
-  original path only records cancellation. With ``stop_and_lock=True`` the
-  Action worker must observe the local reference takeover before terminating,
+* ordinary cancellation never releases resources. A specifically authorized
+  replacement may release only after the worker verifies an ordinary native
+  hold; it remains a canceled job. With ``stop_and_lock=True`` the emergency
+  path retains its permanent lock and cannot use that release operation,
 * odometry loss, execution timeout and result timeout all enter
   ``UNKNOWN_LOCKED``, which can only be left by restarting the whole execution
   chain (old trajectory servers, qn nodes and this Action server included).
@@ -218,6 +219,24 @@ class ActionResourceStateMachine:
             self._reserved_at_s = None
             self._cancel_requested = False
             self._set_state(READY_IDLE, "resource_released")
+            return self._state
+
+    def release_verified_cancel(self, goal_id: str) -> str:
+        """Release a controlled replacement only after its native hold passed.
+
+        The caller supplies the same physical terminal/adoption/safety verdict
+        as ordinary release. This does not turn the interrupted job into a
+        success, and cannot clear UNKNOWN_LOCKED or another Goal's reservation.
+        """
+        with self._lock:
+            if self._state != HOLDING or goal_id != self._goal_id:
+                raise ValueError('verified cancellation requires its matching HOLDING Goal')
+            self._record('controlled_cancel_terminal_verified',str(goal_id))
+            self._goal_id = None
+            self._execution_id = None
+            self._reserved_at_s = None
+            self._cancel_requested = False
+            self._set_state(READY_IDLE,'resource_released_after_cancel')
             return self._state
 
     def fault(self, reason: str) -> str:

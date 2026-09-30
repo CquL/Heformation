@@ -1,0 +1,412 @@
+{
+  "status": "SESSION_ENDED",
+  "session_phase": "HOME",
+  "request_id": "circle-3.00-5.00-r2.00-mapping-6da4571149",
+  "observed_fraction": 1.0,
+  "delivered_fraction": 1.0,
+  "return_completion": {
+    "drone_1": {
+      "completed": true,
+      "evidence": "ACTUAL_TERMINAL_IN_RETURN_SITE"
+    },
+    "drone_0": {
+      "completed": true,
+      "evidence": "ACTUAL_TERMINAL_IN_RETURN_SITE"
+    },
+    "usv": {
+      "completed": true,
+      "evidence": "ACTUAL_TERMINAL_IN_RETURN_SITE"
+    },
+    "uuv": {
+      "completed": true,
+      "evidence": "ACTUAL_TERMINAL_IN_RETURN_SITE"
+    },
+    "drone_2": {
+      "completed": true,
+      "evidence": "ACTUAL_TERMINAL_IN_RETURN_SITE"
+    }
+  },
+  "resource_locks": [],
+  "verified_cross_medium_uses": {
+    "drone_0": 1,
+    "drone_1": 1,
+    "drone_2": 1
+  },
+  "session_history": [
+    {
+      "request_id": "circle-2.00-4.00-r2.00-mapping",
+      "status": "CANCELED_BY_REPLACEMENT",
+      "received_products": 0,
+      "observed_fraction": 0.0,
+      "delivered_fraction": 0.0,
+      "evidence_file": "mission-0000-final.json"
+    },
+    {
+      "request_id": "circle-3.00-4.00-r2.00-mapping-9f0eda21b1",
+      "status": "MONITORING_COMPLETED_RETURN_DEFERRED",
+      "received_products": 33,
+      "observed_fraction": 1.0,
+      "delivered_fraction": 1.0,
+      "evidence_file": "mission-0001-final.json"
+    },
+    {
+      "request_id": "circle-4.00-4.00-r2.00-mapping-ce530cae9c",
+      "status": "CANCELED_BY_REPLACEMENT",
+      "received_products": 33,
+      "observed_fraction": 1.0,
+      "delivered_fraction": 1.0,
+      "evidence_file": "mission-0002-final.json"
+    },
+    {
+      "request_id": "circle-3.00-5.00-r2.00-mapping-6da4571149",
+      "status": "PASS_SAMPLED_MAPPING",
+      "received_products": 33,
+      "observed_fraction": 1.0,
+      "delivered_fraction": 1.0,
+      "evidence_file": "mission-0003-final.json"
+    }
+  ],
+  "runtime_monitor_min_clearance_m": 0.7464153805981515,
+  "events": [
+    {
+      "event": "INITIAL_PLAN_CONFIRMED",
+      "request_id": "circle-2.00-4.00-r2.00-mapping",
+      "phase": null,
+      "at_ros_s": 1790773135.9936123,
+      "confirmation": {
+        "decision": "confirm",
+        "request_id": "circle-2.00-4.00-r2.00-mapping",
+        "plan_revision": 0
+      }
+    },
+    {
+      "event": "OPERATOR_COMMAND",
+      "request_id": "circle-2.00-4.00-r2.00-mapping",
+      "phase": "EXECUTING",
+      "at_ros_s": 1790773161.2559638,
+      "command": {
+        "command_id": "34c9ffcc3b1744208212e6736999dc6e",
+        "request_id": "circle-2.00-4.00-r2.00-mapping",
+        "action": "preview_region",
+        "center": [
+          3.0,
+          4.0
+        ],
+        "radius_m": 2.0,
+        "policy": "replace"
+      }
+    },
+    {
+      "event": "PREVIEW_READY",
+      "request_id": "circle-2.00-4.00-r2.00-mapping",
+      "phase": "EXECUTING",
+      "at_ros_s": 1790773162.2559776,
+      "planning_wall_s": 0.46670508600072935,
+      "new_request_id": "circle-3.00-4.00-r2.00-mapping-9f0eda21b1",
+      "policy": "replace"
+    },
+    {
+      "event": "OPERATOR_COMMAND",
+      "request_id": "circle-2.00-4.00-r2.00-mapping",
+      "phase": "EXECUTING",
+      "at_ros_s": 1790773162.2559776,
+      "command": {
+        "command_id": "68e14a781998408697f14a046001d6c1",
+        "request_id": "circle-2.00-4.00-r2.00-mapping",
+        "action": "confirm_plan",
+        "preview_revision": 1
+      }
+    },
+    {
+      "event": "MOVING_REPLACEMENT_ADOPTED",
+      "request_id": "circle-3.00-4.00-r2.00-mapping-9f0eda21b1",
+      "phase": "EXECUTING",
+      "at_ros_s": 1790773173.1995976,
+      "old_request_id": "circle-2.00-4.00-r2.00-mapping"
+    },
+    {
+      "event": "OPERATOR_COMMAND",
+      "request_id": "circle-3.00-4.00-r2.00-mapping-9f0eda21b1",
+      "phase": "EXECUTING",
+      "at_ros_s": 1790773173.1995976,
+      "command": {
+        "command_id": "05fe27637f9246a5b32d674dc18e6e7a",
+        "request_id": "circle-3.00-4.00-r2.00-mapping-9f0eda21b1",
+        "action": "preview_region",
+        "center": [
+          4.0,
+          4.0
+        ],
+        "radius_m": 2.0,
+        "policy": "queue"
+      }
+    },
+    {
+      "event": "PREVIEW_READY",
+      "request_id": "circle-3.00-4.00-r2.00-mapping-9f0eda21b1",
+      "phase": "EXECUTING",
+      "at_ros_s": 1790773173.7360635,
+      "planning_wall_s": 0.4386837350029964,
+      "new_request_id": "circle-4.00-4.00-r2.00-mapping-ce530cae9c",
+      "policy": "queue"
+    },
+    {
+      "event": "OPERATOR_COMMAND",
+      "request_id": "circle-3.00-4.00-r2.00-mapping-9f0eda21b1",
+      "phase": "EXECUTING",
+      "at_ros_s": 1790773173.7360635,
+      "command": {
+        "command_id": "4ce78bbcf04b4e0f90da4cad7b4ed82c",
+        "request_id": "circle-3.00-4.00-r2.00-mapping-9f0eda21b1",
+        "action": "confirm_plan",
+        "preview_revision": 2
+      }
+    },
+    {
+      "event": "QUEUE_CONFIRMED_CURRENT_RETAINED",
+      "request_id": "circle-3.00-4.00-r2.00-mapping-9f0eda21b1",
+      "phase": "EXECUTING",
+      "at_ros_s": 1790773174.2565155
+    },
+    {
+      "event": "QUEUE_ADOPTED_WITHOUT_RETURN",
+      "request_id": "circle-4.00-4.00-r2.00-mapping-ce530cae9c",
+      "phase": "EXECUTING",
+      "at_ros_s": 1790773847.8934119
+    },
+    {
+      "event": "HOLD_WITHOUT_AUTO_RETURN",
+      "request_id": "circle-4.00-4.00-r2.00-mapping-ce530cae9c",
+      "phase": "HOLDING",
+      "at_ros_s": 1790773959.2560818,
+      "seconds": 15
+    },
+    {
+      "event": "OPERATOR_COMMAND",
+      "request_id": "circle-4.00-4.00-r2.00-mapping-ce530cae9c",
+      "phase": "HOLDING",
+      "at_ros_s": 1790773959.2560818,
+      "command": {
+        "command_id": "1582ef40d787417d82f9d4bb324cb42e",
+        "request_id": "circle-4.00-4.00-r2.00-mapping-ce530cae9c",
+        "action": "return_home"
+      }
+    },
+    {
+      "event": "ACTUAL_SWARM_GROUP_RETURN_IN_MOTION",
+      "request_id": "circle-4.00-4.00-r2.00-mapping-ce530cae9c",
+      "phase": "RETURNING",
+      "at_ros_s": 1790774185.799019
+    },
+    {
+      "event": "OPERATOR_COMMAND",
+      "request_id": "circle-4.00-4.00-r2.00-mapping-ce530cae9c",
+      "phase": "RETURNING",
+      "at_ros_s": 1790774185.799019,
+      "command": {
+        "command_id": "e59497d7c72e4032969eeb1d49fd09a7",
+        "request_id": "circle-4.00-4.00-r2.00-mapping-ce530cae9c",
+        "action": "preview_region",
+        "center": [
+          3.0,
+          5.0
+        ],
+        "radius_m": 2.0,
+        "policy": "replace"
+      }
+    },
+    {
+      "event": "PREVIEW_READY",
+      "request_id": "circle-4.00-4.00-r2.00-mapping-ce530cae9c",
+      "phase": "RETURNING",
+      "at_ros_s": 1790774186.4519114,
+      "planning_wall_s": 0.49131754099653335,
+      "new_request_id": "circle-3.00-5.00-r2.00-mapping-6da4571149",
+      "policy": "replace"
+    },
+    {
+      "event": "OPERATOR_COMMAND",
+      "request_id": "circle-4.00-4.00-r2.00-mapping-ce530cae9c",
+      "phase": "RETURNING",
+      "at_ros_s": 1790774186.4519114,
+      "command": {
+        "command_id": "d14ae7f6d0324391997f9d4b39ad38b0",
+        "request_id": "circle-4.00-4.00-r2.00-mapping-ce530cae9c",
+        "action": "confirm_plan",
+        "preview_revision": 3
+      }
+    },
+    {
+      "event": "RETURNING_REPLACEMENT_ADOPTED",
+      "request_id": "circle-3.00-5.00-r2.00-mapping-6da4571149",
+      "phase": "EXECUTING",
+      "at_ros_s": 1790774195.52868,
+      "old_request_id": "circle-4.00-4.00-r2.00-mapping-ce530cae9c"
+    },
+    {
+      "event": "FINAL_MONITORING_COMPLETE",
+      "request_id": "circle-3.00-5.00-r2.00-mapping-6da4571149",
+      "phase": "HOLDING",
+      "at_ros_s": 1790774573.2560983
+    },
+    {
+      "event": "OPERATOR_COMMAND",
+      "request_id": "circle-3.00-5.00-r2.00-mapping-6da4571149",
+      "phase": "HOLDING",
+      "at_ros_s": 1790774573.2560983,
+      "command": {
+        "command_id": "1a05b242a53c49a492c3d07080195551",
+        "request_id": "circle-3.00-5.00-r2.00-mapping-6da4571149",
+        "action": "return_home"
+      }
+    },
+    {
+      "event": "FINAL_RETURN_COMPLETED",
+      "request_id": "circle-3.00-5.00-r2.00-mapping-6da4571149",
+      "phase": "HOME",
+      "at_ros_s": 1790775044.4677837,
+      "returns": {
+        "drone_1": {
+          "completed": true,
+          "evidence": "ACTUAL_TERMINAL_IN_RETURN_SITE"
+        },
+        "drone_0": {
+          "completed": true,
+          "evidence": "ACTUAL_TERMINAL_IN_RETURN_SITE"
+        },
+        "usv": {
+          "completed": true,
+          "evidence": "ACTUAL_TERMINAL_IN_RETURN_SITE"
+        },
+        "uuv": {
+          "completed": true,
+          "evidence": "ACTUAL_TERMINAL_IN_RETURN_SITE"
+        },
+        "drone_2": {
+          "completed": true,
+          "evidence": "ACTUAL_TERMINAL_IN_RETURN_SITE"
+        }
+      },
+      "history": [
+        {
+          "request_id": "circle-2.00-4.00-r2.00-mapping",
+          "status": "CANCELED_BY_REPLACEMENT",
+          "received_products": 0,
+          "observed_fraction": 0.0,
+          "delivered_fraction": 0.0,
+          "evidence_file": "mission-0000-final.json"
+        },
+        {
+          "request_id": "circle-3.00-4.00-r2.00-mapping-9f0eda21b1",
+          "status": "MONITORING_COMPLETED_RETURN_DEFERRED",
+          "received_products": 33,
+          "observed_fraction": 1.0,
+          "delivered_fraction": 1.0,
+          "evidence_file": "mission-0001-final.json"
+        },
+        {
+          "request_id": "circle-4.00-4.00-r2.00-mapping-ce530cae9c",
+          "status": "CANCELED_BY_REPLACEMENT",
+          "received_products": 33,
+          "observed_fraction": 1.0,
+          "delivered_fraction": 1.0,
+          "evidence_file": "mission-0002-final.json"
+        },
+        {
+          "request_id": "circle-3.00-5.00-r2.00-mapping-6da4571149",
+          "status": "PASS_SAMPLED_MAPPING",
+          "received_products": 33,
+          "observed_fraction": 1.0,
+          "delivered_fraction": 1.0,
+          "evidence_file": "mission-0003-final.json"
+        }
+      ]
+    },
+    {
+      "event": "OPERATOR_COMMAND",
+      "request_id": "circle-3.00-5.00-r2.00-mapping-6da4571149",
+      "phase": "HOME",
+      "at_ros_s": 1790775044.4677837,
+      "command": {
+        "command_id": "81dfc23955fe435ab6034b1cd2bd11c9",
+        "request_id": "circle-3.00-5.00-r2.00-mapping-6da4571149",
+        "action": "end_session"
+      }
+    },
+    {
+      "event": "PASS_SESSION_SEQUENCE",
+      "request_id": "circle-3.00-5.00-r2.00-mapping-6da4571149",
+      "phase": "HOME",
+      "at_ros_s": 1790775044.8481057
+    }
+  ],
+  "scope": "Fixed five-platform scene; sampled slice mapping; task-level support; explicit visual timing policy",
+  "independent_audit": {
+    "passed": false,
+    "failures": [
+      "model time alignment failed",
+      "missing aligned position samples"
+    ],
+    "aligned_position_samples": 19066,
+    "missing_position_samples": 14,
+    "fleet_proxy_minimum_clearance_m": 0.7466721404931236,
+    "scene_minimum_clearances_m": {
+      "0/seabed": 4.606583350548955,
+      "0/pier": 5.465000882304873,
+      "0/rock": 3.204733294275296,
+      "0/exclusion": 3.211997695971694,
+      "0/shore": 6.185346822712713,
+      "0/breakwater": 0.8316251510834873,
+      "0/reef_west": 6.9840018532541945,
+      "0/reef_east": 5.621070169848242,
+      "0/reef_outer": 13.739817919500995,
+      "0/mother_ship_hull": 3.5246792285089104,
+      "1/seabed": 4.567939533057395,
+      "1/pier": 5.227334615936355,
+      "1/rock": 3.496157925945898,
+      "1/exclusion": 4.876217890941504,
+      "1/shore": 6.1474020383228805,
+      "1/breakwater": 2.5981387686343256,
+      "1/reef_west": 7.562036911457512,
+      "1/reef_east": 6.324050861519738,
+      "1/reef_outer": 14.667307894102818,
+      "1/mother_ship_hull": 5.3626058336404325,
+      "2/seabed": 4.6515963902075415,
+      "2/pier": 8.56238239598947,
+      "2/rock": 7.047488461427975,
+      "2/exclusion": 1.363066494597479,
+      "2/shore": 6.168371219512021,
+      "2/breakwater": 2.0860842296516626,
+      "2/reef_west": 8.990757283985891,
+      "2/reef_east": 9.989750387296477,
+      "2/reef_outer": 18.510566575777418,
+      "2/mother_ship_hull": 1.6107726040997736,
+      "usv/seabed": 4.772562104728206,
+      "usv/pier": 0.28607721691719656,
+      "usv/rock": 4.145333268426391,
+      "usv/exclusion": 2.681032009282799,
+      "usv/shore": 10.31084063305207,
+      "usv/breakwater": 0.8974851879878454,
+      "usv/reef_west": 1.7727915911007028,
+      "usv/reef_east": 7.775622467430921,
+      "usv/reef_outer": 16.86365259577451,
+      "usv/mother_ship_hull": 7.294325901185292,
+      "uuv/seabed": 3.75,
+      "uuv/pier": 4.125048755385,
+      "uuv/rock": 3.501651162379592,
+      "uuv/exclusion": 3.583726613665311,
+      "uuv/shore": 8.959080137594249,
+      "uuv/breakwater": 0.6638311380678882,
+      "uuv/reef_west": 4.747325504028295,
+      "uuv/reef_east": 6.151029952329669,
+      "uuv/reef_outer": 14.847808248816284,
+      "uuv/mother_ship_hull": 5.344806212864625
+    },
+    "ordinary_publications_while_paused": [],
+    "invalid_native_trajectories": []
+  },
+  "max_abs_model_ros_drift_s": 46.45120234737669,
+  "duration_s": 1908.854493379593,
+  "raw_evidence_directory": "experiments/20260930-formation-session-live-r42",
+  "image_manifest": "sha256:65f6798e0c259dfd920f9b1c41b2c43c0b20503470bd6526ab4ae06e814a5817"
+}

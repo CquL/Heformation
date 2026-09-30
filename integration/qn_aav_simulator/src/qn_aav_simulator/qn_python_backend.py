@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Tuple
 
 from .contracts import AgentState, Quaternion, Vector3
@@ -242,6 +242,55 @@ class QnPythonClosedLoopBackend:
         if (self.reference_mode == "ROUTE_POSITION" and
                 medium_flag(state.position[2], self.constants.hg_m) in (0.0, 1.0)):
             self._idle_reference = ("INITIAL_HOLD", None, 0.0, self._state)
+
+    def prepare_bumpless_vertical_transition(self, operation: str) -> dict:
+        """Preset selected controller channels at an accepted mode boundary.
+
+        The physical 6DOF plant, pose, velocity, actuators and buoyancy memory
+        remain untouched. Static trim supplies vertical-channel RBF weights
+        and fxp memory; other existing AIR states are retained. AIR entry clears
+        inactive WATER controller states, while WATER exit retains the other
+        WATER states. This limited controller preset is an engineering reset
+        map inspired by bumpless transfer, not a complete equilibrium of all
+        channels or a stability proof for arbitrary repeated transitions.
+        """
+        if self._state is None:raise ValueError('qn model state is not initialized')
+        operation=str(operation).upper()
+        if operation not in ('AIR_REFERENCE','ENTER_WATER','EXIT_WATER'):
+            raise ValueError('bumpless handover requires an AIR or medium-boundary handover')
+        state=self._state;plant=state.plant
+        mode='AIR' if medium_flag(plant.position_xyz_m[2],self.constants.hg_m)==0. else (
+            'WATER' if medium_flag(plant.position_xyz_m[2],self.constants.hg_m)==1. else 'TRANSITION')
+        required='AIR' if operation in ('AIR_REFERENCE','ENTER_WATER') else 'WATER'
+        if mode!=required:raise ValueError('bumpless handover entry medium mismatch')
+        roll,pitch,yaw=_qn_attitude(normalize_quaternion(plant.quaternion_wxyz))
+        if abs(roll)>.2 or abs(pitch)>.2:
+            raise ValueError('bumpless handover requires a settled near-level entry')
+        level=(math.cos(yaw/2.),0.,0.,math.sin(yaw/2.))
+        x,y,_=plant.position_xyz_m
+        def equilibrium(z):
+            synthetic=replace(plant,body_twist=(0.,)*6,quaternion_wxyz=level,
+                position_xyz_m=(x,y,z),actuator_outputs=(0.,)*10,buoyancy_memory=(0.,)*6)
+            return _static_trim_state(replace(state,plant=synthetic),self.constants)
+        air=equilibrium(max(.8,self.constants.hg_m+.5))
+        water=equilibrium(min(-.6,self.constants.hg_m-.5))
+        zeros=tuple(QnControllerState((0.,0.),(0.,)*7) for _ in QN_CONTROLLER_NAMES)
+        if operation in ('AIR_REFERENCE','ENTER_WATER'):
+            controllers=air.controllers[:6]+zeros[6:]
+            memories=air.controller_fxp_memory[:6]+(0.,)*7
+        else:
+            controllers=air.controllers[:6]+water.controllers[6:]
+            memories=air.controller_fxp_memory[:6]+water.controller_fxp_memory[6:]
+        self._state=replace(state,controllers=controllers,controller_fxp_memory=memories)
+        self._reference_position_m=plant.position_xyz_m
+        self._water_desired_heading_rad=yaw
+        self._water_heading_error_rad=0.
+        self._water_target_heading_error_rad=0.
+        self._water_steering_signal=0.
+        self._water_horizontal_speed_mps=0.
+        return dict(operation=operation,entry_mode=mode,position=list(plant.position_xyz_m),
+                    speed_mps=_norm3(self._map_velocity(plant)),roll_rad=roll,
+                    pitch_rad=pitch,yaw_rad=yaw,plant_state_preserved=True)
 
     def hold_reference(self) -> None:
         """任务取消/首次保持时锁定实际位置，保留执行器和控制器的连续状态。"""

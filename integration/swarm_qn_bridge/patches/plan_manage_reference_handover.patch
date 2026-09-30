@@ -196,7 +196,7 @@
 -    if (safety_hold_armed_ && !last_safety_cloud_.isZero() &&
 +    std::lock_guard<std::recursive_mutex> guard(reference_mutex_);
 +    if (reference_handover_enabled_ && reference_context_known_ && (safety_hold_armed_ || reference_generation_ > 0) &&
-+        (ros::Time::now() - reference_context_time_).toSec() > safety_odom_timeout_)
++        (ros::Time::now() - reference_context_time_).toSec() > std::max(1.0, safety_odom_timeout_))
 +      latchSafetyHold("LOCAL_REFERENCE_CONTEXT_STALE");
 +    if (!ordinary_reference_paused_ && safety_hold_armed_ && !last_safety_cloud_.isZero() &&
          (ros::Time::now() - last_safety_cloud_).toSec() > safety_cloud_timeout_)

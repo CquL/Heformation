@@ -38,10 +38,13 @@ class LocalPlatformAction:
         from qn_aav_simulator.observation_coverage import ObstacleBox
         from std_msgs.msg import String
         request_file=rospy.get_param('/mission/request_file','')
+        self.observation_request_file=str(request_file)
         self.observation_request=load_request(request_file) if request_file else None
+        self.observation_request_ids={self.observation_request.request_id} if self.observation_request else set()
         self.online_mapping=getattr(self.observation_request,'execution_mode','')=='ONLINE_MAPPING'
         self.allow_visual_timing_relaxation=bool(rospy.get_param('/mission/allow_visual_timing_relaxation',False))
         self.visual_timing_relaxed=False
+        self.last_controller_handover=None
         self.action_model_clock_drift_s=0.
         self.survey_map=None
         self.survey_lock=threading.Lock()
@@ -125,10 +128,21 @@ class LocalPlatformAction:
             pose_time,origin=captured
         rows=tuple(point_cloud2.read_points(message,field_names=('x','y','z','intensity'),skip_nans=True))
         with self.survey_lock:
+            epoch=getattr(self,'observation_epoch_pending',None)
+            if epoch is not None:
+                self.survey_map.begin_observation_epoch(epoch)
+                self.observation_epoch_pending=None
             self.survey_map.integrate(origin,[row[:3] for row in rows],[row[3]>.5 for row in rows],stamp,
                 mode=actual_mode(medium_flag(origin[2],self.node.backend.constants.hg_m)))
             self.survey_stamp=stamp
             with self.node.lock:
+                epoch=getattr(self,'observation_epoch_pending',None)
+                if epoch is not None:
+                    # A Goal can arrive while ray integration runs outside the
+                    # plant lock. Discard that old epoch before reading the new
+                    # work's observation window; next scan supplies evidence.
+                    self.survey_map.begin_observation_epoch(epoch)
+                    self.observation_epoch_pending=None
                 work=self.work
                 if work is None or work['cause'] or work['waiting_start']:return
                 index=work['index'];segment=work['segments'][index]
@@ -233,6 +247,15 @@ class LocalPlatformAction:
                  bool(rospy.get_param('/mission/allow_visual_timing_relaxation',False))))
             verified=(message.status.status==3 and result.task_outcome==1 and
                       result.safety_outcome==1 and validity_ok and result.reason==0)
+            replacement_verified=(message.status.status==2 and result.task_outcome==2 and
+                result.safety_outcome==1 and validity_ok and result.reason==0 and
+                result.model_time_hold_seconds+1e-9>=self.hold_duration)
+            # The AIR endpoint emits this distinct signature only after an
+            # exact replacement GoalID was authorized and its hold verified.
+            # Re-reading the global list here would race the runner consuming
+            # the same Result and clearing that list. Current owner GoalID was
+            # already checked above, so old Results cannot release a successor.
+            verified=verified or replacement_verified
             self.owner.finish(message.status.goal_id.id,verified)
             if verified:self.terminal_mode='AIR'
 
@@ -300,9 +323,19 @@ class LocalPlatformAction:
                 return TakeReferenceResponse(False,self.owner.generation,'NO_ACCEPTED_PLATFORM_ACTION')
             before=self.owner.generation
             accepted,reason=self.owner.claim(request.goal_id,request.source,request.expected_generation)
-            if accepted and before!=self.owner.generation:
-                self._flush_reference()
+            repeated_air_refresh=(accepted and reason=='ALREADY_ACCEPTED' and
+                                  request.source=='AIR_SWARM')
+            if accepted and (before!=self.owner.generation or repeated_air_refresh):
                 if request.source=='AIR_SWARM':
+                    try:
+                        self.last_controller_handover=(
+                            self.node.backend.prepare_bumpless_vertical_transition('AIR_REFERENCE'))
+                    except ValueError as error:
+                        self.owner.finish(request.goal_id,False)
+                        return TakeReferenceResponse(False,self.owner.generation,
+                            'AIR_CONTROLLER_HANDOVER_FAILED:'+str(error))
+                if not repeated_air_refresh:self._flush_reference()
+                if request.source=='AIR_SWARM' and not repeated_air_refresh:
                     self.water_terminal_hold=False
                     self.floor_at_claim=self.last_air_id
                     self.air_floor=self.last_air_id
@@ -341,6 +374,7 @@ class LocalPlatformAction:
             try:
                 if self.work is not None or self.owner.locked or self.owner.active or self.node.domain_history.violation:
                     raise ValueError('MEMBER_BUSY_OR_LOCKED')
+                self._refresh_observation_request()
                 if self.handover_enabled and not self.planner_ready(self.owner.source=='PLATFORM'):
                     raise ValueError('PLANNER_CONTEXT_NOT_CONFIRMED')
                 segments=[]
@@ -401,12 +435,18 @@ class LocalPlatformAction:
                 return
             self._flush_reference()
             self.water_terminal_hold=False
+            controller_handoffs=[]
             if self.online_mapping and segments[0].operation in ('ENTER_WATER','EXIT_WATER'):
                 # A vertical mode conversion keeps the measured entry heading,
                 # not the final geometric path's possibly different heading.
                 w,x,y,z=self.node.state.orientation_quat_wxyz
                 self.hold_yaw=math.atan2(2*(w*z+x*y),1-2*(y*y+z*z))
-                self.water_terminal_hold=segments[0].operation=='EXIT_WATER'
+                # Both conversions are vertical at the already settled entry.
+                # Keep zero horizontal surge and the adopted heading through
+                # the mixed medium; tiny xy residuals are not a WATER_PATH.
+                self.water_terminal_hold=True
+                controller_handoffs.append(
+                    self.node.backend.prepare_bumpless_vertical_transition(segments[0].operation))
             self.work=dict(handle=handle,id=ident,task=goal.task_id,segments=segments,index=0,
                 start=self.node.clock.model_time_s,settled=None,
                 clock_start=self.node.clock.model_time_s,ros_start=rospy.Time.now().to_sec(),
@@ -414,9 +454,29 @@ class LocalPlatformAction:
                 waiting_commit=bool(getattr(goal,'prepare_only',False)),fault_allowed=None,
                 deadline=time.monotonic()+min(timeout,self.wall_limit),cause='',last_feedback=-1.,observations=observations,
                 terminal_wait_s=terminal_wait_s,region_id=region_id,
+                controller_handoffs=controller_handoffs,
                 local_ref=tuple(self.node.state.position),local_waypoint=tuple(self.node.state.position),
                 local_tick=self.node.clock.model_time_s,local_done=False,local_wait=True)
             handle.set_accepted('finite local fragment accepted')
+
+    def _refresh_observation_request(self):
+        path=str(rospy.get_param('/mission/request_file',''))
+        if path==self.observation_request_file:return
+        from qn_aav_simulator.task_line import load_request
+        try:request=load_request(path)
+        except (OSError,TypeError,ValueError) as error:
+            raise ValueError('cannot load next monitoring request: '+str(error))
+        if request.request_id in self.observation_request_ids:
+            raise ValueError('next monitoring request must have a new request_id')
+        if getattr(request,'execution_mode','')!='ONLINE_MAPPING' or not self.online_mapping:
+            raise ValueError('live request changes require the existing ONLINE_MAPPING mode')
+        # Goal callbacks already hold the physical node lock. The map callback
+        # never waits for that lock while accepting a replacement epoch: defer
+        # clearing to its own survey lock before the first new Action scan.
+        self.observation_epoch_pending=rospy.Time.now().to_sec()
+        self.observation_request=request
+        self.observation_request_file=path
+        self.observation_request_ids.add(request.request_id)
 
     def _entry_reason(self,segments):
         state=self.node.state
@@ -472,10 +532,16 @@ class LocalPlatformAction:
             segment,start=self.fault_transition
             self.hold_point=segment.reference(self.node.clock.model_time_s-start)
             self.fault_transition=None
+            self.owner.latch_fault()
             self.work['cause']=reason
             self.work['settled']=None
             return
         if not self.work['cause']:
+            replacement=(reason=='CANCEL_REQUEST' and self.online_mapping and
+                self.work['id'] in rospy.get_param('/mission/replacement_goal_ids',[]) and
+                not self.owner.locked and not self.planner.latched and
+                not self.node.domain_history.violation and not self.scene_failure)
+            self.work['controlled_replacement']=replacement
             segment=self.work['segments'][self.work['index']]
             if (self.transition_fault_behavior=='COMPLETE_ACCEPTED_VERTICAL_SEGMENT' and
                     reason in ('CANCEL_REQUEST','PLANNER_CONTEXT_UNAVAILABLE') and
@@ -501,19 +567,31 @@ class LocalPlatformAction:
             self.work['waiting_start']=False
             self.work['waiting_commit']=False
             self.hold_point=self.node.state.position
-            self.owner.latch_fault()
+            if not replacement:self.owner.latch_fault()
+            elif self.mode()=='WATER':
+                # Original velocity damping, fixed depth/yaw and real model
+                # ticks perform stopping. No plant/controller state is reset.
+                self.water_terminal_hold=True
+                w,x,y,z=self.node.state.orientation_quat_wxyz
+                self.hold_yaw=math.atan2(2*(w*z+x*y),1-2*(y*y+z*z))
             self.work['cause']=reason
         elif self.work['cause']=='CANCEL_REQUEST' and reason!='CANCEL_REQUEST':
+            self.owner.latch_fault()
             self.work['cause']=reason
 
     def _finish(self,terminal_verified,reason):
         work=self.work
         normal=not work['cause'] and terminal_verified
+        replacement_verified=(terminal_verified and work['cause']=='CANCEL_REQUEST' and
+            work.get('controlled_replacement',False) and not self.owner.locked and
+            not self.planner.latched and not self.node.domain_history.violation and
+            not self.scene_failure and self.mode() in ('AIR','WATER'))
+        if replacement_verified:reason='REPLACED_SAFE_HOLD'
         observations=work.get('observations')
         observation_missing=normal and observations is not None and observations.emitted!=set(observations.points)
         if observation_missing:normal=False;reason='OBSERVATION_NOT_SATISFIED'
         if terminal_verified:self.terminal_mode=self.mode()
-        if terminal_verified and not work['cause'] and self.mode()=='WATER':
+        if terminal_verified and (not work['cause'] or replacement_verified) and self.mode()=='WATER':
             # A completed native terminal keeps its accepted position reference.
             # Stop generating forward LOS recapture from millimetre residuals;
             # the same plant damps its remaining velocity and holds depth/yaw.
@@ -522,7 +600,11 @@ class LocalPlatformAction:
             self.hold_yaw=math.atan2(2*(w*z+x*y),1-2*(y*y+z*z))
         # Missing business coverage does not invalidate a verified physical
         # terminal. Faults and unverified terminals still retain the local lock.
-        self.owner.finish(work['id'],terminal_verified and not work['cause'])
+        self.owner.finish(work['id'],terminal_verified and (not work['cause'] or replacement_verified))
+        if replacement_verified:
+            self.fault_transition=None
+            self.fault_hold_modes=None
+            self.fault_hold_operation=''
         if terminal_verified and observations is not None and not work['cause']:
             from std_msgs.msg import String
             self.products.publish(String(data=json.dumps(observations.terminal_report(rospy.Time.now().to_sec()),allow_nan=False)))
@@ -554,6 +636,21 @@ class LocalPlatformAction:
             return None
         work=self.work
         t=self.node.clock.model_time_s
+        if (work is not None and work.get('controlled_replacement') and
+                work['cause']=='CANCEL_REQUEST' and not work.get('replacement_hold_adopted') and
+                self.fault_transition is None and self.mode()=='WATER' and
+                self.applied_source=='PLATFORM' and self.applied_generation==self.owner.generation and
+                not self.owner.locked and not self.node.domain_history.violation and
+                not self.scene_failure and not self.planner.latched and
+                math.sqrt(sum(v*v for v in self.node.state.velocity))<=self.speed_tolerance):
+            # Controlled cancellation asks for a safe stop, not a return to the
+            # position where cancellation arrived. Native velocity damping has
+            # already braked the real plant. Adopt its measured stopped pose
+            # once as the holding reference, then verify the unchanged 4 s
+            # position/speed/medium/safety conditions. No state is overwritten.
+            self.hold_point=tuple(self.node.state.position)
+            work['replacement_hold_adopted']=True
+            work['settled']=None
         # The observation worker can time out before physical disposition ends.
         # Its Result must not discard the committed transition reference.
         target=(self.fault_transition[0].reference(t-self.fault_transition[1])
@@ -577,6 +674,8 @@ class LocalPlatformAction:
                 elapsed>=segment.duration if finishing else bool(work['cause']) or elapsed>=segment.duration)
             consistent=(self.mode() in self.allowed_modes() if work['cause'] and not finishing
                         else self.mode()==segment.target_mode)
+            if work.get('controlled_replacement'):
+                consistent=consistent and self.mode() in ('AIR','WATER')
             drift=abs((t-work['clock_start'])-(rospy.Time.now().to_sec()-work['ros_start']))
             self.action_model_clock_drift_s=drift
             time_valid=drift<=DEFAULT_MAX_ABS_DRIFT_S
@@ -633,11 +732,26 @@ class LocalPlatformAction:
                         # x/y and heading through a vertical mode handoff; do
                         # not restore the old geometric path heading.
                         begin=tuple(target)
+                        if following.operation=='EXIT_WATER' and segment.operation=='WATER_PATH':
+                            # The WATER position/speed/mode/observation and
+                            # four-second hold checks just passed. Its permitted
+                            # residual is not a new horizontal AIR maneuver:
+                            # capture actual xy/yaw once for the vertical exit.
+                            # The following scan still checks this actual column
+                            # before advancing it; all plant/controller state and
+                            # the declared final height remain unchanged.
+                            begin=tuple(self.node.state.position)
+                            w,x,y,z=self.node.state.orientation_quat_wxyz
+                            self.hold_yaw=math.atan2(2*(w*z+x*y),1-2*(y*y+z*z))
+                            self.hold_point=begin
+                            self.water_terminal_hold=True
+                            work.setdefault('controller_handoffs',[]).append(
+                                self.node.backend.prepare_bumpless_vertical_transition('EXIT_WATER'))
                         end=following.points[-1]
                         if following.operation in ('ENTER_WATER','EXIT_WATER'):end=(begin[0],begin[1],end[2])
                         work['segments'][work['index']]=Segment(following.operation,(begin,end),following.duration)
                         if following.operation=='WATER_PATH':self.water_terminal_hold=False
-                        work.update(local_ref=target,local_waypoint=target,local_done=False,
+                        work.update(local_ref=begin,local_waypoint=begin,local_done=False,
                                     local_plan_stamp=-math.inf,local_tick=t,local_survey_done=False)
             elif time.monotonic()>=work['deadline']:
                 self.hold_point=target
@@ -666,6 +780,8 @@ class LocalPlatformAction:
                 ('scene_failure',self.scene_failure),
                 ('water_terminal_hold',str(self.water_terminal_hold).lower()),
                 ('visual_timing_relaxed',str(self.visual_timing_relaxed).lower()),
+                ('controller_handoffs',json.dumps(self.work.get('controller_handoffs',())) if self.work else '[]'),
+                ('last_air_controller_handover',json.dumps(self.last_controller_handover)),
                 ('action_model_clock_drift_s',str(self.action_model_clock_drift_s)),
                 ('local_plan_seq',str(self.work.get('local_plan_seq',0) if self.work else 0)),
                 ('local_plan_stamp',str(self.work.get('local_plan_stamp',0.) if self.work else 0.)),

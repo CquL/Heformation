@@ -187,10 +187,29 @@ def circle_joint_mission_mappings(base_request, base_scene, center, radius_m):
                        center=list(sample),radius_m=None,coverage_resolution_m=None)
         mother=scene['mother_ship_receiver_position'];dx,dy=mother[0]-cx,mother[1]-cy
         norm=math.hypot(dx,dy) or 1.;ux,uy=dx/norm,dy/norm
-        entry=(cx+(r+1.5)*ux,cy+(r+1.5)*uy)
-        scene['transition_sites']=[dict(id='mapping_entry',position=[entry[0],entry[1],0.])]
         stage=(cx+(r+1.)*ux,cy+(r+1.)*uy,-2.)
-        support=(stage[0]+3.*ux,stage[1]+3.*uy,0.)
+        # The amphibious vehicle crosses the UUV's depth while entering water.
+        # Reserve the existing two-body centre clearance in the horizontal
+        # plane, plus one platform radius so numerical/tracking error is not
+        # balanced exactly on the 0.5 m surface-clearance boundary.  Vertical
+        # separation at the nominal endpoints cannot protect the conversion.
+        platform_radius=.25;fleet_surface_clearance=.5
+        conversion_offset=2.*platform_radius+fleet_surface_clearance+platform_radius
+        usv_radius=1.1891593669479295
+        scene['amphibious_return_altitude_m']=max(
+            float(scene.get('amphibious_return_altitude_m',0.)),
+            usv_radius+platform_radius+fleet_surface_clearance+platform_radius)
+        scene.pop('air_return_lanes_m',None)
+        scene['aav_return_policy']='SWARM_FORMATION'
+        entry=(stage[0]+conversion_offset*ux,stage[1]+conversion_offset*uy)
+        scene['transition_sites']=[dict(id='mapping_entry',position=[entry[0],entry[1],0.])]
+        # Put the surface support abeam of the conversion column.  The previous
+        # collinear site lay on the shore-to-entry approach and made a support
+        # vessel block the amphibious AAV it was meant to serve.  The 3 m
+        # lateral offset preserves the declared acoustic envelope while the
+        # runner releases the low-altitude approach only after this site is
+        # actually occupied.
+        support=(entry[0]-3.*uy,entry[1]+3.*ux,0.)
         scene['communication_sites']=[dict(id='mapping_support',position=list(support),radius_m=2.,
             acoustic_contact_m=8.,mother_contact_m=30.,departure_wait_candidates_s=[0.])]
         scene['return_sites']['uuv']['staging_position']=list(stage)
