@@ -46,6 +46,9 @@ class CircleMap(QWidget):
             ys.extend((item['center'][1]-item['size'][1]/2,item['center'][1]+item['size'][1]/2))
         for item in scene.get('return_sites',{}).values():xs.append(item['position'][0]);ys.append(item['position'][1])
         xs.append(scene['mother_ship_position'][0]);ys.append(scene['mother_ship_position'][1])
+        for area in scene.get('business_areas',()):
+            x,y=area['center'];r=area['radius_m']
+            xs.extend((x-r,x+r));ys.extend((y-r,y+r))
         self.bounds=(min(xs)-4,max(xs)+12,min(ys)-5,max(ys)+5)
         self.base_bounds=self.bounds
 
@@ -114,6 +117,9 @@ class CircleMap(QWidget):
             self.dragging=True;self.update()
 
     def mouseMoveEvent(self,event):
+        if not self.editable:
+            self.dragging=False
+            return
         if self.dragging:
             point=self.to_world(event.pos());center=self.draft_circle[0] if self.editing_draft else self.center
             radius=math.hypot(point[0]-center[0],point[1]-center[1])
@@ -140,6 +146,29 @@ class CircleMap(QWidget):
             painter.setPen(QPen(QColor('#c8c9cf') if item['kind']=='SOLID' else QColor('#ee5963'),2))
             painter.setBrush(QBrush(QColor(160,165,175,170) if item['kind']=='SOLID' else QColor(220,55,70,90)))
             painter.drawRect(QRectF(a.x(),a.y(),sx*self._scale(),sy*self._scale()))
+        # Business ranges/declared facility locations are operator metadata,
+        # not a hidden free-space map for the planner.
+        for area in self.scene.get('business_areas',()):
+            color=QColor(*(round(v*255) for v in area['color']))
+            c=self.to_screen(area['center']);r=area['radius_m']*self._scale()
+            painter.setPen(QPen(color,1.5,Qt.DashLine));fill=QColor(color);fill.setAlpha(17)
+            painter.setBrush(fill);painter.drawEllipse(c,r,r)
+            painter.setPen(color);painter.drawText(QRectF(c.x()-r,c.y()-r-30,2*r,25),Qt.AlignCenter,area['label'])
+            for facility in area.get('facilities',()):
+                p=self.to_screen(facility['position']);painter.setPen(QPen(color,2));painter.setBrush(Qt.NoBrush)
+                if area['id']=='wind':
+                    painter.drawEllipse(p,4,4)
+                    for angle in (0,2*math.pi/3,4*math.pi/3):
+                        painter.drawLine(p,p+QPointF(13*math.cos(angle),13*math.sin(angle)))
+                else:painter.drawRect(QRectF(p.x()-12,p.y()-8,24,16))
+                painter.drawText(p+QPointF(10,20),facility['label'])
+        for model in self.scene.get('world_models',()):
+            if model['model']!='seabed_pipeline':continue
+            points=model['points'];painter.setPen(QPen(QColor('#e2b258'),3))
+            for a,b in zip(points,points[1:]):painter.drawLine(self.to_screen(a),self.to_screen(b))
+            for i,p in enumerate(points[1:]):
+                screen=self.to_screen(p);painter.setBrush(QColor('#e2b258'));painter.drawEllipse(screen,4,4)
+                painter.drawText(screen+QPointF(6,16),'管段 '+str(i+1))
         for member,item in self.scene.get('return_sites',{}).items():
             p=self.to_screen(item['position']);painter.setBrush(QBrush(QColor('#48d597')))
             painter.setPen(Qt.NoPen);painter.drawEllipse(p,4,4)
@@ -736,6 +765,14 @@ class JointMissionPanel(QWidget):
                 state.get('request_id')!=self.state.get('request_id') or
                 state.get('plan_revision')!=self.state.get('plan_revision')):
             self.refresh();return
+        air=next((r for r in self.base_request.get('regions',()) if r.get('region_id')=='offshore_air'),None)
+        if air and air.get('shape')=='CIRCLE':
+            center=tuple(air['center'][:2]);radius=float(air['radius_m'])
+            if (self.center!=center or self.radius!=radius or
+                    self.map.center!=center or self.map.radius!=radius):
+                self.center,self.radius=center,radius;self.map.center,self.map.radius=center,radius
+                self.map.dragging=False;self.update_region();self.map.update()
+                return  # operator must see the restored authoritative region before confirming
         command=dict(decision='confirm',request_id=state['request_id'],plan_revision=state['plan_revision'])
         path=self.output/'operator-confirmation.json';temp=path.with_suffix('.tmp')
         temp.write_text(json.dumps(command));temp.replace(path)
@@ -826,6 +863,11 @@ class JointMissionPanel(QWidget):
         if (state.get('request_id')==self.base_request.get('request_id') and
                 (state.get('plan') or state.get('selected_plan'))):
             self.submitted=True
+            air=next((r for r in self.base_request.get('regions',()) if r.get('region_id')=='offshore_air'),None)
+            if air and air.get('shape')=='CIRCLE':
+                self.center,self.radius=tuple(air['center'][:2]),float(air['radius_m'])
+                self.map.center,self.map.radius=self.center,self.radius
+                self.update_region()
         kind=terminal_kind(state)
         if session_phase in ('EXECUTING','HOLDING','RETURNING','HOME') and kind=='success':kind=''
         terminal=bool(kind) or session_closed
@@ -862,6 +904,7 @@ class JointMissionPanel(QWidget):
         self.generate_button.setText('生成新任务方案' if session_open else '生成协同方案')
         self.generate_button.setEnabled(not self.submitted or (session_open and bool(self.draft_circle) and not self.pending_command_id))
         self.map.editable=self.select_region and (not self.submitted or (session_open and self.map.editing_draft))
+        if not self.map.editable:self.map.dragging=False
         self.draft_controls.setVisible(session_open)
         self.update_draft_hint()
         self.policy_box.setVisible(session_phase not in ('HOLDING','HOME'))

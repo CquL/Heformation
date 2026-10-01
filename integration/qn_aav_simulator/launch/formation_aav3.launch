@@ -32,9 +32,10 @@
   </group>
 
   <arg name="map_size_x" value="70.0"/>
-  <arg name="map_size_y" value="30.0"/>
-  <!-- Group return uses the existing common 3.5 m AIR cruise layer. -->
-  <arg name="map_size_z" value="5.0"/>
+  <arg name="map_size_y" value="42.0"/>
+  <!-- Map volume includes the new facility geometry. Existing task heights,
+       AIR workspace ceiling and the common 3.5 m return layer stay explicit. -->
+  <arg name="map_size_z" value="14.0"/>
   <arg name="odom_topic" value="visual_slam/odom"/>
   <arg name="formation_config" value="$(find qn_aav_simulator)/config/formation_aav3.yaml"/>
   <!-- Existing physical safety contract, shared by the Action servers and the

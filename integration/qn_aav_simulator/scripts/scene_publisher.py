@@ -492,7 +492,7 @@ class SceneView:
         self.scene, self.frame = scene, frame
         self.lock = threading.Lock()
         self.members = ('drone_0', 'drone_1', 'drone_2', 'usv', 'uuv')
-        self.colours = ((1., .75, .15), (.2, .8, 1.), (.7, .4, 1.), (.2, 1., .5), (1., .4, .2))
+        self.colours = ((0.,.68,.84),(.49,.20,.92),(.48,.53,.61),(0.,.64,.41),(.93,.67,0.))
         self.poses = {}
         self.trails = {key: deque(maxlen=2400) for key in self.members}
         self.last_sample = {}
@@ -565,11 +565,13 @@ class SceneView:
         def label(ns, p, text, size=.55, colour=(.95,.97,1.,1.)):
             return add(ns, M.TEXT_VIEW_FACING, p, (0.,0.,size), colour, text)
         # Finite display extents only: they do not create a navigation boundary.
-        add('water', M.CUBE, (-9.,0.,self.scene['surface_z_m']), (62.,32.,.025), (.1,.55,.8,.14))
-        add('seabed', M.CUBE, (-9.,0.,self.scene['seabed_z_m']), (62.,32.,.08), (.28,.3,.25,.65))
-        label('legend', (-9.,14.,4.), self.scene.get('scenario_label','五平台 · 实际状态与障碍'), .85)
+        extent=self.scene.get('display_extent',{'center':[-9.,0.],'size':[62.,32.]})
+        cx,cy=extent['center'];sx,sy=extent['size']
+        add('water', M.CUBE, (cx,cy,self.scene['surface_z_m']), (sx,sy,.025), (.02,.35,.55,.28))
+        add('seabed', M.CUBE, (cx,cy,self.scene['seabed_z_m']), (sx,sy,.08), (.06,.28,.34,.90))
+        label('legend', (-4.,21.,6.), self.scene.get('scenario_label','五平台 · 实际状态与障碍'), 1.5)
         if self.scene.get('online_mapping'):
-            label('map_legend',(-9.,14.,2.7),'环境模型：仿真真值参照 · 绿色点：实际探测',.55)
+            label('map_legend',(-4.,21.,4.4),'共用部署区 · 用户选择作业区域 · 共用规划与控制链路',.72)
         label('water_label', (18.,12.,.2), '海面', .65)
         label('bed_label', (18.,12.,-5.5), '海底', .65)
         for item in self.scene.get('objects', []):
@@ -578,6 +580,8 @@ class SceneView:
                       (.9,.2,.25,.18) if item['kind']=='FORBIDDEN' else (.65,.65,.7,.95))
             appearance=item.get('appearance','box')
             assets=self.scene.get('visual_assets')
+            if appearance=='proxy' and assets:
+                continue  # detailed model below; the proxy remains in sensing/safety
             if appearance=='mother_ship' and assets:
                 continue  # rendered once at the declared vessel origin below
             if appearance=='rock' and assets:
@@ -602,7 +606,49 @@ class SceneView:
                         add('geometry',M.CUBE,(x,p[1],top-.02),(.035,size[1],.02),(.25,.28,.3,1.))
             name = {'pier':'码头','rock':'岩石','coast_rock':'尾段障碍','quay':'岸壁'}.get(item['id'],
                 '栈桥' if appearance=='jetty' else '礁石' if appearance=='rock' else '禁入区' if item['kind']=='FORBIDDEN' else '障碍')
-            label('geometry_label', (p[0],p[1],p[2]+size[2]/2+.6), name, .65)
+            if item.get('label',True):label('geometry_label', (p[0],p[1],p[2]+size[2]/2+.6), name, .65)
+        assets=self.scene.get('visual_assets')
+        if assets:
+            for model in self.scene.get('visual_models',()):
+                if model['model'] in ('aav','command_vessel'):continue
+                body=add('facilities',M.MESH_RESOURCE,model['position'],(1.,1.,1.),(1.,1.,1.,1.))
+                body.mesh_resource='file://'+assets+'/'+model['mesh']
+                body.mesh_use_embedded_materials=True
+        from geometry_msgs.msg import Point
+        for area in self.scene.get('business_areas',()):
+            x,y=area['center'];radius=float(area['radius_m']);colour=tuple(area['color'])
+            circle=add('business_ranges',M.LINE_LIST,(0.,0.,0.),(.055,0.,0.),colour+(.9,))
+            for i in range(64):
+                if i%2:continue
+                for t in (2*math.pi*i/64,2*math.pi*(i+1)/64):
+                    circle.points.append(Point(x=x+radius*math.cos(t),y=y+radius*math.sin(t),z=.10))
+            label('business_label',(x,y+radius+1.,1.8),area['label'],1.05,colour+(1.,))
+            label('business_detail',(x,y+radius+1.,.6),area['detail'],.6)
+            for facility in area.get('facilities',()):
+                p=facility['position'];label('facility_name',(p[0],p[1],.5),facility['label'],.5,colour+(1.,))
+        for model in self.scene.get('visual_models',()):
+            if model['model']=='seabed_pipeline':
+                source=next(s for s in self.scene['world_models'] if s['id']==model['id'])
+                for i,p in enumerate(source['points'][1:]):
+                    label('pipeline_segment',(p[0],p[1],p[2]+.9),'管段 '+str(i+1),.55,(1.,.78,.27,1.))
+        if self.scene.get('world_models'):
+            label('port_name',(-44.8,7.,5.4),'岸边指挥中心',.6)
+            label('deployment',(-30.,3.,1.8),'母船 / 共同部署区\n3 × AAV · 1 × USV · 1 × UUV',.58)
+            sites=self.scene['return_sites'].values()
+            xs=[site['position'][0] for site in sites];ys=[site['position'][1] for site in self.scene['return_sites'].values()]
+            for obj in self.scene['objects']:
+                if obj.get('facility')=='command_vessel':
+                    xs.extend((obj['center'][0]-obj['size'][0]/2,obj['center'][0]+obj['size'][0]/2))
+                    ys.extend((obj['center'][1]-obj['size'][1]/2,obj['center'][1]+obj['size'][1]/2))
+            corners=((min(xs)-1.5,min(ys)-2.),(max(xs)+1.5,min(ys)-2.),
+                     (max(xs)+1.5,max(ys)+1.),(min(xs)-1.5,max(ys)+1.))
+            outline=add('deployment_range',M.LINE_LIST,(0.,0.,0.),(.06,0.,0.),(.55,.86,1.,.8))
+            for a,b in zip(corners,corners[1:]+corners[:1]):
+                for j in range(0,20,2):
+                    for t in (j/20,(j+1)/20):outline.points.append(Point(x=a[0]+t*(b[0]-a[0]),y=a[1]+t*(b[1]-a[1]),z=.12))
+            route=add('safe_channel',M.ARROW,(0.,0.,0.),(.16,.32,.55),(.6,.86,1.,1.))
+            route.points=[Point(x=30.,y=17.,z=.3),Point(x=34.,y=20.,z=.3)]
+            label('channel_label',(30.,19.,1.),'通往外海（航道示意）',.5)
         air_targets=[item for item in self.scene.get('observation_targets', [])
                      if item['domain']=='AIR']
         deep_targets=[item for item in self.scene.get('observation_targets', [])
@@ -658,20 +704,21 @@ class SceneView:
         assets=self.scene.get('visual_assets')
         if assets:
             mother=add('mother',M.MESH_RESOURCE,p,(1.,1.,1.),(1.,1.,1.,1.))
-            mother.mesh_resource='file://'+assets+'/mother_ship.dae'
+            mother.mesh_resource='file://'+assets+'/'+self.scene.get('mother_ship_mesh','mother_ship.dae')
             mother.mesh_use_embedded_materials=True
             # Stonefish's original marine asset uses x-forward/y-right/z-down.
-            mother.pose.orientation.x=1.;mother.pose.orientation.w=0.
+            if not self.scene.get('mother_ship_mesh'):
+                mother.pose.orientation.x=1.;mother.pose.orientation.w=0.
         else:
             add('mother', M.CUBE, p, (2.,1.,.5), (.8,.9,.95,.7))
         with self.lock:received_count=len(self.received_points)
         mother_text=('母船 · 已接收 '+str(received_count)+' 份' if received_count else '母船 · 等待结果') if self.cooperative else '母船 · 固定接收站'
-        label('mother_label', (p[0],p[1],p[2]+1.8), mother_text, .65)
+        label('mother_label', (p[0],p[1],p[2]+3.4), mother_text, .65)
         with self.lock:
             poses = dict(self.poses)
             trails = {k:list(v) for k,v in self.trails.items()}
         for i, key in enumerate(self.members):
-            name = ('无人机1','无人机2','无人机3','无人船','潜航器')[i]
+            name = ('AAV 1','AAV 2','AAV 3','USV','UUV')[i]
             if key not in poses:
                 missing=label('missing', (-34.,-10.+i*2.,2.), name+'：状态缺失')
                 missing.id=i
@@ -690,7 +737,11 @@ class SceneView:
                 dz=2*(x*z-y*w)*ox+2*(y*z+x*w)*oy+(1-2*x*x-2*y*y)*oz
                 body=add(key+'/body',kind,(p.x+dx,p.y+dy,p.z+dz),scale,colour)
                 body.pose.orientation=copy.deepcopy(q)
-            if i == 3:
+            if i<3 and assets and self.scene.get('aav_mesh'):
+                body=add(key+'/body',M.MESH_RESOURCE,(p.x,p.y,p.z),(1.,1.,1.),(1.,1.,1.,1.))
+                body.mesh_resource='file://'+assets+'/'+self.scene['aav_mesh']
+                body.mesh_use_embedded_materials=True;body.pose.orientation=copy.deepcopy(pose.orientation)
+            elif i == 3:
                 part(M.SPHERE,(2.,.35,.4),(0.,-.4,0.))
                 part(M.SPHERE,(2.,.35,.4),(0.,.4,0.))
                 part(M.CUBE,(1.,.85,.2),(0.,0.,.2))

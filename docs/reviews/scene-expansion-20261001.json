@@ -1,0 +1,324 @@
+{
+  "scope": "same ROS scene/environment expansion, no mission execution",
+  "status": "AWAITING_CONFIRMATION",
+  "motion_step_count": 0,
+  "resource_locks": [],
+  "planning_wall_s": 0.4255444250011351,
+  "scene": {
+    "objects": 57,
+    "unique_objects": 57,
+    "models": [
+      {
+        "id": "shore_port",
+        "model": "shore_port",
+        "mesh": "shore_port.dae",
+        "position": [
+          -36.0,
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "id": "harbor_dock",
+        "model": "harbor_dock",
+        "mesh": "harbor_dock.dae",
+        "position": [
+          -28.5,
+          14.0,
+          0.0
+        ]
+      },
+      {
+        "id": "command_vessel",
+        "model": "command_vessel",
+        "mesh": "command_vessel.dae",
+        "position": [
+          -28.0,
+          11.0,
+          0.0
+        ]
+      },
+      {
+        "id": "wind_1",
+        "model": "wind_turbine",
+        "mesh": "wind_1.dae",
+        "position": [
+          21.0,
+          10.0,
+          0.0
+        ]
+      },
+      {
+        "id": "wind_2",
+        "model": "wind_turbine",
+        "mesh": "wind_2.dae",
+        "position": [
+          29.0,
+          8.0,
+          0.0
+        ]
+      },
+      {
+        "id": "production_platform",
+        "model": "production_platform",
+        "mesh": "production_platform.dae",
+        "position": [
+          24.0,
+          -9.0,
+          0.0
+        ]
+      },
+      {
+        "id": "seabed_pipeline",
+        "model": "seabed_pipeline",
+        "mesh": "seabed_pipeline.dae",
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "id": "aav",
+        "model": "aav",
+        "mesh": "aav.dae",
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    ],
+    "business_areas": [
+      {
+        "id": "survey",
+        "label": "A 海域调查区",
+        "detail": "现有区域巡查",
+        "center": [
+          3.0,
+          4.0
+        ],
+        "radius_m": 4.0,
+        "color": [
+          0.26,
+          0.84,
+          0.95
+        ],
+        "facilities": []
+      },
+      {
+        "id": "wind",
+        "label": "B 风机巡检区",
+        "detail": "空中巡视 / 水下基础巡查",
+        "center": [
+          25.0,
+          9.0
+        ],
+        "radius_m": 7.0,
+        "color": [
+          0.58,
+          0.85,
+          0.4
+        ],
+        "facilities": [
+          {
+            "id": "wind_1",
+            "label": "风机 1",
+            "position": [
+              21.0,
+              10.0
+            ]
+          },
+          {
+            "id": "wind_2",
+            "label": "风机 2",
+            "position": [
+              29.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      {
+        "id": "platform_pipeline",
+        "label": "C 平台与管路区",
+        "detail": "设施巡视 / 沿线巡查",
+        "center": [
+          24.0,
+          -9.0
+        ],
+        "radius_m": 7.0,
+        "color": [
+          1.0,
+          0.67,
+          0.16
+        ],
+        "facilities": [
+          {
+            "id": "production_platform",
+            "label": "作业平台",
+            "position": [
+              24.0,
+              -9.0
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "initial_snapshot": {
+    "scope": "actual five-platform initial scene, no task execution",
+    "model_count": 8,
+    "object_count": 56,
+    "business_areas": [
+      {
+        "id": "survey",
+        "label": "A 海域调查区",
+        "detail": "现有区域巡查",
+        "center": [
+          3.0,
+          4.0
+        ],
+        "radius_m": 4.0,
+        "color": [
+          0.26,
+          0.84,
+          0.95
+        ],
+        "facilities": []
+      },
+      {
+        "id": "wind",
+        "label": "B 风机巡检区",
+        "detail": "空中巡视 / 水下基础巡查",
+        "center": [
+          25.0,
+          9.0
+        ],
+        "radius_m": 7.0,
+        "color": [
+          0.58,
+          0.85,
+          0.4
+        ],
+        "facilities": [
+          {
+            "id": "wind_1",
+            "label": "风机 1",
+            "position": [
+              21.0,
+              10.0
+            ]
+          },
+          {
+            "id": "wind_2",
+            "label": "风机 2",
+            "position": [
+              29.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      {
+        "id": "platform_pipeline",
+        "label": "C 平台与管路区",
+        "detail": "设施巡视 / 沿线巡查",
+        "center": [
+          24.0,
+          -9.0
+        ],
+        "radius_m": 7.0,
+        "color": [
+          1.0,
+          0.67,
+          0.16
+        ],
+        "facilities": [
+          {
+            "id": "production_platform",
+            "label": "作业平台",
+            "position": [
+              24.0,
+              -9.0
+            ]
+          }
+        ]
+      }
+    ],
+    "members": {
+      "drone_0": {
+        "topic": "/drone_0_qn/odometry",
+        "frame": "world",
+        "position": [
+          -30.0,
+          6.0,
+          0.8
+        ],
+        "collision_radius_m": 0.25,
+        "minimum_scene_clearance_m": 3.625
+      },
+      "drone_1": {
+        "topic": "/drone_1_qn/odometry",
+        "frame": "world",
+        "position": [
+          -30.0,
+          4.0,
+          0.8
+        ],
+        "collision_radius_m": 0.25,
+        "minimum_scene_clearance_m": 5.625
+      },
+      "drone_2": {
+        "topic": "/drone_2_qn/odometry",
+        "frame": "world",
+        "position": [
+          -30.0,
+          8.0,
+          0.8
+        ],
+        "collision_radius_m": 0.25,
+        "minimum_scene_clearance_m": 1.625
+      },
+      "usv": {
+        "topic": "/usv/odometry",
+        "frame": "world",
+        "position": [
+          -25.0,
+          -2.0,
+          -0.03771260856775812
+        ],
+        "collision_radius_m": 1.1891593669479295,
+        "minimum_scene_clearance_m": 4.773128024484312
+      },
+      "uuv": {
+        "topic": "/uuv/odometry",
+        "frame": "world",
+        "position": [
+          -27.0,
+          4.0,
+          -2.0
+        ],
+        "collision_radius_m": 0.25,
+        "minimum_scene_clearance_m": 3.75
+      }
+    },
+    "scene_frame": "world"
+  },
+  "ui_confirmation_check": {
+    "read_only_drag_blocked": true,
+    "mismatched_region_confirmation_blocked": true,
+    "restored_center": [
+      2.0,
+      4.0
+    ],
+    "status": "AWAITING_CONFIRMATION"
+  },
+  "evidence_directory": "experiments/20261001-three-business-scene-live-r2",
+  "images": "docs/images/three-business-scene-*.png",
+  "limits": [
+    "detailed display and conservative AABB sensing/safety models",
+    "B/C dedicated movement templates not connected or executed",
+    "RViz material rendering, not pixel-identical concept painting"
+  ]
+}

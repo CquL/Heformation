@@ -4,6 +4,12 @@
 
 ## 当前远域场景
 
+**2026-10-01：同一环境已加入三业务场景。** 母船附近仍部署3台AAV、1艘USV、1台UUV；现有调查区之外，加入两座风机及水下基础、作业平台及海底管路（三处阀件）、港口建筑、道路、灯塔、码头和树木。实际[全景](docs/images/three-business-scene-overview.png)、[风机](docs/images/three-business-scene-wind.png)、[平台/管路](docs/images/three-business-scene-platform.png)、[部署区](docs/images/three-business-scene-deployment.png)、[同次UI](docs/images/three-business-scene-ui.png)来自同一ROS运行或读取其实际状态的原Qt组件。
+
+主命令沿用下方入口。资产准备根据场景的 `world_models` 生成COLLADA资源及 `visual-assets/expanded-scene.yaml`，UI、感知和净距共用此展开几何；有/无界面时一致。新增主要结构使用同组件尺寸生成的保守盒体，精细显示网格不是精确曲面碰撞模型。原Swarm/qn/PVS、任务权威、GoalID及安全门槛保留；地图体积扩展容纳设施，当前业务工作高度与控制工作域未自动提高。
+
+RViz“Views”提供全景、风机、平台/管路与部署近景。实际点云显示默认隐藏，可手动开启，感知/导航仍持续接收。UI显示同一区域及设施示意。**本轮完成环境扩展；B/C专用运动模板未接，当前确认入口仍执行原区域巡查。** 材质/光照为RViz显示，不是概念画逐像素复现。
+
 [场景配置](integration/qn_aav_simulator/config/five_scene_offshore.yaml)把三台 AAV、USV、UUV 和母船放在同一岸边部署区；[任务请求](integration/qn_aav_simulator/config/monitoring_request_offshore.yaml)声明障碍通道另一侧的空中与水下观测、必要结果接收及返回。RViz 显示同一 ROS 会话中的实际平台状态。坐标以米计，是现有模型的缩比任务场景，不能解释为真实数公里航程或设备通信性能。
 
 实时入口采用**独立任务控制台＋独立RViz**。控制台按设计图保留顶部任务阶段、左侧任务/分工、右侧作业/支援/收件/事件、底部并行时间线；中央为二维区域与方案切换，不嵌入三维画面。在中央地图按下鼠标确定圆心、拖动确定半径，再点击“生成协同方案”；RViz随后在独立窗口显示同一场景。方案生成后，在UI核对实际分工并点击“确认并执行”，无需到终端输入yes。关闭控制台不结束已确认任务；“停止任务”须在UI确认，交给原runner取消处置，不将点击停止当作平台已停稳或资源已释放。

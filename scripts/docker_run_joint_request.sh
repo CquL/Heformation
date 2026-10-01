@@ -44,11 +44,16 @@ git -C "$PROJECT_ROOT" rev-parse HEAD > "$JOINT_OUTPUT/base-commit.txt"
 git -C "$PROJECT_ROOT" diff -- integration scripts > "$JOINT_OUTPUT/workspace.patch"
 
 JOINT_GUI_ARGS=()
+# Expand approved facility geometry for both visual and headless execution.
+# The generated file is the one scene consumed by UI, sensors and verifiers.
+python3 "$PROJECT_ROOT/scripts/prepare_five_scene_assets.py" "$JOINT_OUTPUT/visual-assets" --scene "$JOINT_SCENE_FILE"
+if [[ -f "$JOINT_OUTPUT/visual-assets/expanded-scene.yaml" ]]; then
+  JOINT_SCENE_FILE="$JOINT_OUTPUT/visual-assets/expanded-scene.yaml"
+fi
 if [[ "$JOINT_VISUALIZE" == true ]]; then
   : "${DISPLAY:?Run the visual task from a desktop terminal with DISPLAY}"
   JOINT_FONT=/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
   [[ -f "$JOINT_FONT" ]] || { echo 'Install fonts-noto-cjk before opening the Chinese RViz view' >&2; exit 2; }
-  python3 "$PROJECT_ROOT/scripts/prepare_five_scene_assets.py" "$JOINT_OUTPUT/visual-assets"
   JOINT_GUI_ARGS+=(
     --env DISPLAY --env HOME=/tmp --env QT_X11_NO_MITSHM=1
     --env MPLCONFIGDIR=/tmp/mpl --env XDG_CONFIG_HOME=/tmp/config

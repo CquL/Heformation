@@ -19,19 +19,60 @@ scene:
     - {id: exclusion, kind: FORBIDDEN, center: [-12.0, 10.0, -2.0], size: [2.0, 2.0, 8.0]}
     # Entirely west of Swarm's x=-35 m map edge; analytic safety still checks
     # the full box, while the planner need not serialize 111k unreachable voxels.
-    - {id: shore, kind: FORBIDDEN, center: [-38.0, 0.0, -1.5], size: [3.0, 30.0, 9.0], appearance: quay}
+    - {id: shore, kind: FORBIDDEN, center: [-44.5, 0.0, 1.0], size: [17.0, 44.0, 14.0], appearance: quay}
     - {id: breakwater, kind: SOLID, center: [-17.0, 10.0, -2.5], size: [2.0, 8.0, 7.0], appearance: jetty}
     - {id: reef_west, kind: SOLID, center: [-8.0, -3.0, -4.5], size: [3.0, 3.0, 3.0], appearance: rock}
     - {id: reef_east, kind: SOLID, center: [10.0, 2.0, -4.5], size: [3.0, 2.0, 3.0], appearance: rock}
     - {id: reef_outer, kind: SOLID, center: [19.0, 6.0, -4.5], size: [3.0, 3.0, 3.0], appearance: rock}
+    - {id: survey_reef_1, kind: SOLID, center: [0.0, 5.0, -5.4], size: [1.6, 1.3, 1.2], appearance: rock, label: false}
+    - {id: survey_reef_2, kind: SOLID, center: [2.8, 6.0, -5.5], size: [1.5, 1.5, 1.0], appearance: rock, label: false}
+    - {id: survey_reef_3, kind: SOLID, center: [5.0, 4.7, -5.3], size: [1.8, 1.6, 1.4], appearance: rock, label: false}
+    - {id: survey_reef_4, kind: SOLID, center: [2.0, 2.0, -5.5], size: [1.3, 1.4, 1.0], appearance: rock, label: false}
+    - {id: channel_islet, kind: SOLID, center: [10.0, -4.8, -2.5], size: [4.0, 3.6, 7.0], appearance: rock}
     # Encloses all original visual vertices after (x,y,z)->(x,-y,-z).
     - {id: mother_ship_hull, kind: SOLID, center: [-28.596904, 11.0, 0.285414], size: [7.891588, 2.186304, 1.731388], appearance: mother_ship}
   mother_ship_position: [-28.0, 11.0, 0.0]
   # Declared radio attachment above the rendered solid hull (top ~1.15m).
   # The hull centre is not a valid LOS receiver; this is geometry, not an
   # experimentally calibrated antenna specification.
-  mother_ship_receiver_position: [-28.0, 11.0, 2.0]
-  scenario_label: 远域联合观测 · 岸边部署→海上作业
+  mother_ship_receiver_position: [-24.0, 11.0, 3.15]
+  scenario_label: Heformation 三业务协同仿真场景
+  # User-approved layout. Coordinates are model metres, not hardware scales.
+  # The existing offline asset preparation expands major components into
+  # conservative SOLID AABBs consumed by sensors and clearance checks.
+  display_extent: {center: [-6.0, 0.0], size: [92.0, 48.0]}
+  mother_ship_mesh: command_vessel.dae
+  aav_mesh: aav.dae
+  world_models:
+    - {id: shore_port, model: shore_port, position: [-36.0, 0.0, 0.0]}
+    - {id: harbor_dock, model: harbor_dock, position: [-28.5, 14.0, 0.0], length_m: 13.0}
+    - {id: command_vessel, model: command_vessel, position: [-28.0, 11.0, 0.0]}
+    - {id: wind_1, model: wind_turbine, position: [21.0, 10.0, 0.0]}
+    - {id: wind_2, model: wind_turbine, position: [29.0, 8.0, 0.0]}
+    - {id: production_platform, model: production_platform, position: [24.0, -9.0, 0.0]}
+    - id: seabed_pipeline
+      model: seabed_pipeline
+      position: [0.0, 0.0, 0.0]
+      points: [[12.0, -5.5, -5.70], [17.0, -6.5, -5.70], [24.0, -11.0, -5.70], [32.0, -13.5, -5.70]]
+    - {id: aav, model: aav, position: [0.0, 0.0, 0.0]}
+  # Task-range metadata and facility locations, not precomputed motion paths.
+  # New business-specific activity templates are a separate implementation.
+  business_areas:
+    - {id: survey, label: 'A 海域调查区', detail: '现有区域巡查', center: [3.0, 4.0], radius_m: 4.0, color: [0.26, 0.84, 0.95], facilities: []}
+    - id: wind
+      label: 'B 风机巡检区'
+      detail: '空中巡视 / 水下基础巡查'
+      center: [25.0, 9.0]
+      radius_m: 7.0
+      color: [0.58, 0.85, 0.40]
+      facilities: [{id: wind_1, label: '风机 1', position: [21.0, 10.0]}, {id: wind_2, label: '风机 2', position: [29.0, 8.0]}]
+    - id: platform_pipeline
+      label: 'C 平台与管路区'
+      detail: '设施巡视 / 沿线巡查'
+      center: [24.0, -9.0]
+      radius_m: 7.0
+      color: [1.0, 0.67, 0.16]
+      facilities: [{id: production_platform, label: '作业平台', position: [24.0, -9.0]}]
   # Operator-confirmed return policy: each participating platform comes back
   # to its declared deployment footprint. Marine radii are native hull proxies;
   # AAV uses the existing AIR Action terminal position tolerance (0.5 m),

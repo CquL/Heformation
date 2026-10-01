@@ -23,7 +23,7 @@ Visualization Manager:
     Queue Size: 1
   - Class: rviz/PointCloud2
     Name: 实际探测表面（几何测距）
-    Enabled: true
+    Enabled: false
     Topic: /scene/observed_cloud
     Color Transformer: FlatColor
     Position Transformer: XYZ
@@ -33,20 +33,20 @@ Visualization Manager:
     Queue Size: 1
   - Class: rviz/Marker
     Name: 无人机1
-    Enabled: true
+    Enabled: false
     Marker Topic: /drone_0_odom_visualization/robot
   - Class: rviz/Marker
     Name: 无人机2
-    Enabled: true
+    Enabled: false
     Marker Topic: /drone_1_odom_visualization/robot
   - Class: rviz/Marker
     Name: 无人机3
-    Enabled: true
+    Enabled: false
     Marker Topic: /drone_2_odom_visualization/robot
   - Class: rviz/Grid
     Name: 海面网格（米）
     Enabled: true
-    Alpha: 0.2
+    Alpha: 0.13
     Cell Size: 2
     Plane Cell Count: 40
     Color: 90; 125; 150
@@ -63,15 +63,33 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Name: 岸边部署与远端作业
+      Name: 三业务共用海域
       Target Frame: <Fixed Frame>
-      Distance: 72.0
-      Focal Point: {X: -13.0, Y: 4.0, Z: -1.0}
-      Pitch: 1.05
+      Distance: 91.0
+      Focal Point: {X: -7.0, Y: 1.0, Z: -0.5}
+      Pitch: 0.90
       Yaw: 4.71
       Near Clip Distance: 0.01
       Field of View: 0.785398
     Saved:
+    - Class: rviz/Orbit
+      Name: 风机区
+      Target Frame: <Fixed Frame>
+      Distance: 25.0
+      Focal Point: {X: 25.0, Y: 9.0, Z: 2.0}
+      Pitch: 0.65
+      Yaw: 4.71
+      Near Clip Distance: 0.01
+      Field of View: 0.785398
+    - Class: rviz/Orbit
+      Name: 平台与管路区
+      Target Frame: <Fixed Frame>
+      Distance: 24.0
+      Focal Point: {X: 23.0, Y: -9.0, Z: -1.0}
+      Pitch: 0.60
+      Yaw: 4.71
+      Near Clip Distance: 0.01
+      Field of View: 0.785398
     - Class: rviz/Orbit
       Name: 出发与作业全程
       Target Frame: <Fixed Frame>
