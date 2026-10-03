@@ -1,0 +1,6 @@
+interface:
+  display_name: "Heformation 三业务协同任务链"
+  short_description: "明确Heformation当前任务、推进方案与三业务协同系统最终交付"
+  default_prompt: "使用 $heformation-task-chain，依据服务器最新事实说明当前任务、下一步方案和最终交付，区分已完成与未完成。"
+policy:
+  allow_implicit_invocation: true

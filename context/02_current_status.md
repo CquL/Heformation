@@ -1,5 +1,8 @@
 # 当前状态
 
+> **2026-10-03 任务Skill与A已完成边界**：用户确认A已完成，作为有效基线保留复用；当前任务是B/C接入、完整C及同会话动态/返航总验收，B已监测闭环、C动态成员输入缺口仍未修。项目技能见 [heformation-task-chain](../skills/heformation-task-chain/SKILL.md)，服务器Codex已安装对应链接。本次只创建/校核技能与更新说明，没有修改运动源码或启动仿真。
+
+
 > **2026-10-03 用户转服务器接手**：本地本轮执行已停止，r67旧世界和读取进程均已退出；新完整C四锁/UNKNOWN_LOCKED/verified_stop=false原样保留。B监测闭环与管件2复查已完成，C动态成员避碰修正尚未实施、最终返回总验收未完成。完整目标、代码位置、同次相遇取证和启动入口见 [server715总接手文档](../docs/requirements/server715-project-handoff-20261003.md)。以后直接在server715项目继续，不重复启动旧世界。
 
 
