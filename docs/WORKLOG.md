@@ -1,3 +1,20 @@
+## 2026-10-03 — 真实任务中安全替换与管件2复查闭环，新完整C独立计量
+
+- B事实：同次mission-0000-final四work100%、4/4报告实收、13/13 step verified/native_state3、6复合活动SUCCEEDED、零锁HOLDING；是监测闭环，规定返航仍在共享会话最终验收。
+- 动态事实：第一次C在AIR/结构部分、管路100%时按已授权LOCAL复查被替换；mission-0001-final明确CANCELED_BY_REPLACEMENT，四条controlled_replacement均terminal_verified、旧锁零，不升级旧C通过。新的管件2请求由原求解器选drone0 ENTER/WATER4s/EXIT，当前100%、一报告实收、匹配成功终态/零锁HOLDING。
+- 实际退出：valve2-native-after-receipt显示AIR/IDLE/AIR_SWARM generation6，actual(24.77179,-13.68262,.8001737)、速度约2e-12，无air_domain_violation。旧aav_1.inspection-live属于被替换旧C，不当作当前native事实。
+- 冻结计量：两原Action实现ledger_key=(request_id,work_id,version)，不同请求旧ledger清除。新完整C将重新接受并独立完成AIR3/60、外部WATER3/60、全管路3LINE+3LOCAL4s，不能将旧C部分区间拼作新请求通过。原感知地图记忆不等于作业区间继承。
+- 预览：执行中的一次完整C预览未找到完整分配，仅该预览ERROR，未使活动任务失败；当前实际退出/终态完成后按fresh状态再次提交完整C预览，不新增模式门或改变运动/安全参数。
+- 下一步：新完整C从零实跑与全部实收/HOLDING；人工Swarm3AAV共同返航、返航中本地C任务替换及再返航，最终HOME5/5零锁/end_session；同次bag最后核对参考回跳、规定转弯与实际应急。
+
+## 2026-10-03 — 同次B完整监测闭环，C执行中局部复查预览
+
+- B实际：mission-0000-final为MONITORING_COMPLETED_RETURN_DEFERRED/HOLDING，四work100%、母船4/4产品实收、13/13匹配成功step与6复合活动SUCCEEDED、零锁；drone1完整ENTER/work/EXIT。只说明B监测闭环完成，规定返航在当前共享会话最终验收。
+- C实际：c-64c8f62387bc-4db8f2e9db重求解0.002289墙上秒、原10秒预算，全部AIR3/60、外部WATER3/60与全管路3LINE+3LOCAL4s已实际激活。当前进度{'production_platform:structure': 0.39551707191233654, 'seabed_pipeline:pipeline': 1.0, 'production_platform:air': 0.5825198468650717}，尚无C完整通过。
+- 动态：按已授权任务中替换/局部复查要求，经原operator接口提交管件2的4s LOCAL复查预览，保持原版本/部分区间证据。后续必须重新接受并完成完整C规定范围，局部完成不会升级为完整C通过；没有另起世界或资格系列。
+- 证据：r67/mission-0000-final.json、c-original-active-before-recheck.json、inflight-valve-recheck-preview-command.json与同次输入/actual bag。
+- 下一步：审查复查Plan与真实安全交接、复查收件，然后完整C剩余范围/实收、HOLDING、人工Swarm3机共同返航及返航中任务替换，最终HOME5/5零锁。
+
 ## 2026-10-03 — server715运动源码稳定检查点，同次r67继续
 
 - 计划：按用户完整非实验项目推送授权提交当前已编译的原链修正与真实接手口径；实验/缓存/私有聊天不纳入。
