@@ -1,5 +1,11 @@
 # 当前状态
 
+> **2026-10-03 r64当前执行**：完整B b-84b589f77df8/rev0已确认、四work完整，完整C queue预览提交；新native9e7b1157/4×目标/按完成模型步推进实际clock，原qn模型/安全/锁/实际计量不改。原输入急停参考回跳与实际折返在r61已证实，最新修改仍待本次验证。当前只有cae39386f40c，勿重复世界；B/C尚未全链通过。
+
+> **2026-10-03 r61已失败，后退定位**：原生急停把参考P/V/A重置到落后的odom并零速；AAV3回跳0.370707m、实际前冲后回退0.179302m，同次闭合bag已证实。旧五锁/失败保留，B/C未通过。正在原native补丁改连续减速/安全参考保持，并对软速度优化结果按原0.6m/s边界重定时后校核；编译/新实跑未完成。所有改动在server715源目录，勿另起旧世界。
+
+> **服务器接手已开始**：源代码位于 server715:/home/server715/data/lhj/codes/Heformation，GitHub main bbc44fec 精确拉取。Docker29待数据盘配置后加载已传ba3b2396镜像；2×模型clock入口取消无必要的宿主NTP sudo动作。所有源码修改与后续运行在服务器。聊天私有归档/索引已导入，解析核查中；B/C全链仍未通过。
+
 > **2026-10-03 server715 迁移切换**：B/C 执行接线已有，完整验收仍未通过。r59 两 AIR 与 AAV 基础计量100%、三个报告实收，但 UUV 只完成前两层、USV 第二服务超时；旧失败和锁保留。r60 仅生成 B 预览（0.008875秒），已 decline，NOT_CONFIRMED/零锁/未派发运动，bag闭合/本地容器退出。最新三项修正（水下完成后的实际停止终端、球形导航包络欧氏距离、USV 声明支援区域验收）尚待同次完整验证。用户要求全部非实验项目推送并迁到 server715:/home/server715/data/lhj/codes/Heformation 继续，普通 SSH 控制、本地凭据不迁移。服务器 Ubuntu22.04/64核/双4090，Docker由用户安装。新接手见 docs/requirements/server715-migration-20261003.md，勿重启旧本地世界。
 
 > **2026-10-03 当前r59启动，B/C全链仍未通过**：根任务直接运行，旧执行agents均已结束，不重启旧agent/旧世界。r58已failed/bag闭合/容器退出：两AIR86与AAV基础60区间100%，UUV66.67%，AIR终态在0.058s fleet信息缺口时提交导致NOT_VERIFIED；旧Result/锁不升级。最新source终态等待既有≤1s恢复窗口的fresh实际bracket；PVS复用既有query_worker进程，每份fresh snapshot/独立deadline/timeout清理/full-state采用，直接协议小检查通过。native镜像ba3b2396…已编译A*邻接边同ESDF/1cm判据，AIR0.6/0.5、WATER0.225、USV60N/0.6/query2wall保持。r59从原入口完整B→C/实收/动态/驻留/人工Swarm返航继续，exec句柄由当前工具返回，不拼接旧单项100%为通过。

@@ -10,13 +10,15 @@ if [[ -e "$OUTPUT/metrics.json" ]]; then
   exit 2
 fi
 
-# The host NTP daemon caused a recorded ROS wall-clock rollback. Keep its
-# original state and restore it on normal exit or Ctrl-C; model time gates stay
-# unchanged. This is an experiment condition, not a mission capability.
+# At accelerated speed five_qualification uses the model /clock. It is not
+# affected by host NTP adjustment; do not stop a shared server clock service.
+# The legacy 1x wall-clock case retains its recorded NTP workaround.
 systemctl is-active systemd-timesyncd > "$OUTPUT/clock-service-before.txt" || true
 BEFORE="$(cat "$OUTPUT/clock-service-before.txt")"
+USES_MODEL_CLOCK=$(python3 -c 'import sys; print(str(float(sys.argv[1]) != 1.0).lower())' "${JOINT_SIM_SPEED:-2.0}")
+printf '%s\n' "$USES_MODEL_CLOCK" > "$OUTPUT/uses-model-clock.txt"
 restore_clock_service() {
-  if [[ "$BEFORE" == active ]]; then
+  if [[ "$BEFORE" == active && "$USES_MODEL_CLOCK" != true ]]; then
     sudo -n systemctl start systemd-timesyncd
   fi
   systemctl is-active systemd-timesyncd > "$OUTPUT/clock-service-after.txt" || true
@@ -24,7 +26,7 @@ restore_clock_service() {
 trap restore_clock_service EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-if [[ "$BEFORE" == active ]]; then
+if [[ "$BEFORE" == active && "$USES_MODEL_CLOCK" != true ]]; then
   sudo -n systemctl stop systemd-timesyncd
 fi
 

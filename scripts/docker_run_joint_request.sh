@@ -218,7 +218,10 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
       /drone_0_qn/used_reference_pose /drone_0_qn/used_reference_twist
       /drone_1_qn/used_reference_pose /drone_1_qn/used_reference_twist
       /drone_2_qn/used_reference_pose /drone_2_qn/used_reference_twist
-      /uuv/used_reference_pose /uuv/used_reference_twist)
+      /uuv/used_reference_pose /uuv/used_reference_twist
+      /drone_0_planning/pos_cmd /drone_1_planning/pos_cmd /drone_2_planning/pos_cmd
+      /drone_0_planning/member_goal /drone_1_planning/member_goal /drone_2_planning/member_goal
+      /drone_0_member_goal /drone_1_member_goal /drone_2_member_goal)
     if [[ -n "$JOINT_VIEW_CPUSET" ]]; then record_cmd=(taskset -c "$JOINT_VIEW_CPUSET" "${record_cmd[@]}"); fi
     "${record_cmd[@]}" > /experiments/current/recorder.log 2>&1 &
     recorder_pid=$!

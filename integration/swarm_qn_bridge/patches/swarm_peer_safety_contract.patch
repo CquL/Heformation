@@ -337,3 +337,185 @@
  
      return true;
    }
+
+--- a/src/planner/plan_manage/src/planner_manager.cpp
++++ b/src/planner/plan_manage/src/planner_manager.cpp
+@@ -261,12 +261,44 @@
+          << ",count_success= " << count_success << endl;
+     average_plan_time_ = sum_time / count_success;
+ 
++    // Optimizer feasibility costs are soft. The declared motion limits must
++    // also hold on the polynomial that will actually be sent to the controller.
++    // Reuse native MINCO with fixed junctions and the same boundary P/V/A;
++    // changing all coefficients by uniform time scaling would break the head.
++    auto candidate = ploy_traj_opt_->getMinJerkOptPtr()->getTraj();
++    const int pieces = candidate.getPieceNum();
++    Eigen::Matrix<double, 3, 3> bounded_head, bounded_tail;
++    bounded_head << candidate.getJuncPos(0), candidate.getJuncVel(0), candidate.getJuncAcc(0);
++    bounded_tail << candidate.getJuncPos(pieces), candidate.getJuncVel(pieces), candidate.getJuncAcc(pieces);
++    Eigen::MatrixXd junctions(3, pieces - 1);
++    for (int i = 1; i < pieces; ++i) junctions.col(i - 1) = candidate.getJuncPos(i);
++    Eigen::VectorXd durations = candidate.getDurations();
++    for (int attempt = 0; attempt < 6 &&
++         (!candidate.checkMaxVelRate(pp_.max_vel_ * (1.0 + FLT_EPSILON)) || !candidate.checkMaxAccRate(pp_.max_acc_ * (1.0 + FLT_EPSILON))); ++attempt)
++    {
++      const double scale = std::max(candidate.getMaxVelRate() / pp_.max_vel_,
++                                   std::sqrt(candidate.getMaxAccRate() / pp_.max_acc_));
++      if (!std::isfinite(scale) || scale <= 1.0) break;
++      durations *= scale;
++      poly_traj::MinJerkOpt bounded;
++      bounded.reset(bounded_head, bounded_tail, pieces);
++      bounded.generate(junctions, durations);
++      candidate = bounded.getTraj();
++    }
++    if (!candidate.checkMaxVelRate(pp_.max_vel_ * (1.0 + FLT_EPSILON)) || !candidate.checkMaxAccRate(pp_.max_acc_ * (1.0 + FLT_EPSILON)))
++    {
++      ROS_WARN_THROTTLE(1.0, "Reject reference violating declared velocity/acceleration limits");
++      return false;
++    }
++    // Re-timing with fixed boundary derivatives can change intermediate
++    // geometry. Verify with the same inflated map and native peer predicate.
++    if (!referenceGeometryFree(candidate)) return false;
++
+     if (have_local_traj)
+     {
+       double delta_replan_time = trajectory_start_time - ros::Time::now().toSec();
+       if (delta_replan_time > 0)
+         ros::Duration(delta_replan_time).sleep();
+-      const auto candidate = ploy_traj_opt_->getMinJerkOptPtr()->getTraj();
+       if (ploy_traj_opt_->checkPeerCollision(candidate, trajectory_start_time))
+       {
+         continous_failures_count_++;
+@@ -276,7 +308,6 @@
+     }
+     else
+     {
+-      const auto candidate = ploy_traj_opt_->getMinJerkOptPtr()->getTraj();
+       const double committed_start = ros::Time::now().toSec();
+       if (ploy_traj_opt_->checkPeerCollision(candidate, committed_start))
+       {
+@@ -293,8 +324,81 @@
+     return true;
+   }
+ 
+-  bool EGOPlannerManager::EmergencyStop(Eigen::Vector3d stop_pos)
+-  {
++  bool EGOPlannerManager::referenceGeometryFree(const poly_traj::Trajectory &candidate)
++  {
++    const double speed = candidate.getMaxVelRate();
++    const double total = candidate.getTotalDuration();
++    if (!std::isfinite(speed) || !std::isfinite(total) || total <= 0.0) return false;
++    // The existing A* edge check uses 1 cm; retain that spatial resolution.
++    const double dt = 0.01 / std::max(speed, 0.01);
++    for (double t = 0.0; t < total; t += dt)
++      if (grid_map_->getInflateOccupancy(candidate.getPos(t)) != 0) return false;
++    return grid_map_->getInflateOccupancy(candidate.getPos(total)) == 0;
++  }
++
++  bool EGOPlannerManager::EmergencyStop(Eigen::Vector3d stop_pos, bool preserve_reference)
++  {
++    const double now = ros::Time::now().toSec();
++    const auto &previous = traj_.local_traj;
++    if (preserve_reference && previous.traj_id > 0 && previous.duration > 0.0)
++    {
++      const double relative = std::max(0.0, std::min(now - previous.start_time, previous.duration));
++      const Eigen::Vector3d p = previous.traj.getPos(relative);
++      const bool ended = now >= previous.start_time + previous.duration;
++      const Eigen::Vector3d v = ended ? Eigen::Vector3d::Zero().eval() : previous.traj.getVel(relative);
++      const Eigen::Vector3d a = ended ? Eigen::Vector3d::Zero().eval() : previous.traj.getAcc(relative);
++      double duration = std::max(0.01, 2.0 * v.norm() / pp_.max_acc_);
++      Eigen::Matrix<double, 3, 3> head, tail;
++      head << p, v, a;
++      for (int attempt = 0; attempt < 6; ++attempt)
++      {
++        // A forward stopping intention, derived from the live reference and
++        // existing acceleration limit. Never reset P/V/A to lagging odometry.
++        const Eigen::Vector3d end = p + 0.5 * duration * v;
++        tail << end, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero();
++        poly_traj::MinJerkOpt brake;
++        brake.reset(head, tail, 2);
++        Eigen::MatrixXd middle(3, 1);
++        middle.col(0) = p + 0.375 * duration * v;
++        brake.generate(middle, Eigen::Vector2d(duration / 2.0, duration / 2.0));
++        const auto candidate = brake.getTraj();
++        const double acceleration = candidate.getMaxAccRate();
++        if (!std::isfinite(acceleration)) break;
++        if (!candidate.checkMaxAccRate(pp_.max_acc_ * (1.0 + FLT_EPSILON)))
++        {
++          const double scale = acceleration / pp_.max_acc_;
++          if (!std::isfinite(scale) || scale <= 1.0) break;
++          duration *= scale;
++          continue;
++        }
++        bool forward = true;
++        for (double t = 0.0; t <= duration; t += 0.01)
++          if (candidate.getVel(t).dot(v) < -1e-8) { forward = false; break; }
++        if (forward && referenceGeometryFree(candidate) &&
++            !ploy_traj_opt_->checkPeerCollision(candidate, now))
++        {
++          traj_.setLocalTraj(candidate, now);
++          ROS_WARN("Continuous native brake: id=%d duration=%.6f head_v=%.6f", traj_.local_traj.traj_id, duration, v.norm());
++          return true;
++        }
++        break;
++      }
++      // If braking inside the known free tube is impossible, retain the
++      // currently commanded position when that hold is safe. This fallback
++      // changes velocity but cannot ask qn to return to an earlier body pose.
++      poly_traj::MinJerkOpt hold;
++      head << p, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero();
++      hold.reset(head, head, 2);
++      hold.generate(p, Eigen::Vector2d(1.0, 1.0));
++      const auto candidate = hold.getTraj();
++      if (referenceGeometryFree(candidate) && !ploy_traj_opt_->checkPeerCollision(candidate, now))
++      {
++        traj_.setLocalTraj(candidate, now);
++        ROS_WARN("Native brake fallback: retain committed reference position; no odometry recapture");
++        return true;
++      }
++      ROS_ERROR("Reference brake/hold infeasible; original physical emergency stop required");
++    }
+     auto ZERO = Eigen::Vector3d::Zero();
+     Eigen::Matrix<double, 3, 3> headState, tailState;
+     headState << stop_pos, ZERO, ZERO;
+--- a/src/planner/plan_manage/include/plan_manage/planner_manager.h
++++ b/src/planner/plan_manage/include/plan_manage/planner_manager.h
+@@ -47,7 +47,8 @@
+         const Eigen::Vector3d &start_pt, const Eigen::Vector3d &global_end_pt,
+         Eigen::Vector3d &local_target_pos, Eigen::Vector3d &local_target_vel);
+     void initPlanModules(ros::NodeHandle &nh, PlanningVisualization::Ptr vis = NULL);
+-    bool EmergencyStop(Eigen::Vector3d stop_pos);
++    bool EmergencyStop(Eigen::Vector3d stop_pos, bool preserve_reference = false);
++    bool referenceGeometryFree(const poly_traj::Trajectory &candidate);
+ 
+     void deliverTrajToOptimizer(void) { ploy_traj_opt_->setSwarmTrajs(&traj_.swarm_traj); };
+ 
+--- a/src/planner/plan_manage/src/ego_replan_fsm.cpp
++++ b/src/planner/plan_manage/src/ego_replan_fsm.cpp
+@@ -821,6 +821,17 @@
+     const bool held_request = have_local_traj_ && previous.duration > 0.0 &&
+         ros::Time::now().toSec() >= previous.start_time + previous.duration &&
+         (end_pt_ - previous.traj.getPos(previous.duration)).norm() < 1e-6;
++    // A moving reference is not a stationary goal, even if lagging body
++    // odometry briefly lies within the requested point tolerance.
++    if (reference_handover_enabled_ && have_local_traj_ && previous.duration > 0.0 &&
++        ros::Time::now().toSec() < previous.start_time + previous.duration)
++    {
++      const double t = std::max(0.0, ros::Time::now().toSec() - previous.start_time);
++      // An active constant hold is already stationary. Only a moving head
++      // must go through ordinary continuous planning instead of recapture.
++      if (!previous.traj.getVel(t).isZero(FLT_EPSILON) ||
++          !previous.traj.getAcc(t).isZero(FLT_EPSILON)) return false;
++    }
+     if (!member_entry_enabled_ || !have_odom_ ||
+         (!held_request && ((end_pt_ - odom_pos_).norm() >= 0.1 || odom_vel_.norm() >= 0.1)))
+       return false;
+@@ -1062,7 +1073,7 @@
+   {
+     std::lock_guard<std::recursive_mutex> guard(reference_mutex_);
+     if (!ordinaryReferenceAllowed()) return false;
+-    planner_manager_->EmergencyStop(stop_pos);
++    planner_manager_->EmergencyStop(stop_pos, reference_handover_enabled_ && exec_state_ == EMERGENCY_STOP);
+ 
+     traj_utils::PolyTraj msg;
+     polyTraj2ROSMsg(msg);

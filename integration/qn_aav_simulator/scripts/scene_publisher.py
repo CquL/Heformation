@@ -814,11 +814,51 @@ def main():
     if rospy.get_param('/use_sim_time',False):
         from rosgraph_msgs.msg import Clock
         clock_pub=rospy.Publisher('/clock',Clock,queue_size=1,latch=True)
-        epoch=time.time();began=time.monotonic()
+        from nav_msgs.msg import Odometry
+        # Accelerate completed fixed model steps, not the arrival of setpoints
+        # independently of physics. A slower WATER process must not make AIR
+        # references and peer predictions run hundreds of seconds ahead of it.
+        model_topics=('/drone_0_qn/odometry','/drone_1_qn/odometry',
+                      '/drone_2_qn/odometry','/usv/odometry','/uuv/odometry')
+        step_ns=round(float(rospy.get_param('/drone_0_qn/outer_dt_s',.01))*1e9)
+        clock_condition=threading.Condition()
+        acknowledgments={topic:0 for topic in model_topics}
+        def model_step(message,topic):
+            # Each of these publishers emits exactly once per completed
+            # model step. Do not add a second timestamp gate to this barrier;
+            # native freshness/Goal checks remain at their original boundary.
+            with clock_condition:
+                acknowledgments[topic]+=1
+                clock_condition.notify_all()
+        clock_subscriptions=[rospy.Subscriber(topic,Odometry,model_step,
+            callback_args=topic,queue_size=1) for topic in model_topics]
         def publish_clock():
+            epoch_ns=round(time.time()*1e9);bootstrap_started=time.monotonic()
+            # ROS/model publishers and the sensor timers first need a live
+            # clock to initialize. No task is admitted before those actual
+            # streams are ready. Start the step barrier only after bootstrap.
             while not rospy.is_shutdown():
-                clock_pub.publish(Clock(clock=rospy.Time.from_sec(epoch+speed*(time.monotonic()-began))))
+                stamp_ns=epoch_ns+round(speed*(time.monotonic()-bootstrap_started)*1e9)
+                clock_pub.publish(Clock(clock=rospy.Time(
+                    secs=stamp_ns//1000000000,nsecs=stamp_ns%1000000000)))
+                with clock_condition:
+                    if all(acknowledgments[topic]>0 for topic in model_topics):
+                        seen=dict(acknowledgments)
+                        break
                 time.sleep(.005)
+            stamp_ns+=step_ns
+            while not rospy.is_shutdown():
+                began=time.monotonic()
+                clock_pub.publish(Clock(clock=rospy.Time(
+                    secs=stamp_ns//1000000000,nsecs=stamp_ns%1000000000)))
+                with clock_condition:
+                    while not rospy.is_shutdown() and not all(
+                            acknowledgments[topic]>seen[topic] for topic in model_topics):
+                        clock_condition.wait(.005)
+                    seen=dict(acknowledgments)
+                delay=step_ns/1e9/speed-(time.monotonic()-began)
+                if delay>0:time.sleep(delay)
+                stamp_ns+=step_ns
         threading.Thread(target=publish_clock,daemon=True).start()
         while not rospy.is_shutdown() and rospy.Time.now().to_sec()==0.:time.sleep(.005)
     scene = rospy.get_param("/scene", {})

@@ -869,13 +869,14 @@ class PvsNode:
             raise ValueError('configured shared scene clock speed required')
         while simulated and not rospy.is_shutdown() and rospy.Time.now().to_sec()==0.:time.sleep(.005)
         next_tick=time.monotonic()
-        next_sim_tick=rospy.Time.now().to_sec()
+        next_sim_tick_ns=rospy.Time.now().to_nsec()
+        model_step_ns=round(self.dt*1e9)
         while not rospy.is_shutdown():
             self.step()
             if simulated:
-                next_sim_tick+=self.dt
-                while not rospy.is_shutdown() and rospy.Time.now().to_sec()<next_sim_tick:
-                    time.sleep(min(.005,max(.0001,(next_sim_tick-rospy.Time.now().to_sec())/speed)))
+                next_sim_tick_ns+=model_step_ns
+                while not rospy.is_shutdown() and rospy.Time.now().to_nsec()<next_sim_tick_ns:
+                    time.sleep(min(.005,max(.0001,(next_sim_tick_ns-rospy.Time.now().to_nsec())/1e9/speed)))
                 continue
             next_tick+=self.dt
             delay=next_tick-time.monotonic()

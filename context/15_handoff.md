@@ -1,5 +1,11 @@
 # 最新交接：动态协同区域监测与共同编队返航
 
+> **2026-10-03 r64当前执行**：完整B b-84b589f77df8/rev0已确认、四work完整，完整C queue预览提交；新native9e7b1157/4×目标/按完成模型步推进实际clock，原qn模型/安全/锁/实际计量不改。原输入急停参考回跳与实际折返在r61已证实，最新修改仍待本次验证。当前只有cae39386f40c，勿重复世界；B/C尚未全链通过。
+
+> **2026-10-03 r61已失败，后退定位**：原生急停把参考P/V/A重置到落后的odom并零速；AAV3回跳0.370707m、实际前冲后回退0.179302m，同次闭合bag已证实。旧五锁/失败保留，B/C未通过。正在原native补丁改连续减速/安全参考保持，并对软速度优化结果按原0.6m/s边界重定时后校核；编译/新实跑未完成。所有改动在server715源目录，勿另起旧世界。
+
+> **服务器接手已开始**：源代码位于 server715:/home/server715/data/lhj/codes/Heformation，GitHub main bbc44fec 精确拉取。Docker29待数据盘配置后加载已传ba3b2396镜像；2×模型clock入口取消无必要的宿主NTP sudo动作。所有源码修改与后续运行在服务器。聊天私有归档/索引已导入，解析核查中；B/C全链仍未通过。
+
 > **2026-10-03 迁移接手优先**：没有 B/C 全链 PASS。r60 未确认预览已取消、零锁、无运动派发、本地世界退出。后续从 GitHub main 拉到 server715:/home/server715/data/lhj/codes/Heformation，按 docs/requirements/server715-migration-20261003.md 继续完整 B→C 与动态切换/驻留/人工 Swarm 返航。r59失败不升级；最新三修正待验证。AIR0.6/0.5、WATER0.225、USV60N/0.6、2×时钟及原实际安全/GoalID/资源锁保持。聊天迁移仅本项目可见历史和引用附件，不复制凭据、不覆盖远端已有会话。Docker由用户安装，其余迁移独立推进。
 
 > **2026-10-03 根任务正在启动r59，勿重复世界**：旧chain_completion/其他agent已结束，root直接运行；不另委托（threadlimit）。r58 bag闭合/容器退出、旧失败/锁保持，无全链通过。最新nativeba3b2396…（A*边/简化一致），AIR0.6/0.5、WATER0.225、USV60N/0.6/query2wall；最新Python终态等现有≤1s fleet恢复并复用原query_worker进程。直接2请求/timeout协议小检查通过，尚待主链实际验证。r59只推进完整B→完整C接续/全部实收/动态替换与队列/驻留/人工Swarm返航及返航途中换任务，*.inspection-live.json/WATERresidual为纯当前诊断。旧两AIR86与AAV基础60单项100%不可拼接升级，返回最终须HOME5/5零锁。

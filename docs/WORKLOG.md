@@ -1,3 +1,61 @@
+## 2026-10-03 — r64常数停止轨迹的原生根计数退化
+
+- 实际：r64 UUV完整60区间100%，AIR/另一基础0，未整项通过；三planner首次静止参考id1后CPU约74%、callback/safety_stamp停在首次急停，原sameGoal匹配正确。countRoots源码把仅常数项也送入Sturm，order=0导致除零及零长polyMod循环；这是新实际输出核验暴露的原始数值退化，不是任务要求驻留/同步。
+- 修正：原root_finder补丁在valid≤1直接按常数无离散根处理；数值边界采用该库既有FLT_EPSILON，未改变0.6/8.0物理声明。stationary快捷分支按实际参考v/a是否为零判断，不以常值轨迹仍有持续时间误认其运动。已更新同一原native补丁，无追加框架。编译中，实际修复未验证。
+- 证据：r64/initial-motion-diagnostics.json、before-numeric-fix.json、原countRoots代码；原operator-stop请求已发送，未验证停止/锁不释放。
+- 下一步：本次自然处置/闭合bag后新完整B/C实跑与输入回跳/实际回退核对；不从UUV100%推断整项通过。
+
+## 2026-10-03 — r64完整B方案已确认，开始验证停止与接续输入
+
+- 实际：r64启动通过，Qt与独立RViz同次加载新native9e7b1157及当前Python；完整B b-84b589f77df8/rev0（0.013842墙上秒）四必做work完整已确认，完整C queue预览提交。当前只有Docker cae39386f40c。4×为目标上限，完成步同步按实际计算推进；不把原world启动过程当单机资格。
+- 验证范围：实际PositionCommand、原生PolyTraj、member_goal、qn采用参考与Odometry同一bag，核查原急停回跳/实际折返是否消除、实际终点驻留和原速度边界，同时继续全B→C实际终态/实收/动态/人工Swarm返航。
+- 状态：当前刚开始，没有整项通过，r61失败/锁与r62/r63未派发事实原样保留。旧完整100%产品不拼接。
+- 下一步：本次实际控制输入/运动、原生停止方式日志及同请求完整闭环。源码/上下文都在服务器，未修改本地Codex配置。
+
+## 2026-10-03 — 同步时钟的初始化阶段与执行阶段分开
+
+- 实际：r63仍停在启动，未生成/确认任务，无运动Goal。仅去掉stamp纳秒比较未解决，故r62的“纳秒门导致”只能作为当时假设，不能作已证实首因。ROS模型/感知定时器需要先有推进时钟，才能建立屏障依赖的初始actual流。
+- 修改：先按原方式推进bootstrap时钟直到五个已声明actual Odometry流都实际出现，之后在下一个固定步进入完成步屏障。任务仍按原READY与fresh实际状态校核才可派发，没有新增任务门或假造状态。ODE步长、原运动/安全/锁不改；目标4×，实际倍率由计算决定。
+- 下一步：r63无任务世界退出后r64加载，继续同一完整B/C链与输入来源验证，不称任何初始化为验收通过。
+
+## 2026-10-03 — r62未派发，同步启动只取完成步证据
+
+- 实际：r62只有启动/真实初态，尚未生成metrics/确认Plan/派发Goal。协调时钟等待精确纳秒stamp门导致初始化没有推进；原无任务世界已关闭，不能写作B/C执行失败或通过。原qt/RViz均启动，五个actual Odometry及三类控制输入topic存在。
+- 修正：完成步同步仅等待每个已声明物理模型发布一次新的Odometry（现有代码每次backend.step后唯一发布），删除额外纳秒stamp比对；原Goal入口/实际状态新鲜度/采样/安全仍在原位置检查，不以时钟屏障重复设置精确timestamp限制。原始member_goal的两套公开名称都进入同一bag，便于源头核对。
+- 下一步：r63从同一完整B/C入口继续，目标4×受实际计算限制；原C++9e7b1157已编译，后退修正仍待实际验证，无单机资格系列。
+
+## 2026-10-03 — 同源急停修正已编译，补齐控制输入时基与实际驻留
+
+- 实际：原native增量镜像已编译成功9e7b1157…；仅原Swarm补丁改动，qn控制律/动力学未改。r61闭合bag直接量得AAV3实际前冲0.176241m后回退0.179302m，AAV1实际回退0.072111m，普通轨迹切换缺口≤0.03m，明确来源为急停参考回到odom而非联合分配同步。
+- 接线：场景加速时钟原来按墙上时间独立推进，而WATER模型实跑落后数百秒；改为等待现有五个Odometry确认完成当前固定模型步再推进/clock，目标倍率只规定可计算时的等待。模型等待改用整数纳秒步，避免浮点纪元累积误差导致同步死等，ODE0.01/0.001不变。用户下一轮目标4×不等于物理模型实际必达4×。
+- 输入：inspection-hold不再把名义预估末位置下发为新的回头航点；前序真实终态后使用同一物理成员fresh实际位置驻留，保留当前GoalID/资源锁。仍用原Action/会话，未增加管理层。原bag记录增加三台原始PositionCommand/member_goal以便完整任务内溯源。
+- 证据：r61/aav-stop-induced-reversal.json、runtime-cache/Heformation/motion-fix/build.log；最新Python仅语法解析通过。新代码仍需完整任务实际验证，不能说已解决所有后退或B/C已通过。
+- 下一步：r62同一完整B/C链核对每次停止/接续的控制输入、实际姿态/运动、结果实收；修正仅此链，旧失败/锁不升级。
+
+## 2026-10-03 — r61 后退已定位到实际控制输入
+
+- 计划：按用户要求从同次实际输入定位AAV前进后退，修正原链而非靠分离高度/等待掩盖。
+- 实际：r61已UNKNOWN_LOCKED/五锁保留，bag闭合/无旧运行世界；B AIR90.18%/92.89%、AAV基础100%/一报告实收，UUV0，C排队未激活。offline同次bag证实AAV3原生815→816参考位置回跳0.370707m，速度由(0.4940,0.0996,-0.3787)变零；输入新点恰为odom。实际机体前冲0.176241m后回退0.179302m。AAV1同类参考回跳0.322516m/实际回退0.072111m。普通原生轨迹切换未见>0.03m位置缺口；这是原EMERGENCY_STOP调用EmergencyStop(odom_pos)的输入重捕获，不是任务调度的同步。
+- 实施：原native补丁内为适配会话真实急停从当前已提交参考P/V/A生成前向MINCO减速段，复用已声明8m/s²、原1cm地图判据及动态邻机校核；不可行时优先保留当前安全参考点，最后才保留原物理紧急fallback并明确报因。活动参考不再误走stationary近odom快捷分支。普通优化器的速度惩罚是软项，r61原生最大1.755m/s超过声明0.6；现固定原边界P/V/A/中间位置并用MINCO重定时，校核原速度/加速度、地图及peer后才提交，不改变qn控制律或模型。
+- 证据：r61/aav-reversal-evidence.json、aav-native-trajectory-switches.json、aav-stop-induced-reversal.json与launch同秒Emergency stop日志；源码在原swarm_peer_safety_contract.patch。动力学/连续轨迹依据MINCO T-RO2022，数值来自现有工程配置，不称论文常数或任意工况保证。
+- 未完成 / 下一步：native编译与同次完整任务实跑，实际回退/参考切换统计；B/C尚未全链通过。原失败/锁/报告不改，不跑无关资格系列。
+
+## 2026-10-03 — server715 r61 首次完整 B/C 同会话运行
+
+- 计划：原完整B并行作业/共享支援/实际终态与实收，队列完整C接续，后续动态调整/驻留/人工Swarm返航。
+- 实际：r61原入口已在服务器Qt与独立RViz启动；Docker a43ca3b33955，B b-0e6294904eae/rev0首完整Plan0.010193墙上秒，四必做work范围及角色已逐项核对并确认，完整C queue预览提交。Docker存储已为数据盘/data/lhj/docker/overlay2，镜像49层与本地原ba3b2396逐层一致；Docker29加载后config ID为dac1c3b7，不能沿用旧metadata ID宣称字节相同。实际源代码从GitHub main挂载。
+- 效果：迁移后只有一个实际世界。原半速AIR/同型WATER/真实区间/终态/资源锁/实收不变。服务器Codex百万上下文配置已由桌面0.159配置接口核实；本地Codex配置未修改。
+- 证据：experiments/20261003-server715-facility-live-r61/initial-reviewed-plan.json、metrics.json、launch.log/task-ui.log/rviz.log；数据盘runtime-cache/Heformation/image-provenance.json。聊天记录可恢复但界面turn尚在核对，不称完整UI导入已验收。
+- 未完成 / 下一步：本次B/C全部实际作业/实收、动态切换、目标驻留、人工共同返航及返航中换任务；当前仍未全链通过。
+
+## 2026-10-03 — GitHub 拉取与服务器运行入口接通
+
+- 计划：服务器作为文件与运行权威，保持原 B/C 协同链和实际验收口径。
+- 实际：全部非实验项目已推到 GitHub main；服务器 clone/pull bbc44fec，23059文件/约2.6GB，包含项目PDF/Word、29论文PDF、上游完整源码/版本/署名，无未解析gitlink。已传原facility-build ba3b2396镜像缓存到数据盘，尚未加载；Docker29.1.3当前默认系统盘，用户执行已准备的迁移配置后才加载。
+- 效果：在2×统一模型/clock入口，不再sudo停止服务器NTP，仍记录服务状态；1×旧wall入口保留原处理。构建产物同步默认joint-wip标签，避免fresh服务器构建后主入口找不到镜像。不改模型/运动速度/实际安全或原终态。
+- 证据：docs/requirements/server715-migration-20261003.md、远端git HEAD与完整clone；私有聊天归档在codes外、1906+可见消息，原账号与其他会话未覆盖；恢复解析核查另记。
+- 未完成 / 下一步：Docker数据盘配置、镜像加载、原Qt/独立RViz实际完整B→C/动态/驻留/人工Swarm返航。B/C仍未全链通过，r59/r60事实不升级。
+
 ## 2026-10-03 — 完整项目推送与 server715 迁移准备
 
 - 计划：推送全部非实验项目文件，服务器 codes/Heformation 从 GitHub 拉取，迁移项目上下文和可见聊天，后续 B/C 完整运行在服务器进行。

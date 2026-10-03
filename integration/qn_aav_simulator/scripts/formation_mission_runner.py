@@ -1229,6 +1229,20 @@ class MissionRunner:
             target_ref=step.target_ref if step else task.target_ref
             target=(tuple(step.native_prediction['terminal_position']) if step is not None and
                     step.native_prediction.get('status')=='TASK_LEVEL' else self.centers[target_ref])
+            if step is not None and target_ref.startswith('inspection-hold:'):
+                # A terminal hold continues the verified physical end of the
+                # previous work. The nominal estimate can differ after WATER
+                # damping/runout/exit and is not a command to fly back there.
+                if len(unit.physical_agent_ids)!=1:raise RuntimeError('inspection terminal hold needs one physical member')
+                member=unit.physical_agent_ids[0]
+                with self.condition:sample=self.actual.get(member)
+                now=rospy.Time.now().to_sec()
+                if sample is None or not 0.<=now-sample.stamp<=float(rospy.get_param('~state_timeout_s',.25)):
+                    raise RuntimeError('actual terminal hold lacks fresh measured position')
+                target=tuple(sample.position)
+                with self.executor_mutex:
+                    self.metrics.setdefault('events',[]).append(dict(kind='ACTUAL_INSPECTION_TERMINAL_HOLD',
+                        execution_id=item.execution_id,member=member,position=list(target),at_ros_s=now))
             goal.formation_center.point.x,goal.formation_center.point.y,goal.formation_center.point.z=target
             goal.hold_duration=rospy.Duration(step.service_time_s if step else item.service_time)
             observation_ids=(list(step.observation_ids) if step is not None else

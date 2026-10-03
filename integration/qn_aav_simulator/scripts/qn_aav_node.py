@@ -690,7 +690,8 @@ class QnAavNode:
         # completed interval is replayed; adoption uses inputs available now.
         # Gaps/lag remain in diagnostics and the existing validity gate.
         next_tick = time.monotonic()
-        next_sim_tick=rospy.Time.now().to_sec()
+        next_sim_tick_ns=rospy.Time.now().to_nsec()
+        model_step_ns=round(self.outer_dt_s*1e9)
         self.last_step_ros_time_s = rospy.Time.now().to_sec()
         while not rospy.is_shutdown():
             now_s = rospy.Time.now().to_sec()
@@ -702,9 +703,9 @@ class QnAavNode:
             self.last_step_ros_time_s = now_s
             self.step()
             if simulated:
-                next_sim_tick+=self.outer_dt_s
-                while not rospy.is_shutdown() and rospy.Time.now().to_sec()<next_sim_tick:
-                    time.sleep(min(.005,max(.0001,(next_sim_tick-rospy.Time.now().to_sec())/speed)))
+                next_sim_tick_ns+=model_step_ns
+                while not rospy.is_shutdown() and rospy.Time.now().to_nsec()<next_sim_tick_ns:
+                    time.sleep(min(.005,max(.0001,(next_sim_tick_ns-rospy.Time.now().to_nsec())/1e9/speed)))
                 continue
             next_tick += self.outer_dt_s
             delay = next_tick-time.monotonic()
