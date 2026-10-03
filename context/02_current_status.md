@@ -1,5 +1,11 @@
 # 当前状态
 
+> **2026-10-03 用户转服务器接手**：本地本轮执行已停止，r67旧世界和读取进程均已退出；新完整C四锁/UNKNOWN_LOCKED/verified_stop=false原样保留。B监测闭环与管件2复查已完成，C动态成员避碰修正尚未实施、最终返回总验收未完成。完整目标、代码位置、同次相遇取证和启动入口见 [server715总接手文档](../docs/requirements/server715-project-handoff-20261003.md)。以后直接在server715项目继续，不重复启动旧世界。
+
+
+> **2026-10-03 r67最新失败/四锁保留**：新完整C c-0ecb3c060fc9-d961452285 被原actual fleet monitor判drone1/USV净距.493485m<原.5m，UNKNOWN_LOCKED/四锁/零实收；AIR15.59%、结构18.56%、管路0。runnerexit1/bag闭合、停止未验证；B完整4实收/全终态/零锁和管件2复查闭环仅保留同次历史，不能拼成C或总验收通过。正定位WATER/USV本地导航缺动态成员与服务点/路线相遇，原净距/physics不放宽。
+
+
 > **2026-10-03 r67最新实际闭环/动态复查**：同世界exec30474/Docker c62317e94fda。B四work100%、4/4报告实收、13匹配成功step/6活动SUCCEEDED、零锁HOLDING（返航留到会话最终）；第一次完整C已CANCELED_BY_REPLACEMENT归档，部分区间不作通过。管件2新请求c-817dfb11ac83-4cd75eea80已LOCAL4s100%/1实收、实际EXIT到AIR/IDLE、成功终态/零锁HOLDING。现从真实AIR终态提交新完整C预览，全部规定work独立从零计量，不继承旧C区间；全B/C/动态/人工返航总验收尚未完成。
 
 

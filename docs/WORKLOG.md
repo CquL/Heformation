@@ -1,3 +1,20 @@
+## 2026-10-03 — 用户转server715直接接手，统一目标与未完成项交接
+
+- 计划：按用户要求写清整个项目要做什么、架构输入输出、已完成与剩余问题，移交服务器继续；停止本地自主运行。
+- 实际：新增docs/requirements/server715-project-handoff-20261003.md，覆盖三业务/同一Plan-Action会话、代码位置、r67逐请求实际结果、动态成员输入缺口与相遇取证、未实施修正、AAV参考修正边界、服务器数据盘/镜像/启动方式及Codex提示词；更新context02/15置顶与旧迁移文稿指向。没有启动新世界或更改运动源码。
+- 效果：服务器后续接手不再将B监测完成、旧C局部进度或管件2复查拼成完整C/最终返航通过。r67旧世界/读取进程已退出；四锁、UNKNOWN_LOCKED及verified_stop=false保留。
+- 证据：r67/mission-0000/1/2-final、metrics、failed-experiment-end及aav-usv-encounter-window.json；同stamp1791026494.161680为WATER drone1约.2215m/s接近几乎静止USV，局部query缺动态成员。该窗最低.310419m，不能使用失败前min汇总字段宣称安全通过。
+- 迁移：Docker数据根/data/lhj/docker/overlay2，原生d08bc27f镜像可复用；服务器1M配置/原生可见聊天解析及11:50:31UTC增量已核对，本地配置与认证不改。源码/本文稿同步GitHub main，实验/私有聊天不入库。
+- 未完成/下一步：动态成员导航/查询修正尚未实施；一次执行中完整C预览拒因、参考回跳/整段运动审计待；服务器继续完整C与同会话动态/人工Swarm返航、返航中换任务及HOME5/5零锁/end_session。
+
+## 2026-10-03 — r67新完整C真实AAV–USV近距失败，旧闭环不拼接
+
+- 实际：c-0ecb3c060fc9-d961452285新完整C首次读取时AIR6.90%/结构8.26%/管路0，独立ledger没有继承旧C；后actual fleet monitor发现drone1/USV净距0.493485<原0.5m，UNKNOWN_LOCKED/四锁/零实收，最终AIR15.59%、结构18.56%、管路0。
+- 原处置：原安全失败/保持路径已执行，runnerexit1、execution.bag正常闭合；failed-experiment-end明确verified_stop=false，旧四锁/失败不升级。环境结束只用于加载必要修正。
+- 保留：同次B四work100%/4实收/13step成功/6活动SUCCEEDED/零锁、第一次C被安全替换、管件2独立复查100%/1实收/EXIT AIR/成功终态/零锁均为历史事实，不拼接为完整C或总验收通过。
+- 定位：原platform_action/WATER局部地图导航和pvs局部query输入未含其他物理成员当前与运动，仅静态survey；AIR Swarm邻机不覆盖USV/WATER。正在用同次闭合bag核对碰近双方实际模式/位置/目标/参考、服务点与作业路线，尚未宣称具体输入修复完成。
+- 下一步：仅原本地导航/查询补必要动态成员处理与明确服务几何，原0.5/0.2、physics/GoalID/计量/锁不放宽；旧处置后再完整B/C及动态/返航，当前全链仍未通过。
+
 ## 2026-10-03 — 真实任务中安全替换与管件2复查闭环，新完整C独立计量
 
 - B事实：同次mission-0000-final四work100%、4/4报告实收、13/13 step verified/native_state3、6复合活动SUCCEEDED、零锁HOLDING；是监测闭环，规定返航仍在共享会话最终验收。
