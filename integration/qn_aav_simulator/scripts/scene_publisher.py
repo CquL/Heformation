@@ -150,7 +150,9 @@ class SceneTransport:
             stamp=msg.header.stamp.to_sec()
             if not rows or stamp>rows[-1][0]:rows.append((stamp,(p.x,p.y,p.z)))
             q=msg.pose.pose.orientation
-            self.scan_poses[key]=(stamp,(p.x,p.y,p.z),(q.w,q.x,q.y,q.z))
+            # Keep the actual acquisition Time losslessly. Integer-nanosecond
+            # model clocks cannot round-trip through epoch-scale float seconds.
+            self.scan_poses[key]=(msg.header.stamp,(p.x,p.y,p.z),(q.w,q.x,q.y,q.z))
 
     def publish_scans(self,_event):
         """First intersection or explicit valid max-range miss for each ray.
@@ -164,9 +166,10 @@ class SceneTransport:
         with self.lock:poses=dict(self.scan_poses)
         fields=[PointField(name=n,offset=4*i,datatype=PointField.FLOAT32,count=1)
                 for i,n in enumerate(('x','y','z','intensity'))]
-        for member,(stamp,origin,quat) in poses.items():
-            if member not in self.survey_publishers or stamp<=self.scan_sent.get(member,-1):continue
-            if not 0<=rospy.Time.now().to_sec()-stamp<=.5:continue
+        for member,(acquisition_stamp,origin,quat) in poses.items():
+            stamp_ns=acquisition_stamp.to_nsec()
+            if member not in self.survey_publishers or stamp_ns<=self.scan_sent.get(member,-1):continue
+            if not 0<=(rospy.Time.now()-acquisition_stamp).to_sec()<=.5:continue
             w,x,y,z=quat
             rotation=np.array(((1-2*(y*y+z*z),2*(x*y-z*w),2*(x*z+y*w)),
                 (2*(x*y+z*w),1-2*(x*x+z*z),2*(y*z-x*w)),
@@ -191,10 +194,10 @@ class SceneTransport:
                 distance[valid]=near[valid];hits[valid]=1.
             ends=origin+directions*distance[:,None]
             payload=np.column_stack((ends,hits)).astype(np.float32)
-            cloud=PointCloud2(header=Header(frame_id=self.frame,stamp=rospy.Time.from_sec(stamp)),
+            cloud=PointCloud2(header=Header(frame_id=self.frame,stamp=acquisition_stamp),
                 height=1,width=len(payload),fields=fields,is_bigendian=False,point_step=16,
                 row_step=16*len(payload),data=payload.tobytes(),is_dense=False)
-            self.survey_publishers[member].publish(cloud);self.scan_sent[member]=stamp
+            self.survey_publishers[member].publish(cloud);self.scan_sent[member]=stamp_ns
             for point in ends[hits>0]:
                 key=tuple(int(math.floor(float(v)/.25)) for v in point)
                 self.observed_points[key]=tuple(float(v) for v in point)

@@ -174,3 +174,42 @@
      traj_utils::PolyTraj msg;
      polyTraj2ROSMsg(msg);
      broadcast_ploytraj_pub_.publish(msg);
+
+--- a/src/planner/path_searching/src/dyn_a_star.cpp
++++ b/src/planner/path_searching/src/dyn_a_star.cpp
+@@ -98,9 +98,15 @@
+         //ROS_WARN("Start point is insdide an obstacle.");
+         do
+         {
+-            start_pt = (start_pt - end_pt).normalized() * step_size_ + start_pt;
+-            if (!Coord2Index(start_pt, start_idx))
++            const Vector3d direction = start_pt - end_pt;
++            const double distance = direction.norm();
++            if (!direction.allFinite() || !std::isfinite(distance) || distance <= DBL_EPSILON)
+                 return false;
++            const Vector3d next = start_pt + direction / distance * step_size_;
++            const Vector3i before = start_idx;
++            if (!next.allFinite() || !Coord2Index(next, start_idx) || start_idx == before)
++                return false;
++            start_pt = next;
+         } while (checkOccupancy(Index2Coord(start_idx)));
+     }
+ 
+@@ -109,9 +115,15 @@
+         //ROS_WARN("End point is insdide an obstacle.");
+         do
+         {
+-            end_pt = (end_pt - start_pt).normalized() * step_size_ + end_pt;
+-            if (!Coord2Index(end_pt, end_idx))
++            const Vector3d direction = end_pt - start_pt;
++            const double distance = direction.norm();
++            if (!direction.allFinite() || !std::isfinite(distance) || distance <= DBL_EPSILON)
+                 return false;
++            const Vector3d next = end_pt + direction / distance * step_size_;
++            const Vector3i before = end_idx;
++            if (!next.allFinite() || !Coord2Index(next, end_idx) || end_idx == before)
++                return false;
++            end_pt = next;
+         } while (checkOccupancy(Index2Coord(end_idx)));
+     }
+ 

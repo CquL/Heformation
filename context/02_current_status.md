@@ -1,5 +1,22 @@
 # 当前状态
 
+> **2026-10-03 r67同次实际推进/源码检查点**：exec30474/Docker c62317e94fda/native d08bc27f，完整B b-3ed031dd17a6 当前RUNNING，实际进度{'wind_2:foundation': 1.0, 'wind_1:air': 0.9651162790697675, 'wind_2:air': 0.9246517249141892, 'wind_1:foundation': 1.0}；母船实收1。完整C c-64c8f62387bc-4db8f2e9db已QUEUED，尚未实际激活/全链通过。lossless stamp与同界极值限速、连续刹停/常速/A*补丁已编译并实际加载；所有旧failed/unknown/锁不升级，只此世界继续。
+
+
+> **2026-10-03 r67完整B确认执行**：exec30474/Docker c62317e94fda/native d08bc27f；b-3ed031dd17a6/rev0首完整Plan 0.010421墙上秒（原10秒预算），两AIR10/86、两基础3/60完整并选择AAV ENTER/work/EXIT。加载lossless采集Time、原生极值限速数值修正及前序连续刹停/常速maxrate/A*进展补丁，原0.6/8、physics/未知/净距/Goal锁不改。当前仅此世界，B/C尚未全链通过；r66失败/五锁/未验证停止保留、bag闭合。
+
+
+> **2026-10-03 r66限速数值首因**：scan精确配对/A*卡死已经解除；初始升高实际候选maxV=.5999999999999992/maxA=.4222，但Sturm限速判定误拒绝。原检查已改同库极值、严格同0.6/8.0边界，编译中。r66原stop已请求、完整C已QUEUED；旧/当前未验证终态与锁不升级，尚无B/C全链通过。
+
+
+> **2026-10-03 r66完整B已审查确认**：Docker cb8e1b5291f2/native e6e072e7，exec21988；b-1c4e8f4fd203/rev0 首份完整Plan 0.012830墙上秒（10秒预算），两AIR10sections/86legs、两基础3layers/60legs齐全，算法选择drone1 ENTER/work/EXIT。已加载lossless survey采集Time及刹停限速/常速maxrate/A*有限进展修正；4×是目标，模型/未知/净距/GoalID/锁/真实计量不改。当前全链尚未通过，只此世界运行。
+
+
+> **2026-10-03 r65首因已核实/新修正待编译**：原精确纳秒clock下scene浮点重建survey采集stamp，与实际odom差5–100ns，native地图拒绝配对而初始unknown；这独立于r61原急停回跳/后退。源已保留原始Time、刹停同0.6限速与常速maxrate退化修正，原unknown/安全/锁不改。r65旧bag已闭合、UNKNOWN_LOCKED/四锁/零实收/未验证停止保留，待旧世界结束后新完整B/C；当前没有全链通过。
+
+
+> **r65当前执行**：b-55307816113f/rev0完整B已确认，四work完整、完整C预览提交；Docker bdcbc37feeea/native de7f176c。数值退化修正已编译，输入回退修正仍待实际运行验证。仅此世界运行，B/C未全链通过，旧failed/锁不升级。
+
 > **2026-10-03 r64当前执行**：完整B b-84b589f77df8/rev0已确认、四work完整，完整C queue预览提交；新native9e7b1157/4×目标/按完成模型步推进实际clock，原qn模型/安全/锁/实际计量不改。原输入急停参考回跳与实际折返在r61已证实，最新修改仍待本次验证。当前只有cae39386f40c，勿重复世界；B/C尚未全链通过。
 
 > **2026-10-03 r61已失败，后退定位**：原生急停把参考P/V/A重置到落后的odom并零速；AAV3回跳0.370707m、实际前冲后回退0.179302m，同次闭合bag已证实。旧五锁/失败保留，B/C未通过。正在原native补丁改连续减速/安全参考保持，并对软速度优化结果按原0.6m/s边界重定时后校核；编译/新实跑未完成。所有改动在server715源目录，勿另起旧世界。

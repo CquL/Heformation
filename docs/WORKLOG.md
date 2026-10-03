@@ -1,3 +1,67 @@
+## 2026-10-03 — server715运动源码稳定检查点，同次r67继续
+
+- 计划：按用户完整非实验项目推送授权提交当前已编译的原链修正与真实接手口径；实验/缓存/私有聊天不纳入。
+- 实际：r67仍RUNNING，当前四work实际进度{'wind_2:foundation': 1.0, 'wind_1:air': 0.9767441860465116, 'wind_2:air': 0.9418604651162791, 'wind_1:foundation': 1.0}，实收1；完整C仍确认QUEUED，没有全链通过。不会因Git检查点重启或替换本世界。
+- 变更/验证：scene保留原始采集Time、原生同0.6/8.0极值限速与常速退化、刹停速度接受及A*有限方向/进展。新native编译成功；r66实际拒绝系数的同界标量复核一致且新接受true，r67已恢复真实转场与四work推进。实际运动/终态/实收的最后验收仍未完成。
+- 证据：motion-fix/extrema-build.log、r66/native-retime-candidate/extrema/scalar-diagnostic/scalar-fixed及r67完整Plan/queue/实际输入bag；旧r65/r66失败与未验证停止保留。
+- 下一步：根任务通过本地凭据按服务器commit发布GitHub；本操作者继续同一r67完整B→C、动态局部任务/驻留/人工Swarm返航与返航中换任务。当前源码存在/提交不表示任务通过。
+
+## 2026-10-03 — r67原生实际运动恢复，完整C已排队
+
+- 实际：r67/b-3ed031dd17a6仍RUNNING；两AIR实际已由(-30,6/8,.8)前进到风机附近，inspection-live明确ADOPTED/新鲜survey，初始升高/转场不再被Sturm误拒绝。原peer 1.6m参考余量仍拒绝1.598m候选，不因执行需要放宽；尚无整项完成或收件证明。
+- 完整C：c-64c8f62387bc-4db8f2e9db/rev1，首预览0.003628墙上秒、原10秒预算，平台AIR3/60、外部WATER3/60及全管路0..3/3LINE+3LOCAL4s逐项审查确认QUEUED。原UI同接口/任务权威持续，未另起模型。
+- 证据：r67/initial-reviewed-plan.json、queued-c-reviewed-plan.json、*.inspection-live.json与同次原始输入/采用参考/Odometry bag。当前B必做区间仍在实际进入与转场，不把运动恢复拼为B/C通过。
+- 下一步：全部B真实work/Action终态/母船实收与C实际激活；动态局部复查/替换、HOLDING、人工Swarm返航和返航中换任务，最终HOME5/5零锁；旧r66UNKNOWN_LOCKED保留。
+
+## 2026-10-03 — r67完整B已确认，原同界极值限速加载
+
+- 实际：exec30474／Docker c62317e94fda／native d08bc27f，Qt与独立RViz原入口；b-3ed031dd17a6/rev0首完整Plan 0.010421墙上秒（10秒预算），两AIR10sections/86legs与两基础3layers/60legs完整，算法已选AAV ENTER/work/EXIT。
+- 数值证据：r66同一真实候选系数没有修改，原getMaxVelRate=.5999999999999992、maxA=.4222；在新严格同0.6/8.0接受检查下两段均true。只是精确同候选标量诊断，不是模型资格/任务通过。extrema-build.log成功，原补丁包含一次修正。
+- 旧处置：r66原stop最终UNKNOWN_LOCKED/五锁，原Action有限观察未验证停止；runnerexit1、bag正常闭合，failed-experiment-end保留。旧Docker结束不升级stop/资源释放。
+- 下一步：同次完整B→完整C排队/实际接续，实际输入/采用参考/运动、所有区间/终态/实收、动态局部任务/驻留/人工Swarm返航及返航中换任务；当前没有B/C全链通过。
+
+## 2026-10-03 — r66真实限速候选被Sturm近切点数值误拒绝
+
+- 实际：r66原生扫描/odom匹配已恢复，三planner回调持续更新，初始A*不再卡住。完整C c-2e909b00ad81-4c6359f12d/rev1预览0.003352墙上秒已审查确认QUEUED；B/C未全链通过。AAV初始0.8→2.2升高候选重复被硬速度检查拒绝、原生ID仍1；UUV实际第一层33.33%。
+- 证据：同世界GDB精确ELF/libs断在实际拒绝分支，保存两段候选原始系数；原生getMaxVelRate=0.5999999999999992、getMaxAccRate=0.42219894，但原checkMaxVelRate(.6×(1+FLT_EPS))为false。独立系数极值0.5999999999999994一致，另一段check正常。这是实际候选标量诊断，没有单机资格/全候选模型rollout。
+- 修正：原poly_traj_utils的checkMaxVelRate/checkMaxAccRate采用本库已有极值计算、有限正上限及原严格比较；同0.6/8.0与既有FLT_EPS数值边界、P/V/A/未知/地图/peer/净距/锁保持。移除近切点的speed²-limit²根计数作为接受依据，没有放宽物理边界。原统一补丁追加一次，新编译中。
+- 原处置：r66已发送原operator-stop；before-limit-fix保留全部当时输入/进度，尚未实际终态/停止验证不释放锁。不能把不移动写成解决r61实际后退。
+- 下一步：原处置与bag闭合后新完整B→C及动态/驻留/人工Swarm返航，真实输入/采用参考/运动同次核验；仍没有全链通过。
+
+## 2026-10-03 — r66完整B已确认，lossless采集与原生速度修正实际加载
+
+- 实际：exec21988／Docker cb8e1b5291f2／native e6e072e7，Qt与独立RViz原入口；b-1c4e8f4fd203/rev0首份完整Plan 0.012830墙上秒、原10秒预算。两AIR各10sections/86legs、两基础各3layers/60legs完整，原选择drone2/0 AIR、drone1 ENTER/work/EXIT、UUV另一基础、USV两共享服务已逐项审查确认。
+- 加载：scene原始acquisition Time/nsec、刹停同0.6速度边界、maxrate常速/常加速度退化实际范数；A*有限方向/进展修正。编译review-build.log成功，原统一补丁与运行镜像来源明确，无重复修正或单机资格系列。
+- 旧处置：r65bag正常闭合、失败/四锁/零实收/verified_stop=false保存；旧Docker已经结束。环境关闭不升级停止证明。
+- 下一步：同次完整B→完整C队列及实收/动态替换或局部复查/目标驻留/人工Swarm返航与返航中任务替换。控制原始goal/PositionCommand/PolyTraj/采用参考/actual同一bag核验，当前没有B/C全链通过。
+
+## 2026-10-03 — 采集时间戳纳秒损失首因与刹停速度边界修正
+
+- 计划：只修完整B/C链的原始参考/采集输入阻塞，随后同次任务核验，不开展单机资格系列。
+- 证据：r65既有bag前三份drone0扫描与对应实际Odometry差-5/-5/-100ns；scene先to_sec再from_sec丢失精度，native精确同stamp匹配不接受，初始静止参考被unknown拒绝后A*零方向循环。Python浮点匹配仍能推进UUV。这是新整数纳秒时钟下的验证阻塞，独立于r61已证实的odom急停回跳/实际后退首因。
+- 实施：scene保存并原样发布实际acquisition Time，重复判定用to_nsec；原精确配对/未知/净距不放宽。原native刹停增加声明0.6速度检查，常速/常加速度的maxrate退化分支返回实际范数，保留P/V/A减速、原地图/peer与物理fallback。统一原补丁已追加，Python语法解析通过，新native编译待。
+- 旧处置：r65原stop已消费，UNKNOWN_LOCKED/四锁/零实收保留，execution.bag已正常闭合；failed-experiment-end明确verified_stop=false。关闭旧失败环境只是加载修正，不是安全停稳/解锁证据。
+- 下一步：新镜像成功后完整B两AIR10sections/86legs与两基础3layers/60legs、完整C排队/实际接续/动态任务/驻留/人工Swarm返航，所有控制输入与实际运动同次记录；当前没有B/C全链通过。
+
+## 2026-10-03 — r65实际栈明确A*端点调整无进展
+
+- 证据：native-stalled-all-threads.txt为实际运行PID115的GDB全线程栈，主ROS线程在AStar::ConvertToIndexAndAdjustStartEndPoints→checkOccupancy（dyn_a_star.cpp:104）循环，未停在根计数。前条常数Sturm退化已修，但不能作为本轮实际卡住首因。三planner高CPU、status停在首次急停、原body/sourceGoal对应正确，B/C未通过。
+- 修正：原A*起终点占据调整只在方向有限且非零、下一格确实不同并位于原池内时推进；无有效进展明确失败，不无穷占住ROS线程。没有新增任意试探次数或把unknown直接清空；已知自由/原地图/peer/真实净距保持。
+- 状态：r65原停止请求已发送，旧未知/锁不升级。增量编译中，新停止参考及此修正都仍待完整任务实际验证；不把不移动当消除了后退。
+- 下一步：原失败世界处置后新完整B/C及同次输入/采用参考/实际运动，所有工作继续在服务器。
+
+## 2026-10-03 — r65完整B已确认、C预览提交
+
+- 实际：r65 Docker bdcbc37feeea/原Qt与独立RViz，完整B b-55307816113f/rev0 Plan0.009619墙上秒、四work完整逐项核对确认；完整C queue预览提交。加载native de7f176c及当前Python，同一原模型/资源锁/真实计量/实收。
+- 验证：回退源头修正、实际输出速度边界、完整真实任务和动态接续；bootstrap不冒充任务验收。当前还没有B/C全链通过。
+- 下一步：核查原始目标/PositionCommand/PolyTraj/采用参考/实际运动同次数据；全部终态/实收及目标区驻留/人工Swarm返航。
+
+## 2026-10-03 — r64旧失败世界结束，r65加载数值修正
+
+- 实际：r64原停止请求已消费，最终UNKNOWN_LOCKED/四锁保持；UUV完整区间100%，没有母船实收，C未激活。原停止验证未成功，failed-experiment-end.json明确verified_stop=false。旧模拟环境结束，不把销毁环境当安全停稳或释放资源。
+- 构建：原native数值修正镜像de7f176c…成功；constant polynomial根计数在进入Sturm前返回，原FLT_EPSILON仅处理数值边界。新source从原完整B/C入口加载，其他物理模型、任务范围、净距/GoalID/区间与收件保持。
+- 下一步：r65同一实际输入/采用参考/运动与完整业务闭环，当前B/C仍未全链通过。
+
 ## 2026-10-03 — r64常数停止轨迹的原生根计数退化
 
 - 实际：r64 UUV完整60区间100%，AIR/另一基础0，未整项通过；三planner首次静止参考id1后CPU约74%、callback/safety_stamp停在首次急停，原sameGoal匹配正确。countRoots源码把仅常数项也送入Sturm，order=0导致除零及零长polyMod循环；这是新实际输出核验暴露的原始数值退化，不是任务要求驻留/同步。

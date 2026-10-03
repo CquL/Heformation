@@ -519,3 +519,100 @@
  
      traj_utils::PolyTraj msg;
      polyTraj2ROSMsg(msg);
+
+--- a/src/planner/plan_manage/src/planner_manager.cpp
++++ b/src/planner/plan_manage/src/planner_manager.cpp
+@@ -363,10 +363,12 @@
+         brake.generate(middle, Eigen::Vector2d(duration / 2.0, duration / 2.0));
+         const auto candidate = brake.getTraj();
+         const double acceleration = candidate.getMaxAccRate();
+-        if (!std::isfinite(acceleration)) break;
+-        if (!candidate.checkMaxAccRate(pp_.max_acc_ * (1.0 + FLT_EPSILON)))
++        const double speed = candidate.getMaxVelRate();
++        if (!std::isfinite(acceleration) || !std::isfinite(speed)) break;
++        if (!candidate.checkMaxVelRate(pp_.max_vel_ * (1.0 + FLT_EPSILON)) ||
++            !candidate.checkMaxAccRate(pp_.max_acc_ * (1.0 + FLT_EPSILON)))
+         {
+-          const double scale = acceleration / pp_.max_acc_;
++          const double scale = std::max(acceleration / pp_.max_acc_, speed / pp_.max_vel_);
+           if (!std::isfinite(scale) || scale <= 1.0) break;
+           duration *= scale;
+           continue;
+--- a/src/planner/traj_opt/include/optimizer/poly_traj_utils.hpp
++++ b/src/planner/traj_opt/include/optimizer/poly_traj_utils.hpp
+@@ -177,7 +177,8 @@
+             }
+             if (coeff.head(N - 1).squaredNorm() < DBL_EPSILON)
+             {
+-                return 0.0;
++                // A constant speed can be nonzero even when its derivative vanishes.
++                return std::max(getVel(0.0).norm(), getVel(duration).norm());
+             }
+             else
+             {
+@@ -226,7 +227,8 @@
+             }
+             if (coeff.head(N - 1).squaredNorm() < DBL_EPSILON)
+             {
+-                return 0.0;
++                // Preserve the actual constant acceleration in this degenerate case.
++                return std::max(getAcc(0.0).norm(), getAcc(duration).norm());
+             }
+             else
+             {
+
+--- a/src/planner/traj_opt/include/optimizer/poly_traj_utils.hpp
++++ b/src/planner/traj_opt/include/optimizer/poly_traj_utils.hpp
+@@ -264,43 +264,19 @@
+ 
+         inline bool checkMaxVelRate(const double &maxVelRate) const
+         {
+-            double sqrMaxVelRate = maxVelRate * maxVelRate;
+-            if (getVel(0.0).squaredNorm() >= sqrMaxVelRate ||
+-                getVel(duration).squaredNorm() >= sqrMaxVelRate)
+-            {
+-                return false;
+-            }
+-            else
+-            {
+-                Eigen::MatrixXd nVelCoeffMat = normalizeVelCoeffMat();
+-                Eigen::VectorXd coeff = RootFinder::polySqr(nVelCoeffMat.row(0)) +
+-                                        RootFinder::polySqr(nVelCoeffMat.row(1)) +
+-                                        RootFinder::polySqr(nVelCoeffMat.row(2));
+-                double t2 = duration * duration;
+-                coeff.tail<1>()(0) -= sqrMaxVelRate * t2;
+-                return RootFinder::countRoots(coeff, 0.0, 1.0) == 0;
+-            }
++            // Count extrema of the same speed polynomial. Sturm counting of
++            // (speed^2-limit^2) can falsely report roots near a tangent maximum
++            // even when that actual maximum is below the declared limit (r66).
++            const double rate = getMaxVelRate();
++            return std::isfinite(maxVelRate) && maxVelRate > 0.0 &&
++                   std::isfinite(rate) && rate < maxVelRate;
+         }
+ 
+         inline bool checkMaxAccRate(const double &maxAccRate) const
+         {
+-            double sqrMaxAccRate = maxAccRate * maxAccRate;
+-            if (getAcc(0.0).squaredNorm() >= sqrMaxAccRate ||
+-                getAcc(duration).squaredNorm() >= sqrMaxAccRate)
+-            {
+-                return false;
+-            }
+-            else
+-            {
+-                Eigen::MatrixXd nAccCoeffMat = normalizeAccCoeffMat();
+-                Eigen::VectorXd coeff = RootFinder::polySqr(nAccCoeffMat.row(0)) +
+-                                        RootFinder::polySqr(nAccCoeffMat.row(1)) +
+-                                        RootFinder::polySqr(nAccCoeffMat.row(2));
+-                double t2 = duration * duration;
+-                double t4 = t2 * t2;
+-                coeff.tail<1>()(0) -= sqrMaxAccRate * t4;
+-                return RootFinder::countRoots(coeff, 0.0, 1.0) == 0;
+-            }
++            const double rate = getMaxAccRate();
++            return std::isfinite(maxAccRate) && maxAccRate > 0.0 &&
++                   std::isfinite(rate) && rate < maxAccRate;
+         }
+ 
+         // GaaiLam
