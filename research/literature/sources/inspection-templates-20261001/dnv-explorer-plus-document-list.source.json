@@ -1,0 +1,17 @@
+{
+  "filename": "dnv-explorer-plus-document-list.html",
+  "requested_url": "https://www.dnv.com/rules-standards/rules-and-standards-explorer-plus/list-of-documents-included-in-the-subscription/",
+  "final_url": "https://www.dnv.com/rules-standards/rules-and-standards-explorer-plus/list-of-documents-included-in-the-subscription/",
+  "retrieved_at_utc": "2026-10-01T06:17:54.899317+00:00",
+  "http_status": 200,
+  "content_type": "text/html; charset=utf-8",
+  "size_bytes": 286406,
+  "sha256": "a898e468214d65055064683cdcd4ebdc508f4b9ffb537dc6353db273e2d21b94",
+  "access_status": "public official page; no login or payment used",
+  "full_standard_obtained": false,
+  "public_pdf_links_on_page": [],
+  "standard_access_links": [
+    "https://standards.dnv.com/explorer/document/14B7904CF4E74E239CAA26F66D6B9969"
+  ],
+  "reading_status": "official_public_description_only / full_standard_not_read"
+}

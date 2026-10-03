@@ -1,0 +1,18 @@
+{
+  "filename": "dnv-rp-f116-public-description.html",
+  "requested_url": "https://www.dnv.com/energy/standards-guidelines/dnv-rp-f116-integrity-management-of-submarine-pipeline-systems/",
+  "final_url": "https://www.dnv.com/energy/standards-guidelines/dnv-rp-f116-integrity-management-of-submarine-pipeline-systems/",
+  "retrieved_at_utc": "2026-10-01T06:17:53.667538+00:00",
+  "http_status": 200,
+  "content_type": "text/html; charset=utf-8",
+  "size_bytes": 232700,
+  "sha256": "85008dfd928d865677a9a51a81d122687fd74ab34ba8c8ed657cde86e89e7044",
+  "access_status": "public official page; no login or payment used",
+  "full_standard_obtained": false,
+  "public_pdf_links_on_page": [],
+  "standard_access_links": [
+    "https://store.veracity.com/rules-and-standards-explorer-plus",
+    "https://standards.dnv.com/explorer/document/14B7904CF4E74E239CAA26F66D6B9969"
+  ],
+  "reading_status": "official_public_description_only / full_standard_not_read"
+}

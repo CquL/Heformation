@@ -44,7 +44,7 @@ class PlanningBudgetExceeded(RuntimeError):
     """No complete candidate was submitted within this invocation's budget."""
 
 
-def bounded_travel_query(provider, arguments, deadline):
+def bounded_travel_query(provider, arguments, deadline, *, worker=None):
     """A hung query cannot outlive the caller's observation budget.
 
     A clean interpreter avoids both forking ROS threads and multiprocessing's
@@ -56,6 +56,44 @@ def bounded_travel_query(provider, arguments, deadline):
         return provider(*arguments)
     if time.monotonic()>=deadline:
         raise PlanningBudgetExceeded('planning budget exhausted')
+    if worker is not None:
+        # One caller's serialized local queries may reuse a clean interpreter.
+        # Every input is still a fresh trusted snapshot with its own deadline.
+        process=worker.get('process')
+        if process is None or process.poll() is not None:
+            close_query_worker(worker)
+            errors=tempfile.TemporaryFile()
+            process=subprocess.Popen([sys.executable,'-m','mrta_python.query_worker','--loop'],
+                stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=errors,
+                env=dict(os.environ,PYTHONPATH=os.pathsep.join(sys.path)),start_new_session=True)
+            worker.update(process=process,errors=errors,buffer=bytearray())
+            os.set_blocking(process.stdin.fileno(),False)
+            os.set_blocking(process.stdout.fileno(),False)
+        try:
+            payload=pickle.dumps((provider,arguments));offset=0;fd=process.stdin.fileno()
+            while offset<len(payload):
+                remaining=deadline-time.monotonic()
+                if remaining<=0 or not select.select([],[fd],[],remaining)[1]:
+                    raise PlanningBudgetExceeded('local query input deadline')
+                offset+=os.write(fd,payload[offset:offset+65536])
+            buffer=worker['buffer'];fd=process.stdout.fileno()
+            while True:
+                if time.monotonic()>=deadline:raise PlanningBudgetExceeded('local query deadline')
+                if len(buffer)>=8:
+                    size=struct.unpack('!Q',buffer[:8])[0]
+                    if len(buffer)>=8+size:
+                        ok,value=pickle.loads(buffer[8:8+size]);del buffer[:8+size]
+                        if time.monotonic()>=deadline:raise PlanningBudgetExceeded('local query result deadline')
+                        if not ok:raise ValueError('motion query failed: '+value)
+                        return value
+                remaining=deadline-time.monotonic()
+                if not select.select([fd],[],[],remaining)[0]:continue
+                data=os.read(fd,65536)
+                if not data:raise ValueError('local query worker exited before result')
+                buffer.extend(data)
+        except Exception:
+            close_query_worker(worker)
+            raise
     payload=pickle.dumps((provider,arguments))
     environment=dict(os.environ,PYTHONPATH=os.pathsep.join(sys.path))
     process=subprocess.Popen([sys.executable,'-m','mrta_python.query_worker'],
@@ -82,6 +120,24 @@ def bounded_travel_query(provider, arguments, deadline):
             try:os.killpg(process.pid,signal.SIGKILL)
             except ProcessLookupError:pass
             process.communicate()
+
+
+def close_query_worker(worker):
+    """Retire only the private computation process, never a physical Goal."""
+    process=worker.get('process')
+    if process is not None:
+        try:os.killpg(process.pid,signal.SIGTERM)
+        except ProcessLookupError:pass
+        try:process.wait(timeout=.2)
+        except subprocess.TimeoutExpired:
+            try:os.killpg(process.pid,signal.SIGKILL)
+            except ProcessLookupError:pass
+            process.wait()
+        for pipe in (process.stdin,process.stdout):
+            if pipe is not None:pipe.close()
+    errors=worker.get('errors')
+    if errors is not None:errors.close()
+    worker.clear()
 
 
 def bounded_candidate_query(provider,arguments,deadline):
@@ -2973,3 +3029,154 @@ def validate_executor_plan(plan: ExecutorPlan, executors: Sequence[Executor],
     for ident,values in before_by_activity.items():
         if any(item_by_id[ident].planned_start<item_by_id[p].planned_finish-1e-6 for p in values):
             raise ValueError('plan violates a task/resource/motion predecessor')
+
+
+def build_inspection_executor_plan(executors,tasks,request,scene,states,budget_s=10.):
+    """Finite joint facility methods and shared service inside the existing Plan.
+
+    This is task-level ordering/admission only. No plant rollout or trajectory
+    safety certificate is produced. Construction order is not execution order.
+    """
+    import itertools
+    from qn_aav_simulator.inspection_work import work_legs,inspection_work_budget,inspection_wall_budget,inspection_motion_profile,inspection_reference_speed,inspection_exit_runout
+    deadline=time.monotonic()+budget_s
+    motion_profile=inspection_motion_profile(scene)
+    units=[e for e in executors if len(e.physical_agent_ids)==1]
+    works={w['work_id']:w for w in request.work_items}
+    def expansion_key(task):
+        work=works[task.target_ref];entry=work_legs(work)[0]['start']
+        distance=min((math.dist(states[e.physical_agent_ids[0]]['position'],entry)
+            for e in units if work['domain'] in e.capabilities and not states[e.physical_agent_ids[0]].get('locked')),default=math.inf)
+        return (work['domain']!='AIR',distance,task.task_id)
+    ordered=sorted(tasks,key=expansion_key)
+    usv=next(e for e in units if e.physical_agent_ids==('usv',))
+    count=0
+    def step(unit,ref,start,end,mode,duration,*,native=None,work_id='',**extra):
+        prediction=dict(status='TASK_LEVEL',duration_s=duration,terminal_position=tuple(end),terminal_mode=mode,
+            dynamic_safety_certified=False,geometry_checked=False,geometry_scope='LOCAL_SENSING_AT_EXECUTION',
+            estimate_basis='facility work/state estimate; actual local motion and report required',
+            reference_path=(tuple(start),tuple(end)))
+        prediction.update(extra)
+        return ExecutionStep(unit.executor_id,duration,ref,native_action=native,native_prediction=prediction,
+                             service_time_s=0. if native else 4.,work_id=work_id)
+    def branches(index,snapshot,items,edges):
+        nonlocal count
+        if time.monotonic()>=deadline:raise PlanningBudgetExceeded('inspection complete-plan budget expired')
+        if index==len(ordered):
+            # Service ordering is part of each complete candidate, not accepted
+            # after independently fixing an assignment. Try finite site orders.
+            sites=list(scene['communication_sites'])
+            service_groups=[]
+            for site in sites:
+                ids=[w['work_id'] for w in request.work_items if w['domain']=='WATER' and w['work_id']==site['id']]
+                service_groups.append((site,ids))
+            for work in request.work_items:
+                if work['domain']=='AIR':
+                    end=work_legs(work)[-1]['end']
+                    min(service_groups,key=lambda pair:math.dist(end,pair[0]['position']))[1].append(work['work_id'])
+            service_groups.sort(key=lambda pair:(
+                max([0.]+[i.planned_finish for i in items if any(s.work_id in pair[1] or
+                    s.native_action and s.native_action.work_id in pair[1] for s in i.execution_steps)])+
+                math.dist(states['usv']['position'],pair[0]['position'])/motion_profile['usv_nominal_speed_mps'],pair[0]['id']))
+            for groups in itertools.permutations(service_groups):
+                count+=1;plan_items=copy.deepcopy(items);links=list(edges);clock=0.;position=states['usv']['position'];previous=None
+                for n,(site,ids) in enumerate(groups):
+                    travel=max(4.,math.dist(position,site['position'])/motion_profile['usv_nominal_speed_mps'])
+                    waiting=max([clock+travel]+[i.planned_finish for i in items
+                        if any(s.work_id in ids or (s.native_action and s.native_action.work_id in ids) for s in i.execution_steps)])
+                    route=NativeActionSpec((NativeSegmentSpec('SURFACE_PATH',(tuple(position),tuple(site['position'])),travel),),
+                        'TRIM_PROPULSION',execution_timeout_s=travel*3.+600.)
+                    move=step(usv,'inspection-support:'+site['id'],position,site['position'],'SURFACE',travel+4.,native=route)
+                    hold=NativeActionSpec((NativeSegmentSpec('SURFACE_PATH',(tuple(site['position']),tuple(site['position'])),4.),),
+                        'TRIM_PROPULSION',execution_timeout_s=184.)
+                    wait=step(usv,'inspection-support-receipt:'+site['id'],site['position'],site['position'],'SURFACE',
+                        max(4.,waiting-clock-travel),native=hold,support_work_ids=tuple(ids),support_site_id=site['id'])
+                    ident=request.request_id+'::support:'+str(n)
+                    activity=ExecutorPlanItem(ident,request.request_id+'::'+ids[0],usv.executor_id,('usv',),clock,
+                        max(clock+travel+8.,waiting+4.),travel,0.,0.,execution_steps=(move,wait),fulfills_task=False)
+                    plan_items.append(activity)
+                    if previous:links.append((previous,ident))
+                    previous=ident;clock=activity.planned_finish;position=tuple(site['position'])
+                    for item in plan_items:
+                        if any(s.work_id in ids or (s.native_action and s.native_action.work_id in ids) for s in item.execution_steps):
+                            item.support_execution_ids=tuple(set(item.support_execution_ids)|{ident})
+                return ExecutorPlan(plan_items,serial=False,search_complete=False,evaluated_candidates=count,
+                    activity_edges=tuple(links),validation_scope='TASK_LEVEL_EXECUTION_PENDING')
+            return None
+        task=ordered[index];work=works[task.target_ref];legs=work_legs(work)
+        entry,last=legs[0]['start'],legs[-1]['end'];length=sum(l['length'] for l in legs if l['kind']!='LOCAL')
+        dwell=sum(l['length'] for l in legs if l['kind']=='LOCAL')
+        candidates=[e for e in units if work['domain'] in e.capabilities and e.physical_agent_ids!=('usv',)
+            and inspection_reference_speed(work,e.physical_agent_ids[0])<=work['speed_limit_mps']]
+        def cost(e):
+            m=e.physical_agent_ids[0];state=snapshot[m]
+            cruise=(motion_profile['air_nominal_speed_mps'] if state['mode']=='AIR' else
+                motion_profile['aav_water_speed_mps' if m.startswith('drone_') else 'uuv_water_speed_mps'])
+            speed=inspection_reference_speed(work,m)
+            return (state.get('available_from',0.)+math.dist(state['position'],entry)/cruise+length/speed+dwell,e.executor_id)
+        for unit in sorted(candidates,key=cost):
+            member=unit.physical_agent_ids[0];state=snapshot[member]
+            if state.get('locked') or state['mode'] not in ('AIR','WATER'):continue
+            if work['domain']=='AIR' and state['mode']!='AIR':continue
+            start=state.get('available_from',0.);source=tuple(state['position']);rows=[]
+            speed=inspection_reference_speed(work,member)
+            cruise=(motion_profile['air_nominal_speed_mps'] if state['mode']=='AIR' else
+                motion_profile['aav_water_speed_mps' if member.startswith('drone_') else 'uuv_water_speed_mps'])
+            duration=math.dist(source,entry)/cruise+length/speed+dwell+60.
+            end_mode=work['domain'];end=last
+            if work['domain']=='AIR':
+                execution_budget=inspection_work_budget(work,source,speed)
+                execution_budget.update(inspection_wall_budget(work,execution_budget,
+                    state.get('sampled_model_wall_rate'),state.get('declared_simulation_speed',1.)))
+                execution_budget['model_wall_sample_window_s']=state.get('model_wall_sample_window_s',0.)
+                rows.append(step(unit,task.target_ref,source,last,'AIR',duration,work_id=work['work_id'],
+                    inspection_work_id=work['work_id'],inspection_work_budget=execution_budget))
+                rows.append(step(unit,'inspection-hold:'+work['work_id'],last,last,'AIR',4.))
+            else:
+                segments=[]
+                if member.startswith('drone_'):
+                    air=next(e for e in units if e.physical_agent_ids==(member,) and 'AIR' in e.capabilities)
+                    if state['mode']=='AIR':
+                        # The native contract starts a vertical ENTER from any
+                        # settled legal AIR state. Use the existing transfer
+                        # layer rather than descend toward the surface under
+                        # Swarm and then restart a second vertical controller.
+                        above=(entry[0],entry[1],max(request.requirement.cruise_altitude_m,2.2))
+                        rows.append(step(air,'inspection-entry:'+work['work_id'],source,above,'AIR',math.dist(source,above)/motion_profile['air_nominal_speed_mps']+4.,inspection_work_id=work['work_id']))
+                        source=above
+                        segments.append(NativeSegmentSpec('ENTER_WATER',(source,entry),max(14.,math.dist(source,entry)/.1)))
+                    segments.append(NativeSegmentSpec('WATER_PATH',(entry if state['mode']=='AIR' else source,last),length/speed+dwell+60.))
+                    runout=inspection_exit_runout(work)
+                    segments.append(NativeSegmentSpec('WATER_PATH',(last,runout),math.dist(last,runout)/speed+4.))
+                    end=(runout[0],runout[1],request.requirement.cruise_altitude_m);end_mode='AIR'
+                    segments.append(NativeSegmentSpec('EXIT_WATER',(runout,end),max(14.,math.dist(runout,end)/.1)))
+                else:segments.append(NativeSegmentSpec('WATER_PATH',(source,last),duration))
+                duration=sum(s.duration_s for s in segments)+4.*len(segments)
+                work_start=next(s.points[0] for s in segments if s.operation=='WATER_PATH')
+                execution_budget=inspection_work_budget(work,work_start,speed)
+                runout_seconds=math.dist(last,runout)/speed if member.startswith('drone_') else 0.
+                transition=sum(s.duration_s for s in segments if s.operation in ('ENTER_WATER','EXIT_WATER'))
+                holds=4.*len(segments)
+                execution_budget['model_duration_s']+=transition+holds+runout_seconds
+                execution_budget.update(transition_model_s=transition,terminal_holds_model_s=holds,uncredited_exit_runout_model_s=runout_seconds,
+                    model_wall_sample_window_s=state.get('model_wall_sample_window_s',0.))
+                execution_budget.update(inspection_wall_budget(work,execution_budget,
+                    state.get('sampled_model_wall_rate'),state.get('declared_simulation_speed',1.)))
+                native=NativeActionSpec(tuple(segments),'FIXED_REFERENCE',execution_timeout_s=execution_budget['wall_duration_s'],work_id=work['work_id'])
+                rows.append(step(unit,task.target_ref,source,end,end_mode,duration,native=native,
+                    inspection_work_id=work['work_id'],inspection_work_budget=execution_budget))
+                if member.startswith('drone_'):rows.append(step(air,'inspection-hold:'+work['work_id'],end,end,'AIR',4.))
+                else:
+                    hold=NativeActionSpec((NativeSegmentSpec('WATER_PATH',(last,last),4.),),'FIXED_REFERENCE',execution_timeout_s=184.)
+                    rows.append(step(unit,'inspection-hold:'+work['work_id'],last,last,'WATER',4.,native=hold))
+            finish=start+sum(r.duration_s for r in rows)
+            item=ExecutorPlanItem(task.task_id,task.task_id,unit.executor_id,(member,),start,finish,
+                sum(r.duration_s for r in rows),0.,0.,execution_steps=tuple(rows))
+            preceding=next((i.execution_id for i in reversed(items) if member in i.coalition),None)
+            next_states=copy.deepcopy(snapshot);next_states[member].update(position=end,mode=end_mode,available_from=finish)
+            answer=branches(index+1,next_states,items+[item],edges+([(preceding,item.execution_id)] if preceding else []))
+            if answer:return answer
+        return None
+    result=branches(0,copy.deepcopy(states),[],[])
+    if result is None:raise ValueError('no complete inspection allocation and shared service found')
+    return result

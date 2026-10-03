@@ -2,6 +2,8 @@
 
 按 `prompt/wenxianSKILL.md` 第 2 节的状态标签维护。**禁止**把"论文提出 / 框架具备"写成"本项目已实现"。
 
+> **2026-10-01 本轮：B/C 模板只设计，未实施/实跑。** 设计见 `docs/requirements/inspection-business-templates-20261001.md`。Castelar Wembers 2024 已重点核查开放 HTML 正文，PDF 未取得，Lübeck 元数据 HTML 已下载；Galceran 2015 的机构公开 PDF 已取得并逐页核查重点段；Guo/APEX-MR 复用已有 PDF；DNV 仅下载官方公开页，F116 完整标准未取得/未读。归档索引 `sources/inspection-templates-20261001/README.md`，书目/取得状态见 manifest。本轮不引入新求解框架、不开展控制测试，专业视觉/识别/精细重建不属本部门。下方早期文献建议不是当前用户政策；当前执行事实以 context/02、15 和 WORKLOG 为准。
+
 - **已采用**：已进入当前工程主链
 - **已复现**：已在项目中复现或运行
 - **已全文阅读**：已获得并阅读全文
@@ -14,15 +16,15 @@
 
 | 模块 | 来源 | 状态 |
 |---|---|---|
-| 任务分配 / 调度 | Calvo 受限 Python 移植（`integration/mrta_python`） | **已采用** |
-| AAV 编队运动 | Swarm-Formation（`upstream/Swarm-Formation`） | **已复现**（七机 AIR 闭环） |
+| 任务分配 / 调度 | Heformation 原联合候选/快速状态估计（`integration/mrta_python`）；Calvo 为历史起点/方法参考 | **已采用**；旧 v9 生产排序已退出 |
+| AAV 编队运动 | 官方 Swarm-Formation 源码加项目补丁（`upstream/Swarm-Formation`） | **已采用/实跑**；r42 三成员共同返航 |
 | 任务 → 运动接口 | 本项目 `FormationAction` | **已采用** |
 | AAV 控制 / 动力学 | qn 6DOF（`integration/qn_aav_simulator`） | **已采用** |
 | ROS 执行 | ROS1 Noetic / actionlib | **已采用** |
 | 场景 | 解析 scene publisher | **已采用** |
-| 可视化 | RViz + `mission_dashboard.py` | **已采用** |
+| 可视化 | 独立 RViz + 原 Qt 任务控制台 | **已采用**；同一任务权威 |
 | 单机指令隔离 | 本项目补丁 `plan_manage_member_goal_entry.patch` | **已复现**（探针三项通过） |
-| USV / UUV | 仅目标资源模型 | **未接入**（无执行端点） |
+| USV / UUV | Otter/PVS USV；固定 WATER qn UUV 代理 | **已接入/实跑**；有限任务级共享支援，非真实网关保证 |
 
 ## 2. 全文可读的文献（本地 `papers/<category>/`）
 

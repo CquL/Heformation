@@ -173,3 +173,107 @@
 +
 +add_executable(swarm_readonly_query src/swarm_readonly_query.cpp)
 +target_link_libraries(swarm_readonly_query ${catkin_LIBRARIES})
+
+--- a/src/planner/path_searching/src/dyn_a_star.cpp
++++ b/src/planner/path_searching/src/dyn_a_star.cpp
+@@ -298,40 +298,32 @@
+         return path;
+     }
+         
+-    int end_idx   = 1;
+-    Vector3d cut_start = path[0];
+-    simple_path.push_back(cut_start);
+-    
+-    bool finish = false;
+-    while (!finish) {
+-        for (int i = end_idx; i < size; i++){
++    // Traverse the input path monotonically. An unsafe adjacent edge must
++    // reject this local candidate, not append the same cut_start forever.
++    // Keep the original ESDF predicate and one-centimetre segment sampling.
++    int anchor = 0;
++    simple_path.push_back(path.front());
++    while (anchor + 1 < size) {
++        int furthest = anchor;
++        for (int i = anchor + 1; i < size; ++i) {
++            const int checks = std::max(1, int(ceil((path[i] - path[anchor]).norm() / 0.01)));
+             bool is_safe = true;
+-            Vector3d check_pt = path[i];
+-            int check_num = ceil((check_pt - cut_start).norm() / 0.01);
+-            // check collision
+-            for (int j=0; j<=check_num; j++){
+-                double alpha = double(1.0 / check_num) * j;
+-                Vector3d check_safe_pt = (1 - alpha) * cut_start + alpha * check_pt;
+-                if (checkOccupancy_esdf(check_safe_pt)){
++            for (int j = 0; j <= checks; ++j) {
++                const double alpha = double(j) / checks;
++                if (checkOccupancy_esdf((1.0 - alpha) * path[anchor] + alpha * path[i])) {
+                     is_safe = false;
+                     break;
+                 }
+             }
+-            
+-            if (is_safe && i == (size -1)){
+-                finish = true;
+-                simple_path.push_back(check_pt);
+-            }
+-
+-            if (is_safe){
+-                continue;
+-            }
+-            else{
+-                end_idx = i;
+-                cut_start = path[end_idx-1];
+-                simple_path.push_back(cut_start);
+-            }
+-        }
++            if (!is_safe) break;
++            furthest = i;
++        }
++        if (furthest == anchor) {
++            ROS_WARN_THROTTLE(2.0, "Native A* local simplification rejects unsafe adjacent edge %d/%d", anchor, size);
++            return {};
++        }
++        simple_path.push_back(path[furthest]);
++        anchor = furthest;
+     }
+ 
+     // debug
+
+--- a/src/planner/path_searching/src/dyn_a_star.cpp
++++ b/src/planner/path_searching/src/dyn_a_star.cpp
+@@ -206,8 +206,6 @@
+                         continue; //in closed set.
+                     }
+ 
+-                    neighborPtr->rounds = rounds_;
+-
+                     if(use_esdf_check){
+                         if (checkOccupancy_esdf(Index2Coord(neighborPtr->index)))
+                             continue;
+@@ -216,6 +214,26 @@
+                             continue;
+                     }
+                     
++                    // A free neighbour centre does not certify a diagonal
++                    // edge through another voxel. Match the simplifier's
++                    // existing ESDF/one-centimetre predicate during search.
++                    if (use_esdf_check) {
++                        const Vector3d from = Index2Coord(current->index);
++                        const Vector3d to = Index2Coord(neighborPtr->index);
++                        const int checks = std::max(1, int(ceil((to - from).norm() / 0.01)));
++                        bool edge_safe = true;
++                        for (int j = 0; j <= checks; ++j) {
++                            const double alpha = double(j) / checks;
++                            if (checkOccupancy_esdf((1.0 - alpha) * from + alpha * to)) {
++                                edge_safe = false;
++                                break;
++                            }
++                        }
++                        if (!edge_safe) continue;
++                    }
++                    // Rejected edges must not mark a still-undiscovered node;
++                    // another incoming edge may be safe and enqueue it later.
++                    neighborPtr->rounds = rounds_;
+                     double static_cost = sqrt(dx * dx + dy * dy + dz * dz);
+                     tentative_gScore = current->gScore + static_cost;
+ 

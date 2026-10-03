@@ -14,6 +14,8 @@ string region_id
 # Additional bounded time in the qualified terminal behavior. Integration,
 # safety checks and physical reservation continue; this is not position reset.
 duration terminal_wait
+# Facility work in the accepted current request; empty retains existing semantics.
+string work_id
 ---
 string task_id
 string goal_id
@@ -30,3 +32,6 @@ string reference_source
 string actual_mode
 uint32 reference_generation
 float64 model_time_s
+
+string work_id
+float64 work_progress

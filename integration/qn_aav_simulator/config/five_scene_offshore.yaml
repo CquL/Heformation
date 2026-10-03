@@ -57,6 +57,22 @@ scene:
     - {id: aav, model: aav, position: [0.0, 0.0, 0.0]}
   # Task-range metadata and facility locations, not precomputed motion paths.
   # New business-specific activity templates are a separate implementation.
+  # Declared model-scale control work; not professional sensor coverage.
+  # Operator-authorized fast simulation references. These are physical command
+  # speeds/effort; /clock remains a separate simulation time setting.
+  inspection_motion_profile:
+    air_planner_speed_mps: 0.6
+    air_nominal_speed_mps: 0.5
+    aav_water_speed_mps: 0.225
+    uuv_water_speed_mps: 0.225
+    usv_nominal_speed_mps: 0.6
+    usv_propulsion_effort_n: 60.0
+    # The measured full native query plus interpreter start can exceed 1 s.
+    # This is a local computation budget, independent of task planning's 10 s.
+    usv_local_query_budget_s: 2.0
+  inspection_profiles:
+    B: {layers: 3, offset_m: 1.2, min_air_altitude_m: 2.2, rotor_state: STATIC_KNOWN}
+    C: {layers: 3, offset_m: 1.2, pipeline_side_offset_m: 3.0}
   business_areas:
     - {id: survey, label: 'A 海域调查区', detail: '现有区域巡查', center: [3.0, 4.0], radius_m: 4.0, color: [0.26, 0.84, 0.95], facilities: []}
     - id: wind

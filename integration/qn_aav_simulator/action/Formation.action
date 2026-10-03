@@ -4,6 +4,8 @@ duration hold_duration
 string[] observation_ids
 # Region loaded once from the mission request; empty for a navigation action.
 string region_id
+# Facility work in the accepted current request; empty retains existing semantics.
+string work_id
 ---
 uint8 NONE=0
 uint8 INVALID_TARGET=1
@@ -36,3 +38,6 @@ float64 model_time_hold_seconds
 uint8 MOVING=0
 uint8 HOLDING=1
 uint8 phase
+
+string work_id
+float64 work_progress

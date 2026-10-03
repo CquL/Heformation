@@ -9,6 +9,7 @@ JOINT_GPU_RENDER="${JOINT_GPU_RENDER:-false}"
 JOINT_REGION_UI="${JOINT_REGION_UI:-$JOINT_VISUALIZE}"
 JOINT_TASK_UI="${JOINT_TASK_UI:-$JOINT_VISUALIZE}"
 JOINT_CONTINUOUS_SESSION="${JOINT_CONTINUOUS_SESSION:-true}"
+JOINT_SIM_SPEED="${JOINT_SIM_SPEED:-2.0}"
 JOINT_PLANNING_BUDGET_S="${JOINT_PLANNING_BUDGET_S:-10}"
 JOINT_REPAIR_BUDGET_S="${JOINT_REPAIR_BUDGET_S:-10}"
 JOINT_SIM_CPUSET="${JOINT_SIM_CPUSET:-}"
@@ -27,6 +28,7 @@ case "$JOINT_GPU_RENDER" in true|false) ;; *) echo 'JOINT_GPU_RENDER must be tru
 case "$JOINT_REGION_UI" in true|false) ;; *) echo 'JOINT_REGION_UI must be true or false' >&2; exit 2 ;; esac
 case "$JOINT_TASK_UI" in true|false) ;; *) echo 'JOINT_TASK_UI must be true or false' >&2; exit 2 ;; esac
 case "$JOINT_CONTINUOUS_SESSION" in true|false) ;; *) echo 'JOINT_CONTINUOUS_SESSION must be true or false' >&2; exit 2 ;; esac
+python3 -c 'import math,sys; n=float(sys.argv[1]); assert math.isfinite(n) and 1<=n<=4, "JOINT_SIM_SPEED must be between 1 and 4"' "$JOINT_SIM_SPEED"
 if [[ "$JOINT_TASK_UI" == true && "$JOINT_VISUALIZE" != true ]]; then
   echo 'JOINT_TASK_UI=true requires JOINT_VISUALIZE=true' >&2; exit 2
 fi
@@ -74,11 +76,13 @@ if [[ "$JOINT_VISUALIZE" == true ]]; then
 fi
 
 docker run --rm --init -i --user "$(id -u):$(id -g)" \
+  --env OMP_NUM_THREADS=1 --env OPENBLAS_NUM_THREADS=1 --env MKL_NUM_THREADS=1 \
   --env ROS_HOME=/tmp/joint-request-ros \
   --env JOINT_VISUALIZE="$JOINT_VISUALIZE" \
   --env JOINT_REGION_UI="$JOINT_REGION_UI" \
   --env JOINT_TASK_UI="$JOINT_TASK_UI" \
   --env JOINT_CONTINUOUS_SESSION="$JOINT_CONTINUOUS_SESSION" \
+  --env JOINT_SIM_SPEED="$JOINT_SIM_SPEED" \
   --env JOINT_PLANNING_BUDGET_S="$JOINT_PLANNING_BUDGET_S" \
   --env JOINT_REPAIR_BUDGET_S="$JOINT_REPAIR_BUDGET_S" \
   --env JOINT_SIM_CPUSET="$JOINT_SIM_CPUSET" \
@@ -147,9 +151,12 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
       active_scene=/experiments/current/ui-scene.yaml
     fi
     sim_prefix=()
-    observed_mapping=$(python3 -c "import yaml,sys; print(str(yaml.safe_load(open(sys.argv[1])).get(\"execution_mode\")==\"ONLINE_MAPPING\").lower())" "$active_request")
+    observed_mapping=$(python3 -c "import yaml,sys; print(str(yaml.safe_load(open(sys.argv[1])).get(\"execution_mode\") in (\"ONLINE_MAPPING\",\"INSPECTION_CONTROL\")).lower())" "$active_request")
+    read -r air_planner_speed usv_propulsion_effort usv_local_query_budget <<< "$(python3 -c "import yaml,sys; from qn_aav_simulator.inspection_work import inspection_motion_profile; p=inspection_motion_profile(yaml.safe_load(open(sys.argv[1])).get(\"scene\",{})); print(p[\"air_planner_speed_mps\"],p[\"usv_propulsion_effort_n\"],p[\"usv_local_query_budget_s\"])" "$active_scene")"
     if [[ -n "$JOINT_SIM_CPUSET" ]]; then sim_prefix=(taskset -c "$JOINT_SIM_CPUSET"); fi
     "${sim_prefix[@]}" roslaunch qn_aav_simulator five_qualification.launch record:=false \
+      simulation_speed:="$JOINT_SIM_SPEED" \
+      air_planner_speed:="$air_planner_speed" usv_propulsion_effort:="$usv_propulsion_effort" usv_local_query_budget:="$usv_local_query_budget" \
       observed_mapping:="$observed_mapping" \
       visual_timing_relaxation:="$JOINT_VISUAL_TIMING_RELAX" \
       request_file:="$active_request" \
@@ -182,7 +189,7 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
     timeout 15 rosbag record --lz4 -l 1 -O /experiments/current/scene-once.bag \
       /scene/global_cloud > /experiments/current/scene-recorder.log 2>&1
     record_cmd=(rosbag record --lz4 --buffsize=256 -O /experiments/current/execution.bag
-      /aav_1/formation_action/goal /aav_1/formation_action/result
+      /clock /aav_1/formation_action/goal /aav_1/formation_action/result
       /aav_2/formation_action/goal /aav_2/formation_action/result
       /aav_3/formation_action/goal /aav_3/formation_action/result
       /aav_formation/formation_action/goal /aav_formation/formation_action/result
@@ -195,6 +202,7 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
       /drone_1_qn/odometry /drone_1_qn/diagnostics
       /drone_2_qn/odometry /drone_2_qn/diagnostics
       /usv/odometry /usv/diagnostics /uuv/odometry /uuv/diagnostics
+      /broadcast_traj_from_planner /broadcast_traj_to_planner
       /drone_0_planning/safety_status /drone_0_planning/trajectory
       /drone_1_planning/safety_status /drone_1_planning/trajectory
       /drone_2_planning/safety_status /drone_2_planning/trajectory

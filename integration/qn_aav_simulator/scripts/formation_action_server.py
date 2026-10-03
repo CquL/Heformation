@@ -16,6 +16,7 @@ Design notes (plan.md P0/P1):
 """
 
 import csv
+import copy
 from collections import deque
 import json
 import math
@@ -209,7 +210,7 @@ class FormationActionServer:
 
         self.lock = threading.RLock()
         self.mapping_session = bool(self.observation_request is not None and
-            getattr(self.observation_request, 'execution_mode', '') == 'ONLINE_MAPPING')
+            getattr(self.observation_request, 'execution_mode', '') in ('ONLINE_MAPPING','INSPECTION_CONTROL'))
         self.online_mapping = self.mapping_session
         # This is declared planner workspace, not hidden obstacle geometry.
         # A mission target above the native ceiling must be rejected before
@@ -223,7 +224,8 @@ class FormationActionServer:
         if self.online_mapping:
             from qn_aav_simulator.observation_coverage import LocalSurveyMap
             for agent_id in self.agent_ids:
-                local = LocalSurveyMap(.25)
+                # Match Swarm's voxel-box inflation for AIR intentions.
+                local = LocalSurveyMap(.25,spherical_hull=False)
                 for box in scene.get('known_free_deployment', ()):
                     local.declare_free_box(box['low'], box['high'])
                 for item in scene.get('objects', ()):
@@ -250,6 +252,7 @@ class FormationActionServer:
         self.model_times = ModelTimeHistory(
             ["drone_{}".format(agent_id) for agent_id in self.agent_ids])
         self.used_reference = {}
+        self.inspection_ledgers = {}
         self.command_trajectory = {}
         self.qn_source = {}
         self.planner_finish = {}
@@ -268,7 +271,8 @@ class FormationActionServer:
             known_empty_map=self.known_empty_map, scene_source=self.scene_source,
             map_topic=self.map_topic, cloud_timeout_s=self.cloud_timeout,
             odometry_timeout_s=self.odom_timeout,
-            diagnostics_timeout_s=self.qn_state_timeout)
+            diagnostics_timeout_s=self.qn_state_timeout,
+            sensor_topics={a:self._local_sensor_topic(a) for a in self.agent_ids})
         self.health = RuntimeHealthMonitor(self.readiness,
                                            odometry_timeout_s=self.odom_timeout)
         self.session_alignment = self._new_alignment_monitor()
@@ -319,7 +323,7 @@ class FormationActionServer:
                 self.subscribers.append(rospy.Subscriber(
                     "/drone_{}_planning/safety_status".format(agent_id), DiagnosticArray,
                     self._safety_status_callback, callback_args=agent_id, queue_size=1))
-            sensing_topic = (local_cloud_topic(agent_id)
+            sensing_topic = (self._local_sensor_topic(agent_id)
                              if self.sensor_backend == SENSOR_BACKEND_CPU
                              else depth_topic(agent_id))
             self.subscribers.extend([
@@ -475,7 +479,8 @@ class FormationActionServer:
         if not math.isfinite(stamp) or stamp <= 0.0:
             stamp = received
         model_time = float(values["model_time_s"])
-        sample = ModelTimeSample(agent, stamp, model_time, received)
+        # The rate against wall time must remain independent of /clock speed.
+        sample = ModelTimeSample(agent, stamp, model_time, time.monotonic())
         with self.lock:
             self.model_times.note(sample)
             self.session_alignment.note_sample(sample)
@@ -628,8 +633,12 @@ class FormationActionServer:
                 self.map_topic, rospy.Time.now().to_sec(),
                 valid=points is not None, empty=(points is not None and len(points) == 0))
 
+    def _local_sensor_topic(self, agent_id):
+        return ('/drone_{}_qn/survey_cloud'.format(agent_id)
+                if self.online_mapping else local_cloud_topic(agent_id))
+
     def _sensing_callback(self, message, agent_id):
-        topic = (local_cloud_topic(agent_id)
+        topic = (self._local_sensor_topic(agent_id)
                  if self.sensor_backend == SENSOR_BACKEND_CPU
                  else depth_topic(agent_id))
         if isinstance(message, PointCloud2):
@@ -668,6 +677,14 @@ class FormationActionServer:
         if not samples:
             return
         sample = next((row for row in reversed(samples) if row.stamp == stamp), None)
+        # The scan and its Odometry travel on independent ROS connections.
+        # A scan arriving first is not evidence of a missing pose. Wait only
+        # within the existing input window, retaining the exact stamp match.
+        pose_deadline=time.monotonic()+self.odom_timeout
+        while sample is None and time.monotonic()<pose_deadline and not rospy.is_shutdown():
+            time.sleep(.001)
+            with self.lock:
+                sample=next((row for row in reversed(self.odom_history[agent_id]) if row.stamp==stamp),None)
         if sample is None:
             return
         # The floor is the immutable qn hg/2 model parameter received through
@@ -1011,7 +1028,7 @@ class FormationActionServer:
             raise ValueError('cannot load next monitoring request: '+str(error))
         if request.request_id in self.observation_request_ids:
             raise ValueError('next monitoring request must have a new request_id')
-        if getattr(request,'execution_mode','')!='ONLINE_MAPPING' or not self.mapping_session:
+        if getattr(request,'execution_mode','') not in ('ONLINE_MAPPING','INSPECTION_CONTROL') or not self.mapping_session:
             raise ValueError('live request changes require the existing ONLINE_MAPPING mode')
         with self.survey_lock:
             for local in self.survey_maps.values():local.begin_observation_epoch(rospy.Time.now().to_sec())
@@ -1041,7 +1058,18 @@ class FormationActionServer:
                       if region.kind in ('SURFACE','SHORELINE') for p in region.interest_points}
             if len(set(requested))!=len(requested) or not set(requested)<=declared:
                 raise ValueError('unknown or repeated AIR observation IDs')
-        target_z=self.cruise_altitude_m
+        target_z=(goal.formation_center.point.z if self.observation_request and
+            self.observation_request.execution_mode=='INSPECTION_CONTROL' else self.cruise_altitude_m)
+        work_id=str(getattr(goal,'work_id',''))
+        if work_id and (len(self.agent_ids)!=1 or not self.observation_request or
+                work_id not in {w['work_id'] for w in self.observation_request.work_items}):
+            raise ValueError('unknown current-request inspection work')
+        if work_id:
+            from qn_aav_simulator.inspection_work import inspection_reference_speed
+            inspection=next(w for w in self.observation_request.work_items if w['work_id']==work_id)
+            if inspection['domain']=='AIR' and inspection_reference_speed(
+                    inspection,'drone_{}'.format(self.agent_ids[0]))>inspection['speed_limit_mps']:
+                raise ValueError('selected AIR reference exceeds the declared work speed envelope')
         return_altitudes=[float(value) for value in (
             rospy.get_param('/scene/air_return_altitude_m',self.cruise_altitude_m),
             rospy.get_param('/scene/amphibious_return_altitude_m',self.cruise_altitude_m))]
@@ -1275,7 +1303,7 @@ class FormationActionServer:
         # Subprocesses provide a cancellable bound for the entire blocking RPC,
         # including services that exist but never return. All requests start first.
         local_faults = {a for a in self.agent_ids
-                        if any(topic == local_cloud_topic(a) for topic, _ in
+                        if any(topic == self._local_sensor_topic(a) for topic, _ in
                                self._stale_local_scans(rospy.Time.now().to_sec()))}
         with self.lock:
             local_faults.update(a for a, s in self.safety_status.items()
@@ -1311,6 +1339,10 @@ class FormationActionServer:
                     commands = dict(self.command_trajectory)
                     references = {a: dict(s) for a, s in self.used_reference.items()}
                     samples = {a: list(self.odom_history[a]) for a in self.agent_ids}
+                # The copied callbacks may carry a stamp later than the loop's
+                # earlier clock read. Keep the original freshness bounds, using
+                # the clock only after the complete observation snapshot.
+                now = rospy.Time.now().to_sec()
                 for a in self.agent_ids:
                     status, source = statuses.get(a), sources.get(a)
                     if not status:
@@ -1351,7 +1383,11 @@ class FormationActionServer:
                         hold["reason"] = "ACTUAL_SAFETY_VIOLATION"
                 if stop_monitor:
                     stop_monitor.start_time = now  # Only the monotonic deadline limits observation.
-                    time_ok = alignment.report(require_baseline=False).within_thresholds
+                    timing=alignment.report(require_baseline=False)
+                    visual_policy=bool(rospy.get_param('/mission/allow_visual_timing_relaxation',False))
+                    time_ok=timing.within_thresholds or visual_policy
+                    hold['strict_time_alignment_ok']=timing.within_thresholds
+                    hold['visual_timing_relaxed']=visual_policy and not timing.within_thresholds
                     snapshot = stop_monitor.evaluate(
                         now, samples, reference_confirmed=len(adopted) == len(self.agent_ids) and time_ok,
                         hold_not_before_s=max(adopted.values()) if len(adopted) == len(self.agent_ids) else now,
@@ -1634,7 +1670,64 @@ class FormationActionServer:
             # Safety monitoring continues during this settled terminal window.
             return adoption,True
         current_sample = self._latest_sample(samples.get(member, ()))
-        complete = window is None or window.emitted == set(window.points)
+        facility_mode=work.observation_request.execution_mode=='INSPECTION_CONTROL'
+        inspection=diagnostics.get('inspection_definition')
+        entry_definition=diagnostics.get('inspection_entry_definition')
+        entry_heading_ready=entry_definition is None
+        inspection_goal=None
+        if entry_definition and current_sample is not None:
+            from qn_aav_simulator.inspection_work import work_legs,required_heading,yaw_of
+            entry_leg=work_legs(entry_definition)[0]
+            yaw=entry_definition.get('transition_heading_rad',required_heading(entry_definition,entry_leg,current_sample.position))
+            near=math.dist(current_sample.position,tuple(diagnostics['formation_center']))<=self.epsilon_p
+            diagnostics['inspection_entry_heading_acquired']=(
+                diagnostics.get('inspection_entry_heading_acquired',False) or near)
+            entry_heading_ready=(yaw is None or abs(math.remainder(
+                yaw_of(current_sample.orientation_quat_wxyz)-yaw,2*math.pi))<=entry_definition.get('transition_heading_tolerance_rad',entry_definition['heading_tolerance_rad']))
+            if 'transition_heading_rad' in entry_definition:
+                from qn_aav_simulator.inspection_work import transition_alignment_ready
+                entry_heading_ready=entry_heading_ready and transition_alignment_ready(
+                    entry_definition,current_sample.orientation_quat_wxyz,current_sample.body_angular_velocity)
+            if yaw is not None:
+                self.inspection_heading_publisher.publish(String(data=json.dumps(dict(
+                    goal_id=diagnostics['goal_id'],request_id=work.observation_request.request_id,
+                    work_id=entry_definition['work_id'],yaw=yaw,stamp=now_s,
+                    active=diagnostics['inspection_entry_heading_acquired']))))
+            diagnostics['inspection_entry_heading_ready']=entry_heading_ready
+        if inspection and current_sample is not None:
+            from qn_aav_simulator.inspection_work import sample_progress,yaw_of,work_legs,required_heading,control_report
+            progress=diagnostics['inspection_progress']
+            inspection_goal=sample_progress(inspection,progress,current_sample.stamp,current_sample.position,
+                current_sample.velocity,yaw_of(current_sample.orientation_quat_wxyz),'AIR')
+            leg=work_legs(inspection)[min(progress['active_leg'],len(work_legs(inspection))-1)]
+            yaw=required_heading(inspection,leg,current_sample.position)
+            residual=progress.get('residual',{})
+            line_gap=(residual.get('kind')=='LINE' and residual.get('leg')==progress['active_leg'])
+            gap_approach=(residual.get('phase')=='APPROACH' and residual.get('section')==leg['section'])
+            if (gap_approach and inspection_goal is not None and
+                    math.dist(current_sample.position,inspection_goal)>inspection['position_tolerance_m']):
+                dx=inspection_goal[0]-current_sample.position[0]
+                dy=inspection_goal[1]-current_sample.position[1]
+                if dx or dy:
+                    # This connecting motion is uncredited. The original
+                    # forward Swarm sensor must see the local gap entry before
+                    # the native planner can move there. Return to the declared
+                    # facility heading at the existing arrival tolerance.
+                    yaw=math.atan2(dy,dx)
+            if yaw is not None:
+                self.inspection_heading_publisher.publish(String(data=json.dumps(dict(
+                    goal_id=diagnostics['goal_id'],request_id=work.observation_request.request_id,
+                    work_id=inspection['work_id'],yaw=yaw,stamp=now_s,
+                    active=(gap_approach or line_gap or not progress['approaching'] or math.dist(current_sample.position,leg['start'])<=inspection['position_tolerance_m'])))))
+            if line_gap:diagnostics['inspection_navigation_phase']='LINE_GAP_'+residual['phase']
+            else:diagnostics.pop('inspection_navigation_phase',None)
+            if progress['complete'] and not diagnostics.get('inspection_report_emitted'):
+                self.local_product_publishers[self.agent_ids[0]].publish(String(data=json.dumps(
+                    control_report(work.observation_request.request_id,inspection,progress,
+                        'drone_{}'.format(self.agent_ids[0]),diagnostics['goal_id'],now_s))))
+                diagnostics['inspection_report_emitted']=True
+        complete = (diagnostics['inspection_progress']['complete'] if inspection else
+                    (window is None or window.emitted == set(window.points)) and entry_heading_ready)
         final = tuple(diagnostics['formation_center'])
         if complete and math.dist(monitor.center, final) <= 1e-8:
             # Navigation has already adopted the final intention. Terminal
@@ -1647,6 +1740,7 @@ class FormationActionServer:
         target = None
         try:
             local = self.survey_maps[member]
+            now_s=rospy.Time.now().to_sec()
             if local.stamp is None or not 0. <= now_s - local.stamp <= self.cloud_timeout:
                 diagnostics['mapping_wait_reason'] = 'WAITING_FOR_ACTUAL_LOCAL_SCAN'
                 return adoption, False
@@ -1654,7 +1748,8 @@ class FormationActionServer:
                 for event in window.sample_mapping(local, 'AIR', now_s):
                     self.local_product_publishers[member].publish(
                         String(data=json.dumps(event, allow_nan=False)))
-            complete = window is None or window.emitted == set(window.points)
+            complete = (diagnostics['inspection_progress']['complete'] if inspection else
+                        (window is None or window.emitted == set(window.points)) and entry_heading_ready)
             diagnostics['mapping_observed_cells'] = len(window.emitted) if window else 0
             diagnostics['mapping_required_cells'] = len(window.points) if window else 0
             final = tuple(diagnostics['formation_center'])
@@ -1664,11 +1759,33 @@ class FormationActionServer:
                 return adoption, True
             if now_s < diagnostics.get('mapping_next_plan_s', 0.):
                 return adoption, False
+            # A tracking residual must not block correction of an adopted
+            # intention. Arrival/free-space checks and exact reference adoption
+            # below decide when a new local target can replace the current one.
+            # The actual fleet monitor and native clearance margin still apply.
             diagnostics['mapping_next_plan_s'] = now_s + .5
             current = current_sample.position
             radius = self.platform_radius_m + self.obstacle_clearance + self.epsilon_p
-            arrived = math.dist(current, monitor.center) <= self.epsilon_p
+            transit=(work.observation_request.execution_mode=='INSPECTION_CONTROL' and
+                     (inspection is None or diagnostics['inspection_progress']['active_leg']==0 and
+                      diagnostics['inspection_progress']['approaching']))
+            # Navigation does not require a stop at each local lookahead. Keep
+            # the measured-free/adopted reference and replace it while moving.
+            arrived = math.dist(current, monitor.center) <= (1. if transit else self.epsilon_p)
             path_clear = local.segment_clear(current, monitor.center, radius)
+            pending_retry=False
+            if facility_mode and len(self.agent_ids)==1 and adoption.verdict().state!='ADOPTED':
+                evidence=adoption.evidence[member]
+                with self.lock:
+                    source=dict(self.qn_source.get(member) or {})
+                    reference=dict(self.used_reference.get(member) or {})
+                pending_retry=(not evidence.new_trajectory_observed and
+                    source.get('source_trajectory_id')==evidence.prior_trajectory_id and
+                    0.<=now_s-source.get('stamp_s',0.)<=self.qn_state_timeout and
+                    0.<=now_s-reference.get('stamp_s',0.)<=self.odom_timeout and
+                    reference.get('position') is not None and
+                    math.dist(current,reference['position'])<=self.epsilon_p and
+                    math.sqrt(sum(v*v for v in current_sample.velocity))<=self.epsilon_v)
             if len(self.agent_ids)>1:
                 path_clear=path_clear and all(
                     self.survey_maps[m].stamp is not None and
@@ -1677,24 +1794,63 @@ class FormationActionServer:
                         self._latest_sample(samples[m]).position,
                         tuple(monitor.center[a]+self.scale*self.slots[m][a] for a in range(3)),radius)
                     for m in self.agent_ids)
-            if not arrived and path_clear:
+            if not arrived and path_clear and not pending_retry:
                 return adoption, False
             # Do not retire an as-yet-unconfirmed local reference by silently
             # claiming that the next one belongs to this task.
-            if adoption.verdict().state != 'ADOPTED':
+            if adoption.verdict().state != 'ADOPTED' and not pending_retry:
                 diagnostics['mapping_wait_reason'] = 'WAITING_FOR_REFERENCE_ADOPTION'
                 return adoption, False
-            goals = [final]
+            goals = [inspection_goal if inspection_goal is not None and not complete else final]
+            local_floor=self.cruise_altitude_m
+            if facility_mode:
+                # The common transfer layer is execution policy, not a stored
+                # route or per-member height separation. Climb at the actual
+                # departure column; approach the declared entry before descent.
+                cruise=max(self.cruise_altitude_m,float(rospy.get_param('~inspection_transit_altitude_m',2.2)))
+                local_floor=cruise
+                destination=goals[0]
+                horizontal=math.hypot(current[0]-destination[0],current[1]-destination[1])
+                if (not diagnostics.get('facility_launch_complete') and horizontal>2. and
+                        current[2]<cruise-self.epsilon_p):
+                    anchor=diagnostics.setdefault('facility_climb_anchor',list(current[:2]))
+                    goals=[(anchor[0],anchor[1],cruise)]
+                    diagnostics['navigation_phase']='CLIMB_TO_COMMON_TRANSFER_LAYER'
+                else:
+                    diagnostics['facility_launch_complete']=True
+                    if destination[2]<cruise:
+                        speed=math.sqrt(sum(v*v for v in current_sample.velocity))
+                        descending=(diagnostics.get('facility_descent_destination')==list(destination))
+                        if not descending and (horizontal>self.epsilon_p or speed>self.epsilon_v):
+                            goals=[(destination[0],destination[1],cruise)]
+                            diagnostics['navigation_phase']='ALIGN_BEFORE_VERTICAL_DESCENT'
+                        else:
+                            # Once admitted, vertical motion is part of the
+                            # same descent. Its nonzero vz cannot turn the
+                            # destination back into the transfer-layer height.
+                            diagnostics['facility_descent_destination']=list(destination)
+                            local_floor=destination[2]
+                            diagnostics['navigation_phase']='VERTICAL_ENTRY_DESCENT'
+                    else:
+                        diagnostics.pop('facility_descent_destination',None)
+                        diagnostics['navigation_phase']='APPROACH_WORK_ENTRY'
             if not complete and window is not None:
                 goals = [(point[0], point[1], final[2])
                          for point in window.unobserved_mapping_points(local, 'AIR')]
                 goals.sort(key=lambda point: math.dist(current, point))
             query_end = time.monotonic() + .035
+            with self.lock:
+                peers=tuple(sample.position for sample in self.peer_odom.values()
+                            if 0.<=now_s-sample.stamp<=self.odom_timeout) if facility_mode else ()
+            peer_distance=float(rospy.get_param(
+                '/drone_{}_ego_planner_node/optimization/hard_swarm_clearance'.format(member),0.))
             for goal in goals:
-                target = local.next_target(current, goal, radius, max_step_m=1.)
+                target = local.next_target(current, goal, radius, max_step_m=2. if facility_mode else 1.,
+                    z_bounds=(local_floor,self.air_ceiling_m-radius) if facility_mode else None,
+                    peer_positions=peers,peer_clearance_m=peer_distance,allow_vertical=facility_mode)
                 if target is not None and math.dist(current, target) > .05:
                     break
-                if not complete and math.dist(current, goal) <= self.epsilon_p:
+                if window is not None and not complete and math.dist(current, goal) <= self.epsilon_p:
                     # A forward sensor may not see the cell directly below its
                     # current position. Reposition to a measured-free neighbour;
                     # the following native movement changes the real view.
@@ -1746,10 +1902,15 @@ class FormationActionServer:
         if target is None or math.dist(target, monitor.center) <= 1e-8 or (
                 math.dist(target, monitor.center) <= .05 and math.dist(target, final) > 1e-8):
             return adoption, False
+        if pending_retry:
+            # Supersede only a still-uncommitted intention. No used reference,
+            # adoption verdict, physical member or Goal resource is retired.
+            diagnostics['uncommitted_target_retries']=diagnostics.get('uncommitted_target_retries',0)+1
         # Keep compact adoption evidence for completed segments, and require a
         # fresh native trajectory/used_outer_step boundary for the next segment.
-        diagnostics.setdefault('local_adopted_trajectory_ids', []).append(
-            adoption.evidence[member].adopted_trajectory_id)
+        adopted_id=adoption.evidence[member].adopted_trajectory_id
+        if adopted_id is not None:
+            diagnostics.setdefault('local_adopted_trajectory_ids', []).append(adopted_id)
         next_adoption = TrajectoryAdoptionTracker(
             self.agent_ids, authorized_goal_publishers=(rospy.get_name(),))
         with self.lock:
@@ -1786,9 +1947,52 @@ class FormationActionServer:
         handover=self._claim_air_references(work.goal_handle.get_goal_id().id)
         start = rospy.Time.now()
         diagnostics = self._new_diagnostics(work, start)
+        if observation_request:
+            diagnostics['execution_mode']=observation_request.execution_mode
         diagnostics['reference_handover']=handover
         self.executing_diagnostics = diagnostics
         online = self.online_mapping
+        inspection=next((w for w in observation_request.work_items if w['work_id']==getattr(goal,'work_id','')),None) if observation_request else None
+        entry_definition=inspection if inspection and inspection['domain']=='WATER' else None
+        if entry_definition:
+            inspection=None
+            diagnostics['inspection_entry_definition']=copy.deepcopy(entry_definition)
+            member='drone_{}'.format(self.agent_ids[0])
+            self.inspection_heading_publisher=rospy.Publisher(
+                '/'+member+'_qn_aav/inspection_heading',String,queue_size=1)
+        if inspection:
+            from qn_aav_simulator.inspection_work import resume_progress,work_legs,inspection_work_budget,inspection_wall_budget
+            diagnostics['inspection_definition']=copy.deepcopy(inspection)
+            ledger_key=(observation_request.request_id,inspection['work_id'],inspection['version'])
+            self.inspection_ledgers={key:value for key,value in self.inspection_ledgers.items()
+                                     if key[0]==observation_request.request_id}
+            diagnostics['inspection_progress']=resume_progress(
+                inspection,self.inspection_ledgers.get(ledger_key))
+            self.inspection_ledgers[ledger_key]=diagnostics['inspection_progress']
+            member='drone_{}'.format(self.agent_ids[0])
+            self.inspection_heading_publisher=rospy.Publisher(
+                '/'+member+'_qn_aav/inspection_heading',String,queue_size=1)
+            with self.lock:
+                current_position=self.odom[self.agent_ids[0]].position
+                source=dict(self.qn_source.get(self.agent_ids[0],{}))
+                recent=self.model_times.samples_after(member,start.to_sec()-2.)
+            budget=inspection_work_budget(inspection,current_position)
+            speed=float(rospy.get_param('/mission/simulation_speed',1.))
+            wall_span=(recent[-1].wall_time_s-recent[0].wall_time_s) if (
+                len(recent)>1 and recent[0].wall_time_s is not None and recent[-1].wall_time_s is not None and
+                recent[-1].wall_time_s-recent[0].wall_time_s>=.25) else 0.
+            wall_rate=(recent[-1].model_time_s-recent[0].model_time_s)/wall_span if wall_span else None
+            budget.update(inspection_wall_budget(inspection,budget,wall_rate,speed))
+            budget.update(start_model_time_s=float(source['model_time_s']),start_wall_s=time.monotonic(),
+                          model_wall_sample_window_s=wall_span)
+            diagnostics['inspection_work_budget']=budget
+            work_timeout=budget['wall_duration_s']
+            rospy.loginfo('Accepted inspection budget %s: %s',inspection['work_id'],json.dumps(budget))
+        elif observation_request and observation_request.execution_mode=='INSPECTION_CONTROL':
+            from qn_aav_simulator.inspection_work import inspection_motion_profile
+            cruise=inspection_motion_profile(rospy.get_param('/scene',{}))['air_nominal_speed_mps']
+            work_timeout=max(self.execution_timeout,math.dist(self.odom[self.agent_ids[0]].position,tuple(diagnostics['formation_center']))/cruise+600.)
+        else:work_timeout=self.execution_timeout
         initial_target = tuple(diagnostics['formation_center'])
         if online:
             with self.lock:
@@ -1800,7 +2004,8 @@ class FormationActionServer:
                 candidate = (local.next_target(current, initial_target,
                     self.platform_radius_m + self.obstacle_clearance + self.epsilon_p)
                     if scan_fresh else None)
-            initial_target = (current if len(self.agent_ids)>1 else candidate or current)
+            initial_target = (current if len(self.agent_ids)>1 or inspection or
+                observation_request.execution_mode=='INSPECTION_CONTROL' else candidate or current)
             if initial_target[2] + self.platform_radius_m + self.obstacle_clearance >= self.air_ceiling_m:
                 initial_target = current
             diagnostics['execution_mode'] = 'ONLINE_MAPPING'
@@ -1812,7 +2017,7 @@ class FormationActionServer:
             initial_target, goal.hold_duration.to_sec(), start.to_sec(),
             agent_ids=self.agent_ids, relative_slots=self.slots, swarm_scale=self.scale,
             epsilon_p=self.epsilon_p, epsilon_v=self.epsilon_v,
-            odom_timeout=self.odom_timeout, execution_timeout=self.execution_timeout,
+            odom_timeout=self.odom_timeout, execution_timeout=work_timeout,
             platform_radius_m=self.platform_radius_m,
             target_z=initial_target[2])
         alignment = self._new_alignment_monitor()
@@ -1917,6 +2122,26 @@ class FormationActionServer:
                         adoption, completion_enabled = self._mapping_step(
                             work, observation_window, suppress_observation, monitor,
                             adoption, diagnostics, samples, now_s)
+                        budget=diagnostics.get('inspection_work_budget')
+                        if budget and not diagnostics['inspection_progress']['complete']:
+                            with self.lock:source=dict(self.qn_source.get(self.agent_ids[0],{}))
+                            fresh=0.<=now_s-source.get('stamp_s',-math.inf)<=self.qn_state_timeout
+                            model_elapsed=(max(0.,source['model_time_s']-budget['start_model_time_s']) if fresh else None)
+                            wall_elapsed=time.monotonic()-budget['start_wall_s']
+                            remaining=budget['wall_duration_s']-wall_elapsed
+                            budget.update(model_elapsed_s=model_elapsed,wall_elapsed_s=wall_elapsed)
+                            # Model duration estimates movement/search effort;
+                            # the already declared fixed wall watchdog bounds
+                            # inspection execution. Input/adoption/fleet safety
+                            # and the required native hold keep their clocks.
+                            monitor.execution_timeout=now_s-monitor.start_time+max(0.,remaining)
+                        if (inspection and diagnostics['inspection_progress']['complete'] and
+                                not diagnostics.get('inspection_terminal_deadline_started_s')):
+                            # Measured work completion starts its own bounded
+                            # native terminal observation. A nearly exhausted
+                            # work budget must not discard the required hold.
+                            diagnostics['inspection_terminal_deadline_started_s']=now_s
+                            monitor.execution_timeout=now_s-monitor.start_time+self.execution_timeout
                         if completion_enabled and not diagnostics.get('mapping_completion_ready'):
                             # A wait accumulated before the last map product is
                             # not the final task's required settled interval.
@@ -1948,13 +2173,38 @@ class FormationActionServer:
                         diagnostics.pop('local_odometry_gap_started_s',None)
                     status = self.state_machine.note_phase(snapshot.phase)
                     diagnostics["run_state"] = status
-                    if snapshot.phase != previous_phase:
+                    if snapshot.phase != previous_phase or inspection and now_s-diagnostics.get('inspection_feedback_at',0.)>=.5:
+                        diagnostics['inspection_feedback_at']=now_s
                         feedback = FormationFeedback()
                         feedback.phase = (FormationFeedback.HOLDING
                                           if snapshot.phase == "HOLDING"
                                           else FormationFeedback.MOVING)
+                        feedback.work_id=getattr(goal,'work_id','')
+                        feedback.work_progress=diagnostics.get('inspection_progress',{}).get('fraction',0.)
                         work.goal_handle.publish_feedback(feedback)
                         previous_phase = snapshot.phase
+                        if inspection and now_s-diagnostics.get('inspection_live_at',0.)>=2.:
+                            from qn_aav_simulator.inspection_work import yaw_of
+                            diagnostics['inspection_live_at']=now_s
+                            progress=diagnostics['inspection_progress']
+                            actual=self._latest_sample(samples.get(self.agent_ids[0],()))
+                            live=dict(goal_id=diagnostics['goal_id'],
+                                request_id=observation_request.request_id,work_id=inspection['work_id'],
+                                version=inspection['version'],stamp=now_s,
+                                progress={k:progress.get(k) for k in
+                                    ('active_leg','approaching','complete','fraction','residual','air_connector')},
+                                actual_position=list(actual.position) if actual else None,
+                                actual_velocity=list(actual.velocity) if actual else None,
+                                actual_yaw=(yaw_of(actual.orientation_quat_wxyz) if actual else None),
+                                local_target=diagnostics.get('local_target'),
+                                wait_reason=diagnostics.get('mapping_wait_reason'),
+                                survey_stamp=self.survey_maps[self.agent_ids[0]].stamp,
+                                navigation_phase=diagnostics.get('navigation_phase'),
+                                adoption_state=adoption.verdict().state)
+                            path=self.output_dir/(rospy.get_name().strip('/')+'.inspection-live.json')
+                            temporary=path.with_suffix('.tmp')
+                            temporary.write_text(json.dumps(live,allow_nan=False)+'\n')
+                            temporary.replace(path)
                     for name in ("max_position_error", "max_velocity"):
                         value = getattr(snapshot, name)
                         if value is not None:
@@ -2048,6 +2298,18 @@ class FormationActionServer:
                                 self.local_product_publishers[self.agent_ids[0]].publish(
                                     String(data=json.dumps(event,allow_nan=False)))
                     if snapshot.terminal_state:
+                        fleet=diagnostics.get('fleet_safety',{})
+                        if (snapshot.terminal_state=='SUCCEEDED' and not fleet.get('ok',True) and
+                                fleet.get('transient_information_gap',False)):
+                            # Do not finalize a successful physical hold on the
+                            # one transient fleet-input gap already tolerated by
+                            # the running observer. Keep the adopted hold and
+                            # require the next fresh real interpolation bracket.
+                            diagnostics['terminal_wait_reason']='WAITING_FOR_CURRENT_FLEET_ODOMETRY'
+                            monitor.snapshot=None
+                            rate.sleep()
+                            continue
+                        diagnostics.pop('terminal_wait_reason',None)
                         terminal_finish=now
                         stream.flush()
                         break
@@ -2173,7 +2435,7 @@ class FormationActionServer:
 
     @staticmethod
     def _is_local_scan_topic(topic):
-        return topic.endswith("pcl_render_node/cloud") or \
+        return topic.endswith("/survey_cloud") or topic.endswith("pcl_render_node/cloud") or \
             topic.endswith("pcl_render_node/depth")
 
     def _violation_reason(self, diagnostics, snapshot):

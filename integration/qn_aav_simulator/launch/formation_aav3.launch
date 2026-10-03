@@ -38,12 +38,14 @@
   <arg name="map_size_z" value="14.0"/>
   <arg name="odom_topic" value="visual_slam/odom"/>
   <arg name="formation_config" value="$(find qn_aav_simulator)/config/formation_aav3.yaml"/>
-  <!-- Existing physical safety contract, shared by the Action servers and the
-       optional native hard check. These are fixed values, not tuning margins. -->
+  <!-- Actual safety uses the physical envelope and surface clearance only.
+       References additionally reserve the declared per-member tracking
+       tolerance. This is an execution margin, not a proven tracking bound. -->
   <arg name="platform_radius_m" value="0.25"/>
   <arg name="inter_agent_clearance_m" value="0.50"/>
+  <arg name="reference_position_reserve_m" default="0.30"/>
   <arg name="hard_swarm_clearance_m"
-       value="$(eval 2.0 * float(arg('platform_radius_m')) + float(arg('inter_agent_clearance_m')))"/>
+       value="$(eval 2.0 * float(arg('platform_radius_m')) + float(arg('inter_agent_clearance_m')) + 2.0 * float(arg('reference_position_reserve_m')))"/>
 
   <include file="$(find swarm_bridge)/launch/bridge.launch">
     <arg name="drone_id" value="999"/>
@@ -93,6 +95,7 @@
 
 
   <include file="$(find ego_planner)/launch/run_in_sim.launch">
+    <arg name="legacy_renderer" value="$(eval str(arg('observed_mapping')).lower() != 'true')"/>
     <arg name="drone_id" value="0"/>
     <arg name="init_x" value="-30.0"/><arg name="init_y" value="6.0"/><arg name="init_z" value="0.8"/>
     <arg name="target_x" value="-18.0"/><arg name="target_y" value="6.0"/><arg name="target_z" value="0.8"/>
@@ -103,6 +106,7 @@
     <arg name="formation_config" value="$(arg formation_config)"/>
   </include>
   <include file="$(find ego_planner)/launch/run_in_sim.launch">
+    <arg name="legacy_renderer" value="$(eval str(arg('observed_mapping')).lower() != 'true')"/>
     <arg name="drone_id" value="1"/>
     <arg name="init_x" value="-30.0"/><arg name="init_y" value="4.0"/><arg name="init_z" value="0.8"/>
     <arg name="target_x" value="-18.0"/><arg name="target_y" value="4.0"/><arg name="target_z" value="0.8"/>
@@ -113,6 +117,7 @@
     <arg name="formation_config" value="$(arg formation_config)"/>
   </include>
   <include file="$(find ego_planner)/launch/run_in_sim.launch">
+    <arg name="legacy_renderer" value="$(eval str(arg('observed_mapping')).lower() != 'true')"/>
     <arg name="drone_id" value="2"/>
     <arg name="init_x" value="-30.0"/><arg name="init_y" value="8.0"/><arg name="init_z" value="0.8"/>
     <arg name="target_x" value="-18.0"/><arg name="target_y" value="8.0"/><arg name="target_z" value="0.8"/>
@@ -128,15 +133,31 @@
        Native Swarm peer avoidance and formation optimization coordinate
        the return references. Override included defaults here;
        actual body/obstacle and inter-member clearances remain unchanged. -->
-  <param name="/drone_0_ego_planner_node/grid_map/virtual_ceil_height" value="4.5"/>
-  <param name="/drone_1_ego_planner_node/grid_map/virtual_ceil_height" value="4.5"/>
-  <param name="/drone_2_ego_planner_node/grid_map/virtual_ceil_height" value="4.5"/>
+  <param name="/drone_0_ego_planner_node/grid_map/virtual_ceil_height" value="13.0"/>
+  <param name="/drone_1_ego_planner_node/grid_map/virtual_ceil_height" value="13.0"/>
+  <param name="/drone_2_ego_planner_node/grid_map/virtual_ceil_height" value="13.0"/>
   <group if="$(arg observed_mapping)">
     <!-- Same measured-voxel discretisation as the local region executor. The
          prior 0.1 m navigation grid cannot invent evidence between 0.25 m rays. -->
     <param name="/drone_0_ego_planner_node/grid_map/resolution" value="0.25"/>
     <param name="/drone_1_ego_planner_node/grid_map/resolution" value="0.25"/>
     <param name="/drone_2_ego_planner_node/grid_map/resolution" value="0.25"/>
+    <!-- The spline's own measured map must protect the same .25 m body,
+         .2 m scene clearance and .5 m tracking margin as short AIR targets.
+         Upstream's .1 m inflation leaves curved/peer-avoiding references
+         unsafe even when the mission-level chord was observed clear. -->
+    <param name="/drone_0_ego_planner_node/grid_map/obstacles_inflation" value="0.95"/>
+    <param name="/drone_1_ego_planner_node/grid_map/obstacles_inflation" value="0.95"/>
+    <param name="/drone_2_ego_planner_node/grid_map/obstacles_inflation" value="0.95"/>
+    <!-- Represent that full measured neighborhood at the original .8 m
+         deployment pose. This extends map storage, not the AIR motion domain;
+         preserve the former upper map extent and virtual ceiling. -->
+    <param name="/drone_0_ego_planner_node/grid_map/ground_height" value="-1.2"/>
+    <param name="/drone_1_ego_planner_node/grid_map/ground_height" value="-1.2"/>
+    <param name="/drone_2_ego_planner_node/grid_map/ground_height" value="-1.2"/>
+    <param name="/drone_0_ego_planner_node/grid_map/map_size_z" value="15.2"/>
+    <param name="/drone_1_ego_planner_node/grid_map/map_size_z" value="15.2"/>
+    <param name="/drone_2_ego_planner_node/grid_map/map_size_z" value="15.2"/>
   </group>
 
   <!-- Apply AFTER run_in_sim includes, which otherwise overwrite max_vel with
@@ -150,6 +171,13 @@
   <param name="drone_0_ego_planner_node/optimization/hard_swarm_clearance" value="$(arg hard_swarm_clearance_m)" type="double"/>
   <param name="drone_1_ego_planner_node/optimization/hard_swarm_clearance" value="$(arg hard_swarm_clearance_m)" type="double"/>
   <param name="drone_2_ego_planner_node/optimization/hard_swarm_clearance" value="$(arg hard_swarm_clearance_m)" type="double"/>
+  <!-- Upstream soft avoidance uses 1.5 * swarm_clearance. Its cubic
+       penalty has zero gradient at the boundary, so finite optimization
+       cannot share an identical soft/hard limit. Reserve one existing
+       0.25 m navigation cell outside the hard reference separation. -->
+  <param name="drone_0_ego_planner_node/optimization/swarm_clearance" value="$(eval (float(arg('hard_swarm_clearance_m')) + 0.25) / 1.5)" type="double"/>
+  <param name="drone_1_ego_planner_node/optimization/swarm_clearance" value="$(eval (float(arg('hard_swarm_clearance_m')) + 0.25) / 1.5)" type="double"/>
+  <param name="drone_2_ego_planner_node/optimization/swarm_clearance" value="$(eval (float(arg('hard_swarm_clearance_m')) + 0.25) / 1.5)" type="double"/>
 
   <!-- One Action server per unit.  Each owns only its own members and publishes
        only on their goal topics, so a command addressed to one AAV cannot reach

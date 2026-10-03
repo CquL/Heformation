@@ -39,6 +39,7 @@ class NativeActionSpec:
     observation_ids: Tuple[str, ...] = ()
     terminal_wait_s: float = 0.0
     region_id: str = ''
+    work_id: str = ''
 
     def __post_init__(self):
         object.__setattr__(self,'segments',tuple(self.segments))
@@ -74,6 +75,7 @@ class ExecutionStep:
     # the declared local observation. A following same-position hold does not.
     observation_ids: Tuple[str, ...] = ()
     region_id: str = ''
+    work_id: str = ''
 
     def __post_init__(self):
         if not self.executor_id or not self.target_ref or not math.isfinite(self.duration_s) or self.duration_s<0:

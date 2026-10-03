@@ -108,3 +108,69 @@
      }
      else
      {
+--- a/src/planner/plan_manage/src/ego_replan_fsm.cpp
++++ b/src/planner/plan_manage/src/ego_replan_fsm.cpp
+@@ -1008 +1008 @@
+-    if (have_local_traj_ && use_formation)
++    if (have_local_traj_)
+--- a/src/planner/plan_manage/src/planner_manager.cpp
++++ b/src/planner/plan_manage/src/planner_manager.cpp
+@@ -242 +242 @@
+-                                                            have_local_traj && use_formation ? trajectory_start_time : -1.0);
++                                                            have_local_traj ? trajectory_start_time : -1.0);
+@@ -264 +264 @@
+-    if (have_local_traj && use_formation)
++    if (have_local_traj)
+
+--- a/src/planner/plan_manage/src/ego_replan_fsm.cpp
++++ b/src/planner/plan_manage/src/ego_replan_fsm.cpp
+@@ -274 +274,5 @@
+-          have_local_traj_ = false;
++          // traj_server still holds this committed terminal. Keep that
++          // reference across short goals in the handover-enabled task chain;
++          // a real ownership epoch change clears it separately below.
++          if (!reference_handover_enabled_)
++            have_local_traj_ = false;
+
+--- a/src/planner/traj_utils/include/traj_utils/plan_container.hpp
++++ b/src/planner/traj_utils/include/traj_utils/plan_container.hpp
+@@ -66,5 +66,10 @@
+-      local_traj.drone_id = -1;
+-      local_traj.duration = 0.0;
+       if (!preserve_local_traj_ids)
++      {
++        // A new global guide does not retire the locally committed reference
++        // in adapted sessions. Retain its whole interval and identity until
++        // a new local trajectory is committed or the owner epoch changes.
++        local_traj.drone_id = -1;
++        local_traj.duration = 0.0;
+         local_traj.traj_id = 0;
++      }
+     }
+
+--- a/src/planner/path_searching/src/dyn_a_star.cpp
++++ b/src/planner/path_searching/src/dyn_a_star.cpp
+@@ -284 +284 @@
+-    if (size == 1)
++    if (size <= 2)
+--- a/src/planner/plan_manage/src/ego_replan_fsm.cpp
++++ b/src/planner/plan_manage/src/ego_replan_fsm.cpp
+@@ -817,10 +817,16 @@
+   {
+     std::lock_guard<std::recursive_mutex> guard(reference_mutex_);
+     if (!ordinaryReferenceAllowed()) return true;
++    const auto &previous = planner_manager_->traj_.local_traj;
++    const bool held_request = have_local_traj_ && previous.duration > 0.0 &&
++        ros::Time::now().toSec() >= previous.start_time + previous.duration &&
++        (end_pt_ - previous.traj.getPos(previous.duration)).norm() < 1e-6;
+     if (!member_entry_enabled_ || !have_odom_ ||
+-        (end_pt_ - odom_pos_).norm() >= 0.1 || odom_vel_.norm() >= 0.1)
++        (!held_request && ((end_pt_ - odom_pos_).norm() >= 0.1 || odom_vel_.norm() >= 0.1)))
+       return false;
+-    callEmergencyStop(odom_pos_);
++    // Restamping an already committed hold must not jump to lagging odometry.
++    // Physical completion remains checked independently by the Action worker.
++    callEmergencyStop(held_request ? end_pt_ : odom_pos_);
+     traj_utils::PolyTraj msg;
+     polyTraj2ROSMsg(msg);
+     broadcast_ploytraj_pub_.publish(msg);

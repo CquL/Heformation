@@ -5,6 +5,7 @@
   <arg name="record" default="true"/>
   <arg name="observed_mapping" default="false"/>
   <arg name="transition_fault_behavior" default="FIXED_REFERENCE"/>
+  <arg name="planner_speed" default="0.35"/>
   <!-- A user-selected offshore region can put a member target more than 30 m
        from the deployment area.  This is an observation horizon, not a looser
        arrival or safety threshold; the Action still has to settle and pass the
@@ -12,7 +13,7 @@
   <arg name="air_observation_timeout_s" default="350.0"/>
   <include file="$(find qn_aav_simulator)/launch/formation_aav3.launch">
     <arg name="observed_mapping" value="$(arg observed_mapping)"/>
-    <arg name="planner_speed" value="0.35"/>
+    <arg name="planner_speed" value="$(arg planner_speed)"/>
     <arg name="safety_hold_timeout_s" value="$(arg air_observation_timeout_s)"/>
     <arg name="record" value="false"/>
     <arg name="output_dir" value="$(arg output_dir)"/>

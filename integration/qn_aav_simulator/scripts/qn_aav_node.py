@@ -19,6 +19,7 @@ import math
 import hashlib
 import json
 import os
+import sys
 import threading
 import time
 
@@ -34,6 +35,7 @@ from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from geometry_msgs.msg import PoseStamped, TwistStamped
 from nav_msgs.msg import Odometry
 from quadrotor_msgs.msg import PositionCommand
+from traj_utils.msg import PolyTraj
 import rospy
 from std_msgs.msg import Float64
 from std_srvs.srv import Trigger,TriggerResponse
@@ -88,6 +90,21 @@ class QnAavNode:
         self.max_loop_ros_gap_s = 0.0
         self.last_step_ros_time_s = None
         self.worst_step_timing = None
+        self.step_timing_count = 0
+        self.step_wall_totals_s = (0.0,) * 6
+        self.step_main_thread_cpu_total_s = 0.0
+        self.gil_switch_interval_initial_s = sys.getswitchinterval()
+        if rospy.get_param('/use_sim_time', False):
+            # The model and measured-map callbacks share this interpreter.
+            # Offer the GIL more often; every original model step and message
+            # publication still runs, and the measured effect remains audited.
+            sys.setswitchinterval(0.001)
+        # The shared clock needs 50 Hz ordinary telemetry, with immediate
+        # adoption/fault/terminal changes. The original wall-clock path retains
+        # its per-step publications. Neither path changes model or odom rates.
+        self.telemetry_period_s = (0.02 if rospy.get_param('/use_sim_time', False) else 0.0)
+        self.telemetry_last_ros_s = -math.inf
+        self.telemetry_state_key = None
         self.max_speed_mps = float(rospy.get_param("~max_speed_mps", 2.0))
         self.max_acc_mps2 = float(rospy.get_param("~max_acc_mps2", 8.0))
         position = (
@@ -130,12 +147,18 @@ class QnAavNode:
         self.used_twist_pub = rospy.Publisher(
             "~used_reference_twist", TwistStamped, queue_size=1)
         self.diagnostics_pub = rospy.Publisher(
-            "~diagnostics", DiagnosticArray, queue_size=1)
+            "~diagnostics", DiagnosticArray, queue_size=1,latch=bool(rospy.get_param('/use_sim_time',False)))
         self.medium_pub = rospy.Publisher("~medium_flag", Float64, queue_size=1)
+        self.platform_peer_pub=rospy.Publisher('/broadcast_traj_from_planner',PolyTraj,queue_size=1)
+        self.platform_peer_last_s=-math.inf
         self.state_digest_service=rospy.Service('~state_digest',Trigger,self.state_digest)
         if rospy.get_param("~enable_platform_action", False):
             from qn_aav_simulator.platform_action import LocalPlatformAction
             self.platform_action = LocalPlatformAction(self)
+        from std_msgs.msg import String
+        self.inspection_heading=None
+        self.inspection_yaw_reference=None
+        self.inspection_heading_sub=rospy.Subscriber('~inspection_heading',String,self._inspection_heading,queue_size=1)
         self.command_sub = rospy.Subscriber(
             "~command", PositionCommand, self.command_callback, queue_size=1
         )
@@ -157,11 +180,30 @@ class QnAavNode:
             return TriggerResponse(False,str(error))
 
     # -- command capture ---------------------------------------------------
+    def _inspection_heading(self,message):
+        try:
+            value=json.loads(message.data)
+            if not math.isfinite(value['yaw']) or not math.isfinite(value['stamp']):return
+            with self.lock:
+                owner=self.platform_action.owner if self.platform_action else None
+                value['owner_generation']=(owner.generation if owner and owner.goal_id==value.get('goal_id') else None)
+                self.inspection_heading=value
+        except (ValueError,KeyError,TypeError):return
+
     def command_callback(self, message):
         with self.lock:
             self._command_callback_locked(message)
 
     def _command_callback_locked(self, message):
+        owner=self.platform_action.owner if self.platform_action else None
+        context=((owner.source,owner.goal_id,owner.generation,owner.locked,self.platform_action.mode())
+                 if owner else None)
+        retained_terminal=(owner is not None and not owner.active and not owner.locked and
+                           owner.goal_id in owner.retired)
+        if (context is None or context[0]!='AIR_SWARM' or not context[1] or context[3] or
+                context[4]!='AIR' or not (owner.active or retained_terminal) or
+                self.inspection_yaw_reference and self.inspection_yaw_reference['context']!=context):
+            self.inspection_yaw_reference=None
         if self.platform_action is not None and not self.platform_action.accepts_air(int(message.trajectory_id)):
             return
         snapshot_fields = {
@@ -179,6 +221,28 @@ class QnAavNode:
             "reference_source": "AIR_SWARM",
             "reference_generation": self.platform_action.owner.generation if self.platform_action else 0,
         }
+        heading=self.inspection_heading
+        current_heading=(heading and context and owner.active and heading.get('goal_id')==context[1] and
+                         heading.get('owner_generation')==context[2] and
+                         0<=rospy.Time.now().to_sec()-heading['stamp']<=1.)
+        if current_heading and heading.get('active') is False:self.inspection_yaw_reference=None
+        if (heading and heading.get('active') and context and context[0]=='AIR_SWARM' and owner.active and
+                not context[3] and context[4]=='AIR' and
+                current_heading):
+            old=self.latest_command['yaw_rad'] if self.latest_command else float(message.yaw)
+            dt=max(0.,min(.1,snapshot_fields['stamp_s']-(self.latest_command or {}).get('stamp_s',snapshot_fields['stamp_s']-.02)))
+            delta=math.remainder(heading['yaw']-old,2*math.pi)
+            snapshot_fields['yaw_rad']=old+max(-dt,min(dt,delta))
+            self.inspection_yaw_reference=dict(context=context,yaw=snapshot_fields['yaw_rad'])
+        elif self.inspection_yaw_reference is not None:
+            # The adopted yaw belongs to this exact AIR ownership. Its verified
+            # terminal idle also keeps that reference until a valid successor,
+            # as ReferenceOwnership.finish requires. No new heading is adopted
+            # while idle; source/Goal/generation/mode/fault changes clear it.
+            # A quiet finite terminal verification keeps that reference;
+            # it cannot adopt a newly received stale heading or restore a
+            # different raw Swarm yaw after the heading publisher goes quiet.
+            snapshot_fields['yaw_rad']=self.inspection_yaw_reference['yaw']
         self.commands.note(snapshot_fields)
         with self.lock:
             self.latest_command = snapshot_fields
@@ -235,14 +299,15 @@ class QnAavNode:
         # Ownership change, snapshot adoption and model integration share one
         # local boundary. No in-flight normal snapshot crosses a handover.
         entered = time.monotonic()
+        thread_started = time.thread_time()
         if self.platform_action is None:
-            with self.lock:self._step_locked(entered)
+            with self.lock:self._step_locked(entered, thread_started)
         else:
             # actionlib callbacks already own server.lock before taking the
             # model lock. Terminal feedback/Result in tick uses the same order.
-            with self.platform_action.server.lock,self.lock:self._step_locked(entered)
+            with self.platform_action.server.lock,self.lock:self._step_locked(entered, thread_started)
 
-    def _step_locked(self, entered):
+    def _step_locked(self, entered, thread_started):
         acquired = time.monotonic()
         dt_s = self.outer_dt_s
         now = rospy.Time.now()
@@ -321,13 +386,53 @@ class QnAavNode:
             self.platform_action.note_adopted(snapshot)
         committed = time.monotonic()
         self.publish(now, usage, result, model_time_s, integration_step_s)
+        self._publish_platform_peer(now,usage)
         published = time.monotonic()
         elapsed = published-entered
+        wall_parts = (elapsed, acquired-entered, prepared-acquired,
+                      integrated-prepared, committed-integrated, published-committed)
+        # Passive completed-cycle totals; no reset on Goal/mode changes. Window
+        # differences isolate actual WATER work from startup/idle history.
+        # thread_time measures only this model-step thread, not ROS callbacks.
+        self.step_main_thread_cpu_total_s += time.thread_time()-thread_started
+        self.step_wall_totals_s = tuple(a+b for a,b in zip(self.step_wall_totals_s, wall_parts))
+        self.step_timing_count += 1
         if self.worst_step_timing is None or elapsed>self.worst_step_timing[0]:
             # Passive durations for the same worst cycle. No timestamps, model
             # steps, control/reference ownership or acceptance gates change.
             self.worst_step_timing=(elapsed,now.to_sec(),acquired-entered,
                 prepared-acquired,integrated-prepared,committed-integrated,published-committed)
+
+    def _publish_platform_peer(self,stamp,usage):
+        """Share the adopted finite PLATFORM window with native Swarm peers.
+
+        This is a nominal neighbor reference, never a PositionCommand or a
+        second controller. Actual qn tracking and fleet clearance remain the
+        independent execution evidence. AIR references stay native Swarm.
+        """
+        if not self.agent_id.startswith('drone_') or stamp.to_sec()-self.platform_peer_last_s<.1:return
+        with self.lock:
+            action=self.platform_action
+            if (action is None or not action.online_mapping or
+                    action.owner.source!='PLATFORM' or usage.reference_source!='PLATFORM'):return
+            point=tuple(usage.position);target=point
+            work=action.work
+            if (work is not None and not work.get('cause') and
+                    not work.get('waiting_start') and not work.get('local_wait')):
+                target=tuple(work.get('local_waypoint',point))
+            generation=action.owner.generation
+            reference_speed=action.water_reference_speed
+            if work is not None:
+                segment=work['segments'][work['index']]
+                reference_speed=(work.get('inspection_reference_speed_mps',reference_speed)
+                    if segment.operation=='WATER_PATH' else
+                    sum(math.dist(a,b) for a,b in zip(segment.points,segment.points[1:]))/segment.duration)
+        duration=max(.5,math.dist(point,target)/max(reference_speed,1e-6))
+        message=PolyTraj(drone_id=int(self.agent_id.split('_')[-1]),traj_id=generation,
+                         start_time=stamp,order=5,duration=[duration])
+        coefficients=[[0.,0.,0.,0.,(b-a)/duration,a] for a,b in zip(point,target)]
+        message.coef_x,message.coef_y,message.coef_z=coefficients
+        self.platform_peer_pub.publish(message);self.platform_peer_last_s=stamp.to_sec()
 
     def _latch_air_domain(self):
         """Latch the observed AIR-domain violation instead of only averaging it.
@@ -352,6 +457,42 @@ class QnAavNode:
         return 0.5 * float(self.backend.constants.hg_m)
 
     # -- publication -------------------------------------------------------
+    def _telemetry_due(self, stamp, usage):
+        """Pace passive telemetry without delaying a control-state change."""
+        if self.telemetry_period_s == 0.0:
+            return True
+        key = (usage.source_trajectory_id, usage.reference_source,
+               usage.reference_generation, usage.water_terminal_hold,
+               actual_mode(self.state.medium_flag), self.air_domain_violation,
+               self.domain_history.violation)
+        platform = self.platform_action
+        if platform is not None:
+            work = platform.work
+            progress = work.get('inspection_progress', {}) if work else {}
+            transition = platform.fault_transition
+            finishing = (transition is not None and self.clock.model_time_s <
+                         transition[1] + transition[0].duration)
+            key += (platform.owner.source, platform.owner.generation,
+                    platform.owner.goal_id, platform.owner.active, platform.owner.locked,
+                    platform.applied_source, platform.applied_generation,
+                    platform.air_floor, platform.planner.latched,
+                    platform.planner_ready(platform.owner.source == 'PLATFORM'),
+                    platform.scene_failure, platform.water_terminal_hold,
+                    platform.fault_hold_modes, platform.fault_hold_operation, finishing,
+                    None if work is None else work['id'],
+                    None if work is None else work['index'],
+                    None if work is None else work.get('cause'),
+                    None if work is None else work.get('waiting_start'),
+                    None if work is None else work.get('waiting_commit'),
+                    progress.get('complete', False))
+        ros_s = stamp.to_sec()
+        if (key != self.telemetry_state_key or ros_s < self.telemetry_last_ros_s or
+                ros_s - self.telemetry_last_ros_s >= self.telemetry_period_s):
+            self.telemetry_state_key = key
+            self.telemetry_last_ros_s = ros_s
+            return True
+        return False
+
     def _fill_pose(self, message, stamp, fields):
         message.header.stamp = stamp
         message.header.frame_id = self.world_frame
@@ -395,6 +536,10 @@ class QnAavNode:
         compat.twist.twist.linear.z = fields.world_velocity[2]
         compat.twist.twist.angular = standard.twist.twist.angular
         self.compat_pub.publish(compat)
+        self.medium_pub.publish(Float64(data=float(state.medium_flag or 0.0)))
+
+        if not self._telemetry_due(stamp, usage):
+            return
 
         # Telemetry records the reference the backend actually used, taken from
         # its own result.  It is not a second derivation of the same quantity.
@@ -425,7 +570,6 @@ class QnAavNode:
 
         self.diagnostics_pub.publish(self._diagnostics(
             stamp, usage, result, model_time_s, integration_step_s, reference_yaw))
-        self.medium_pub.publish(Float64(data=float(state.medium_flag or 0.0)))
 
     def _diagnostics(self, stamp, usage, result, model_time_s, integration_step_s,
                      reference_yaw):
@@ -484,11 +628,26 @@ class QnAavNode:
         pause=getattr(self,'gc_pause',(0.,0.,-1))
         entries.extend([('max_gc_pause_s',str(pause[0])),('max_gc_pause_started_ros_s',str(pause[1])),
                         ('max_gc_pause_generation',str(pause[2]))])
+        entries.extend([('python_gil_switch_interval_initial_s', repr(self.gil_switch_interval_initial_s)),
+                        ('python_gil_switch_interval_s', repr(sys.getswitchinterval()))])
         timing=self.worst_step_timing
         if timing is not None:
             entries.extend(zip(('worst_step_total_s','worst_step_started_ros_s','worst_step_lock_wait_s',
                 'worst_step_preparation_s','worst_step_backend_s','worst_step_commit_s','worst_step_publish_s'),
                 map(str,timing)))
+        # publish() precedes completion of its own timing interval, so these
+        # counters describe the preceding fully published model steps.
+        count = self.step_timing_count
+        entries.extend([('step_timing_count', str(count)),
+                        ('step_main_thread_cpu_sum_s', repr(self.step_main_thread_cpu_total_s))])
+        for name,total in zip(('total','lock_wait','preparation','backend','commit','publish'),
+                              self.step_wall_totals_s):
+            entries.append(('step_wall_'+name+'_sum_s', repr(total)))
+            if count:
+                entries.append(('step_wall_'+name+'_mean_s', repr(total/count)))
+        if count:
+            entries.append(('step_main_thread_cpu_mean_s',
+                            repr(self.step_main_thread_cpu_total_s/count)))
         if self.platform_action is not None:
             entries.extend(self.platform_action.diagnostics())
             entries.extend([
@@ -509,14 +668,17 @@ class QnAavNode:
         return array
 
     def run(self):
-        if rospy.get_param('/use_sim_time',False):
-            raise ValueError('qn wall-time execution requires use_sim_time=false; no external clock adapter is configured')
+        simulated=bool(rospy.get_param('/use_sim_time',False))
+        speed=float(rospy.get_param('/mission/simulation_speed',1.))
+        if simulated and (not math.isfinite(speed) or not 1.<=speed<=4.):
+            raise ValueError('configured shared scene clock speed required')
+        while simulated and not rospy.is_shutdown() and rospy.Time.now().to_sec()==0.:time.sleep(.005)
         # Passive timing evidence; collector policy and model steps are unchanged.
         import gc
         self.gc_pause=(0.,0.,-1)
         gc_start=[None]
         def gc_event(phase,info):
-            if phase=='start':gc_start[0]=(time.monotonic(),time.time())
+            if phase=='start':gc_start[0]=(time.monotonic(),rospy.Time.now().to_sec())
             elif gc_start[0] is not None:
                 elapsed=time.monotonic()-gc_start[0][0]
                 if elapsed>self.gc_pause[0]:self.gc_pause=(elapsed,gc_start[0][1],info['generation'])
@@ -528,6 +690,7 @@ class QnAavNode:
         # completed interval is replayed; adoption uses inputs available now.
         # Gaps/lag remain in diagnostics and the existing validity gate.
         next_tick = time.monotonic()
+        next_sim_tick=rospy.Time.now().to_sec()
         self.last_step_ros_time_s = rospy.Time.now().to_sec()
         while not rospy.is_shutdown():
             now_s = rospy.Time.now().to_sec()
@@ -538,6 +701,11 @@ class QnAavNode:
                 self.max_loop_ros_gap_s, now_s - self.last_step_ros_time_s)
             self.last_step_ros_time_s = now_s
             self.step()
+            if simulated:
+                next_sim_tick+=self.outer_dt_s
+                while not rospy.is_shutdown() and rospy.Time.now().to_sec()<next_sim_tick:
+                    time.sleep(min(.005,max(.0001,(next_sim_tick-rospy.Time.now().to_sec())/speed)))
+                continue
             next_tick += self.outer_dt_s
             delay = next_tick-time.monotonic()
             if delay>0:

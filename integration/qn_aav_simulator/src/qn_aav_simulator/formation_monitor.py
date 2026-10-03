@@ -84,6 +84,7 @@ class OdometrySample:
     body_velocity: Vector3 = (0.0, 0.0, 0.0)
     orientation_quat_wxyz: Tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0)
     child_frame_id: str = ""
+    body_angular_velocity: Vector3 = (0.0, 0.0, 0.0)
 
     def is_fresh(self, now, timeout):
         return (self.frame_id == "world" and math.isfinite(self.stamp)

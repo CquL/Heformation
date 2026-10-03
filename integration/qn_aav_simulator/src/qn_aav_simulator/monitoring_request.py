@@ -79,6 +79,7 @@ class MonitoringRequest:
     # ONLINE_MAPPING consumes local range measurements; coordinates below are
     # map accounting cells, never an operator-supplied flight path.
     execution_mode: str = 'POINT_OBSERVATION'
+    work_items: Tuple[dict, ...] = ()
 
 
 def circle_sweep_points(center, radius_m, z, spacing_m, prefix):
@@ -453,6 +454,14 @@ def expand(request: MonitoringRequest,
 
 def validate_request(request: MonitoringRequest) -> None:
     """Reject unusable geometry/timing before any dispatch or division."""
+    if request.execution_mode=='INSPECTION_CONTROL':
+        from .inspection_work import INSPECTION_TEMPLATES,validate_work
+        if not request.request_id or request.template_id not in INSPECTION_TEMPLATES or not request.work_items:
+            raise ValueError('inspection request needs a supported template and mandatory work')
+        ids=[w['work_id'] for w in request.work_items]
+        if len(ids)!=len(set(ids)):raise ValueError('inspection work identities must be unique')
+        for work in request.work_items:validate_work(work)
+        return
     if not request.request_id or not request.regions:
         raise ValueError("request id and regions must be nonempty")
     if (not math.isfinite(request.service_time_s)
@@ -505,6 +514,9 @@ def regional_requirements(request):
     """
     from mrta_python.models import Task
     validate_request(request)
+    if request.execution_mode=='INSPECTION_CONTROL':
+        return tuple(Task(request.request_id+'::'+w['work_id'],frozenset({w['domain']}),1,
+            0.,request.deadline_s,w['work_id']) for w in request.work_items)
     extra=set(request.required_capabilities)-{'AIR','WATER','SURFACE'}
     if request.template_id=='OFFSHORE_JOINT':
         roles={'offshore_air':('SURFACE',frozenset({'AIR','AAV'})),
@@ -525,3 +537,143 @@ def regional_requirements(request):
         tasks.append(Task(request.request_id+'::'+region.region_id,frozenset(extra|{domain}),1,
             0.,request.deadline_s,region.region_id,allow_larger_unit=domain=='AIR'))
     return tuple(tasks)
+
+
+def joint_mission_mappings(base_request,base_scene,selection):
+    """One operator selection factory for first and in-session A/B/C batches."""
+    import uuid
+    from .inspection_work import layered_contour,offset_line,local_work,definition_version,effective_contour_offset,inspection_work_budget,inspection_motion_profile
+    business=selection.get('business','A')
+    if business=='A':
+        base=copy.deepcopy(base_request);base['template_id']='OFFSHORE_JOINT'
+        base['execution_mode']='ONLINE_MAPPING';base.pop('work_items',None)
+        # The A input remains the original declared template, even after B/C.
+        if not base.get('regions'):
+            from pathlib import Path
+            import yaml
+            base=yaml.safe_load((Path(__file__).parents[2]/'config/monitoring_request_offshore.yaml').read_text())
+        return circle_joint_mission_mappings(base,base_scene,selection['center'],selection['radius_m'])
+    if business not in ('B','C'):raise ValueError('unknown mission business')
+    root=copy.deepcopy(base_scene);scene=root.get('scene',root)
+    models={m['id']:m for m in scene.get('world_models',())}
+    chosen=selection.get('object_ids')
+    if chosen is None:chosen=([m['id'] for m in models.values() if m['model']=='wind_turbine']
+        if business=='B' else ['production_platform','seabed_pipeline'])
+    parts=selection.get('parts')
+    if parts is None:parts=['air','foundation'] if business=='B' else ['air','structure','pipeline']
+    if not chosen or not parts:raise ValueError('请选择至少一个设施及必做部位')
+    profile=scene.get('inspection_profiles',{}).get(business,{})
+    if business=='B' and profile.get('rotor_state','STATIC_KNOWN')!='STATIC_KNOWN':
+        raise ValueError('first-version wind inspection requires stationary known rotor pose')
+    offset=float(profile.get('offset_m',1.2))
+    layer_count=selection.get('layers',profile.get('layers',3))
+    if (isinstance(layer_count,bool) or not isinstance(layer_count,(int,float)) or
+            not math.isfinite(layer_count) or layer_count<1 or int(layer_count)!=layer_count or
+            not math.isfinite(offset) or offset<=0):
+        raise ValueError('inspection layers must be a positive integer and offset finite and positive')
+    layers=int(layer_count)
+    air_contour_offset=effective_contour_offset(offset,'AIR')
+    water_contour_offset=effective_contour_offset(offset,'WATER')
+    motion_profile=inspection_motion_profile(scene)
+    works=[]
+    def add(obj,part,domain,sections):
+        row=dict(work_id=obj+':'+part,object_id=obj,part=part,domain=domain,
+                 label=obj+' / '+part,sections=sections,geometry_version=definition_version(models[obj]),
+                 position_tolerance_m=.5 if domain=='AIR' else .2,
+                 speed_limit_mps=2.,nominal_speed_mps=motion_profile['air_nominal_speed_mps' if domain=='AIR' else 'uuv_water_speed_mps'],
+                 motion_profile=copy.deepcopy(motion_profile),
+                 heading_tolerance_rad=math.pi/4)
+        row.update(execution_work_traversals=2,execution_search_margin_model_s=600.,
+                   execution_wall_reserve_factor=2.,execution_wall_model_rate_floor=.5,
+                   execution_wall_model_rate_fallback=1.)
+        if domain=='WATER':
+            # qn's original mixed-medium buoyancy moments use the source DCM
+            # without a yaw rotation into body coordinates. Use its qualified
+            # aligned vertical conversion method; sensing work keeps its own
+            # tangent headings. The exit runout is navigation, never credit.
+            row.update(transition_heading_rad=0.,transition_heading_tolerance_rad=.1,
+                       transition_runout_m=2.,transition_roll_pitch_limit_rad=.05,
+                       transition_angular_rate_limit_radps=.03)
+        if any(section['kind']=='CONTOUR' for section in sections):
+            row.update(requested_contour_offset_m=offset,
+                       effective_contour_offset_m=effective_contour_offset(offset,domain))
+        row['execution_geometry_budget']=inspection_work_budget(row,sections[0]['points'][0])
+        row['version']=definition_version(row);works.append(row)
+    def levels(low,high):
+        return [low+(high-low)*n/max(1,layers-1) for n in range(layers)]
+    for ident in chosen:
+        if ident not in models:raise ValueError('unknown selected facility '+ident)
+        model=models[ident];x,y,z=model['position']
+        if business=='B' and model['model']=='wind_turbine':
+            if 'air' in parts:
+                # Exterior of declared component proxies, not an inferred free map.
+                sections=[]
+                def envelope(cx,cy,height,minimum):
+                    components=[o for o in scene.get('objects',()) if o['id'].startswith(ident+'_')
+                        and abs(o['center'][2]-height)<=o['size'][2]/2+.5]
+                    return tuple(max([minimum[a]]+[abs(o['center'][a]-c)+o['size'][a]/2
+                        for o in components]) for a,c in enumerate((cx,cy)))
+                for height in levels(float(profile.get('min_air_altitude_m',2.2)),6.2):
+                    hx,hy=envelope(x,y,height,(.3,.3))
+                    sections+=layered_contour((x,y),(hx,hy),[height],air_contour_offset)
+                # Static rotor proxies also occupy the hub plane. Do not
+                # declare a nacelle contour through a selected rotor blade.
+                sections+=layered_contour((x,y+.12),envelope(x,y+.12,7.25,(.31,.6)),[7.25],air_contour_offset)
+                for angle in (0.,2*math.pi/3,4*math.pi/3):
+                    axis=(math.sin(angle),0.,math.cos(angle))
+                    for side in (-1.,1.):
+                        points=[(x+axis[0]*v,y+side*(offset+1.),7.25+axis[2]*v)
+                                for v in (.25,2.3)]
+                        section=offset_line(points);section['focus']=(x,y-.73,7.25)
+                        sections.append(section)
+                add(ident,'air','AIR',sections)
+            if 'foundation' in parts:
+                add(ident,'foundation','WATER',layered_contour((x,y),(.54,.54),levels(-1.2,-4.8),water_contour_offset))
+        elif business=='C' and model['model']=='production_platform':
+            if 'air' in parts:
+                add(ident,'air','AIR',layered_contour((x,y),(3.6,3.3),levels(2.2,5.6),air_contour_offset))
+            if 'structure' in parts:
+                add(ident,'structure','WATER',layered_contour((x,y),(3.3,2.7),levels(-1.2,-4.8),water_contour_offset))
+        elif business=='C' and model['model']=='seabed_pipeline' and 'pipeline' in parts:
+            points=model['points'];n=len(points)-1
+            span=selection.get('pipeline_span',[0,n]);a,b=(int(v) for v in span)
+            if not 0<=a<b<=n:raise ValueError('pipeline range must be a nonempty declared contiguous span')
+            # Working side outside the platform footprint; configurable control
+            # distance, not a claimed sonar footprint or a route through pipe.
+            side=float(profile.get('pipeline_side_offset_m',3.))
+            section=offset_line(points[a:b+1],side,offset)
+            sections=[]
+            local_index=selection.get('recheck_index')
+            if local_index is not None:
+                local_index=int(local_index)
+                if not 1<=local_index<len(points):raise ValueError('unknown selected valve')
+                local_position=offset_line(points,side,offset)['points'][local_index]
+                add(ident,'valve_'+str(local_index)+'_recheck','WATER',[local_work(local_position,4.)])
+            else:
+                for first,last in zip(section['points'],section['points'][1:]):
+                    sections.extend([dict(kind='LINE',points=[first,last]),local_work(last,4.)])
+                add(ident,'pipeline','WATER',sections)
+    if not works:raise ValueError('selection contains no declared required facility work')
+    raw=copy.deepcopy(base_request)
+    raw.update(request_id=business.lower()+'-'+uuid.uuid4().hex[:12],
+        template_id='WIND_INSPECTION' if business=='B' else 'PLATFORM_PIPELINE_INSPECTION',
+        execution_mode='INSPECTION_CONTROL',regions=[],work_items=works,return_required=True,
+        requires_underwater=any(w['domain']=='WATER' for w in works),requires_relay_delivery=True)
+    scene['online_mapping']=True;scene['aav_return_policy']='SWARM_FORMATION'
+    scene['amphibious_return_altitude_m']=max(2.1891593669479295,float(scene.get('amphibious_return_altitude_m',0.)))
+    # Services are intentions next to the work, not obstacle-free approach paths.
+    sites=[];transitions=[]
+    for work in works:
+        first=work['sections'][0]['points'][0];last=work['sections'][-1]['points'][-1]
+        if work['domain']=='WATER':
+            transitions.append(dict(id=work['work_id'],position=[first[0],first[1],0.]))
+            sites.append(dict(id=work['work_id'],position=[last[0],last[1]-3.,0.],radius_m=1.5,
+                              acoustic_contact_m=8.,mother_contact_m=30.))
+    if not sites:
+        p=works[0]['sections'][0]['points'][0]
+        sites=[dict(id='air_support',position=[p[0],p[1]-4.,0.],radius_m=1.5,acoustic_contact_m=8.,mother_contact_m=30.)]
+    scene.update(communication_sites=sites,transition_sites=transitions,inspection_selection=copy.deepcopy({k:v for k,v in selection.items() if v is not None}),
+                 observation_targets=[dict(id=w['work_id'],position=list(w['sections'][0]['points'][0]),domain=w['domain']) for w in works],
+                 selected_monitoring_area=dict(center=list(selection.get('center',models[chosen[0]]['position'][:2])),
+                                               radius_m=float(selection.get('radius_m',7.))))
+    return raw,root

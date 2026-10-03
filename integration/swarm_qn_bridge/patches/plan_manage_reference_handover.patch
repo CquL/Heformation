@@ -222,3 +222,19 @@
      add("armed", safety_hold_armed_ ? "true" : "false");
      add("reason", safety_reason_);
      add("latched_at_s", number(safety_latched_at_.toSec()));
+--- a/src/planner/plan_manage/src/ego_replan_fsm.cpp
++++ b/src/planner/plan_manage/src/ego_replan_fsm.cpp
+@@ -95,7 +95,12 @@
+                                              &EGOReplanFSM::referenceContextCallback, this);
+       safety_status_pub_ = nh.advertise<diagnostic_msgs::DiagnosticArray>(prefix + "_planning/safety_status", 1, true);
+       safety_hold_service_ = nh.advertiseService(prefix + "_planning/safety_hold", &EGOReplanFSM::safetyHoldRequest, this);
+-      safety_cloud_sub_ = nh.subscribe(prefix + "_pcl_render_node/cloud", 1, &EGOReplanFSM::safetyCloudCallback, this);
++      bool observed_mapping = false;
++      nh.param("grid_map/require_known_free", observed_mapping, false);
++      std::string safety_cloud_topic = prefix + "_pcl_render_node/cloud";
++      if (observed_mapping)
++        nh.param<std::string>("grid_map/observed_cloud_topic", safety_cloud_topic, safety_cloud_topic);
++      safety_cloud_sub_ = nh.subscribe(safety_cloud_topic, 1, &EGOReplanFSM::safetyCloudCallback, this);
+       safety_hold_timer_ = nh.createWallTimer(ros::WallDuration(0.05), &EGOReplanFSM::safetyHoldTick, this);
+     }
+     data_disp_pub_ = nh.advertise<traj_utils::DataDisp>("planning/data_display", 100);

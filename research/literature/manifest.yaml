@@ -1,11 +1,81 @@
 version: 2
 generated: '2026-09-19'
+updated: '2026-10-01'
 policy:
   pdfs_committed: false
   gitignore_rule: research/literature/papers/*.pdf
   structure: papers/<category>/ per prompt/wenxianSKILL.md
   pdf_acceptance: file reports PDF and size > 50 kB
 papers:
+- key: castelar-wembers-wind-inspection-jfr2024
+  title: LiDAR-based automated UAV inspection of wind turbine rotor blades
+  authors: [Carlos Castelar Wembers, Jasper Pflughaupt, Ludmila Moshagen, Michael Kurenkov, Tim Lewejohann, Georg Schildbach]
+  year: 2024
+  venue: Journal of Field Robotics 41(4):1116–1132
+  doi: 10.1002/rob.22309
+  category: task_motion
+  url: https://onlinelibrary.wiley.com/doi/10.1002/rob.22309
+  publication_verified_url: https://research.uni-luebeck.de/en/publications/lidar-based-automated-uav-inspection-of-wind-turbine-rotor-blades/
+  pdf_file: null
+  pdf_status: access-unresolved
+  read_scope: selected-open-full-text-HTML-sections-2-3-4-20261001
+  notes: notes/castelar-wembers-wind-inspection-jfr2024.md
+  source_files:
+  - sources/inspection-templates-20261001/castelar-wembers-wind-inspection-jfr2024-luebeck.html
+  - sources/inspection-templates-20261001/castelar-wembers-wind-inspection-jfr2024-source.json
+  local_full_text: false
+  access_attempts:
+  - {url: 'https://onlinelibrary.wiley.com/doi/pdf/10.1002/rob.22309', error: 'HTTP 403; HTML response, not PDF'}
+  - {url: 'https://onlinelibrary.wiley.com/doi/pdfdirect/10.1002/rob.22309', error: 'HTTP 403; HTML response, not PDF'}
+  relevance_to_interface:
+  - 静止叶片/确认姿态前置状态，阶段运动，结构相对偏距和朝向；不复制载荷/控制器参数
+  - 不能继承完整海上自主着舰或损伤检测结论；本项目 B 模板仍只设计未实施
+- key: galceran-underwater-structure-jfr2015
+  title: Coverage Path Planning with Real-time Replanning and Surface Reconstruction for Inspection of Three-dimensional Underwater Structures using Autonomous Underwater Vehicles
+  authors: [Enric Galceran, Ricard Campos, Narcís Palomeras, David Ribas, Marc Carreras, Pere Ridao]
+  year: 2015
+  first_online: '2014-11-07'
+  venue: Journal of Field Robotics 32(7):952–983
+  doi: 10.1002/rob.21554
+  category: task_motion
+  url: https://onlinelibrary.wiley.com/doi/10.1002/rob.21554
+  publication_verified_url: https://recerca.udg.edu/en/publications/coverage-path-planning-with-real-time-replanning-and-surface-reco/
+  repository_url: https://deepblue.lib.umich.edu/items/83b29b2a-f96e-4127-bb5b-1086058d061f
+  pdf_file: papers/task_motion/galceran-underwater-structure-jfr2015.pdf
+  pdf_status: downloaded
+  pdf_size_bytes: 5127309
+  pdf_sha256: f8f2b233e9a30d69c57d26af5ca039bd92891fdfa74d413b3c00efb805a72e45
+  pdf_pages: 32
+  downloaded_from: https://backend.production.deepblue-documents.lib.umich.edu/server/api/core/bitstreams/3757f435-2af8-4f86-b4d0-586b1d16a0f1/content
+  downloaded_on: '2026-10-01'
+  version_note: 机构公开存档期刊排版 PDF；可本地下载不等于全文再出版许可
+  read_scope: selected-full-text-sections-3-4-5-6-7-conclusion-20261001
+  notes: notes/galceran-underwater-structure-jfr2015.md
+  relevance_to_interface:
+  - 分层水平轮廓/条带与当前短段量测重规划；常规模型2.5D，另展示在线图生成名义路线
+  - GIRONA500 X/Y/Z/yaw能力、误差假设与载荷足迹不继承；管路轴向模板是本项目工程推断
+- key: dnv-inspection-template-scope
+  title: DNV 风机检查说明与 DNV-RP-F116 公开目录
+  year: 2026
+  category: maritime
+  source_type: official-public-pages
+  url: https://www.dnv.com/services/wind-turbine-inspections-3845/
+  standard_url: https://www.dnv.com/energy/standards-guidelines/dnv-rp-f116-integrity-management-of-submarine-pipeline-systems/
+  standard_title: Integrity management of submarine pipeline systems
+  standard_catalog_edition: '2021-12'
+  checked_on: '2026-10-01'
+  pdf_file: null
+  pdf_status: full-standard-not-acquired
+  read_scope: official-public-pages-only
+  notes: notes/dnv-inspection-template-scope.md
+  source_directory: sources/inspection-templates-20261001
+  source_files:
+  - sources/inspection-templates-20261001/dnv-wind-turbine-inspections.html
+  - sources/inspection-templates-20261001/dnv-rp-f116-public-description.html
+  - sources/inspection-templates-20261001/dnv-explorer-plus-document-list.html
+  - sources/inspection-templates-20261001/dnv-offshore-pipeline-integrity-management-course.html
+  relevance_to_interface:
+  - 仅核对公开设施类别和完整性管理业务背景；未核完整标准，不能规定轨迹参数或声明条款合规
 - key: gosrich-coordination-icra2023
   title: Multi-Robot Coordination and Cooperation with Task Precedence Relationships
   authors: [Walker Gosrich, Siddharth Mayya, Saaketh Narayan, Matthew Malencia, Saurav Agarwal, Vijay Kumar]
@@ -530,6 +600,9 @@ papers:
   downloaded_on: '2026-09-19'
   access_attempts: []
   notes: notes/five-platform-reading-20260919.md
+  inspection_notes: notes/guo-zavlanos-inspection-support.md
+  inspection_read_scope: selected-local-preprint-task-meeting-model-and-limits-20261001
+  local_version_note: arXiv:1706.02092v2 (2017-10-30) 作者预印本，对应2018发表记录
 - key: achord-2022
   final_plan_id: P14
   title: 'ACHORD: Communication-Aware Multi-Robot Coordination With Intermittent Connectivity'

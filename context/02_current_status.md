@@ -1,5 +1,78 @@
 # 当前状态
 
+> **2026-10-03 server715 迁移切换**：B/C 执行接线已有，完整验收仍未通过。r59 两 AIR 与 AAV 基础计量100%、三个报告实收，但 UUV 只完成前两层、USV 第二服务超时；旧失败和锁保留。r60 仅生成 B 预览（0.008875秒），已 decline，NOT_CONFIRMED/零锁/未派发运动，bag闭合/本地容器退出。最新三项修正（水下完成后的实际停止终端、球形导航包络欧氏距离、USV 声明支援区域验收）尚待同次完整验证。用户要求全部非实验项目推送并迁到 server715:/home/server715/data/lhj/codes/Heformation 继续，普通 SSH 控制、本地凭据不迁移。服务器 Ubuntu22.04/64核/双4090，Docker由用户安装。新接手见 docs/requirements/server715-migration-20261003.md，勿重启旧本地世界。
+
+> **2026-10-03 当前r59启动，B/C全链仍未通过**：根任务直接运行，旧执行agents均已结束，不重启旧agent/旧世界。r58已failed/bag闭合/容器退出：两AIR86与AAV基础60区间100%，UUV66.67%，AIR终态在0.058s fleet信息缺口时提交导致NOT_VERIFIED；旧Result/锁不升级。最新source终态等待既有≤1s恢复窗口的fresh实际bracket；PVS复用既有query_worker进程，每份fresh snapshot/独立deadline/timeout清理/full-state采用，直接协议小检查通过。native镜像ba3b2396…已编译A*邻接边同ESDF/1cm判据，AIR0.6/0.5、WATER0.225、USV60N/0.6/query2wall保持。r59从原入口完整B→C/实收/动态/驻留/人工Swarm返航继续，exec句柄由当前工具返回，不拼接旧单项100%为通过。
+
+> **2026-10-02 当前r50运行**：exec10686／Dockerbcfc5203ec38，native镜像a26becfd…已成功编译，完整B b-b4a335f27976/rev0（0.007495wall秒）/完整C QUEUED（0.002484wall秒）。A*简化严格推进，约初期Docker3.2GiB/无新OOM，仍无B/C全链通过。chain_completion唯一主链操作者继续全部实际作业/实收与动态/驻留/人工Swarm返航；AIR0.6/0.5及原安全/锁不改。下方r49失败保持历史，勿重启旧世界。
+
+> **2026-10-02 r49最新失败**：完整B/C仍未通过。lost Odometry之后确认native ego_planner约25.3GB RSS被kernel OOM kill（drone2 PID137/-9，Docker OOMKilled=true）；r48亦有此前OOM，不能只归因freshness。chain_completion正在关闭旧运行/保留bag及native分配定位，勿另起世界或放宽缺样/安全门槛。原AIR0.6/0.5保持，五锁/失败不升级。
+
+> **2026-10-02 当前运行r49**：exec78694／Docker700f11b574e4，完整B b-bce8e8ffcded/rev0（0.007777wall秒）与完整C QUEUED（0.004018wall秒）均已确认。PVS观测持续接收/有限查询单worker已加载，实际pulse13873→13898正常结束，原观测2s/净距/digest保持。AIR0.6/0.5不升。chain_completion负责同次完整B→C、实际进度/实收、动态/驻留/人工Swarm共同返航；当前未完整通过，勿另起世界。以下r48失败为历史首因，旧锁原样保留。
+
+> **2026-10-02 r48首因优先**：AAV已从2.2m实际ENTER并开始WATER，重复AIR下降修正已取得局部实际证据。完整C0.01924wall秒预览并确认QUEUED。随后USV实际防波堤净距0.199839m触发原0.2m合同，B/C全链仍失败/未通过，活动锁保持。chain_completion正在诊断本次船局部预测/实际执行首窗口；不得把以下“r48正在完整运行”作为未失败事实或另起重复容器。
+
+> **2026-10-02 正在运行 r48（约束精简）**：exec64203，完整B b-e3f651b0369a/rev0方案0.007663wall秒已确认，两AIR各10sections/86legs、两基础各3层/60legs保持。设施AAV直接从原2.2m转场层交给native ENTER；已取消跨域速度硬拒绝、0.30m局部调度否决及0.1m/0.03下降反复切换。原净距/引用采用/实际进度/GoalID/资源锁/实收保留，AIR0.6/0.5不升。当前沿同次完整B→C队列及动态/驻留/人工Swarm返航验收，仍未B/C全链通过。
+
+> **2026-10-02 当前权威事实（r47后约束审查）**：r47 已退出1且无运行容器，B/C仍未全链通过。AAV在原AIR入水入口下降时actual z0.249750700／ref z0.803765676，实际包络越水面；native ENTER未派发，旧失败/五锁保持。完整C只确认排队未接续。当前AIR planner0.6／nominal0.5、AAV WATER0.35、UUV WATER0.225、USV60N／nominal0.6／local query1wall s、统一目标2×。新请求删除无几何依据的层数≤8/偏距≥0.95硬拒绝；fresh chain_completion正修原下降/heading生命周期、跨域速度耦合，设施ENTER拟复用已有2.2m转场层，尚待新同次完整链验证。下面各r44等“当前运行”为历史时点，不据此重启旧运行。
+
+> **2026-10-02 当前运行（r44／降半）**：按用户要求当前AIR1.2→0.6m/s、nominal1→0.5，实际六参数已在r44/adopted-configuration.json确认，WATER0.35/0.45、USV60N/nominal0.6不变，不自主再升AIR。r44 exec88540／Dockerfb92b30a4970，完整B b-4ff8a06f66d8/rev0已确认（0.00887994s），正在排完整C。r43卡点为native绑定快照顺序/立即退出bug，已保留原30s等待/0.25fresh修复，无新gate；旧失败/锁保持。fresh facility_completion仅推进原同次完整业务及动态/驻留/人工Swarm返航，B/C尚未全链通过。
+
+
+> **2026-10-02 当前运行（r42）**：r42已启动，目录experiments/20261002-facility-session-live-r42，Docker072c3fabca7a、正常facility-build／2×／原Qt与独立RViz。按用户授权同源AIRplanner1.5/nominal1、AAVWATER0.35/UUV0.45、USVnominal0.6/60N；较快执行值已接且待实跑。原模型部分浸没yaw恢复力矩源码指向转换姿态敏感，声明yaw0实际稳定再ENTER、EXIT前原WATER短前进对齐，机体状态／原方程／安全／工作区间不重设。fresh facility_completion拥有完整B→C／动态／驻留／人工Swarm返航，clock只读实际速度。旧r41失败／锁保持，B/C仍未全链通过。
+
+
+> **2026-10-02 最新接手与授权**：用户明确允许直接提高各平台演示运动速度以快速看到结果，旧固定速度约束撤销。当前r41仍因dr1基础净距0.090123m失败，AIR入口已实际成功，但首次native越限具体阶段待时间线；旧失败／锁保持，B/C未通过。fresh facility_completion接手全链与速度同源配置，旧facility_debugger已精确交接停止；clock agent只读协助。拟AIR约1.5m/s、WATER0.35～0.45及更大USV力，尚未实施，必须同步Plan／执行／预算并实际验证。先核实r41句柄，旧处置后下一目录r42，不拼接部分旧运行为通过。
+
+
+> **2026-10-02 当前运行（r41）**：r41已启动，exec29773，目录experiments/20261002-facility-session-live-r41，2×／扩大核组／实时Qt与独立RViz。AIR跨侧LINE接近沿已完整合格外轮廓作临时连接且不计区间；Otter zero/无target不重置方向cursor；原86leg／模型／安全／cap不放宽。shared-sim qn线程调度1ms，原ODE仍外.01/内.001，速度由clock agent只读有效活动窗测，不能先说水下2×。facility_debugger负责全部B→全部C与同会话动态／驻留／人工Swarm返航；旧失败／锁保留，B/C尚未全链通过。
+
+
+> **2026-10-02 当前权威事实（r40异常）**：r40自然有限cap失败，B AIR96.51%／98.84%、AAV基础53.24%、UUV50.20%、实收0，C已排队未接续。wind1AIR四轮廓已合格，leg83跨叶片侧连接停在前侧（approaching=true／区间0）；USV短正推进候选被zero-effort／无target重置cursor反复饿死，有22事件trace。原字典异常未再出现，AIR实际已2×，WATER仅0.519～0.831×。只修连接意图／候选顺序和shared-sim线程调度，原模型／安全／旧interval与cap不增；facility_debugger负责终态后下一完整链，B/C尚未全链通过。
+
+
+> **2026-10-02 当前运行（r40）**：r40已启动，exec session81998，目录experiments/20261002-facility-session-live-r40；2×／SIM0-23／PLANNER16-19／VIEW24-31／实时Qt与独立RViz。r39精确栈对应顶层写者全部短段同锁，快照固定top-level key；0.25s新鲜／1s缺样失败、原安全／实际区间及终态不变。facility_debugger拥有全B→全C排队与动态操作，clock agent只读有效活动速率；旧失败／锁不升级。下一步以同次作业、报告实收、动态接续、驻留／人工Swarm返航及返航中换任务验收，B/C当前尚未全链通过。
+
+
+> **2026-10-02 当前权威事实（r39异常）**：r39在有效30ROS测速窗之前UNKNOWN_LOCKED，全部工作／实收0，C预览未确认。新failure_traceback明确_send_executor_goal→_save_executor_locked→deepcopy顶层metrics字典，原runtime-gap/session顶层写者未同锁；r38反馈缺口修复未覆盖此处，不能宣称旧精确栈。facility_debugger只修这些共享写者、保留首因并等原处置后再完整运行。扩大核组效果未取得有效窗口，失败后不测速，B/C尚未全链通过。
+
+
+> **2026-10-02 当前运行（r39）**：r39已启动，exec session68181，目录experiments/20261002-facility-session-live-r39，2×／SIM0-23／PLANNER16-19／VIEW24-31／实时Qt／独立RViz。原共享反馈／收件迭代与快照同锁、旧步骤拒绝和首异常traceback已接；qn被动sum/count测平均开销，模型／原安全／完成条件保持。facility_debugger拥有全部B→全部C及同会话动态操作，clock agent只读实际速率，根任务顺序记录。r38失败／锁不升级，其wind1AIR匹配ABORTED终态仍terminal_verified=false。下一结果以同次实际作业、实收与动态返航验收，当前B/C尚未全链通过。
+
+
+> **2026-10-02 当前权威事实（r38异常）**：r38在约610.21ROS秒UNKNOWN_LOCKED，任务层dictionary changed size during iteration；B AIR约46.50%／46.39%、AAV基础16.45%、UUV0，实收0，C已确认排队未实际执行，B/C仍未全链通过。facility_debugger负责查首因并等原实际终态；根任务暂停CPU比较（sim线程未改变，容器集合已恢复），clock agent只读。2×时钟下早期AIR约1.75×、UUV0.681×实际墙上速率，不能说五模型持续2×。后续只修复本完整链阻塞并继续验收，先核实句柄，不直接重启或拼接旧部分结果。
+
+
+> **2026-10-02 当前运行（r38）**：r38已启动，exec session9871，目录experiments/20261002-facility-session-live-r38，统一2×、实时Qt／独立RViz／正常facility-build。原时限单位、yaw生命周期和PVS未来coast接通，DDA等值优化地图处理约38～39%；这不是整项水下2×或B/C通过。facility_debugger拥有确认／完整B→C排队及动态操作；根任务记录、clock agent只读测实际速率。必须先核实活句柄，不重启同一未结束任务，不把旧部分结果拼为通过。
+
+
+> **2026-10-02 当前权威事实（r37）**：r37已退出1，五Action UNKNOWN_LOCKED，B AIR约69.68%／91.75%、AAV基础约2.26%、UUV0，实收0；C只确认排队未实际执行，B/C仍未全链通过。统一2×时钟已接，模型实际速率仍受计算负载限制。只读闭合bag定位USV预测提交过期、入水AIR最终采集间旧yaw回退及ROS超时早于模型作业预算，正在原端点修正；旧失败／锁／实际微小缺段保留。下一完整运行由facility_debugger负责原入口全B→全C和动态会话／驻留／人工Swarm返航，根任务顺序记录。先核实运行句柄，不另起旧回归或把部分运行拼接为通过。
+
+
+> **2026-10-02 当前权威事实**：r36已UNKNOWN_LOCKED/runner退出1，B AIR约20.6%/20.4%、水下约17.1%/0，C排队未实际接续，仍没有B/C全链通过。只读实际轨迹诊断证实默认1.2m圆角与AIR0.95m立方膨胀不相容；首圈约88%达不到90%残余门槛。正在原请求工厂/单一几何文件修正合法新轮廓、实际走圈后残余；另优化逐步诊断开销（2×各qn模型持续积压），原控制/安全/合格区间门槛保持。原/clock加速而非回放；正式完整B→C及动态操作、驻留、人工编队返航仍待新同次运行证明。
+
+> **2026-10-02 当前继续点**：r31已失败，B/C未全链通过。r30实证统一2×时钟/实际积分；r31误判同一成员重复时间样本为(1,1)碰撞已定位修正。场景时钟改为等待五模型真实0.01s步完成再推进，目标2×上限，原模型/安全/任务判据保持；r32继续完整B→C及动态任务/驻留/人工Swarm返航。r29原UUV基础三层已产生100%但整体失败，不能拼接为通过。
+
+> **2026-10-02 当前事实**：r24已失败关闭，原因cross-medium entry is not settled in AIR，B未接续；用户所见后撤在r24实际参考倒跳0.3～0.9m已复现。原FSM名义结束清have_local导致连续性补丁失效已修，原镜像重建中（/tmp/heformation-facility-terminal-continuity-build.log）。AIR→WATER有限实际停稳等待及首因记录已补；r25加载新镜像后继续完整C/B动态链，尚无全链通过，不恢复旧产物。
+
+> **2026-10-02 当前继续点**：r22已关闭且UNKNOWN_LOCKED，C AIR100%/1份实收、管路15.76%/结构0%，B/C仍未全链通过。水下入口/LOCAL驻留在tick被无条件清除已修；r23将加载最新Python继续完整业务及动态接续，原安全/进度/终态规则不变。旧段仅历史，先核实实际句柄。
+
+> **2026-10-01 当前主线**：r21/session25053/Docker c6ec9139aea9 已确认完整C c-5908a5024070，并生成完整B排队预览。加载单机/编队连续参考、同一实际感知、轮廓弧并集、短转换、入口朝向和独立有限终态窗口及动态UI策略修正。r20取得C AIR100%和实际报告实收，但整体失败，不能称C/B通过。只继续本协同链，先核实活句柄再行动。
+
+> **2026-10-01 当前继续点更正**：r19 C已UNKNOWN_LOCKED，首失败为结构AIR入口参考采用未确认(reason4)，其余取消，剩余支援已请求诊断停止。r19/reference-continuity-trace.json及reversal-history-evidence.json证明用户所见后撤对应参考倒跳。单机参考接续修正镜像已成功构建df3368325e4ad788ed4153be3360709a1c544456c1a5130e2e8da743dbf83ddb，尚未实跑新C++。继续完整C/B动态链，先核实旧句柄终态再开始新运行，不以错误旧“仍执行”段覆盖此处。
+
+> **2026-10-01 最新继续点**：r19/session88655/Docker f1b43e17001e仍执行C c-88fa0550db58，已出现AIR与跨介质管路进度，尚未完整通过。用户后撤已用实际bag证明参考切换倒跳；原单机Swarm接续限定use_formation已修，重建句柄86862，不热加载r19。必须先核实活句柄，不因观察超时重启；继续完整C/B、动态接续/驻留/人工编队返航，无其他资格测试。
+
+> **2026-10-01 当前继续点**：原镜像重建成功、无旧运行容器；r19将加载共同AIR转场层、连续轮廓弧并集、短垂直转换、PLATFORM邻机参考及同一实际传感链，从完整C开始并同会话接B。r17已证明一次安全B→C替换，但C仅部分进度/支援到位，r18失败，无B/C完整通过。必须以实际作业/收件/驻留/动态接续/人工Swarm返航验收，源码仍未提交。
+
+> **2026-10-01 最新继续点**：r14代理诊断停止，B/C没有完成。已定位并修正旧区域换视点误入设施分支、短轮廓端点折返，以及局部短目标未考虑新鲜邻机导致Swarm反复拒绝。当前原AIR/WATER同版本区间保留已接，跨成员部分进度交接仍待。源码语法及直接相关几何/版本小检查通过，实际新修正未验证；停止终态后继续完整业务，不开展其他资格测试，不将预览/代码存在称为通过。
+
+> **2026-10-01 继续点**：r12并行AIR转场实际净距越限后UNKNOWN_LOCKED，已退出，无B/C完整通过。参考/实际差异在r12/clearance-first.json，原实际安全阈值不变；现修正参考余量及超容差时暂缓短目标更新，启动r13继续完整业务。不得从源码或预览声称通过。
+
+> **2026-10-01 当前实施未完成**：B/C设施请求、联合Plan、work_id/版本、三类几何与实际区间并集、原AIR/WATER执行及收件、Qt设施选择已经接线；尚无B/C完整实跑通过。新原消息/同源qn加速库已构建。r7五方实际并行转场后为修正区间合并而停止，UNKNOWN_LOCKED/取消终态原样保留。仅重复计数/位置跳变必要小检查通过。当前继续 `experiments/20261001-facility-session-live-r12`，主session将由本次工具返回；需确认具体Plan后跑B，并同会话接C/动态切换/驻留/返航。不得重跑旧A长链/其他资格测试，不将预览或源码存在算通过。当前源码未提交，目标保持active。
+
+> **2026-10-01 最新设计交付（非运行升级）**：用户本轮只要求 B 风机、C 平台/管路模板设计与指定资料下载。设计保存 `docs/requirements/inspection-business-templates-20261001.md`：按设施/连续管段分配，复用分层轮廓、沿线/条带、局部作业；共享USV支援与原动态会话/驻留/人工返航共用，三AAV身份不写死。Galceran 32页机构PDF取得；Guo/APEX已有PDF复用；风机开放正文重点读过，PDF下载403，仅归档机构元数据HTML；DNV四公开页取得，F116全文未读。索引 `research/literature/sources/inspection-templates-20261001/README.md`。运行源码/控制/场景不改，无仿真/测试；B/C仍未接或执行。现有AIR4.5m顶界/定高入口不能执行7.25m轮毂及9.55m叶尖，需要后续原端点三维作业、朝向和实际进度接线，不另搭系统。
+
 > **2026-10-01 最新环境事实**：三业务详细环境已在原ROS/五平台/原Qt/独立RViz加载，57唯一对象，两风机/基础、平台/支柱/吊机/直升机坪、管路/三阀件与港口细节。r2在AWAITING_CONFIRMATION，零运动Goal/步骤/锁；五实际初态净距成立。实际全景/近景/UI在docs/images/three-business-scene-*.png及experiments/20261001-three-business-scene-live-r2。原资产准备生成同一expanded-scene供UI/感知/净距，有/无界面一致；原控制器/工作高度/门槛未改。字库和显示已修正，精细网格与保守盒体分别声明。B/C专用运动未接或执行，本轮不算新业务通过。以下概念/旧运行条目为历史。
 
 > **2026-09-30 本轮场景预览**：已按原三业务定义绘制 `docs/images/three-business-scene-concept.png`：一处母船岸边共同部署区（3AAV+1USV+1UUV），现有海域调查区，新增概念风机区与平台/管路区。用户任务入口仍是选区；差异在区域内任务对象和作业运动模板，拟沿原联合求解/Plan/Action/Swarm/qn/PVS接入。图为生成的布局概念，不是新增区域已经接线或实跑；本轮未修改运行代码/场景配置，未开展实验。

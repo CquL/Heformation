@@ -1,0 +1,60 @@
+{
+  "citation": {
+    "title": "LiDAR-based automated UAV inspection of wind turbine rotor blades",
+    "authors": [
+      "Carlos Castelar Wembers",
+      "Jasper Pflughaupt",
+      "Ludmila Moshagen",
+      "Michael Kurenkov",
+      "Tim Lewejohann",
+      "Georg Schildbach"
+    ],
+    "year": 2024,
+    "journal": "Journal of Field Robotics",
+    "volume": 41,
+    "issue": 4,
+    "pages": "1116-1132",
+    "doi": "10.1002/rob.22309"
+  },
+  "download": {
+    "source_url": "https://research.uni-luebeck.de/en/publications/lidar-based-automated-uav-inspection-of-wind-turbine-rotor-blades/",
+    "effective_url": "https://research.uni-luebeck.de/en/publications/lidar-based-automated-uav-inspection-of-wind-turbine-rotor-blades/",
+    "retrieval_completed_by_utc": "2026-10-01T06:23:54Z",
+    "http_status": 200,
+    "content_type": "text/html;charset=UTF-8",
+    "bytes": 55728,
+    "local_file": "research/literature/sources/inspection-templates-20261001/castelar-wembers-wind-inspection-jfr2024-luebeck.html",
+    "sha256": "05e718a477816a4447b6719046db2ce3d7c3c977c49fba237818833996c76625",
+    "status": "DOWNLOADED_RAW_INSTITUTIONAL_HTML",
+    "content_scope": "Institutional publication metadata, abstract, citation and DOI access link; not the article's complete text or PDF.",
+    "validation": "Downloaded response contains an HTML doctype and html/head elements, the exact article title, author name, DOI, page range and CC BY-NC-ND access label.",
+    "method": "Ordinary curl HTTPS GET with redirects; response bytes copied without transformation."
+  },
+  "publisher": {
+    "full_text_url": "https://onlinelibrary.wiley.com/doi/10.1002/rob.22309",
+    "full_text_read_status": "Open-access HTML article read through web tool; raw full-text HTML not downloaded.",
+    "raw_full_html_attempt": {
+      "url": "https://onlinelibrary.wiley.com/doi/full/10.1002/rob.22309",
+      "attempt_date": "2026-10-01",
+      "http_status": 403,
+      "content_type": "text/html; charset=UTF-8",
+      "status": "NOT_DOWNLOADED_HTTP_403"
+    },
+    "pdf_attempts": [
+      {
+        "url": "https://onlinelibrary.wiley.com/doi/pdf/10.1002/rob.22309",
+        "attempt_date": "2026-10-01",
+        "http_status": 403,
+        "status": "NOT_DOWNLOADED_HTTP_403"
+      },
+      {
+        "url": "https://onlinelibrary.wiley.com/doi/pdfdirect/10.1002/rob.22309",
+        "attempt_date": "2026-10-01",
+        "http_status": 403,
+        "status": "NOT_DOWNLOADED_HTTP_403"
+      }
+    ],
+    "pdf_file_created": false,
+    "note": "Exact times of earlier denied Wiley requests were not retained; no further PDF requests were made during this source-file follow-up."
+  }
+}

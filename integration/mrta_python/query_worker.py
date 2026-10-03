@@ -72,21 +72,41 @@ def _enable_query_extensions():
 
 def main():
     stream='--stream' in sys.argv
+    loop='--loop' in sys.argv
     output=sys.stdout.buffer
     def send(response):
         data=pickle.dumps(response)
-        if stream:output.write(struct.pack('!Q',len(data)))
+        if stream or loop:output.write(struct.pack('!Q',len(data)))
         output.write(data);output.flush()
     try:
-        with contextlib.redirect_stdout(sys.stderr):
-            _enable_query_extensions()
-        provider,arguments=pickle.load(sys.stdin.buffer)
-        with contextlib.redirect_stdout(sys.stderr):
-            result=provider(*arguments)
-            if stream:
-                for candidate in result:send((True,candidate))
-                return
-        response=(True,result)
+        # Load the private qn extensions only when this trusted snapshot
+        # actually contains a qn class. Otter queries do not need those builds.
+        class QueryUnpickler(pickle.Unpickler):
+            extensions_checked=False
+            def find_class(self,module,name):
+                if module in tuple('qn_aav_simulator.'+m for m in _QN_MODULES) and not self.extensions_checked:
+                    with contextlib.redirect_stdout(sys.stderr):
+                        _enable_query_extensions()
+                    self.extensions_checked=True
+                return super().find_class(module,name)
+        while True:
+            try:provider,arguments=QueryUnpickler(sys.stdin.buffer).load()
+            except EOFError:
+                if loop:return
+                raise
+            try:
+                with contextlib.redirect_stdout(sys.stderr):
+                    result=provider(*arguments)
+                    if stream:
+                        for candidate in result:send((True,candidate))
+                        return
+                response=(True,result)
+            except Exception as error:
+                response=('BUDGET' if stream and type(error).__name__=='PlanningBudgetExceeded' else False,str(error))
+            if not loop:break
+            send(response)
+            # Drop the old snapshot before reading the next independent input.
+            del provider,arguments,response
     except Exception as error:
         response=('BUDGET' if stream and type(error).__name__=='PlanningBudgetExceeded' else False,str(error))
     send(response)

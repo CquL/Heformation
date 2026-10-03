@@ -1,0 +1,15 @@
+{
+  "filename": "dnv-wind-turbine-inspections.html",
+  "requested_url": "https://www.dnv.com/services/wind-turbine-inspections-3845/",
+  "final_url": "https://www.dnv.com/services/wind-turbine-inspections-3845/",
+  "retrieved_at_utc": "2026-10-01T06:17:52.032972+00:00",
+  "http_status": 200,
+  "content_type": "text/html; charset=utf-8",
+  "size_bytes": 199893,
+  "sha256": "ad2792b87ae6c669bafc266608c55f942ec91d27279ecaa562ad2385ca6ced62",
+  "access_status": "public official page; no login or payment used",
+  "full_standard_obtained": false,
+  "public_pdf_links_on_page": [],
+  "standard_access_links": [],
+  "reading_status": "official_public_description_only / full_standard_not_read"
+}

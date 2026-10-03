@@ -27,8 +27,8 @@
 | `CARIC/` | CARIC 官方站点/文档仓库（评分规则与文档入口；**不是**评测用仿真栈） | https://github.com/ntu-aris/caric |
 
 > 上面最后四行（`GCOPTER/`、`libMultiRobotPlanning/`、`stonefish_ros/`、`CARIC/`）是 2026-09-19
-> 按 `prompt/wenxianSKILL.md` 的 P0/P1 清单补拉的**本地参考副本**，目前在 `.gitignore` 中，
-> 未提交（四者合计约 190 MB）。需要入库时删掉 .gitignore 里对应四行即可。
+> 按 `prompt/wenxianSKILL.md` 的 P0/P1 清单补拉的参考副本。本次按用户完整迁移要求，
+> 源码和许可证纳入仓库；各副本的 `.git` 元数据、构建缓存和实验输出不入库。
 
 每个目录都是独立上游副本，复现时使用其自己的依赖、入口和配置。当前 `Swarm-Formation`
 基于提交 `967a4bdfae949e994691f8ffc87dbb0147cb7`。这些副本暂不直接混入当前在线运行链；

@@ -15,6 +15,30 @@ from typing import Dict, Iterable, Mapping, Optional, Sequence, Tuple
 Vector3 = Tuple[float, float, float]
 
 
+def segment_box_distance_sq(start,end,low,high):
+    """Euclidean segment-to-voxel distance for the declared spherical hull.
+
+    Squared box distance is quadratic between its finite face crossings.
+    Minimize those pieces instead of enlarging the hull sphere to a cube.
+    """
+    delta=tuple(b-a for a,b in zip(start,end));cuts=[0.,1.]
+    for a,d,lo,hi in zip(start,delta,low,high):
+        if abs(d)>1e-12:
+            cuts.extend(t for t in ((lo-a)/d,(hi-a)/d) if 0.<t<1.)
+    cuts=sorted(set(cuts));best=math.inf
+    for left,right in zip(cuts,cuts[1:]):
+        middle=(left+right)/2.;quadratic=linear=0.
+        for a,d,lo,hi in zip(start,delta,low,high):
+            value=a+middle*d
+            p,q=(-d,lo-a) if value<lo else (d,a-hi) if value>hi else (0.,0.)
+            quadratic+=p*p;linear+=p*q
+        t=max(left,min(right,-linear/quadratic)) if quadratic else middle
+        distance=sum(max(lo-(a+t*d),0.,a+t*d-hi)**2 for a,d,lo,hi in zip(start,delta,low,high))
+        best=min(best,distance)
+        if best==0.:break
+    return best
+
+
 class LocalSurveyMap:
     """Sparse, measured local map used by the existing region action.
 
@@ -30,10 +54,11 @@ class LocalSurveyMap:
     It proposes a safe short target; native motion/control still executes it.
     """
 
-    def __init__(self, resolution_m=.25):
+    def __init__(self, resolution_m=.25, *, spherical_hull=True):
         if not math.isfinite(resolution_m) or resolution_m <= 0:
             raise ValueError('survey resolution must be finite and positive')
         self.resolution_m = float(resolution_m)
+        self.spherical_hull=bool(spherical_hull)
         self.free = set()
         self.occupied = set()
         self._hits = {}
@@ -45,6 +70,27 @@ class LocalSurveyMap:
         self.observation_epoch_s = 0.
         self._forbidden_boxes = []
         self._free_bounding_boxes = set()
+        self._nonfree_bounding_boxes = {}
+
+    def navigation_snapshot(self):
+        """Freeze the measured map without recursively copying immutable keys.
+
+        Voxel keys, hit points and frozen ObstacleBox values are immutable.
+        Navigation copies only its occupancy, visit costs and geometry cache.
+        Observation products stay in the live map and are never consumed by
+        next_target/segment_clear or the private native motion query.
+        """
+        snapshot=LocalSurveyMap(self.resolution_m,spherical_hull=self.spherical_hull)
+        snapshot.free=self.free.copy()
+        snapshot.occupied=self.occupied.copy()
+        snapshot._visits=self._visits.copy()
+        snapshot._last_origin=self._last_origin
+        snapshot.stamp=self.stamp
+        snapshot.observation_epoch_s=self.observation_epoch_s
+        snapshot._forbidden_boxes=self._forbidden_boxes.copy()
+        snapshot._free_bounding_boxes=self._free_bounding_boxes.copy()
+        snapshot._nonfree_bounding_boxes=self._nonfree_bounding_boxes.copy()
+        return snapshot
 
     def begin_observation_epoch(self, stamp):
         """Retain navigation knowledge, but require fresh sensing for a new job.
@@ -65,6 +111,7 @@ class LocalSurveyMap:
         if any(a >= b for a, b in zip(low, high)):
             raise ValueError('forbidden policy needs ordered box corners')
         self._free_bounding_boxes.clear()
+        self._nonfree_bounding_boxes.clear()
         self._forbidden_boxes.append(ObstacleBox(
             tuple((a + b) / 2. for a, b in zip(low, high)),
             tuple(b - a for a, b in zip(low, high))))
@@ -80,6 +127,7 @@ class LocalSurveyMap:
         if any(a >= b for a, b in zip(low, high)):
             raise ValueError('deployment prior needs ordered box corners')
         self._free_bounding_boxes.clear()
+        self._nonfree_bounding_boxes.clear()
         lo = [math.ceil(v / self.resolution_m) for v in low]
         hi = [math.floor(v / self.resolution_m) for v in high]
         for x in range(lo[0], hi[0]):
@@ -103,28 +151,44 @@ class LocalSurveyMap:
 
     def _ray_keys(self, start, end):
         """Voxel traversal along a measured finite ray; no ray past its end."""
-        key = list(self._key(start))
-        final = self._key(end)
-        yield tuple(key)
-        if tuple(key) == final:
+        x, y, z = self._key(start)
+        final_x, final_y, final_z = self._key(end)
+        yield (x, y, z)
+        if x == final_x and y == final_y and z == final_z:
             return
-        direction = tuple(b - a for a, b in zip(start, end))
-        step = [1 if d > 0 else -1 if d < 0 else 0 for d in direction]
-        delta = [self.resolution_m / abs(d) if d else math.inf for d in direction]
-        edge = [((key[j] + (step[j] > 0)) * self.resolution_m - start[j])
-                / direction[j] if direction[j] else math.inf for j in range(3)]
+        dx, dy, dz = end[0] - start[0], end[1] - start[1], end[2] - start[2]
+        step_x = 1 if dx > 0 else -1 if dx < 0 else 0
+        step_y = 1 if dy > 0 else -1 if dy < 0 else 0
+        step_z = 1 if dz > 0 else -1 if dz < 0 else 0
+        resolution = self.resolution_m
+        delta_x = resolution / abs(dx) if dx else math.inf
+        delta_y = resolution / abs(dy) if dy else math.inf
+        delta_z = resolution / abs(dz) if dz else math.inf
+        edge_x = ((x + (step_x > 0)) * resolution - start[0]) / dx if dx else math.inf
+        edge_y = ((y + (step_y > 0)) * resolution - start[1]) / dy if dy else math.inf
+        edge_z = ((z + (step_z > 0)) * resolution - start[2]) / dz if dz else math.inf
         # Each iteration advances at least one grid coordinate toward the end.
-        for _ in range(sum(abs(a - b) for a, b in zip(key, final)) + 1):
-            for j in range(3):
-                if key[j] == final[j]:
-                    edge[j] = math.inf
-            crossing = min(edge)
-            for j in range(3):
-                if key[j] != final[j] and edge[j] <= crossing + 1e-12:
-                    key[j] += step[j]
-                    edge[j] += delta[j]
-            yield tuple(key)
-            if tuple(key) == final:
+        # Scalar axes preserve the original simultaneous epsilon crossings,
+        # without two three-element Python loops and list indexing per voxel.
+        for _ in range(abs(x - final_x) + abs(y - final_y) + abs(z - final_z) + 1):
+            if x == final_x:
+                edge_x = math.inf
+            if y == final_y:
+                edge_y = math.inf
+            if z == final_z:
+                edge_z = math.inf
+            crossing = min(edge_x, edge_y, edge_z) + 1e-12
+            if x != final_x and edge_x <= crossing:
+                x += step_x
+                edge_x += delta_x
+            if y != final_y and edge_y <= crossing:
+                y += step_y
+                edge_y += delta_y
+            if z != final_z and edge_z <= crossing:
+                z += step_z
+                edge_z += delta_z
+            yield (x, y, z)
+            if x == final_x and y == final_y and z == final_z:
                 return
 
     def integrate(self, origin, endpoints, hits, stamp, mode=None):
@@ -146,8 +210,10 @@ class LocalSurveyMap:
                 or self.stamp is not None and stamp < self.stamp):
             raise ValueError('invalid or stale measured scan')
         self._free_bounding_boxes.clear()
+        self._nonfree_bounding_boxes.clear()
         rows = sorted(zip(endpoints, hits), key=lambda row: math.dist(origin, row[0]))
         current_observation = stamp >= self.observation_epoch_s
+        measured = set()
         for endpoint, hit in rows:
             terminal = self._key(endpoint)
             for key in self._ray_keys(origin, endpoint):
@@ -155,9 +221,7 @@ class LocalSurveyMap:
                     # A real repeat hit may provide the first measurement in
                     # another medium. A contradictory miss cannot do so.
                     if key == terminal and hit and current_observation:
-                        self._measured.add(key)
-                        if mode is not None:
-                            self.measured_modes.setdefault(key, set()).add(mode)
+                        measured.add(key)
                     break
                 if key == terminal and hit:
                     self.occupied.add(key)
@@ -166,9 +230,19 @@ class LocalSurveyMap:
                 else:
                     self.free.add(key)
                 if current_observation:
-                    self._measured.add(key)
-                    if mode is not None:
-                        self.measured_modes.setdefault(key, set()).add(mode)
+                    measured.add(key)
+        # Ray sorting, occupied truncation and hit/free mutations above retain
+        # their order. Measurement membership is idempotent within one scan;
+        # update each visited cell once instead of allocating an unused default
+        # set and adding its mode again for every overlapping sensor ray.
+        self._measured.update(measured)
+        if mode is not None:
+            for key in measured:
+                modes = self.measured_modes.get(key)
+                if modes is None:
+                    self.measured_modes[key] = {mode}
+                elif mode not in modes:
+                    modes.add(mode)
         # Empty scans do not create a known-free seed around the vehicle.
         self.stamp = float(stamp)
         origin_key = self._key(origin)
@@ -201,8 +275,8 @@ class LocalSurveyMap:
     def segment_clear(self, start, end, radius):
         """Require observed FREE throughout a conservative swept-body envelope.
 
-        Inflating voxel boxes by radius over-approximates a spherical body.
-        It may reject a narrow opening, but never accepts an UNKNOWN neighbour
+        Use the Euclidean swept sphere, matching the actual hull safety proxy.
+        This never accepts an UNKNOWN neighbour
         merely because the centreline ray was free. This is voxel geometry,
         not a proof of the native controller's tracking error bound.
         """
@@ -220,37 +294,45 @@ class LocalSurveyMap:
         bounds = tuple(low_keys + high_keys)
         if bounds in self._free_bounding_boxes:
             return True
-        complete_box_free = True
-        for ix in range(low_keys[0], high_keys[0] + 1):
-            for iy in range(low_keys[1], high_keys[1] + 1):
-                for iz in range(low_keys[2], high_keys[2] + 1):
-                    key = (ix, iy, iz)
-                    if key in self.free and key not in self.occupied:
-                        continue
-                    complete_box_free = False
-                    t0, t1 = 0., 1.
-                    for j in range(3):
-                        low = key[j] * self.resolution_m - radius
-                        high = (key[j] + 1) * self.resolution_m + radius
-                        direction = end[j] - start[j]
-                        if abs(direction) < 1e-12:
-                            if start[j] < low or start[j] > high:
-                                t0 = 2.
-                                break
-                        else:
-                            a, b = (low - start[j]) / direction, (high - start[j]) / direction
-                            t0, t1 = max(t0, min(a, b)), min(t1, max(a, b))
-                            if t0 > t1:
-                                break
-                    if t0 <= t1:
-                        return False
+        def blocks(key):
+            t0,t1=0.,1.
+            for j in range(3):
+                low=key[j]*self.resolution_m-radius
+                high=(key[j]+1)*self.resolution_m+radius
+                direction=end[j]-start[j]
+                if abs(direction)<1e-12:
+                    if start[j]<low or start[j]>high:return False
+                else:
+                    a,b=(low-start[j])/direction,(high-start[j])/direction
+                    t0,t1=max(t0,min(a,b)),min(t1,max(a,b))
+                    if t0>t1:return False
+            low=tuple(k*self.resolution_m for k in key)
+            high=tuple((k+1)*self.resolution_m for k in key)
+            if not self.spherical_hull:return True
+            return segment_box_distance_sq(start,end,low,high)<=radius*radius+1e-12
+        nonfree=self._nonfree_bounding_boxes.get(bounds)
+        if nonfree is not None:
+            # A successful prior segment supplies only this box's exact
+            # nonfree membership. Every new segment repeats the unchanged
+            # swept-sphere predicate for those cells.
+            return not any(blocks(key) for key in nonfree)
+        nonfree=[]
+        for ix in range(low_keys[0],high_keys[0]+1):
+            for iy in range(low_keys[1],high_keys[1]+1):
+                for iz in range(low_keys[2],high_keys[2]+1):
+                    key=(ix,iy,iz)
+                    if key in self.free and key not in self.occupied:continue
+                    nonfree.append(key)
+                    if blocks(key):return False
         # Reuse only a fully observed-free box. A successful slab intersection
         # test alone cannot certify other segments sharing these same bounds.
-        if complete_box_free:
+        if not nonfree:
             self._free_bounding_boxes.add(bounds)
+        else:
+            self._nonfree_bounding_boxes[bounds]=tuple(nonfree)
         return True
 
-    def next_target(self, current, goal, radius, max_step_m=1.):
+    def next_target(self, current, goal, radius, max_step_m=1., z_bounds=None, peer_positions=(), peer_clearance_m=0., prefer_direct_step=False, allow_vertical=False):
         """Find a bounded short target through the currently observed free map.
 
         A known goal uses A*; an unknown/occupied goal selects a reachable near
@@ -259,18 +341,36 @@ class LocalSurveyMap:
         callers can obtain another scan/change heading rather than enter unknown.
         """
         current, goal = self._point(current), self._point(goal)
+        if z_bounds is not None and (len(z_bounds)!=2 or not all(math.isfinite(v) for v in z_bounds) or z_bounds[0]>z_bounds[1]):
+            raise ValueError('finite ordered local working-height bounds required')
         if not math.isfinite(max_step_m) or max_step_m <= 0:
             raise ValueError('positive local step required')
         if not self.segment_clear(current, current, radius):
             return None
+        peers=tuple(self._point(p) for p in peer_positions)
+        if not math.isfinite(peer_clearance_m) or peer_clearance_m<0:
+            raise ValueError('finite nonnegative peer clearance required')
+        def clear(a,b):
+            if not self.segment_clear(a,b,radius):return False
+            delta=tuple(y-x for x,y in zip(a,b));length2=sum(v*v for v in delta)
+            for peer in peers:
+                t=0. if length2<1e-12 else max(0.,min(1.,sum(
+                    (p-x)*v for p,x,v in zip(peer,a,delta))/length2))
+                closest=tuple(x+t*v for x,v in zip(a,delta))
+                if math.dist(peer,closest)<peer_clearance_m:return False
+            return True
         distance = math.dist(current, goal)
-        if distance <= max_step_m and self.segment_clear(current, goal, radius):
+        if distance <= max_step_m and clear(current, goal):
             return goal
+        if prefer_direct_step and distance>max_step_m:
+            short=tuple(a+(b-a)*max_step_m/distance for a,b in zip(current,goal))
+            if (z_bounds is None or z_bounds[0]<=short[2]<=z_bounds[1]) and clear(current,short):
+                return short
         start = self._key(current)
         # Small tracking errors must not move a declared cruise/return layer
         # onto an arbitrary voxel-centre height (e.g. 2.0 -> 1.875 m). Once
         # within one map cell of that layer, connect to its exact height.
-        planar = abs(current[2] - goal[2]) <= self.resolution_m
+        planar = not allow_vertical and abs(current[2] - goal[2]) <= self.resolution_m
 
         def position(key):
             p = self._centre(key)
@@ -292,7 +392,7 @@ class LocalSurveyMap:
             closed.add(key)
             p = current if key == start else position(key)
             remaining = math.dist(p, goal)
-            if remaining <= self.resolution_m * 1.8 and self.segment_clear(p, goal, radius):
+            if remaining <= self.resolution_m * 1.8 and clear(p, goal):
                 best, found_goal = key, True
                 break
             candidate_score = remaining + self.resolution_m * 2 * self._visits.get(key, 0)
@@ -303,10 +403,12 @@ class LocalSurveyMap:
                 if adjacent in closed or adjacent not in self.free or adjacent in self.occupied:
                     continue
                 q = position(adjacent)
+                if z_bounds is not None and not z_bounds[0]-1e-9<=q[2]<=z_bounds[1]+1e-9:
+                    continue
                 new_cost = cost + math.dist(p, q)
                 if new_cost >= costs.get(adjacent, math.inf):
                     continue
-                if not self.segment_clear(p, q, radius):
+                if not clear(p, q):
                     continue
                 costs[adjacent], parent[adjacent] = new_cost, key
                 heapq.heappush(queue, (new_cost + math.dist(q, goal), new_cost, adjacent))
@@ -323,7 +425,7 @@ class LocalSurveyMap:
             length = math.dist(current, point)
             if length > max_step_m:
                 point = tuple(a + (b - a) * max_step_m / length for a, b in zip(current, point))
-            if not self.segment_clear(current, point, radius):
+            if not clear(current, point):
                 break
             target = point
             if length >= max_step_m:

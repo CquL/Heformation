@@ -255,6 +255,11 @@ def build_request_executor_plan(request,scene,executors,provider,member_states,*
     from mrta_python.executors import PlanningBudgetExceeded
     from .experiment_verdict import StaticSceneGeometry
     if not math.isfinite(budget_s) or budget_s<=0:raise ValueError('finite positive planning budget required')
+    if request.execution_mode=='INSPECTION_CONTROL':
+        from mrta_python.executors import build_inspection_executor_plan
+        from .monitoring_request import regional_requirements
+        tasks=regional_requirements(request) if tasks_override is None else tasks_override
+        return build_inspection_executor_plan(executors,tasks,request,scene,member_states,budget_s),tasks
     if request.return_required:
         if return_sites is None:
             return_sites=scene.get('return_sites')
@@ -448,7 +453,7 @@ def request_from_mapping(raw) -> MonitoringRequest:
     if not isinstance(raw, dict):
         raise ValueError("a monitoring request must be a mapping")
     allowed={'request_id','template_id','requirement','regions','required_capabilities','service_time_s','deadline_s',
-             'delivery_required','requires_underwater','requires_relay_delivery','return_required','formation_phase','execution_mode'}
+             'delivery_required','requires_underwater','requires_relay_delivery','return_required','formation_phase','execution_mode','work_items'}
     if set(raw)-allowed:
         raise ValueError('unsupported request fields: '+str(sorted(set(raw)-allowed)))
     for field in ("request_id", "requirement", "regions",
@@ -483,9 +488,10 @@ def request_from_mapping(raw) -> MonitoringRequest:
         requires_relay_delivery=bool(raw.get("requires_relay_delivery", False)),
         return_required=raw.get('return_required',False),
         template_id=str(raw.get('template_id','')),
-        execution_mode=str(raw.get('execution_mode','POINT_OBSERVATION')))
+        execution_mode=str(raw.get('execution_mode','POINT_OBSERVATION')),
+        work_items=tuple(raw.get('work_items',())))
 
-    if request.execution_mode not in ('POINT_OBSERVATION','ONLINE_MAPPING'):
+    if request.execution_mode not in ('POINT_OBSERVATION','ONLINE_MAPPING','INSPECTION_CONTROL'):
         raise ValueError('unsupported region execution mode')
 
     from .monitoring_request import validate_request

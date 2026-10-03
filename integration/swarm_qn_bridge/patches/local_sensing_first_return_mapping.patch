@@ -377,7 +377,7 @@ updates the sensor-origin voxel skipped by the upstream reverse ray traversal.
 +  node_.param<std::string>("grid_map/observed_cloud_topic", observed_cloud_topic, "grid_map/cloud");
    indep_cloud_sub_ =
 -      node_.subscribe<sensor_msgs::PointCloud2>("grid_map/cloud", 10, &GridMap::cloudCallback, this);
-+      node_.subscribe<sensor_msgs::PointCloud2>(observed_cloud_topic, 10, &GridMap::cloudCallback, this);
++      node_.subscribe<sensor_msgs::PointCloud2>(observed_cloud_topic, 1, &GridMap::cloudCallback, this);
    indep_odom_sub_ =
        node_.subscribe<nav_msgs::Odometry>("grid_map/odom", 10, &GridMap::odomCallback, this);
    
@@ -657,3 +657,26 @@ updates the sensor-origin voxel skipped by the upstream reverse ray traversal.
  }
  
  void GridMap::publishMap()
+--- a/src/planner/plan_manage/launch/run_in_sim.launch
++++ b/src/planner/plan_manage/launch/run_in_sim.launch
+@@ -1,4 +1,5 @@
+ <launch>
++  <arg name="legacy_renderer" default="true"/>
+     <!-- size of map, change the size inflate x, y, z according to your application -->
+     <arg name="map_size_x"/>
+     <arg name="map_size_y"/>
+@@ -110,6 +111,7 @@
+     </node>
+     <!-- use simulator -->
+     <include file="$(find ego_planner)/launch/simulator.xml">
++        <arg name="legacy_renderer" value="$(arg legacy_renderer)"/>
+         <arg name="drone_id" value="$(arg drone_id)"/>
+         <arg name="map_size_x_" value="$(arg map_size_x)"/>
+         <arg name="map_size_y_" value="$(arg map_size_y)"/>
+--- a/src/planner/plan_manage/launch/simulator.xml
++++ b/src/planner/plan_manage/launch/simulator.xml
+@@ -1,0 +2 @@
++  <arg name="legacy_renderer" default="true"/>
+@@ -138 +139 @@
+-  <node pkg="local_sensing_node" type="pcl_render_node" name="drone_$(arg drone_id)_pcl_render_node" output="screen">
++  <node if="$(arg legacy_renderer)" pkg="local_sensing_node" type="pcl_render_node" name="drone_$(arg drone_id)_pcl_render_node" output="screen">

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 SENSOR_BACKEND_CPU = "CPU_POINTCLOUD"
 SENSOR_BACKEND_CUDA = "CUDA_DEPTH"
@@ -127,7 +127,8 @@ class ReadinessEvaluator:
                  cloud_timeout_s: float = 2.0,
                  odometry_timeout_s: float = 0.25,
                  diagnostics_timeout_s: float = 1.0,
-                 require_odometry: bool = True) -> None:
+                 require_odometry: bool = True,
+                 sensor_topics: Optional[Mapping[int,str]] = None) -> None:
         self.agent_ids = tuple(int(agent_id) for agent_id in agent_ids)
         if not self.agent_ids:
             raise ValueError("agent_ids must not be empty")
@@ -135,6 +136,9 @@ class ReadinessEvaluator:
         if backend not in SENSOR_BACKENDS:
             raise ValueError("sensor_backend must be one of {}".format(SENSOR_BACKENDS))
         self.sensor_backend = backend
+        self.sensor_topics=dict(sensor_topics or {})
+        if any(not isinstance(topic,str) or not topic for topic in self.sensor_topics.values()):
+            raise ValueError('sensor topics must be nonempty names')
         self.known_empty_map = bool(known_empty_map)
         # A declared scene source owns the map topic.  Then an explicitly
         # received *empty* map is a data state -- "initialised, obstacle set
@@ -165,6 +169,7 @@ class ReadinessEvaluator:
             topic = (depth_topic(agent_id)
                      if self.sensor_backend == SENSOR_BACKEND_CUDA
                      else local_cloud_topic(agent_id))
+            topic=self.sensor_topics.get(agent_id,topic)
             self.topics[topic] = TopicHealth(topic)
             if self.require_odometry:
                 odom = odometry_topic(agent_id)
@@ -196,7 +201,7 @@ class ReadinessEvaluator:
     @staticmethod
     def _is_local_sensing(topic: str) -> bool:
         return (topic.endswith("pcl_render_node/cloud")
-                or topic.endswith("pcl_render_node/depth"))
+                or topic.endswith("pcl_render_node/depth") or topic.endswith("/survey_cloud"))
 
     def _timeout(self, topic: str) -> float:
         if topic == self.map_topic:
@@ -325,7 +330,7 @@ class RuntimeHealthMonitor:
             "local_cloud_fresh": not [
                 topic for topic in status.stale_topics + status.missing_topics
                 if topic.endswith("pcl_render_node/cloud")
-                or topic.endswith("pcl_render_node/depth")],
+                or topic.endswith("pcl_render_node/depth") or topic.endswith("/survey_cloud")],
             "odometry_fresh": not odometry_stale and not [
                 topic for topic in status.missing_topics if topic.endswith("/odometry")],
             "planner_healthy": status.planner_health == "OK",

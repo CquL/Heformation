@@ -27,6 +27,7 @@ class LocalPlatformAction:
         self.node=node
         self.owner=ReferenceOwnership()
         self.work=None
+        self.inspection_ledgers={}
         self.fault_hold_modes=None
         self.fault_hold_operation=''
         self.fault_transition=None
@@ -34,6 +35,9 @@ class LocalPlatformAction:
         if self.scene and self.scene.frame!=node.world_frame:raise ValueError('scene frame mismatch')
         self.scene_radius=float(rospy.get_param('~platform_radius_m',.25))
         self.scene_failure=''
+        from .inspection_work import inspection_motion_profile
+        motion_profile=inspection_motion_profile(rospy.get_param('/scene',{}))
+        self.water_reference_speed=motion_profile['uuv_water_speed_mps' if getattr(node,'platform_type','AAV')=='UUV' else 'aav_water_speed_mps']
         from qn_aav_simulator.task_line import load_request
         from qn_aav_simulator.observation_coverage import ObstacleBox
         from std_msgs.msg import String
@@ -41,7 +45,7 @@ class LocalPlatformAction:
         self.observation_request_file=str(request_file)
         self.observation_request=load_request(request_file) if request_file else None
         self.observation_request_ids={self.observation_request.request_id} if self.observation_request else set()
-        self.online_mapping=getattr(self.observation_request,'execution_mode','')=='ONLINE_MAPPING'
+        self.online_mapping=getattr(self.observation_request,'execution_mode','')in ('ONLINE_MAPPING','INSPECTION_CONTROL')
         self.allow_visual_timing_relaxation=bool(rospy.get_param('/mission/allow_visual_timing_relaxation',False))
         self.visual_timing_relaxed=False
         self.last_controller_handover=None
@@ -156,9 +160,13 @@ class LocalPlatformAction:
                 remaining=(observations.unobserved_mapping_points(self.survey_map,self.mode())
                     if work.get('region_id') and segment.operation=='WATER_PATH' and
                     observations is not None else None)
-            goals=([segment.points[-1]] if not remaining else
+            inspection_active=work.get('inspection') and index==work.get('inspection_segment_index')
+            goals=([work.get('inspection_target',segment.points[-1])] if inspection_active and segment.operation=='WATER_PATH' else
+                   [segment.points[-1]] if not remaining else
                 sorted(remaining,key=lambda point:math.dist(position,point)))
-            radius=self.scene_radius+(self.scene.clearance if self.scene else 0.)+self.position_tolerance
+            # Goal arrival tolerance is not a measured tracking-error bound.
+            # Navigation uses the same physical envelope/clearance as safety.
+            radius=self.scene_radius+(self.scene.clearance if self.scene else 0.)
             waypoint=None
             query_end=time.monotonic()+.04
             if rospy.Time.now().to_sec()-stamp<=1.:
@@ -167,8 +175,13 @@ class LocalPlatformAction:
                         # The accepted conversion is a fixed vertical line.
                         # Rebinding x/y to every measured pose removes the
                         # restoring reference and turns drift into a new goal.
-                        if self.survey_map.segment_clear(position,goal,radius):waypoint=goal
-                    elif (not remaining and
+                        # A conversion may exceed the finite sensing range.
+                        # Advance on the same accepted vertical column through
+                        # a measured-clear short part, then acquire the next.
+                        dz=goal[2]-reference[2]
+                        short=(goal[0],goal[1],reference[2]+max(-1.,min(1.,dz)))
+                        if self.survey_map.segment_clear(position,short,radius):waypoint=short
+                    elif (not remaining and (not inspection_active or work['inspection_progress']['complete']) and
                           math.dist(position,segment.points[-1])<=self.position_tolerance and
                           math.dist(reference,segment.points[-1])<=self.position_tolerance):
                         # Already in the declared terminal region. Capture the
@@ -177,7 +190,21 @@ class LocalPlatformAction:
                         waypoint=reference
                     else:
                         waypoint=self.survey_map.next_target(position,
-                            (goal[0],goal[1],segment.points[-1][2]),radius,max_step_m=1.)
+                            tuple(goal) if work.get('inspection') else (goal[0],goal[1],segment.points[-1][2]),radius,max_step_m=1.,
+                            prefer_direct_step=bool(work.get('inspection')))
+                        if waypoint is not None and work.get('inspection'):
+                            distance=math.dist(position,waypoint)
+                            ledger=work['inspection_progress']
+                            leg=ledger['_legs'][min(ledger['active_leg'],len(ledger['_legs'])-1)]
+                            stop_intention=(not inspection_active or ledger['complete'] or ledger['approaching'] or
+                                bool(ledger.get('residual')) or leg['kind']=='LOCAL' or
+                                leg['kind']=='LINE' and math.dist(waypoint,goal)<=1e-8)
+                            # Forward extension belongs to continuous motion.
+                            # Do not replace an approach/LOCAL/residual/final
+                            # stopping point with a point one metre beyond it.
+                            if not stop_intention and 1e-6<distance<.8:
+                                forward=tuple(a+(b-a)/distance for a,b in zip(position,waypoint))
+                                if self.survey_map.segment_clear(position,forward,radius):waypoint=forward
                     if waypoint is not None or time.monotonic()>=query_end:break
             # An observation or query that raced a Goal/segment change cannot
             # become the new reference. The qn state itself is never replaced.
@@ -193,24 +220,96 @@ class LocalPlatformAction:
     def _mapping_reference(self,work,segment,t):
         """Advance the accepted short reference; no map search on the model tick."""
         position=self.node.state.position
+        inspection_active=work.get('inspection') and work['index']==work.get('inspection_segment_index')
+        if inspection_active and segment.operation=='WATER_PATH':
+            from .inspection_work import sample_progress,yaw_of,control_report,work_legs,required_heading
+            work['inspection_target']=sample_progress(work['inspection'],work['inspection_progress'],t,
+                position,self.node.state.velocity,yaw_of(self.node.state.orientation_quat_wxyz),self.mode())
+            ledger=work['inspection_progress'];legs=ledger['_legs']
+            if ledger['complete'] and math.sqrt(sum(v*v for v in self.node.state.velocity))<=self.speed_tolerance:
+                # Qualified work is complete; its last polygon vertex is not
+                # a second survey requirement. Brake first, then adopt the
+                # measured stopped pose once for the original terminal hold.
+                # This changes the reference, never the physical state/ledger.
+                hold=work.setdefault('inspection_finish_hold',tuple(position))
+                work['inspection_target']=hold
+                work['local_ref']=hold
+                work['local_waypoint']=hold
+                work['local_wait']=False
+            leg=legs[min(ledger['active_leg'],len(legs)-1)]
+            heading=required_heading(work['inspection'],leg,position)
+            aligned=(heading is None or abs(math.remainder(
+                yaw_of(self.node.state.orientation_quat_wxyz)-heading,2*math.pi))<=work['inspection']['heading_tolerance_rad'])
+            column_hold=(ledger['approaching'] and aligned and math.hypot(
+                position[0]-work['inspection_target'][0],position[1]-work['inspection_target'][1])<=self.position_tolerance)
+            inspection_hold=(ledger['complete'] or
+                    ledger['approaching'] and aligned and math.dist(
+                        position,work['inspection_target'])<=self.position_tolerance or
+                    leg['kind']=='LOCAL' and math.dist(position,leg['end'])<=self.position_tolerance or
+                    bool(ledger.get('residual')) and aligned and math.dist(
+                        position,work['inspection_target'])<=self.position_tolerance)
+            work['inspection_hold']=inspection_hold
+            work['inspection_column_hold']=column_hold
+            work['inspection_stop_intention']=(ledger['complete'] or ledger['approaching'] or
+                leg['kind']=='LOCAL' or bool(ledger.get('residual')) or
+                leg['kind']=='LINE' and math.dist(position,leg['end'])<=
+                    work['inspection_reference_speed_mps']*max(1.,self.node.backend.water_surge_reference_gain_s))
+            if inspection_hold or column_hold:
+                # XY alignment requests zero surge while the original vertical
+                # controller follows the next layer. Only full 3D arrival may
+                # stop the reference's depth advancement.
+                self.water_terminal_hold=True
+                if ledger['approaching']:
+                    if heading is not None:self.hold_yaw=heading
+            elif not ledger['complete']:self.water_terminal_hold=False
+            if work['inspection_progress']['complete'] and not work.get('inspection_report_emitted'):
+                from std_msgs.msg import String
+                self.products.publish(String(data=json.dumps(control_report(self.observation_request.request_id,
+                    work['inspection'],work['inspection_progress'],self.node.agent_id,work['id'],rospy.Time.now().to_sec()))))
+                work['inspection_report_emitted']=True
         dt=max(0.,t-work.get('local_tick',t));work['local_tick']=t
         reference=work['local_ref'];waypoint=work['local_waypoint']
         if rospy.Time.now().to_sec()-work.get('local_plan_stamp',-math.inf)>1.:
             waypoint=reference;work['local_wait']=True
+        if segment.operation=='WATER_PATH' and work.get('local_wait',False):
+            # A held virtual point behind the real body is not a new admitted
+            # navigation command. The LOS position recapture otherwise keeps
+            # producing forward thrust during a blocked/unknown-map wait.
+            # Request native zero-surge damping, retaining actual heading once;
+            # never overwrite the plant pose/velocity or count this as work.
+            if not work.get('local_coast_wait',False):
+                from .inspection_work import yaw_of
+                self.hold_yaw=yaw_of(self.node.state.orientation_quat_wxyz)
+            work['local_coast_wait']=True
+            self.water_terminal_hold=True
+        elif (work.pop('local_coast_wait',False) and not work.get('inspection_hold',False) and
+                not work.get('inspection_column_hold',False)):
+            self.water_terminal_hold=False
         distance=math.dist(reference,waypoint)
         if distance>1e-9:
             length=sum(math.dist(a,b) for a,b in zip(segment.points,segment.points[1:]))
-            speed=((.13 if getattr(self.node,'platform_type','AAV')=='UUV' else .1)
+            speed=(work.get('inspection_reference_speed_mps',self.water_reference_speed)
                    if segment.operation=='WATER_PATH' else length/segment.duration if length else 0.)
+            if segment.operation=='WATER_PATH' and work.get('inspection_stop_intention',False):
+                # Use the existing LOS capture time to arrive gradually at a
+                # real stopping intention. This changes reference advancement,
+                # not the physical state or terminal position/speed contract.
+                speed=min(speed,distance/max(1.,self.node.backend.water_surge_reference_gain_s))
+            if segment.operation=='WATER_PATH' and work.get('inspection_hold',False):speed=0.
             travel=min(distance,speed*dt)
             reference=tuple(reference[k]+travel*(waypoint[k]-reference[k])/distance for k in range(3))
             horizontal=math.hypot(waypoint[0]-work['local_ref'][0],waypoint[1]-work['local_ref'][1])
-            if segment.operation=='WATER_PATH' and horizontal>self.position_tolerance:
+            if (segment.operation=='WATER_PATH' and horizontal>self.position_tolerance and
+                    not work.get('inspection_hold',False) and not work.get('inspection_column_hold',False)):
                 desired=math.atan2(waypoint[1]-work['local_ref'][1],waypoint[0]-work['local_ref'][0])
                 limit=self.node.backend.water_heading_rate_limit_radps*dt
                 self.hold_yaw+=max(-limit,min(limit,math.remainder(desired-self.hold_yaw,2*math.pi)))
         work['local_ref']=reference
-        if work.get('region_id') and segment.operation=='WATER_PATH':
+        if inspection_active and segment.operation=='WATER_PATH':
+            done=(work['inspection_progress']['complete'] and
+                  work.get('inspection_finish_hold') is not None and
+                  math.dist(position,work['inspection_finish_hold'])<=self.position_tolerance)
+        elif work.get('region_id') and segment.operation=='WATER_PATH':
             done=(work.get('local_survey_done',False) and
                   math.dist(position,segment.points[-1])<=self.position_tolerance)
         elif segment.operation!='WATER_PATH':
@@ -401,6 +500,14 @@ class LocalPlatformAction:
                             segment.operation in ('ENTER_WATER','EXIT_WATER') and
                             any(p[:2]!=segment.points[0][:2] for p in segment.points)):
                         raise ValueError('transition fault continuation requires an accepted vertical segment')
+                work_id=str(getattr(goal,'work_id',''))
+                inspection=next((w for w in self.observation_request.work_items if w['work_id']==work_id),None) if self.observation_request else None
+                if work_id and (inspection is None or inspection['domain']!='WATER'):
+                    raise ValueError('unknown current-request WATER inspection work')
+                if inspection:
+                    from .inspection_work import inspection_reference_speed
+                    if inspection_reference_speed(inspection,self.node.agent_id)>inspection['speed_limit_mps']:
+                        raise ValueError('selected WATER reference exceeds the declared work speed envelope')
                 region_id=str(getattr(goal,'region_id',''))
                 if region_id and not self.online_mapping:raise ValueError('REGION_REQUIRES_ONLINE_MAPPING')
                 if self.online_mapping:
@@ -412,7 +519,7 @@ class LocalPlatformAction:
                         normalized.append(Segment(segment.operation,(actual,end),segment.duration))
                         actual=end
                     segments=normalized
-                reason=self._entry_reason(segments)
+                reason=self._entry_reason(segments,inspection)
                 if reason:raise ValueError(reason)
                 timeout=goal.execution_timeout.to_sec()
                 if not math.isfinite(timeout) or timeout<=0:
@@ -452,11 +559,35 @@ class LocalPlatformAction:
                 clock_start=self.node.clock.model_time_s,ros_start=rospy.Time.now().to_sec(),
                 waiting_start=self.handover_enabled or bool(getattr(goal,'prepare_only',False)),
                 waiting_commit=bool(getattr(goal,'prepare_only',False)),fault_allowed=None,
-                deadline=time.monotonic()+min(timeout,self.wall_limit),cause='',last_feedback=-1.,observations=observations,
+                deadline=time.monotonic()+(timeout if inspection else min(timeout,self.wall_limit)),cause='',last_feedback=-1.,observations=observations,
                 terminal_wait_s=terminal_wait_s,region_id=region_id,
                 controller_handoffs=controller_handoffs,
                 local_ref=tuple(self.node.state.position),local_waypoint=tuple(self.node.state.position),
                 local_tick=self.node.clock.model_time_s,local_done=False,local_wait=True)
+            if inspection:
+                from .inspection_work import resume_progress,work_legs,inspection_work_budget,inspection_reference_speed
+                ledger_key=(self.observation_request.request_id,inspection['work_id'],inspection['version'])
+                self.inspection_ledgers={key:value for key,value in self.inspection_ledgers.items()
+                                         if key[0]==self.observation_request.request_id}
+                progress=resume_progress(inspection,self.inspection_ledgers.get(ledger_key))
+                self.inspection_ledgers[ledger_key]=progress
+                legs=work_legs(inspection)
+                self.work.update(inspection=inspection,inspection_progress=progress,
+                                 inspection_segment_index=next(n for n,s in enumerate(segments) if s.operation=='WATER_PATH'),
+                                 inspection_target=legs[min(progress['active_leg'],len(legs)-1)]['start'])
+                work_start=next(s.points[0] for s in segments if s.operation=='WATER_PATH')
+                speed=inspection_reference_speed(inspection,self.node.agent_id)
+                self.work['inspection_reference_speed_mps']=speed
+                budget=inspection_work_budget(inspection,work_start,speed)
+                transitions=sum(s.duration for s in segments if s.operation in ('ENTER_WATER','EXIT_WATER'))
+                runout=sum(math.dist(s.points[0],s.points[-1])/speed for n,s in enumerate(segments)
+                    if s.operation=='WATER_PATH' and n!=self.work['inspection_segment_index'])
+                holds=self.hold_duration*len(segments)+terminal_wait_s
+                budget['model_duration_s']+=transitions+holds+runout
+                budget.update(transition_model_s=transitions,terminal_holds_model_s=holds,uncredited_exit_runout_model_s=runout,
+                              start_model_time_s=self.node.clock.model_time_s,wall_duration_s=timeout)
+                self.work['inspection_work_budget']=budget
+                rospy.loginfo('Accepted native inspection budget %s: %s',inspection['work_id'],json.dumps(budget))
             handle.set_accepted('finite local fragment accepted')
 
     def _refresh_observation_request(self):
@@ -468,7 +599,7 @@ class LocalPlatformAction:
             raise ValueError('cannot load next monitoring request: '+str(error))
         if request.request_id in self.observation_request_ids:
             raise ValueError('next monitoring request must have a new request_id')
-        if getattr(request,'execution_mode','')!='ONLINE_MAPPING' or not self.online_mapping:
+        if getattr(request,'execution_mode','')not in ('ONLINE_MAPPING','INSPECTION_CONTROL') or not self.online_mapping:
             raise ValueError('live request changes require the existing ONLINE_MAPPING mode')
         # Goal callbacks already hold the physical node lock. The map callback
         # never waits for that lock while accepting a replacement epoch: defer
@@ -478,7 +609,7 @@ class LocalPlatformAction:
         self.observation_request_file=path
         self.observation_request_ids.add(request.request_id)
 
-    def _entry_reason(self,segments):
+    def _entry_reason(self,segments,inspection=None):
         state=self.node.state
         if self.node.domain_history.violation:return 'PERSISTENT_DOMAIN_VIOLATION'
         if self.scene_failure:return 'PERSISTENT_SCENE_SAFETY_FAILURE'
@@ -490,6 +621,10 @@ class LocalPlatformAction:
             return 'START_STATE_CHANGED'
         if math.sqrt(sum(v*v for v in state.velocity))>self.speed_tolerance:
             return 'FRAGMENT_ENTRY_NOT_SETTLED'
+        if inspection and segments[0].operation=='ENTER_WATER' and 'transition_heading_rad' in inspection:
+            from .inspection_work import transition_alignment_ready
+            if not transition_alignment_ready(inspection,state.orientation_quat_wxyz,state.body_angular_velocity_radps):
+                return 'TRANSITION_ENTRY_ATTITUDE_NOT_SETTLED'
         if self.scene:
             reason=self.scene.violation(state.position,self.scene_radius)
             if reason:return reason
@@ -517,7 +652,7 @@ class LocalPlatformAction:
             if reason:return StartPreparedActionResponse(False,reason)
             if not work.get('waiting_commit',False):
                 return StartPreparedActionResponse(True,'ALREADY_STARTED')
-            reason=self._entry_reason(work['segments'])
+            reason=self._entry_reason(work['segments'],work.get('inspection'))
             if reason:return StartPreparedActionResponse(False,reason)
             work['waiting_commit']=False
             # The next real model tick establishes the motion start; no reset
@@ -588,6 +723,8 @@ class LocalPlatformAction:
             not self.scene_failure and self.mode() in ('AIR','WATER'))
         if replacement_verified:reason='REPLACED_SAFE_HOLD'
         observations=work.get('observations')
+        if normal and work.get('inspection') and not work['inspection_progress']['complete']:
+            normal=False;reason='INSPECTION_NOT_COMPLETED'
         observation_missing=normal and observations is not None and observations.emitted!=set(observations.points)
         if observation_missing:normal=False;reason='OBSERVATION_NOT_SATISFIED'
         if terminal_verified:self.terminal_mode=self.mode()
@@ -698,6 +835,13 @@ class LocalPlatformAction:
                 settled=(adopted and terminal_time_ok and segment_terminal_ready(segment,elapsed,
                     self.node.state.position,self.node.state.velocity,self.mode(),
                     self.position_tolerance,self.speed_tolerance))
+            if (settled and not work['cause'] and work.get('inspection') and
+                    work['index']+1<len(work['segments']) and
+                    work['segments'][work['index']+1].operation=='EXIT_WATER'):
+                from .inspection_work import transition_alignment_ready
+                settled=transition_alignment_ready(work['inspection'],self.node.state.orientation_quat_wxyz,
+                    self.node.state.body_angular_velocity_radps)
+                work['exit_alignment_ready']=settled
             if settled:
                 if work['settled'] is None:
                     work['settled']=t
@@ -712,7 +856,9 @@ class LocalPlatformAction:
                         self.water_terminal_hold=True
             else:
                 work['settled']=None
-                if (self.online_mapping and not work['cause'] and segment.operation=='WATER_PATH'):
+                if (self.online_mapping and not work['cause'] and segment.operation=='WATER_PATH' and
+                        not work.get('inspection_hold',False) and
+                        not work.get('inspection_column_hold',False) and not work.get('local_wait',False)):
                     # Leaving the unchanged terminal region resumes ordinary
                     # guidance; the hold flag is never a success substitute.
                     self.water_terminal_hold=False
@@ -748,9 +894,19 @@ class LocalPlatformAction:
                             work.setdefault('controller_handoffs',[]).append(
                                 self.node.backend.prepare_bumpless_vertical_transition('EXIT_WATER'))
                         end=following.points[-1]
+                        if (following.operation=='WATER_PATH' and work.get('inspection') and
+                                work['index']!=work.get('inspection_segment_index')):
+                            # The declared uncredited heading-alignment runout
+                            # begins at the actual qualified terminal, not at
+                            # a nominal polygon vertex left behind the body.
+                            definition=work['inspection']
+                            heading=definition['transition_heading_rad'];length=definition['transition_runout_m']
+                            end=(begin[0]+length*math.cos(heading),begin[1]+length*math.sin(heading),begin[2])
                         if following.operation in ('ENTER_WATER','EXIT_WATER'):end=(begin[0],begin[1],end[2])
                         work['segments'][work['index']]=Segment(following.operation,(begin,end),following.duration)
-                        if following.operation=='WATER_PATH':self.water_terminal_hold=False
+                        if following.operation=='WATER_PATH':
+                            self.water_terminal_hold=False
+                            work['inspection_hold']=False
                         work.update(local_ref=begin,local_waypoint=begin,local_done=False,
                                     local_plan_stamp=-math.inf,local_tick=t,local_survey_done=False)
             elif time.monotonic()>=work['deadline']:
@@ -759,11 +915,12 @@ class LocalPlatformAction:
             if self.work is not None and t-work['last_feedback']>=.1:
                 work['last_feedback']=t
                 work['handle'].publish_feedback(PlatformTaskFeedback(
+                    work_id=work.get('inspection',{}).get('work_id',''),work_progress=work.get('inspection_progress',{}).get('fraction',0.),
                     segment_index=work['index'],operation=('PREPARED' if work.get('waiting_commit',False) and self.planner_ready(True) else
                         'WAIT_PLANNER_ACK' if work['waiting_start'] else
                         'FAULT_FINISH_'+segment.operation if finishing else
                         'WAIT_LOCAL_OBSERVATION' if self.online_mapping and work.get('local_wait') else
-                        'REGION_MAPPING' if work.get('region_id') else work['segments'][work['index']].operation),
+                        'FACILITY_INSPECTION' if work.get('inspection') else 'REGION_MAPPING' if work.get('region_id') else work['segments'][work['index']].operation),
                     reference_source=self.owner.source,actual_mode=self.mode(),
                     reference_generation=self.owner.generation,model_time_s=t))
         return dict(position=target,velocity=(0.,0.,0.),acceleration=(0.,0.,0.),
@@ -775,6 +932,27 @@ class LocalPlatformAction:
                     water_terminal_hold=self.water_terminal_hold and self.owner.source=='PLATFORM')
 
     def diagnostics(self):
+        navigation = '{}'
+        if self.work and self.work.get('inspection'):
+            progress = self.work['inspection_progress']
+            inspection = self.work['inspection']
+            identity = (self.work['id'], inspection['work_id'], inspection['version'])
+            phase = tuple(progress.get(key) for key in ('active_leg', 'approaching', 'complete'))
+            ros_s = self.node.state.timestamp_s
+            cached = getattr(self, '_inspection_diagnostics_cache', None)
+            # This bulky debug ledger has no control/report authority. Scalars
+            # remain current; interval detail refreshes at 4 Hz ROS and on
+            # Goal/version/phase changes, including actual work completion.
+            if (cached is None or cached[0] != identity or cached[1] != phase or
+                    ros_s < cached[2] or ros_s - cached[2] >= 0.25):
+                cached = (identity, phase, ros_s, json.dumps(progress.get('intervals', {})))
+                self._inspection_diagnostics_cache = cached
+            navigation = json.dumps({key: progress.get(key) for key in
+                                     ('active_leg', 'approaching', 'complete', 'fraction','residual')})
+            navigation = (navigation[:-1] + ', "intervals": ' + cached[3] +
+                          ', "intervals_updated_ros_s": ' + str(cached[2]) + '}')
+        else:
+            self._inspection_diagnostics_cache = None
         return [('reference_source',self.applied_source),('reference_generation',str(self.owner.generation)),
                 ('transition_fault_behavior',self.transition_fault_behavior),
                 ('scene_failure',self.scene_failure),
@@ -787,6 +965,7 @@ class LocalPlatformAction:
                 ('local_plan_stamp',str(self.work.get('local_plan_stamp',0.) if self.work else 0.)),
                 ('local_target',json.dumps(self.work.get('local_waypoint')) if self.work else 'null'),
                 ('local_wait',str(self.work.get('local_wait',False) if self.work else False).lower()),
+                ('inspection_navigation',navigation),
                 ('execution_phase',('PREPARED' if self.work and self.work.get('waiting_commit',False) and self.planner_ready(True) else
                     'WAIT_PLANNER_ACK' if self.work and self.work.get('waiting_start',False) else
                     'FAULT_FINISH_'+self.fault_hold_operation if self.fault_transition is not None and

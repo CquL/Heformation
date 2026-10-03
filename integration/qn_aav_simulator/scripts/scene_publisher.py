@@ -51,7 +51,7 @@ class SceneTransport:
         from qn_aav_simulator.observation_coverage import FiniteDelivery,ObstacleBox
         self.String=String;self.request=load_request(request_file);self.frame=frame
         self.request_file=request_file;self.used_request_ids={self.request.request_id}
-        self.task_service=self.request.template_id=='OFFSHORE_JOINT'
+        self.task_service=self.request.template_id in ('OFFSHORE_JOINT','WIND_INSPECTION','PLATFORM_PIPELINE_INSPECTION')
         self.support_sites=tuple(scene.get('communication_sites',()))
         self.mother=tuple(scene.get('mother_ship_receiver_position',scene['mother_ship_position']))
         self.air_contact_m=max((float(site['mother_contact_m']) for site in self.support_sites),default=0.)
@@ -64,7 +64,7 @@ class SceneTransport:
         self.lock=threading.Lock();self.states={};self.modes={};self.local_diagnostics={};self.events={}
         self.scan_poses={};self.scan_sent={}
         self.survey_publishers={}
-        if self.request.execution_mode=='ONLINE_MAPPING':
+        if self.request.execution_mode in ('ONLINE_MAPPING','INSPECTION_CONTROL'):
             # Declared geometric range-sensor experiment, not a camera/sonar
             # hardware claim. Ray casting belongs on the simulator side only.
             import numpy as np
@@ -121,8 +121,8 @@ class SceneTransport:
         from qn_aav_simulator.task_line import load_request
         from qn_aav_simulator.observation_coverage import FiniteDelivery
         request=load_request(request_file)
-        if (request.template_id!=self.request.template_id or
-                request.execution_mode!=self.request.execution_mode):
+        from qn_aav_simulator.inspection_work import JOINT_TEMPLATES
+        if request.template_id not in JOINT_TEMPLATES or self.request.template_id not in JOINT_TEMPLATES:
             raise ValueError('live request must retain the running template and sensor mode')
         sites=tuple(task_scene.get('communication_sites',()))
         air_contact=max((float(site['mother_contact_m']) for site in sites),default=0.)
@@ -191,14 +191,18 @@ class SceneTransport:
                 distance[valid]=near[valid];hits[valid]=1.
             ends=origin+directions*distance[:,None]
             payload=np.column_stack((ends,hits)).astype(np.float32)
-            cloud=point_cloud2.create_cloud(Header(frame_id=self.frame,stamp=rospy.Time.from_sec(stamp)),fields,payload)
+            cloud=PointCloud2(header=Header(frame_id=self.frame,stamp=rospy.Time.from_sec(stamp)),
+                height=1,width=len(payload),fields=fields,is_bigendian=False,point_step=16,
+                row_step=16*len(payload),data=payload.tobytes(),is_dense=False)
             self.survey_publishers[member].publish(cloud);self.scan_sent[member]=stamp
             for point in ends[hits>0]:
                 key=tuple(int(math.floor(float(v)/.25)) for v in point)
                 self.observed_points[key]=tuple(float(v) for v in point)
         if self.observed_points:
-            self.observed_cloud.publish(point_cloud2.create_cloud_xyz32(
-                Header(frame_id=self.frame,stamp=rospy.Time.now()),list(self.observed_points.values())))
+            points=np.asarray(list(self.observed_points.values()),dtype=np.float32)
+            self.observed_cloud.publish(PointCloud2(header=Header(frame_id=self.frame,stamp=rospy.Time.now()),
+                height=1,width=len(points),fields=fields[:3],is_bigendian=False,point_step=12,
+                row_step=12*len(points),data=points.tobytes(),is_dense=False))
 
     def mode(self,key,msg):
         from qn_aav_simulator.platform_execution import actual_mode
@@ -217,6 +221,13 @@ class SceneTransport:
         try:
             event=json.loads(msg.data);ident=event['product_id']
             points={p.point_id for r in self.request.regions for p in r.interest_points}
+            inspection=event.get('event_type')=='INSPECTION_CONTROL_REPORT'
+            if inspection:
+                work=next((w for w in self.request.work_items if w['work_id']==event.get('work_id')),None)
+                if work is None:raise ValueError('unknown current-request inspection work')
+                from qn_aav_simulator.inspection_work import validate_control_report
+                validate_control_report(work,event)
+                points.add(work['work_id'])
             terminal=event.get('event_type')=='OBSERVATION_TERMINAL'
             action_terminal=event.get('event_type')=='ACTION_TERMINAL'
             if terminal:
@@ -446,10 +457,10 @@ class SceneTransport:
                 notification=event.get('event_type') in ('OBSERVATION_TERMINAL','ACTION_TERMINAL')
                 if not notification:
                     producer=event.get('producer','')
-                    if producer=='uuv':
-                        source=states.get('uuv')
+                    if producer=='uuv' or event.get('result',{}).get('domain')=='WATER':
+                        source=states.get(producer)
                         if (ident not in self.task_relayed and site and source and
-                                source[1]=='WATER' and
+                                source[1] in ('WATER','AIR') and
                                 math.dist(usv[0],source[0])<=site['acoustic_contact_m']):
                             self.task_relayed[ident]=now
                         if ident not in self.task_relayed or now<=self.task_relayed[ident]:
@@ -798,6 +809,18 @@ def cloud_message(frame_id, stamp, points):
 
 def main():
     rospy.init_node("scene_publisher")
+    speed=float(rospy.get_param('/mission/simulation_speed',1.))
+    if not math.isfinite(speed) or not 1.<=speed<=4.:raise ValueError('simulation speed must be between 1 and 4')
+    if rospy.get_param('/use_sim_time',False):
+        from rosgraph_msgs.msg import Clock
+        clock_pub=rospy.Publisher('/clock',Clock,queue_size=1,latch=True)
+        epoch=time.time();began=time.monotonic()
+        def publish_clock():
+            while not rospy.is_shutdown():
+                clock_pub.publish(Clock(clock=rospy.Time.from_sec(epoch+speed*(time.monotonic()-began))))
+                time.sleep(.005)
+        threading.Thread(target=publish_clock,daemon=True).start()
+        while not rospy.is_shutdown() and rospy.Time.now().to_sec()==0.:time.sleep(.005)
     scene = rospy.get_param("/scene", {})
     geometry=StaticSceneGeometry.from_mapping(scene)
     topic = rospy.get_param("~topic", scene.get("topic", DEFAULT_TOPIC))

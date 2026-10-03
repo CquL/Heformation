@@ -126,7 +126,7 @@ class PvsBackend:
         self.vehicle.ref=math.degrees(self.vehicle.psi_d+math.remainder(
             float(self.eta[5])-self.vehicle.psi_d,2*math.pi))
 
-    def step(self,dt,target=None,effort=0.,leg_start=None,*,allow_reverse=False):
+    def _advance(self,dt,target=None,effort=0.,leg_start=None,*,allow_reverse=False):
         from python_vehicle_simulator.lib.gnc import attitudeEuler
         if (not math.isfinite(dt) or not 0<dt<=.05 or not math.isfinite(effort) or
                 (effort<0 and not (allow_reverse and self.model=='otter'))):
@@ -178,10 +178,81 @@ class PvsBackend:
             raise ArithmeticError('PVS state is not finite')
         self.steps+=1
         self.time_s+=dt
+
+    def step(self,dt,target=None,effort=0.,leg_start=None,*,allow_reverse=False):
+        self._advance(dt,target,effort,leg_start,allow_reverse=allow_reverse)
         return self.snapshot()
 
+    def _motion_snapshot(self):
+        """Exact fields needed by a private local forecast, without telemetry."""
+        from python_vehicle_simulator.lib.gnc import Rzyx
+        rotation=Rzyx(*self.eta[3:])
+        mode=('SURFACE' if abs(self.eta[2])<=self.vehicle.T else 'OUTSIDE_NATIVE_DOMAIN') if self.model=='otter' else ('WATER' if self.eta[2]>0 else 'OUTSIDE_NATIVE_DOMAIN')
+        return dict(actual_mode=mode,position=tuple(ENU_FROM_NED@self.eta[:3]),
+                    world_velocity=tuple(ENU_FROM_NED@rotation@self.nu[:3]))
+
+    def prepare_local_coast_prefix(self,observed_map,clearance,deadline,dt=.01,coast_delay_s=0.):
+        """One identical checked computation-time coast for this local query."""
+        import hashlib
+        began=time.monotonic()
+        model=copy.deepcopy(self)
+        radius=self.collision_radius_m+clearance
+        previous=self.snapshot()['position']
+        if not observed_map.segment_clear(previous,previous,radius):
+            return dict(status='UNKNOWN',reason='CURRENT_BODY_NOT_OBSERVED_FREE',
+                query_phase='COAST_PREFIX',query_wall_s=time.monotonic()-began)
+        delay_steps=int(math.ceil(coast_delay_s/dt-1e-9))
+        for index in range(delay_steps):
+            if time.monotonic()>=deadline:
+                return dict(status='UNKNOWN',reason='LOCAL_MOTION_BUDGET',query_phase='COAST_PREFIX',
+                    query_model_elapsed_s=index*dt,query_wall_s=time.monotonic()-began)
+            model._advance(dt,None,0.,None)
+            state=model._motion_snapshot()
+            if not observed_map.segment_clear(previous,state['position'],radius):
+                return dict(status='INFEASIBLE',reason='NATIVE_QUERY_COAST_PREFIX_NOT_OBSERVED_FREE',
+                    query_phase='COAST_PREFIX',query_model_elapsed_s=(index+1)*dt,
+                    query_wall_s=time.monotonic()-began)
+            previous=state['position']
+        return dict(status='FEASIBLE',reason='NATIVE_QUERY_COAST_PREFIX',backend=model,
+            source_model_time_s=self.time_s,source_model_step=self.steps,
+            source_state_digest=hashlib.sha256(self.execution_state_bytes()).hexdigest(),
+            observed_map=observed_map,dt=dt,clearance=clearance,coast_delay_s=coast_delay_s,
+            activation_model_time_s=model.time_s,activation_step=model.steps,
+            activation_state_digest=hashlib.sha256(model.execution_state_bytes()).hexdigest(),
+            previous=previous,query_phase='COAST_PREFIX',query_wall_s=time.monotonic()-began)
+
+    @staticmethod
+    def query_local_commands(native,observed_map,candidates,first_candidate,clearance,deadline,
+                             dt,terminal_speed,hold_duration,coast_delay):
+        """One local snapshot/query for the existing isolated bounded worker."""
+        selected=None;selected_effort=0.;selected_leg=None;has_command=False
+        prediction=dict(status='UNKNOWN',reason='NO_LOCAL_COMMAND')
+        first_candidate%=len(candidates)
+        order=[(first_candidate+i)%len(candidates) for i in range(len(candidates))]
+        next_candidate=first_candidate;selected_index=None;attempted=[];rejected=[]
+        prefix=native.prepare_local_coast_prefix(observed_map,clearance,deadline,dt,coast_delay)
+        if prefix['status']!='FEASIBLE':
+            prediction={key:value for key,value in prefix.items() if key not in ('backend','observed_map')}
+        for candidate_index in order if prefix['status']=='FEASIBLE' else ():
+            proposed,effort,leg,horizon=candidates[candidate_index]
+            next_candidate=(candidate_index+1)%len(candidates)
+            prediction=native.predict_local_command(proposed,effort,leg,observed_map,clearance,deadline,
+                dt=dt,terminal_speed=terminal_speed,hold_duration=hold_duration,
+                coast_delay_s=coast_delay,command_duration=horizon,coast_prefix=prefix)
+            attempted.append('{}:{}:{}:{}'.format(candidate_index,horizon,effort,prediction['status']))
+            if prediction['status']=='FEASIBLE':
+                selected=proposed;selected_effort=effort;selected_leg=leg
+                has_command=True;selected_index=candidate_index;break
+            rejected.append(str(effort)+':'+prediction['reason'])
+            if time.monotonic()>=deadline:break
+        return dict(prediction=prediction,selected=selected,selected_effort=selected_effort,
+            selected_leg=selected_leg,has_command=has_command,selected_index=selected_index,
+            next_candidate=next_candidate,attempted=attempted,rejected=rejected,
+            prefix_wall_s=prefix.get('query_wall_s',0.),prefix_phase=prefix.get('query_phase',''))
+
     def predict_local_command(self,target,effort,leg_start,observed_map,clearance,deadline,
-                              command_duration=.25,dt=.01,terminal_speed=.03,hold_duration=4.,coast_delay_s=0.):
+                              command_duration=.25,dt=.01,terminal_speed=.03,hold_duration=4.,coast_delay_s=0.,
+                              coast_prefix=None):
         """Nominal short native motion plus the exact zero-effort backup.
 
         Only the execution endpoint calls this, on its current full native
@@ -192,26 +263,27 @@ class PvsBackend:
         Otter check does not inherit DWA/SUPER guarantees for another plant.
         Source: https://www.cs.cmu.edu/~dfox/abstracts/colli-ieee.abstract.html
         """
-        model=copy.deepcopy(self)
+        import hashlib
+        began=time.monotonic()
+        prefix=(self.prepare_local_coast_prefix(observed_map,clearance,deadline,dt,coast_delay_s)
+                if coast_prefix is None else coast_prefix)
+        if prefix['status']!='FEASIBLE':
+            return {key:value for key,value in prefix.items() if key not in ('backend','observed_map')}
+        if (prefix['source_model_time_s']!=self.time_s or prefix['source_model_step']!=self.steps or
+                prefix['source_state_digest']!=hashlib.sha256(self.execution_state_bytes()).hexdigest() or
+                prefix['observed_map'] is not observed_map or prefix['dt']!=dt or
+                prefix['clearance']!=clearance or prefix['coast_delay_s']!=coast_delay_s):
+            return dict(status='UNKNOWN',reason='COAST_PREFIX_SOURCE_CHANGED',query_phase='COAST_PREFIX_BINDING')
+        model=copy.deepcopy(prefix['backend'])
         radius=self.collision_radius_m+clearance
-        initial=self.snapshot();start=initial['position'];previous=start
-        if not observed_map.segment_clear(start,start,radius):
-            return dict(status='UNKNOWN',reason='CURRENT_BODY_NOT_OBSERVED_FREE')
+        initial=self.snapshot();previous=prefix['previous']
         # A fixed future activation time lets the live node coast while this
         # query runs. It will require exact full-state equality at activation,
         # not merely a close position from an aged snapshot.
-        import hashlib
-        delay_steps=int(math.ceil(coast_delay_s/dt-1e-9))
-        for _ in range(delay_steps):
-            if time.monotonic()>=deadline:return dict(status='UNKNOWN',reason='LOCAL_MOTION_BUDGET')
-            state=model.step(dt,None,0.,None)
-            if not observed_map.segment_clear(previous,state['position'],radius):
-                return dict(status='INFEASIBLE',reason='NATIVE_QUERY_COAST_PREFIX_NOT_OBSERVED_FREE')
-            previous=state['position']
-        activation_time=model.time_s
-        activation_step=model.steps
+        activation_time=prefix['activation_model_time_s']
+        activation_step=prefix['activation_step']
         command_steps=max(1,int(math.ceil(command_duration/dt-1e-9)))
-        activation_digest=hashlib.sha256(model.execution_state_bytes()).hexdigest()
+        activation_digest=prefix['activation_state_digest']
         settled=None;elapsed=0.;next_check=0.;coast_started=False;executed_steps=0
         # A bounded native coast must actually settle; exhausting this horizon
         # is UNKNOWN, never permission to assume an instantaneous stop.
@@ -223,13 +295,16 @@ class PvsBackend:
         horizon=command_duration+hold_duration+max(6.,turn_allowance)
         while elapsed<horizon:
             if time.monotonic()>=deadline:
-                return dict(status='UNKNOWN',reason='LOCAL_MOTION_BUDGET')
+                return dict(status='UNKNOWN',reason='LOCAL_MOTION_BUDGET',
+                    query_phase='PULSE' if executed_steps<command_steps else 'BRAKING_COAST',
+                    query_model_elapsed_s=elapsed,query_wall_s=time.monotonic()-began)
             moving=executed_steps<command_steps
             if not moving and not coast_started:
                 if model.model=='otter':model.freeze_heading_reference()
                 coast_started=True
-            state=model.step(dt,target if moving else None,effort if moving else 0.,
-                             leg_start if moving else None,allow_reverse=moving and effort<0.)
+            model._advance(dt,target if moving else None,effort if moving else 0.,
+                           leg_start if moving else None,allow_reverse=moving and effort<0.)
+            state=model._motion_snapshot()
             executed_steps+=1
             elapsed=executed_steps*dt
             speed=math.sqrt(sum(value*value for value in state['world_velocity']))
@@ -249,8 +324,10 @@ class PvsBackend:
                     source_model_time_s=self.time_s,command_duration_s=command_duration,
                     activation_model_time_s=activation_time,activation_step=activation_step,
                     command_end_step=activation_step+command_steps,activation_state_digest=activation_digest,
-                    predicted_stop_s=elapsed-hold_duration,effort=effort)
-        return dict(status='UNKNOWN',reason='NATIVE_LOCAL_COAST_NOT_SETTLED')
+                    predicted_stop_s=elapsed-hold_duration,effort=effort,
+                    query_phase='COMPLETE',query_model_elapsed_s=elapsed,query_wall_s=time.monotonic()-began)
+        return dict(status='UNKNOWN',reason='NATIVE_LOCAL_COAST_NOT_SETTLED',
+            query_phase='BRAKING_COAST',query_model_elapsed_s=elapsed,query_wall_s=time.monotonic()-began)
 
     def predict_native_fragment(self,paths,effort,scene,deadline,dt=.01,
                                 terminal_speed=.03,hold_duration=4.,max_model_time=180.,include_state=False,terminal_wait_s=0.,resume=None,

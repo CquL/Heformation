@@ -8,6 +8,10 @@
   <arg name="request_file" default=""/>
   <arg name="observed_mapping" default="false"/>
   <arg name="visual_timing_relaxation" default="false"/>
+  <arg name="simulation_speed" default="1.0"/>
+  <arg name="air_planner_speed" default="0.35"/>
+  <arg name="usv_propulsion_effort" default="20.0"/>
+  <arg name="usv_local_query_budget" default="0.25"/>
   <param name="/mission/allow_visual_timing_relaxation" value="$(arg visual_timing_relaxation)"/>
   <arg name="usv_initial_position" default="[-5.0, -8.0, 0.0]"/>
   <group if="$(eval arg('request_file') != '')">
@@ -19,6 +23,7 @@
     <arg name="output_dir" value="$(arg output_dir)"/>
     <arg name="record" value="$(arg record)"/>
     <arg name="transition_fault_behavior" value="COMPLETE_ACCEPTED_VERTICAL_SEGMENT"/>
+    <arg name="planner_speed" value="$(arg air_planner_speed)"/>
   </include>
   <group if="$(eval arg('scene_file') != '')">
     <rosparam file="$(arg scene_file)"/>
@@ -29,7 +34,8 @@
     <param name="world_frame" value="world"/>
     <param name="initialization_mode" value="STATIC_TRIM"/>
     <rosparam param="initial_position" subst_value="true">$(arg usv_initial_position)</rosparam>
-    <param name="propulsion_effort" value="20.0"/>
+    <param name="propulsion_effort" value="$(arg usv_propulsion_effort)"/>
+    <param name="local_query_budget_s" value="$(arg usv_local_query_budget)"/>
     <param name="qualification_only" value="true"/>
   </node>
   <!-- Dedicated WATER-only qn instance. Its plant is the qn underwater AAV
@@ -49,4 +55,6 @@
     <param name="platform_observation_timeout_s" value="1800.0"/>
     <param name="qualification_only" value="true"/>
   </node>
+  <param name="/mission/simulation_speed" value="$(arg simulation_speed)" type="double"/>
+  <param name="/use_sim_time" value="$(eval float(arg('simulation_speed')) != 1.0)"/>
 </launch>

@@ -158,6 +158,7 @@ def parse_standard_odometry(message, agent_id: str) -> OdometrySample:
         body_velocity=body_velocity,
         orientation_quat_wxyz=quaternion,
         child_frame_id=child_frame_id,
+        body_angular_velocity=(float(twist.angular.x),float(twist.angular.y),float(twist.angular.z)),
     )
 
 

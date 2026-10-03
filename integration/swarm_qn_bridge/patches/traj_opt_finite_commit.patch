@@ -89,3 +89,13 @@
  
    int piece_nums = msg->duration.size();
    std::vector<double> dura(piece_nums);
+--- a/src/planner/traj_opt/src/poly_traj_optimizer.cpp
++++ b/src/planner/traj_opt/src/poly_traj_optimizer.cpp
+@@ -189,6 +189,8 @@
+       Eigen::Vector3d pos = traj.getPos(t);
+       if(grid_map_->getInflateOccupancy(pos) == 1){
++        ROS_WARN_THROTTLE(2.0,"Native candidate %d intersects inflated map at %.6f %.6f %.6f, t=%.6f",
++                          drone_id_,pos.x(),pos.y(),pos.z(),t);
+         occ = true;
+         break;
+       }

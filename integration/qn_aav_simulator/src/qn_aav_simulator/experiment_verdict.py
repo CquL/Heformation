@@ -429,6 +429,7 @@ def evaluate_safety(samples: Dict[int, Sequence[MemberSample]], *,
     collisions: List[Tuple[int, int]] = []
     for _time, group in sorted(samples_by_time.items()):
         for first, second in combinations(sorted(group, key=lambda s: s.agent_id), 2):
+            if first.agent_id==second.agent_id:continue
             distance = math.dist(first.position, second.position)
             min_distance = distance if min_distance is None else min(min_distance, distance)
             surface = distance - 2.0 * float(platform_radius_m)

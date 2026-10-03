@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-03",
+  "reason": "Complete GitHub/server715 migration requested by user; no unresolved gitlinks",
+  "sources": [
+    {
+      "directory": "upstream/GCOPTER",
+      "origin": "https://github.com/ZJU-FAST-Lab/GCOPTER",
+      "commit": "e0444f6d47b84f972ced91746b05feb36ce1fd4f",
+      "uncommitted_entries": 0,
+      "kind": "vendored source snapshot; git metadata retained locally outside project"
+    },
+    {
+      "directory": "upstream/libMultiRobotPlanning",
+      "origin": "https://github.com/whoenig/libMultiRobotPlanning",
+      "commit": "4c75fa20c435c440d8b6bd6dc81668ddc7296ba0",
+      "uncommitted_entries": 0,
+      "kind": "vendored source snapshot; git metadata retained locally outside project"
+    },
+    {
+      "directory": "upstream/stonefish_ros",
+      "origin": "https://github.com/patrykcieslak/stonefish_ros",
+      "commit": "da007c0af573f38bd367b609289ff010b90410a2",
+      "uncommitted_entries": 0,
+      "kind": "vendored source snapshot; git metadata retained locally outside project"
+    },
+    {
+      "directory": "upstream/CARIC",
+      "origin": "https://github.com/ntu-aris/caric",
+      "commit": "1aa678f46030b9584ad47fd0df7490454b73ccae",
+      "uncommitted_entries": 0,
+      "kind": "vendored source snapshot; git metadata retained locally outside project"
+    },
+    {
+      "directory": "upstream/CARIC-Baseline",
+      "origin": "https://github.com/ntu-aris/caric_baseline.git",
+      "commit": "4fcf27914731e30abc03c8a0dc5778a0fd949033",
+      "uncommitted_entries": 0,
+      "kind": "vendored source snapshot; git metadata retained locally outside project"
+    },
+    {
+      "directory": "upstream/CARIC-Mission",
+      "origin": "https://github.com/ntu-aris/caric_mission.git",
+      "commit": "f051ae630c5dda1b750bdc717fa467650e2b30e7",
+      "uncommitted_entries": 0,
+      "kind": "vendored source snapshot; git metadata retained locally outside project"
+    },
+    {
+      "directory": "upstream/RSS-Cooperative-Routing",
+      "origin": "https://github.com/imsafwan/multi-uav-ugv-cooperative-routing-drl.git",
+      "commit": "b70417c929c4e87e733dd912d390b4867a2b8530",
+      "uncommitted_entries": 0,
+      "kind": "vendored source snapshot; git metadata retained locally outside project"
+    }
+  ]
+}

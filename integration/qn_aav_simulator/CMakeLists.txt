@@ -13,6 +13,7 @@ find_package(catkin REQUIRED COMPONENTS
   sensor_msgs
   std_msgs
   std_srvs
+  traj_utils
 )
 
 catkin_python_setup()
@@ -21,7 +22,7 @@ add_message_files(DIRECTORY msg FILES PlatformSegment.msg)
 add_service_files(DIRECTORY srv FILES TakeReference.srv StartPreparedAction.srv)
 add_action_files(DIRECTORY action FILES Formation.action PlatformTask.action)
 generate_messages(DEPENDENCIES actionlib_msgs geometry_msgs nav_msgs)
-catkin_package(CATKIN_DEPENDS actionlib_msgs diagnostic_msgs geometry_msgs message_runtime nav_msgs quadrotor_msgs rospy sensor_msgs std_msgs std_srvs)
+catkin_package(CATKIN_DEPENDS actionlib_msgs diagnostic_msgs geometry_msgs message_runtime nav_msgs quadrotor_msgs rospy sensor_msgs std_msgs std_srvs traj_utils)
 
 catkin_install_python(
   PROGRAMS scripts/qn_aav_node.py scripts/formation_action_server.py

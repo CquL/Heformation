@@ -23,9 +23,9 @@ from python_qt_binding.QtSvg import QSvgRenderer
 from python_qt_binding.QtWidgets import (QApplication,QFileDialog,QHBoxLayout,QLabel,
     QMessageBox,QPlainTextEdit,QPushButton,QSplitter,QVBoxLayout,QWidget,
     QDialog,QFrame,QTableWidget,QTableWidgetItem,
-    QHeaderView,QAbstractItemView,QProgressBar,QStackedWidget,QComboBox)
+    QHeaderView,QAbstractItemView,QProgressBar,QStackedWidget,QComboBox,QCheckBox,QSpinBox)
 from qn_aav_simulator.task_line import load_request
-from qn_aav_simulator.monitoring_request import circle_joint_mission_mappings
+from qn_aav_simulator.monitoring_request import circle_joint_mission_mappings,joint_mission_mappings
 
 
 class CircleMap(QWidget):
@@ -36,6 +36,7 @@ class CircleMap(QWidget):
         self.editable=True;self.plan_items=[];self.observed_points=()
         self.draft_circle=None;self.editing_draft=False
         self.online_mapping=bool(scene.get('online_mapping',False))
+        self.inspection_work=[]
         self.mapping_layers={};self.mapping_layer='offshore_uuv'
         self.mapping_request_id='';self.received_mapping_ids=set()
         xs=[self.center[0]-self.radius,self.center[0]+self.radius]
@@ -55,6 +56,7 @@ class CircleMap(QWidget):
     def set_mapping_request(self,request):
         """Display cells use the same sampled geometry as the task contract."""
         from qn_aav_simulator.monitoring_request import mapping_cell_samples
+        self.inspection_work=list(request.get('work_items',()))
         self.mapping_request_id=request.get('request_id','');self.mapping_layers={}
         self.received_mapping_ids=set()
         if request.get('execution_mode')!='ONLINE_MAPPING':return
@@ -175,7 +177,11 @@ class CircleMap(QWidget):
         mother=self.to_screen(self.scene['mother_ship_position']);painter.setBrush(QBrush(QColor('#f1d38b')))
         painter.drawEllipse(mother,7,7)
         painter.setPen(QColor('#e5eef4'));painter.drawText(mother+QPointF(12,-10),'母船 / 岸边部署区')
-        if self.radius>0:
+        for work in self.inspection_work:
+            painter.setPen(QPen(QColor('#37cfe7') if work['domain']=='AIR' else QColor('#ffd044'),1.5,Qt.DashLine))
+            for section in work['sections']:
+                for a,b in zip(section['points'],section['points'][1:]):painter.drawLine(self.to_screen(a),self.to_screen(b))
+        if self.radius>0 and not self.inspection_work:
             c=self.to_screen(self.center);r=self.radius*self._scale()
             painter.setPen(QPen(QColor('#42d7f1'),2));painter.setBrush(QBrush(QColor(66,215,241,32)))
             painter.drawEllipse(c,r,r);painter.setBrush(QBrush(QColor('#42d7f1')));painter.drawEllipse(c,4,4)
@@ -349,6 +355,9 @@ def icon_label(kind,color='#132d57',size=26):
 
 
 def activity_role(item):
+    for step in item.get('execution_steps',()):
+        work=step.get('work_id') or (step.get('native_action') or {}).get('work_id')
+        if work:return work.replace('wind_','风机').replace('production_platform','海上作业平台').replace('seabed_pipeline','海底管路').replace(':air',' 水上巡视').replace(':foundation',' 基础巡视').replace(':structure',' 水下结构巡视').replace(':pipeline',' 沿线巡视')
     if item.get('executor_id')=='aav_formation':return 'Swarm 编队返航'
     if '::formation-assembly:' in item.get('task_id',''):return '编队集结'
     if not item.get('fulfills_task',True):return '共享通信支援'
@@ -359,6 +368,7 @@ def activity_role(item):
 
 
 def step_label(step):
+    if step.get('work_id') or (step.get('native_action') or {}).get('work_id'):return '设施巡视'
     ref=step.get('target_ref','')
     if ref=='return:swarm-formation-handoff':return '共同编队返航'
     if ref=='return:formation-assemble':return '编队集结'
@@ -471,10 +481,11 @@ class JointMissionPanel(QWidget):
         if self.submitted:
             self.base_request=yaml.safe_load((output/'ui-request.yaml').read_text())
             self.base_scene=yaml.safe_load((output/'ui-scene.yaml').read_text())
-        air=next(r for r in self.base_request['regions'] if r['region_id']=='offshore_air')
+        air=next((r for r in self.base_request.get('regions',()) if r['region_id']=='offshore_air'),
+            dict(center=[25.,9.,0.],radius_m=7.))
         self.center=tuple((air.get('center') or [(a+b)/2 for a,b in zip(air['corner_a'],air['corner_b'])])[:2])
         self.radius=air.get('radius_m') or min(air['corner_b'][i]-air['corner_a'][i] for i in (0,1))/2
-        self.point_count=sum(len(r.get('interest_points',())) for r in self.base_request['regions'])
+        self.point_count=len(self.base_request.get('work_items',())) or sum(len(r.get('interest_points',())) for r in self.base_request.get('regions',()))
         self.last_snapshot=None;self.last_update=time.monotonic()
         self.setObjectName('taskPanel');self.setWindowTitle('Heformation · 空—海—潜协同任务')
         self.resize(1588,990)
@@ -526,7 +537,7 @@ class JointMissionPanel(QWidget):
         outer.addWidget(flow)
         body=QHBoxLayout();body.setContentsMargins(5,8,5,8);body.setSpacing(7)
         left,left_layout=self.card('本次监测任务');left.setFixedWidth(300)
-        title=QHBoxLayout();title.addWidget(icon_label('clipboard',size=24));title.addWidget(QLabel('远端海域联合监测'));title.addStretch();left_layout.addLayout(title)
+        title=QHBoxLayout();title.addWidget(icon_label('clipboard',size=24));self.task_title=QLabel('远端海域联合监测');title.addWidget(self.task_title);title.addStretch();left_layout.addLayout(title)
         region_box=QFrame();region_box.setObjectName('subcard');rb=QVBoxLayout(region_box);rb.setContentsMargins(11,12,11,10)
         region_line=QHBoxLayout();circle=icon_label('circle','#086cff',46);circle.setStyleSheet('background: #d0e8ff; border-radius: 23px;')
         region_line.addWidget(circle);self.region=QLabel();self.region.setWordWrap(True);region_line.addWidget(self.region,1);rb.addLayout(region_line)
@@ -534,6 +545,26 @@ class JointMissionPanel(QWidget):
             lambda:(self.show_page(0),self.map.fit_region()))
         self.edit_button=QPushButton('编辑监测区域');self.edit_button.clicked.connect(self.edit_region)
         region_buttons.addWidget(self.view_region_button);region_buttons.addWidget(self.edit_button);rb.addLayout(region_buttons);left_layout.addWidget(region_box)
+        self.business_box=QComboBox()
+        for text,value in [('A 海域调查','A'),('B 风机巡检','B'),('C 海上作业平台／管路','C')]:self.business_box.addItem(text,value)
+        left_layout.addWidget(self.business_box)
+        self.facility_button=QPushButton('选择设施、部位与管段');left_layout.addWidget(self.facility_button)
+        self.facility_dialog=QDialog(self);self.facility_dialog.setWindowTitle('本次设施作业范围')
+        fd=QVBoxLayout(self.facility_dialog);self.object_box=QComboBox();fd.addWidget(self.object_box)
+        self.part_checks={}
+        for key,text in [('air','水上外部结构'),('foundation','风机水下基础'),('structure','平台水下外部结构'),('pipeline','选定连续管段及阀件局部巡视')]:
+            check=QCheckBox(text);check.setChecked(True);fd.addWidget(check);self.part_checks[key]=check
+        row=QHBoxLayout();row.addWidget(QLabel('轮廓层数'));self.layer_box=QSpinBox();self.layer_box.setRange(1,8);self.layer_box.setValue(3);row.addWidget(self.layer_box);fd.addLayout(row)
+        row=QHBoxLayout();row.addWidget(QLabel('管段起止索引'));self.pipe_start=QSpinBox();self.pipe_end=QSpinBox()
+        self.pipe_start.setRange(0,2);self.pipe_end.setRange(1,3);self.pipe_end.setValue(3);row.addWidget(self.pipe_start);row.addWidget(self.pipe_end);fd.addLayout(row)
+        self.recheck_box=QComboBox();self.recheck_box.addItem('沿线完整巡视',None)
+        for n in (1,2,3):self.recheck_box.addItem('仅复查阀件 '+str(n),n)
+        fd.addWidget(self.recheck_box)
+        fd.addWidget(QLabel('缩比控制任务：风机静止、姿态已知；水下采用前进式巡视。'))
+        accept=QPushButton('采用此作业范围');accept.clicked.connect(self.facility_dialog.accept);fd.addWidget(accept)
+        self.facility_button.clicked.connect(self.facility_dialog.show)
+        self.facility_dialog.accepted.connect(lambda:self.edit_region() if self.submitted else None)
+        self.business_box.currentIndexChanged.connect(self._business_changed)
         label=QLabel('当前分工');label.setObjectName('section');left_layout.addWidget(label)
         self.member_rows={}
         for member in MEMBERS:
@@ -612,7 +643,10 @@ class JointMissionPanel(QWidget):
         self.progress=QProgressBar()
         mapping=bool(self.base_scene['scene'].get('online_mapping',False))
         for name,bar,count in (('切片建图' if mapping else '有效观测',self.observation_progress,self.observed),('母船已收',self.progress,self.received)):
-            row=QHBoxLayout();row.addWidget(QLabel(name));bar.setTextVisible(False);row.addWidget(bar,1);row.addWidget(count);right_layout.addLayout(row)
+            row=QHBoxLayout();caption=QLabel(name)
+            if bar is self.observation_progress:self.observed_caption=caption
+            else:self.received_caption=caption
+            row.addWidget(caption);bar.setTextVisible(False);row.addWidget(bar,1);row.addWidget(count);right_layout.addLayout(row)
         self.observed.setToolTip(('切片占据建图（几何采样），不代表全部三维表面已重建。\n' if mapping else '')+
             '由已收到的观测终结报告确认，不根据预计航迹或显示点云推断。')
         support=QFrame();support.setObjectName('subcard');sl=QVBoxLayout(support);sl.setContentsMargins(10,10,10,10)
@@ -655,6 +689,10 @@ class JointMissionPanel(QWidget):
         self.timer=QTimer(self);self.timer.timeout.connect(self.refresh);self.timer.start(500)
         self.update_region();self.refresh()
 
+        self._business_changed(0)
+        template=self.base_request.get('template_id','OFFSHORE_JOINT')
+        self.business_box.setCurrentIndex({'WIND_INSPECTION':1,'PLATFORM_PIPELINE_INSPECTION':2}.get(template,0))
+
     @staticmethod
     def card(title,icon=None):
         frame=QFrame();frame.setObjectName('panel');layout=QVBoxLayout(frame)
@@ -673,6 +711,27 @@ class JointMissionPanel(QWidget):
     def show_page(self,index):
         self.pages.setCurrentIndex(index);self.area_tab.setChecked(index==0);self.plan_tab.setChecked(index==1);self.preview_tab.setChecked(index==2)
         if index==2:self.preview_revision_shown=(self.state.get('pending_plan') or {}).get('revision')
+
+    def _business_changed(self,index):
+        business=self.business_box.currentData();self.object_box.clear()
+        kinds=('wind_turbine',) if business=='B' else ('production_platform','seabed_pipeline')
+        objects=[m for m in self.base_scene['scene'].get('world_models',()) if m['model'] in kinds]
+        self.object_box.addItem('全部相关设施',[m['id'] for m in objects])
+        for obj in objects:self.object_box.addItem(obj['id'],[obj['id']])
+        enabled={'air','foundation'} if business=='B' else {'air','structure','pipeline'}
+        for name,check in self.part_checks.items():check.setVisible(business!='A' and name in enabled)
+        self.facility_button.setEnabled(business!='A')
+        self.recheck_box.setVisible(business=='C')
+        if getattr(self,'submitted',False) and hasattr(self,'map'):self.edit_region()
+
+    def _selection(self,center,radius):
+        business=self.business_box.currentData()
+        allowed={'air','foundation'} if business=='B' else {'air','structure','pipeline'}
+        return dict(business=business,center=list(center),radius_m=radius,
+            object_ids=list(self.object_box.currentData() or []),
+            parts=[key for key,check in self.part_checks.items() if key in allowed and check.isChecked()],
+            layers=self.layer_box.value(),pipeline_span=[self.pipe_start.value(),self.pipe_end.value()],
+            recheck_index=self.recheck_box.currentData() if business=='C' else None)
 
     def select_mapping_layer(self,layer):
         self.deep_layer.setChecked(layer=='offshore_uuv');self.air_layer.setChecked(layer=='offshore_air')
@@ -728,12 +787,12 @@ class JointMissionPanel(QWidget):
             # does not replace the active request, scene or received map cells.
             if not math.isfinite(radius) or not all(math.isfinite(v) for v in center) or not 2.<=radius<=10.:
                 QMessageBox.warning(self,'区域暂不可用','圆形监测半径需在 2～10 模型米之间。');return
-            policy='replace' if self.state.get('session_phase') in ('HOLDING','HOME') else self.policy_box.currentData()
-            self.send_session_command('preview_region',center=list(center),radius_m=radius,policy=policy)
+            policy=self.policy_box.currentData()
+            self.send_session_command('preview_region',policy=policy,**self._selection(center,radius))
             return
         try:
-            request,scene=(circle_joint_mission_mappings(self.base_request,self.base_scene,self.center,self.radius)
-                if self.select_region else (self.base_request,self.base_scene))
+            request,scene=(joint_mission_mappings(self.base_request,self.base_scene,self._selection(self.center,self.radius))
+                if self.select_region or self.business_box.currentData()!='A' else (self.base_request,self.base_scene))
             request_path=self.output/'ui-request.yaml';scene_path=self.output/'ui-scene.yaml'
             if request_path.exists() or scene_path.exists():raise ValueError('本次运行已提交区域，请使用新运行目录。')
             temp=request_path.with_suffix('.tmp');temp.write_text(self.yaml.safe_dump(request,allow_unicode=True,sort_keys=False))
@@ -743,7 +802,7 @@ class JointMissionPanel(QWidget):
             self.base_request=request;self.base_scene=scene
             self.map.scene=scene['scene'];self.map.online_mapping=bool(scene['scene'].get('online_mapping',False))
             self.map.set_mapping_request(request);self.mapping_layer_bar.setVisible(self.map.online_mapping)
-            self.point_count=sum(len(r.get('interest_points',())) for r in request['regions'])
+            self.point_count=len(request.get('work_items',())) or sum(len(r.get('interest_points',())) for r in request.get('regions',()))
             self.submitted=True;self.refresh()
         except (ValueError,OSError,KeyError) as error:
             QMessageBox.warning(self,'区域暂不可用',str(error)+'\n请调整区域后重新生成。')
@@ -856,7 +915,7 @@ class JointMissionPanel(QWidget):
                 if previous_request_id and self.draft_circle and self.draft_circle==(self.center,self.radius):
                     self.draft_circle=None;self.map.draft_circle=None;self.map.editing_draft=False;self.show_page(0)
             self.map.set_mapping_request(active_request)
-            self.point_count=sum(len(r.get('interest_points',())) for r in active_request.get('regions',()))
+            self.point_count=len(active_request.get('work_items',())) or sum(len(r.get('interest_points',())) for r in active_request.get('regions',()))
             self.update_region();self.confirmation_sent=bool(state.get('confirmation'));self.stop_sent=False
         # Reattaching to a request launched through the terminal has no
         # ui-scene.yaml. Its authoritative Plan still makes the input read-only.
@@ -899,15 +958,23 @@ class JointMissionPanel(QWidget):
         self.status.setStyleSheet('color: '+color+'; font-weight: 750; font-size: 23px;')
         session_open=bool(session_phase) and not terminal and not stale and not failed_start and exit_code is None
         pending=state.get('pending_plan') or {};pending_state=pending.get('state','')
-        self.edit_button.setEnabled(self.select_region and (not self.submitted or session_open))
+        self.edit_button.setEnabled((self.select_region and not self.submitted) or session_open)
         self.edit_button.setText('圈选新任务' if session_open else '已提交区域' if self.submitted else '编辑区域')
+        inspection=bool(self.base_request.get('work_items'))
+        self.task_title.setText({'WIND_INSPECTION':'海上风电装备巡视','PLATFORM_PIPELINE_INSPECTION':'海上作业平台／管路巡视'}.get(self.base_request.get('template_id'),'远端海域联合监测'))
+        self.observed_caption.setText('合格作业' if inspection else '切片建图')
+        self.received_caption.setText('作业记录已收' if inspection else '母船已收')
+        self.mapping_layer_bar.setVisible(self.map.online_mapping and not inspection)
         self.generate_button.setText('生成新任务方案' if session_open else '生成协同方案')
         self.generate_button.setEnabled(not self.submitted or (session_open and bool(self.draft_circle) and not self.pending_command_id))
-        self.map.editable=self.select_region and (not self.submitted or (session_open and self.map.editing_draft))
+        self.map.editable=(self.select_region and not self.submitted) or (session_open and self.map.editing_draft)
         if not self.map.editable:self.map.dragging=False
         self.draft_controls.setVisible(session_open)
         self.update_draft_hint()
-        self.policy_box.setVisible(session_phase not in ('HOLDING','HOME'))
+        self.policy_box.setVisible(session_open)
+        idle=session_phase in ('HOLDING','HOME')
+        self.policy_box.setItemText(0,'加入任务队列' if idle else '排队执行 · 当前任务完成后')
+        self.policy_box.setItemText(1,'立即执行新任务' if idle else '立即替换 · 安全交接后执行')
         self.policy_box.setEnabled(not self.pending_command_id)
         self.current_button.setEnabled(session_open)
         self.preview_tab.setVisible(bool(pending))
@@ -966,6 +1033,12 @@ class JointMissionPanel(QWidget):
         for label,bar,count in ((self.received,self.progress,len(received)),(self.observed,self.observation_progress,len(observed))):
             label.setText('{} / {}'.format(count,self.point_count) if self.submitted else '— / —')
             bar.setRange(0,max(1,self.point_count));bar.setValue(count)
+        if inspection:
+            definitions=self.base_request.get('work_items',())
+            progress=state.get('inspection_progress',{})
+            fraction=sum(min(1.,max(0.,progress.get(w['work_id'],0.))) for w in definitions)/max(1,len(definitions))
+            self.observed.setText('{:.1f}%'.format(100*fraction))
+            self.observation_progress.setRange(0,1000);self.observation_progress.setValue(round(1000*fraction))
         if state and not terminal and not self.subscriptions_started:
             self.subscriptions_started=True;threading.Thread(target=self.subscribe_display,daemon=True).start()
         with self.telemetry_lock:
@@ -975,7 +1048,7 @@ class JointMissionPanel(QWidget):
             'EXIT_WATER':'出水中','WATER_PATH':'水下航行 / 观测','SURFACE_PATH':'水面转场','PREPARED':'等待启动',
             'WAITING_FOR_SUPPORT_CLEARANCE':'等待无人船到达侧向支援位',
             'SUPPORT_CLEARANCE_CONFIRMED':'支援到位，释放跨介质进场',
-            'REGION_MAPPING':'区域扫描建图','WAIT_LOCAL_OBSERVATION':'等待安全局部运动',
+            'REGION_MAPPING':'区域扫描建图','FACILITY_INSPECTION':'设施巡视','WAIT_LOCAL_OBSERVATION':'等待安全局部运动',
             'TRIM_PROPULSION':'减速与终态确认','COAST_STOP':'滑行减速',
             'WAITING_FOR_RECEIPTS':'等待作业结果','WAITING_FOR_GROUP_RETURN':'等待共同返航',
             'DISPATCHING':'正在派发','SAFETY_HOLD':'安全保持','UNKNOWN_LOCKED':'异常锁定'}
@@ -984,6 +1057,7 @@ class JointMissionPanel(QWidget):
             item=next((i for i in reversed(items) if member in i.get('coalition',()) and
                        i['execution_id'] in actions),None)
             if item is None:item=next((i for i in reversed(items) if member in i.get('coalition',())),None)
+            action=None
             phase='岸边待命' if items else '待分配';role='备用' if items else '待分配';resource='未占用' if items else '—'
             if item:
                 role=activity_role(item);action=actions.get(item['execution_id'],{})
@@ -1011,6 +1085,7 @@ class JointMissionPanel(QWidget):
             stamp,values=modes.get(member,(0,{}));mode=values.get('actual_mode','') if time.monotonic()-stamp<2 else ''
             mode_label.setText(('水下' if member=='uuv' and mode=='WATER' else {'SURFACE':'水面','TRANSITION':'转换中'}.get(mode,mode)) or '—')
             mode_label.setToolTip('实际模式' if mode else '实际模式尚未收到或已过期')
+            if action and action.get('work_id'):phase+=' {:.1f}%'.format(100*action.get('work_progress',0.))
             frame,phase_label=self.action_rows[member];phase_label.setText(phase)
             frame.setVisible(member in selected if items else member!='drone_2')
         if items:
@@ -1030,6 +1105,15 @@ class JointMissionPanel(QWidget):
         plan_wall=state.get('planning_wall_s')
         self.plan_info.setText('方案版本 {} · 决策 {:.2f} 秒'.format(state.get('plan_revision',0),plan_wall)
             if plan_wall is not None else '生成后显示方案版本与决策用时')
+        budgets=[(s.get('native_prediction') or {}).get('inspection_work_budget')
+                 for i in items for s in i.get('execution_steps',())]
+        budgets=[b for b in budgets if b]
+        if budgets:
+            self.plan_info.setText(self.plan_info.text()+' · 一遍作业＋一次完整补扫量的时间余量 · 估计工作时间 {:.0f}～{:.0f} 模型秒'.format(
+                min(b['model_duration_s'] for b in budgets),max(b['model_duration_s'] for b in budgets)))
+            self.plan_info.setToolTip('\n'.join('工作 {:.2f}m · 连接 {:.2f}m · 驻留 {:.1f}s · 裕量 {:.0f}模型秒 · 有限墙上观察 {:.0f}s'.format(
+                b['required_movement_length_m'],b['navigation_length_m'],b['required_local_hold_s'],
+                b['model_search_margin_s'],b['wall_duration_s']) for b in budgets))
         service_fresh=time.monotonic()-transport.get('received_monotonic',0)<2
         support_active=service_fresh and transport.get('support_active',False)
         self.support_status.setText('支援已结束' if kind=='success' or session_phase=='HOME' else '支援已中止' if kind in ('failure','stopped') else
@@ -1087,7 +1171,10 @@ class JointMissionPanel(QWidget):
             '; border: 1px solid '+self.tint(badge_color)+'; border-radius: 13px; padding: 4px 10px;')
         epoch=(state.get('confirmation') or {}).get('at_ros_s')
         elapsed=max(0,state.get('updated_at_ros_s',epoch or 0)-(epoch or 0)) if epoch else 0
-        self.elapsed.setText('已运行 {:02d}:{:02d}'.format(int(elapsed)//60,int(elapsed)%60) if epoch else '尚未开始')
+        speed=float(state.get('simulation_speed',1.))
+        self.elapsed.setText(('仿真 {:02d}:{:02d} · {:g}×'.format(int(elapsed)//60,int(elapsed)%60,speed)
+            if speed!=1. else '已运行 {:02d}:{:02d}'.format(int(elapsed)//60,int(elapsed)%60))
+            if epoch else '尚未开始 · {:g}×'.format(speed))
         events=[]
         if epoch:
             for product in products.values():events.append((product['received_at'],'母船收到'+('深水' if product.get('producer')=='uuv' else '观测')+'结果'))
@@ -1282,6 +1369,7 @@ def main():
         if args.output is None:p.error('--output is required for the mission console')
         window=MissionConsole(args.request,args.output,args.serial=='true',bool(args.smoke_image))
     window.show()
+    if args.joint_panel and args.select_region=='false':QTimer.singleShot(250,window.generate)
     if args.smoke_image:
         app.processEvents()
         window.grab().save(str(args.smoke_image))

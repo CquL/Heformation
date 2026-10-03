@@ -222,7 +222,7 @@
 +{
 +  const double own_duration = own.getTotalDuration();
 +  const double peer_duration = peer.getTotalDuration();
-+  const double begin = std::max(from, std::max(own_start, peer_start));
++  const double begin = std::max(from, own_start);
 +  if (!(clearance > 0.0) || !(own_duration > 0.0) || !(peer_duration > 0.0) ||
 +      !std::isfinite(begin) || !std::isfinite(until) || until < begin)
 +    return false;
@@ -230,7 +230,7 @@
 +  for (double at = begin;; at = std::min(until, at + step))
 +  {
 +    const auto own_position = own.getPos(std::min(own_duration, at - own_start));
-+    const auto peer_position = peer.getPos(std::min(peer_duration, at - peer_start));
++    const auto peer_position = peer.getPos(std::max(0.0, std::min(peer_duration, at - peer_start)));
 +    if ((own_position - peer_position).norm() < clearance)
 +    {
 +      if (first_conflict) *first_conflict = at;
@@ -242,3 +242,98 @@
 +}
 +} // namespace ego_planner
 +#endif
+--- a/src/planner/traj_opt/src/poly_traj_optimizer.cpp
++++ b/src/planner/traj_opt/src/poly_traj_optimizer.cpp
+@@ -156,10 +156,15 @@
+       if (peer.drone_id < 0 || peer.drone_id == drone_id_) continue;
+       const double end = std::max(candidate_start + candidate.getTotalDuration(),
+                                   peer.start_time + peer.duration);
++      double conflict_at = candidate_start;
+       if (peerTrajectoryConflict(candidate, candidate_start, peer.traj, peer.start_time,
+-                                 candidate_start, end, hard_swarm_clearance_))
+-      {
+-        ROS_WARN("Reject candidate conflicting with committed peer %d", peer.drone_id);
++                                 candidate_start, end, hard_swarm_clearance_, &conflict_at))
++      {
++        const auto own_at = candidate.getPos(std::min(candidate.getTotalDuration(), conflict_at - candidate_start));
++        const auto peer_at = peer.traj.getPos(std::min(peer.duration, conflict_at - peer.start_time));
++        ROS_WARN_THROTTLE(1.0, "Reject candidate of %d with committed peer %d at +%.3fs: distance %.6f, required %.6f, own %.3f %.3f %.3f, peer %.3f %.3f %.3f",
++          drone_id_, peer.drone_id, conflict_at-candidate_start, (own_at-peer_at).norm(), hard_swarm_clearance_,
++          own_at.x(),own_at.y(),own_at.z(),peer_at.x(),peer_at.y(),peer_at.z());
+         return true;
+       }
+     }
+--- a/src/planner/traj_opt/src/poly_traj_optimizer.cpp
++++ b/src/planner/traj_opt/src/poly_traj_optimizer.cpp
+@@ -497 +497,11 @@
+-      if (pt_time < traj_i_satrt_time + swarm_trajs_->at(id).duration)
++      if (hard_swarm_clearance_ > 0.0)
++      {
++        // Use the same finite endpoint holds as hard peer checks.
++        const double local_time = std::max(0.0, std::min(swarm_trajs_->at(id).duration,
++                                                       pt_time - traj_i_satrt_time));
++        swarm_p = swarm_trajs_->at(id).traj.getPos(local_time);
++        swarm_v = (pt_time >= traj_i_satrt_time &&
++                   pt_time < traj_i_satrt_time + swarm_trajs_->at(id).duration)
++                    ? swarm_trajs_->at(id).traj.getVel(local_time) : Eigen::Vector3d::Zero();
++      }
++      else if (pt_time < traj_i_satrt_time + swarm_trajs_->at(id).duration)
+@@ -614 +624,11 @@
+-      if (pt_time < traj_i_satrt_time + swarm_trajs_->at(id).duration)
++      if (hard_swarm_clearance_ > 0.0)
++      {
++        // Use the same finite endpoint holds as hard peer checks.
++        const double local_time = std::max(0.0, std::min(swarm_trajs_->at(id).duration,
++                                                       pt_time - traj_i_satrt_time));
++        swarm_p = swarm_trajs_->at(id).traj.getPos(local_time);
++        swarm_v = (pt_time >= traj_i_satrt_time &&
++                   pt_time < traj_i_satrt_time + swarm_trajs_->at(id).duration)
++                    ? swarm_trajs_->at(id).traj.getVel(local_time) : Eigen::Vector3d::Zero();
++      }
++      else if (pt_time < traj_i_satrt_time + swarm_trajs_->at(id).duration)
+@@ -786 +806,11 @@
+-        if (pt_time < traj_i_satrt_time + swarm_trajs_->at(id).duration)
++        if (hard_swarm_clearance_ > 0.0)
++        {
++          // Use the same finite endpoint holds as hard peer checks.
++          const double local_time = std::max(0.0, std::min(swarm_trajs_->at(id).duration,
++                                                         pt_time - traj_i_satrt_time));
++          swarm_p = swarm_trajs_->at(id).traj.getPos(local_time);
++          swarm_v = (pt_time >= traj_i_satrt_time &&
++                     pt_time < traj_i_satrt_time + swarm_trajs_->at(id).duration)
++                      ? swarm_trajs_->at(id).traj.getVel(local_time) : Eigen::Vector3d::Zero();
++        }
++        else if (pt_time < traj_i_satrt_time + swarm_trajs_->at(id).duration)
+--- a/src/planner/plan_manage/src/ego_replan_fsm.cpp
++++ b/src/planner/plan_manage/src/ego_replan_fsm.cpp
+@@ -580,2 +580,7 @@
+     /* Store data */
++    // The buffer has now been extended; only an existing slot can be read.
++    // A delayed PLATFORM window must not overwrite a newer AIR commit.
++    if (planner_manager_->traj_.swarm_traj[recv_id].drone_id >= 0 &&
++        planner_manager_->traj_.swarm_traj[recv_id].start_time > msg->start_time.toSec())
++      return;
+     planner_manager_->traj_.swarm_traj[recv_id].drone_id = recv_id;
+
+--- a/src/planner/plan_manage/src/ego_replan_fsm.cpp
++++ b/src/planner/plan_manage/src/ego_replan_fsm.cpp
+@@ -827,9 +827,6 @@
+     // Restamping an already committed hold must not jump to lagging odometry.
+     // Physical completion remains checked independently by the Action worker.
+     callEmergencyStop(held_request ? end_pt_ : odom_pos_);
+-    traj_utils::PolyTraj msg;
+-    polyTraj2ROSMsg(msg);
+-    broadcast_ploytraj_pub_.publish(msg);
+     local_target_pt_ = end_pt_;
+     end_vel_.setZero();
+     have_target_ = true;
+@@ -1070,6 +1067,9 @@
+     traj_utils::PolyTraj msg;
+     polyTraj2ROSMsg(msg);
+     poly_traj_pub_.publish(msg);
++    // The same committed hold is authoritative for peers too. Keeping a prior
++    // moving polynomial in their buffer invalidates the hard peer checks.
++    broadcast_ploytraj_pub_.publish(msg);
+ 
+     return true;
+   }

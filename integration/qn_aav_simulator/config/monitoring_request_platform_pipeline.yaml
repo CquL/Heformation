@@ -1,0 +1,15 @@
+# Facility selection input; UI expands required work before acceptance.
+request_id: select-platform_pipeline_inspection
+template_id: PLATFORM_PIPELINE_INSPECTION
+execution_mode: INSPECTION_CONTROL
+service_time_s: 4.0
+deadline_s: null
+delivery_required: true
+return_required: true
+requirement:
+  footprint_radius_m: 2.5
+  min_dwell_s: 1.0
+  cruise_altitude_m: 0.8
+  max_distance_from_altitude_m: 3.0
+regions: []
+work_items: []
