@@ -1,3 +1,200 @@
+## 2026-10-04 — B/C完整记录独立核对均PASS，源码与完成说明准备交付
+
+- 计划：完成本轮必要独立核对并同步原入口，不再新增物理任务或切换场景。
+- 实际：C同一闭合execution.bag按实际diagnostics条数完整审计PASS，failures=[]、严格时间within_thresholds=true；旧报告仅因默认200000条历史容量截断而FAIL，原文件保留。物理结果未变化：成员最小0.500127m、环境0.204068m；B原独立审计也PASS，成员1.094915m/环境0.235238m。
+- 效果：本轮B/C控制链各自完成、原真实Goal/Result/报告/资源因果一致；离线修正不改变在线监控/时钟/物理阈值，不能把采样证明扩大为连续或设备认证。C待命UUV实际HOME单独记录，不假称其有巡检或返航Action。
+- 证据：r78/c-full-history-independent-audit.json、c-full-audit-summary.json、c-control-chain-completion-summary.json；r75/b-strict-independent-audit.json及两世界原完整Goal/Result/收件/bag。同步README/当前状态/交接/plan/完成说明，默认joint-wip已是bde9f8edde37。
+- 交付边界：只有B/C各自业务及当前任务内调整，用户暂停的任务间切换不列新成果；专业识别/实机载荷/任意环境保证不在本部门本轮范围。源码/文稿沿用户授权只同步main，实验和私有聊天不入库。
+
+## 2026-10-04 — 完整离线时间样本不应受在线默认历史容量截断
+
+- 计划：核对本次C独立时间结论，只用已闭合原始bag，不启动新的物理任务。
+- 实际：C原严格报告唯一时间原因为model-time history was truncated，没有报告模型/ROS漂移越限。原离线脚本已经加载全量diagnostics，却仍用TimeAlignmentMonitor在线默认每成员200000条上限，长请求额外样本被拒绝。只将离线容量设为本次实际读取的最大样本数；在线监控、.05秒门槛、网格、缺样及原物理阈值均不改。
+- 效果：避免把审计自身截断当作实际时间失败；旧严格报告原样保留，新完整报告单独生成，尚未因容量修正预先宣布通过。
+- 证据：r78/c-strict-independent-audit.json的唯一alignment reason、原TimeAlignmentMonitor容量分支、scripts/audit_swarm_roundtrip.py实际读取样本。
+- 未完成／下一步：同次完整记录重新核对后同步明确结论，只此必要离线核对，不做单机或无关回归。
+
+## 2026-10-04 — B/C各自完整任务链完成，物理与时间结论分别记录
+
+- 计划：只完成用户最新范围的B/C输入、快速联合分配调度、原模型协同执行、共享支援/真实收件、当前任务内调整、驻留与原Swarm返回；任务间切换不纳入。
+- 实际：B r75四work100%/4匹配实收/22 verified SUCCEEDED步骤/HOME5零锁并结束；C r78 c-45b0c96d0f75三work100%/3匹配实收/20 verified SUCCEEDED步骤/三AAV真实Swarm返回及USV返回/参与四成员HOME零锁，UUV本请求待命且实测(-27,4,-2)HOME。C SESSION_ENDED/原入口exit0、execution.bag闭合，未与旧失败世界拼接。
+- 调整与输入：自然支援延迟触发原事件时序重排且后继实际执行；原节点的动态成员、已采用参考、完整局部coast、真实资源和报告因果保持。修复丢有效Goal、组级理想起点冒充实际位置和部分未采用意图永等问题；不添加新的协调框架、接口、控制模型或任意硬限制。默认joint-wip已更新native bde9f8edde37。
+- 核对：B独立采样物理/任务时钟审计PASS，最小成员1.094915m/环境0.235238m。C采样物理通过，最小成员0.500127m/环境0.204068m；严格独立报告唯一FAIL为模型时间对齐，原报告不改，C限用户已授权视觉政策，不能称严格全项PASS或连续/实机安全保证。报告均匹配请求/work_version/Goal且generated_at≤received_at，旧Result不作为新Goal解锁依据。
+- 证据：r75/complete-b-home/b-strict-independent-audit/b-same-request-schedule-adjustment；r78/complete-c-home/c-standby-uuv-home/c-strict-independent-audit/c-control-chain-completion-summary/原Goal-Result-实收和同次bag；完成说明docs/reviews/bc-task-chains-completion-20261004.md。r74/r76/r77失败/锁/未验证停止保留，旧B入口exit1状态遗漏也保留且源已修。
+- 交付：两模板、同一快速Plan/Action/资源/控制链、原Qt及独立RViz入口可用；本轮不包含专业识别、真实载荷/精细重建、任意场景保证或任务间切换总验收。必要语法/patch编译/diff及同任务数据核对完成，没有单机或无关回归系列。
+
+## 2026-10-04 — r78只加载必要组级输入修正，继续完整C
+
+- 计划：加载原共同搜索实际起点及未采用重选，只补C闭合，不重跑B或增加任务切换。
+- 实际：r77原failed结束/bag闭合/UNKNOWN_LOCKED保留后，原入口新目录r78启动，native bde9f8edde37、当前Python源；仍完整平台AIR60、结构60、管路3LINE+3LOCAL/ENTER/EXIT，独立从零。没有换动力学、削减作业、改变原实际/参考净距或新增控制接口。
+- 效果：B r75已经通过且保留；r78新的C目前仅已生成/确认完整Plan，最终执行和返回未证明。旧C中间成功不拼接。
+- 证据：r78原selected input/image-id/workspace.patch/metrics/确切Plan确认与启动日志；r77返回失败原始记录保持。
+- 未完成／下一步：只本次C完整实收、原Swarm返回、五HOME/零锁/end_session及闭合必要核对，不开单机或无关回归。
+
+## 2026-10-04 — 组级局部搜索起步必须用实际变形位置
+
+- 计划：只修组级返回已经暴露的输入错误，不增加编队刚性、分层或新协议。
+- 实际：r77停止时领机(28.125,-4.375,3.5)，AAV2实际(28.625,-6.625,3.5)，与理想槽位(28.125,-6.375,3.5)相差约0.559m。新增共同搜索过滤却从领机加槽位构造AAV2“起点”，没有使用它的实际变形位置；即使本机真实当前位置安全，也可能从未到达/被拒绝的理想点重复检查而封闭所有后续提案。
+- 修正：原搜索的第一条边从各成员同一快照的真实位置开始，后续图节点仍使用已校核共同目标槽位；选中后仍逐成员检查真实位置到新槽位的已测空间。保留原Swarm弹性轨迹、全成员/动态/采用/净距规则，不把理想队形当实际已经达到。
+- 证据：r77三机同Goal19的实际/使用参考、失败槽位及代码group_motion_clear；该修正针对执行输入，不把剩余完整C返回描述为已验证。
+- 未完成／下一步：原共同搜索和有界未采用重选接通后的完整C返回，原r77失败/锁保留，B不重跑，无单机或切换场景。
+
+## 2026-10-04 — r77返回新阻塞：部分组成员未采用短意图，不能永等同一点
+
+- 计划：只修当前C组级返回的实际局部规划反馈，不减少硬安全或编队要求。
+- 实际：r77三work/3实收/10成功步骤完整，六个集结步骤已真实成功，原目标保留修正解除r76丢Goal。组级转场后两机采用短目标，AAV2仍停在(28.625,-6.625,3.5)，目标槽位为(28.125,-6.375,3.5)；native A*两步后持续first trajectory失败且没有新采用，原Action只对单机允许未提交意图重选，组级长期WAITING_FOR_REFERENCE_ADOPTION，最后result timeout/UNKNOWN_LOCKED/aav_formation锁。B仍已独立通过，不升级旧C返回。
+- 修正：在当前所有成员实际停止、已用参考和源状态均新鲜、至少一成员未采用新意图且仍用先前有效参考时，让原组级局部搜索重选共同短目标。使用原访问代价记录这次失败提案，保留原动态邻机、全成员已测空间、采用/净距检查和同一Goal/资源；不丢弃已用参考、不发送外部原始运动Goal，不新增服务或第二任务状态。
+- 证据：r77原三机Odometry/采用参考/Goal19、持续SEQUENTIAL_START失败日志和闭合metrics/bag；原single pending_retry分支与组级守卫。当前对失败槽位的具体原生地图拒因还未完整确认，不能说是Swarm不支持编队避碰。
+- 未完成／下一步：必要修正加载后的完整C及返回，B不重跑，不启动单机/切换场景；旧失败/锁/未验证停止保留，新C独立计量。
+
+## 2026-10-04 — 目标保留修正已编译，r77只继续完整C
+
+- 计划：加载必要的原Swarm恢复修正，仅补齐C执行和返回，B不重跑。
+- 实际：标准Dockerfile尝试因迁移服务器缺swarm-formation-upstream:noetic基础镜像而未开始编译；改用已批准79d93e0857ba及其同一原生源码，只应用仓库中已追加的GEN_NEW_TRAJ目标保留差分并catkin_make -j4，编译成功镜像bde9f8edde37/facility-goal-retention。没有复制新控制模型或变更消息包。
+- 实际：确认r76原失败世界已退出后，原Qt/RViz入口启动r77新完整C，三work独立从零；旧C失败、两锁及未验证停止保持，不继承旧进度或拼接旧返回。
+- 效果：修正只保留仍有效的原Goal以继续既有恢复，原NetGap/原停止/所有权退役仍生效。当前新C真正执行结果未取得，不能因编译完成宣布成功。
+- 证据：/tmp/heformation-goal-retention-build.log、仓库swarm_peer_safety_contract.patch末段、r77/image-id.txt/当前确切Plan及确认文件；临时构建目录仅补足本机缺基础标签，不新增项目框架/入口。
+- 未完成／下一步：直接本次完整C实收/驻留/Swarm返回/HOME5/end_session及闭合记录核对，保持原模型、速度、资源和真实计量，不开单机或切换场景。
+
+## 2026-10-04 — C返回失败首因：临时运动拒绝后原FSM丢失仍有效的Goal
+
+- 计划：只定位阻塞C返回的实际输入，不删成员净距、不改物理状态或拼接B证据。
+- 实际：三work/3实收/10成功步骤均成立；三机集结时AAV3原轨迹因与AAV2已提交参考的中心距1.595685m<声明1.6m被拒绝，并连续减速到实际/参考z2.265860m，当前Goal仍要求3.5m。原GEN_NEW_TRAJ首次恢复失败便have_target_=false并进入WAIT_TARGET；上层已接纳的最终意图不再重复发布，邻机之后已离开但本机没有继续规划，最终原runner result timeout/UNKNOWN_LOCKED。此前按“名义终点已到达”解释不够准确，确切首因是原交互式FSM把一次恢复失败当作丢弃有效任务目标。
+- 修正：仅在已启用原参考所有权的任务执行中保留当前Goal，在原GEN_NEW_TRAJ继续重试；原取消/所有权退役/模式切换/安全锁存仍停止普通规划，未启用所有权的上游交互式行为保持。原连续刹停、1.6参考余量、.5实际成员/.2环境和真实Goal锁全部保留，没有增加新的业务规则或接口。
+- 证据：r76/c-return-climb-input-blockage.json、Goal14 monitor.csv、launch.log的连续native brake114/临时peer拒因和原FSM源码GEN_NEW_TRAJ分支；失败/锁/未验证停止保留。B r75独立物理审计已PASS，不能拿它替代C返回。
+- 未完成／下一步：重建原Swarm镜像，等当前失败世界原结束后只完成新的完整C及返回，不重跑B、不开单机系列。C旧成功作业/实收是中间事实，不升级最终通过。
+
+## 2026-10-04 — C完整实收与当前任务调整完成，开始人工Swarm返回
+
+- 计划：完成C本业务的共享支援、实际收件和返回，不插入新的业务请求。
+- 实际：c-c4176b034275三项100%、10/10 matched verified SUCCEEDED步骤、3报告全部匹配请求/work_version/Goal且generated_at≤received_at、零锁HOLDING；两台原AAV已完成ENTER/实际巡视/EXIT。USV原父进程181持续运行，原Goal2真实完成进场与第一服务，第二服务实际完成剩余收件，没有模型重置或换Task。
+- 调整：原第一支援实际完成1686.170模型相对秒，将第二支援从原412.168重排至1686.170并实际执行；只读worker的候选顺序修正已加载，60N不可行时仍保留原30N及完整coast/动态成员校核，不为了完成降低安全合同。
+- 效果：原确认通道已请求本业务return_home；三AAV当前爬升/集结，USV返回，UUV本请求保持待命。完整C实收闭环成立，但最终五HOME和会话结束仍待。
+- 证据：r76/complete-c-holding.json、c-control-monitoring-summary.json、c-same-request-schedule-adjustment.json、c-native-guidance-after.json、complete-c-return-command.json及原实际Goal/Result/收件记录。
+- 未完成／下一步：C真实Swarm组级返回、HOME5/零锁/end_session/入口exit0，随后同次闭合bag物理净距、采用参考与结果因果核对；不以B记录代替C结果。
+
+## 2026-10-04 — 移除用最短备用脉冲决定所有转向优先的过保守排序
+
+- 计划：只继续C支援的原Goal2，不加运动约束或更换任务。
+- 实际：原排序用所有候选中最短0.25s备用脉冲乘Otter原r_max，导致超过约1.25度便优先零推进转向，即便较长原推进窗口可同时完成转向。源代码改为用本次已声明的最长正推进窗口计算排序参考；它仍只是候选顺序，全部原生运动/coast/成员/采用判据保留，未加“必须对准才可航行”的硬门。
+- 效果：保留真正紧角度下的原转向办法，允许普通局部航迹的推进与转向同时进行；不改原5deg/s模型参数、60N、实际速度/位姿、.5/.2净距。只读worker重载，父PVS181、Goal2、模型状态和资源保持。
+- 证据：pvs_backend.py原min(horizon)条件、r76/c-native-guidance-refresh-before.json及同次候选诊断；这是一项现有引导排序修正，不声称来自论文规定的数值门槛。
+- 未完成／下一步：实际采用与支援实收/返回仍待；本次没有额外任务、接口、模型重置或无关测试，不能用源排序更改代替执行结果。
+
+## 2026-10-04 — C完成三项巡视，修正局部查询覆盖退让优先级
+
+- 计划：继续同一C，只处理共享支援进场的局部转向问题，不开任务切换或新的试验任务。
+- 实际：C三项规定巡视100%，两个AAV已实际出水，六个巡视步骤匹配成功；USV仍在原Goal2接近支援位置。读到多条零推进转向的NATIVE_BRAKING_PATH_NOT_OBSERVED_FREE拒因和低速驻留；代码核对发现新增steering优先级会覆盖原父节点已请求的retreat-first顺序。修改只保留既有负推进候选在已请求首位时的优先级，完整原生脉冲/coast/成员/采用校核不变。
+- 效果：不新增倒车方法、参数或业务约束，不改变Otter动力学、力度、净距、Goal或资源。后续读数已自然移动至(19.836,-11.476)、零转向可行，不能把这段尚未重载时的移动归因于修正。只重载只读query_worker，PVS父进程181、实际状态和当前Goal保持；初次刷新脚本的ps表头解析失败未发送任何信号，已更正读取。
+- 证据：r76/c-support-turn-blockage-before.json、c-before-readonly-query-refresh.json及原query排序/source状态；Python语法与diff --check通过，没有单机或无关测试。
+- 未完成／下一步：核对修正后实际指令采用及支援实收，继续当前C人工Swarm返回/HOME5/end_session。保留原失败判断和锁，不把零转向可行或源码存在当作已经完成实收。
+
+## 2026-10-04 — r76原入口完整C已确认，继续同一业务执行及返回
+
+- 计划：B实际闭合后直接完成C本身，不安排排队/替换或任务间切换。
+- 实际：确认B原世界退出后启动唯一物理世界6a7230b171b3（exec83635），当前Python源与native79d93e0857ba。完整C c-c4176b034275/rev0首Plan0.007067墙秒（10秒预算），serial=false、首完整可派发而非全局最优：AAV2平台AIR三层60段，AAV1管路三LINE+三LOCAL4s且ENTER/EXIT，AAV3水下结构三层60段且ENTER/EXIT，USV两共享服务阶段；UUV本次被求解器保留待命，不虚称实际巡检。
+- 效果：三台同型AAV角色由求解器选择、原Action/共享资源/报告权威保持；当前任务内局部规划和实际终态调度继续。B被动闭合bag审计在无ROS世界的独立只读容器中进行，不是第二物理世界。
+- 证据：r76/reviewed-c-plan.json、reviewed-c-confirmation.json、metrics/原UI-RViz日志，C原始输入与全部必做段齐全。正常SESSION_ENDED退出码修正已加载；observer7162只在3作业/3实收/零锁驻留后请求本业务return_home。
+- 未完成／下一步：完整C实际作业、支援实收、Swarm返回/HOME5及正常end_session、同次物理净距/报告因果核对。不用准备好的输入或B成功代替C执行结果，不做无关测试。
+
+## 2026-10-04 — 修正正常会话结束的旧入口退出码
+
+- 计划：闭合B原入口并直接开始完整C，不重跑已验证作业。
+- 实际：r75原runner已达到SESSION_ENDED/HOME、五返回完成、零锁和22匹配成功步骤，bag正常闭合；main()成功状态列表却只有旧PASS类和NOT_CONFIRMED，漏掉正常会话SESSION_ENDED，因此runner-exit-code记录1，日志没有执行异常。源代码只补入已由原会话HOME／零锁守卫接纳的结束状态。
+- 效果：修复入口把合法完成判成进程失败的状态接线错误，不伪改r75旧退出码、不改变动作验收或放宽任何物理规则。r75控制链实际完成与旧入口exit1分别记录，C新入口将加载修正。
+- 证据：r75/complete-b-home.json、metrics.json、complete-b-end-command.json、runner.log、runner-exit-code.txt；formation_mission_runner.py原main成功状态过滤。
+- 未完成／下一步：B独立闭合bag物理审计与完整C；本次仅一行运行状态接线修正，不开单机测试或重跑B长序列。
+
+## 2026-10-04 — r75完整B执行与返回闭合，直接进入C
+
+- 计划：完成B本身的四项规定巡视、共享支援、真实实收、当前任务内调整和人工Swarm共同返航。
+- 实际：完整B四work100%、4/4匹配请求/work_version/Goal的报告实收、11规定作业/支援成功步骤，零锁驻留。人工返回后，三AAV实际同一Swarm组级Goal转场并降至各自HOME；USV/UUV真实返回，22/22步骤native_state3/verified=true，HOME5/5、零锁；已向原runner明确发送end_session。
+- 效果：本世界完成B输入→0.012174秒首完整联合Plan→并行执行→支援/实收→驻留→人工编队返回，无任务间切换或额外复查。真实支援延迟改变第二服务安排，且新安排实际执行；不把估计工期当精确物理事实。
+- 证据：r75/complete-b-holding.json、complete-b-home.json、b-actual-formation-motion.json、b-control-monitoring-summary.json、b-same-request-schedule-adjustment.json、complete-b-end-command.json及同次实际Odometry/采用参考/Goal/Result/收件。实际运动证明不是仅“进入转场步骤”标签。
+- 未完成／下一步：B闭合bag独立物理净距/输入因果核对；待原世界退出后原入口直接完整C及其返回，不预览/排队另一任务。保持原模型/.5/.2/真实资源语义，严格时钟审计与已授权视觉政策分别报告。
+
+## 2026-10-04 — r75完整B实收驻留完成，当前任务调整已实际执行
+
+- 计划：直接完成完整B及人工Swarm返回，不插入任务切换或额外复查。
+- 实际：b-09b8504be510四work全部100%，11条原Action步骤均matched/native_state3/verified=true，4报告generated_at≤received_at且匹配本请求，零锁HOLDING。原观察器在上述事实成立后发送return_home；三机实际爬升／集结及USV/UUV返回正在执行。
+- 调整：同请求按真实终态重排未开始部分。第一支援实际完成1103.380模型相对秒，第二支援从原估计450.700移至1103.380，并已实际下发／完成，而非仅改界面时间。没有重新逐候选预演全任务动力学，没有改变必做作业、速度或净距。
+- 证据：r75/complete-b-holding.json、b-control-monitoring-summary.json、b-same-request-schedule-adjustment.json、complete-b-return-command.json及原step_results/实收产品；Qt/RViz为同一实时物理世界，不用截图代替终态。
+- 未完成／下一步：B真实三机Swarm返航、五平台HOME和闭合审计，随后直接完整C；当前仍不称B最终返回或本轮整体完成。
+
+## 2026-10-04 — r75原入口完整B已确认，不插入跨任务场景
+
+- 计划：按用户最新范围先完整B，再完整C；保留当前任务内局部重规划和支援反馈调整，暂停任务之间切换。
+- 实际：原实时入口启动唯一bd29f22e04c6，native79d93e0857ba/当前Python挂载；完整B b-09b8504be510/rev0首完整Plan0.012174墙秒（10秒预算），serial=false、TASK_LEVEL_EXECUTION_PENDING，不称全局最优或已证明全程动力学。四work完整：AAV3风机1 AIR86、AAV1风机2 AIR86、AAV2风机1基础ENTER/三层60/EXIT、UUV风机2基础三层60；USV两服务阶段共享且资源不重复。
+- 效果：原确认通道接纳确切Plan；未删任何必做段、未固化成员身份、没有启动跨任务排队/替换。返航观察器只在本业务合格作业/4实收/零锁HOLDING后请求原return_home，最终真实HOME仍待。
+- 证据：experiments/20261004-server715-b-complete-r75/reviewed-b-plan.json、reviewed-b-confirmation.json、metrics.json、原launch/runner/UI日志；GUI与模型独立运行。
+- 未完成／下一步：直接继续B实际作业与Swarm返回，结束B后完整C。保持原模型、净距、锁与实际计量，只处理阻塞本任务的实际问题。
+
+## 2026-10-04 — 真实扫描复现编队局部目标拒绝，直接进入完整B
+
+- 计划：只修阻塞B/C最终返回的原局部导航，不启动任务切换或额外复查。
+- 实际：用r74 Goal58期间三机同stamp实测Odometry与各自原survey_cloud重建原局部地图。三机当前包络均FREE；旧搜索给领机(28.375,-10.125,3.5)，第三台对应短段不可通过，整队守卫反复拒绝。现有next_target内加入原三机槽位短段检查后，取得(28.625,-8.375,3.5)的共同可行短目标，不删守卫、不预装全局路线。
+- 效果：确认了整体编队占据必须参与搜索，而非领机搜索后重复拒绝同一目标的根因。原任务层、Swarm与qn物理模型、原净距和采用校核保持。给原bag增加三机实际formation_goal记录，只用于本轮输入因果核对。
+- 证据：r74/group-local-navigation-input.json（各237/238帧实际扫描）、Goal58实际固定采用参考；必要修改文件的语法及git diff --check通过，未运行单机或无关测试。
+- 未完成／下一步：原Qt/独立RViz启动完整B，完成规定四work/实收/人工Swarm返回，然后完整C；新代码实际执行尚待，不用被动重建代替返航证明。
+
+## 2026-10-04 — 按用户最新指令收敛到B/C各自完整业务
+
+- 计划：先直接完成B风机巡检、C平台／管路巡检，不再把动态切换验收混入当前主线。
+- 实际：暂停排队、立即替换、返航中换任务和跨业务切换的新增运行；保留已有功能与历史证据。更新plan.md及状态交接，本轮验收为每项业务的完整规定作业、共享支援、匹配终态、真实实收、驻留和人工共同返航。
+- 效果：不为凑切换场景继续派发管件复查；当前仅核对阻塞B/C闭合的AIR接近与三机返回输入，随后原入口B完成再C完成。
+- 证据：本轮用户新指令、plan.md；未启动新物理世界，正在只读原r74闭合bag。
+- 未完成／下一步：完成必要执行修正及B/C各自完整实跑，不开展无关测试或单机资格序列。
+
+## 2026-10-04 — 核实r74失败闭合，继续定位AIR接近与编队实际停滞
+
+- 计划：按用户继续指令核实实际世界，所有操作只服务B/C同会话协同链闭合。
+- 实际：r74完整B/C及管件1/2/3复查已有合格进度、匹配终态、实际实收和零锁驻留；第三次返回完成集结，但Goal58实际速度近零、参考固定，未发生Swarm编队转场。后续替换管件1新请求在Goal59 AIR接近出现平台deck_8实际净距0.192913m<原0.2m，UNKNOWN_LOCKED、aav_1_native/usv两锁、零新作业和实收。runner exit1、execution.bag正常闭合、session-ended，Docker已为空。
+- 效果：纠正旧置顶“当前世界仍运行”和按步骤标签误判转场的描述；保留失败/旧锁，不把B/C中间闭环升级为最终会话通过。最新组级motion_filter只在源码中，旧Goal58没有加载；AIR失败的具体控制输入仍须闭合bag核对，不推测为任务层要求后退。
+- 证据：experiments/20261004-server715-facility-live-r74/metrics.json、runner.log、runner-exit-code.txt、session-ended、actual-group-transit-adoption.json、Goal58/59 diagnostics及monitor.csv；闭合bag约12GB。
+- 未完成／下一步：直接从同次实际输入定位AIR接近净距与组级静止首因，必要修正后原入口同会话完整B/C、真实编队运动中替换和最终HOME5/5/end_session。保持原模型、净距和资源语义，不开展无关测试。
+
+## 2026-10-04 — r74原PVS引导继续推进，补齐三机集结目标校核
+
+- 计划：继续同一物理世界，只处理共享支援和三机返回的实际输入阻塞。
+- 实际：修正后原三台AAV爬升步骤均匹配SUCCEEDED；槽位0与吊臂的名义净距0.330496m，扣原跟踪容差后不足原0.2m环境净距，局部导航无法完成集结。返回构造已增加已声明设施、原机体／跟踪／地图单元余量下的共同高度选择；不预演路径、不按成员设置不同高度。AIR局部导航仅对真实竖直起步放宽转场策略下界，同层意图保留精确高度。
+- 实际：原返回安全替换为管件3；AAV实际LOCAL4s／EXIT已成功，报告等待USV。USV局部查询反复抢先选择0.25s小推进，不能充分完成拐角转向；原查询增加按原r_max估计的零推进转向窗口，并在一段最短推进脉冲不足以转向时优先校核转向候选，保留原完整指令／停止续段和采用校核。只重载只读query_worker，Otter主进程182、真实状态、Goal46和资源锁不变。
+- 效果：同一支援Goal中已实际采用5.958579s零推进转向，船到(28.0743,-13.5567)，继续接近(27.6660,-16.3634)；未重置船的位置、控制器积分或物理模型，未降低任何净距。三机共同高度选择和真正Swarm转场中替换仍待实际采用，不能说最终返回已通过。
+- 证据：r74/slot-navigation-blockage.json、原Goal42／43／45实际参考、mission-0004-final.json、before-native-query-worker-refresh.json、after-native-query-worker-refresh.json及同次Odometry／PVS诊断。长期保存的旧“收到报告”事件不代替实际产品与后继Goal时间。
+- 未完成／下一步：等待管件3真实实收／零锁，observer76906只在全AIR驻留时重载闲置AIR端点，按新共同高度计算修改原声明输入后由原runner构造Plan；随后实际组级转场中换任务、最终HOME5/5／end_session和同次bag审计。
+
+## 2026-10-04 — r74返航起步下界与局部航点量化阻塞修正
+
+- 计划：继续原世界完成人工Swarm返回，只修实际返航起步和反复改变短航点的问题。
+- 实际：人工返回后，drone_1／2实际与参考均稳定在0.800000m，Goal30／32要求同一3.5m返航高度；局部next_target的网格扩展下界却是2.2m，当前格相邻高度均被排除。drone_0到槽位时短目标在3.375／3.875m来回切换。源代码已让局部高度范围包含实际出发与目标高度，并优先使用已观测自由的精确短段；原Swarm、未知空间检查、成员净距和机体域约束不变。
+- 效果：不是增加分层返航或调物理模型，而是移除把转场策略错误当成起步硬约束、以及无障碍短段的网格高度往返。原返航先通过同一replace接口取得五平台匹配安全终态，切换管件2复查；等待AIR步骤完成后只重载闲置原AIR Action端点，保留唯一runner、qn／Otter状态及原Swarm导航地图，端点局部感知重新接收实际扫描。
+- 证据：r74/assembly-blockage-before-safe-replacement.json、assembly-repair-reviewed-plan.json、mission-0003-final.json、原Goal30／32诊断与launch.log短目标记录；观察窗中实际速度近零、AIR域无越界，五个被取消Goal均terminal_verified且旧请求零锁。
+- 未完成／下一步：修正后的原端点重载和实际爬升／集结／Swarm组级转场仍待证明，再进行组级转场中换任务、最终HOME5/5和整段审计。此前只有集结中打断，不能计为已经完成Swarm转场中替换。
+
+## 2026-10-04 — r74动态复查完成，控制台恢复并启动人工共同返航
+
+- 计划：继续当前世界的动态交接和返回，只处理阻塞实际业务和界面一致性的问题。
+- 实际：管件2旧AIR／USV Goal匹配PREEMPTED、terminal_verified=true、零锁归档；管件1新请求实际ENTER／LOCAL4s／EXIT、1报告实收、全部步骤成功、零锁驻留，随后发送明确return_home。控制台因把支援的简化观察预算误当成完整作业预算而KeyError退出；显示已区分两类预算，重新打开UI时不再自动生成新请求，实际任务和既有确认不变。默认joint-wip标签已同步当前79d93e0857ba原生镜像。
+- 效果：同一任务权威继续物理执行，UI独立重连且command_ack／预览版本未变化。核对到旧观测等待函数对设施work_id为空的observation_ids提前记录“实收”事件，但原support_work_ids守卫仍等真实报告才派发下一支援Goal并释放；源代码已移除这个重复旧分支，把设施实收事件放到原实际守卫处，执行等待语义不改变。
+- 更正：上一条“三台AAV均已跨介质”不准确；截至该时点是drone_1和drone_2实际完成跨介质，drone_0承担AIR作业。三台同型能力和动态角色保留，不为凑成员行为强制入水。
+- 证据：r74/mission-0002-final.json、valve1-holding-snapshot.json、first-manual-return-command.json、before-console-reattach.json、task-ui-current.log及实际报告generated_at≤received_at、支援下一Goal在实收后派发的时间记录。GUI恢复和原入口标记只用本次任务，不运行无关测试。
+- 未完成／下一步：三AAV实际Swarm编队转场中替换局部复查、再次人工返回、最终HOME5/5／零锁／结束会话及同次实际bag审计；当前仍不是最终整链通过。
+
+## 2026-10-04 — r74同一世界完整B/C实际完成，继续动态替换与返航
+
+- 计划：继续原任务链，只验收剩余动态调整、共享支援与人工Swarm返回，不重跑已完成业务。
+- 实际：核对原eab72f970dec的B四项100%、4报告实收、11匹配成功终态；队列接续的完整C三项100%、3报告实收、10匹配成功终态，均零锁驻留。保存完整C驻留快照；审查既有管件2预览并启动，再在实际AIR移动及USV推进中生成管件1replace预览（0.001340墙秒）并确认。
+- 效果：本世界首次取得完整B和完整C监测闭环，三台AAV均已被求解器用于跨介质作业；没有降低原净距、修改原模型、删减必做作业或拼接旧失败世界。动态替换仍待匹配终态与新作业实收证明。
+- 证据：experiments/20261004-server715-facility-live-r74/mission-0000-final.json、full-c-holding-final-snapshot.json、valve2-reviewed-plan.json、actual-inflight-replacement-snapshot.json、inflight-valve1-reviewed-plan.json及对应确认命令。
+- 未完成／下一步：管件1实际复查、人工Swarm编队返航、实际编队转场中的任务替换、最终HOME5/5零锁与end_session，以及同次闭合bag实际运动／净距／报告因果和UI/RViz核对。B/C监测完成不等于全会话验收完成。
+
+## 2026-10-03 — 按任务链Skill核查当前事实并更新项目收尾计划
+
+- 计划：按用户要求读取Skill和最新状态，形成完成B/C及三业务动态协同系统的当前计划，只处理主链阻塞。
+- 实际：读取项目规则、Skill、状态、交接、服务器接手文稿、B/C设计及请求/候选/会话/局部执行源码；复核r67相遇窗口。将仍停在2026-10-01设计阶段的plan.md更新为当前P0动态成员输入、P1同会话完整B/C、P2动态及Swarm返回、P3运动/界面核对与清理交付顺序。
+- 效果：明确B四work/4实收/终态/零锁已成立，完整C与最终返回未成立；C首次实际净距.493485m、窗口最低.310419m，WATER与USV本地导航未接动态成员是当前P0。USV当时在进场局部目标附近，不能直接认定最终声明支援点本身不安全。旧失败锁与未验证停止不改变。
+- 证据：r67/aav-usv-encounter-window.json、metrics.json及mission-0000/1/2-final；platform_action.py和pvs_node.py的next_target调用未传peer输入，LocalSurveyMap已有相关接口。规划核查时main@de788edc/原工作树干净，无新物理运行。
+- 未完成/下一步：按plan.md实施动态邻机短段/转换/PVS指令与coast校核，再取得同次完整B/C、调整、实收、驻留、人工Swarm返航与HOME5/5零锁。此次仅文稿更新，没有修改运行代码、启动仿真或运行测试。
+
 ## 2026-10-03 — 创建Heformation任务链Skill，明确当前任务／方案／最终交付
 
 - 计划：按用户要求提供可复用Skill，说明在单一任务系统接入B/C、后续推进方案和最终三业务可视化协同控制产品；A按用户确认视为已完成基线。
@@ -4551,3 +4748,67 @@
 - 修改：运行中同Goal safety-status缺口≤1s保留预订，不永久锁；终态提交前在terminal lock外等待最多1s的新鲜status，锁内继续实际硬锁存/Goal核对。新Goal派发门仍为0.25s新鲜度；碰撞/域/本地真实锁存立即阻断。没有放宽运动净距或伪造终态。
 - 证据：`experiments/20260930-formation-session-live-r39/{metrics.json,mission-0001-final.json,mission-0002-final.json,execution.bag,session-acceptance-driver.jsonl,live-ui-*.png}`；组级途中取消step1明确记录三成员采用、CANCELED、安全PASS和释放。
 - 未完成／下一步：相同主链继续跑最终组级返回与HOME；不增加其他试验。
+## 2026-10-03 — 修复设施WATER／Otter动态成员输入，进入同会话r68验收
+
+- 实施：原LocalSurveyMap增加统一查询时刻的动态成员段间检查；qn WATER接入标准Odometry（机体系速度转换到世界系），检查转换列、当前短段及采用前状态。Otter局部查询接入计算期间coast、指令及停止尾段，并在采用和执行期间复核。缺样不移除成员：只有带有效速度上界的可达包络证明无关时排除，否则沿原减速／保持并报告等待。
+- 支援：设施通信覆盖与USV实际占据分开。以所选作业几何、原机体包络／0.5m净距和现有服务半径生成有限服务位置，原求解器从当前USV状态选择；没有降低净距或把设施真值加入导航地图。任务服务读取同一Plan绑定的位置。
+- 动态输入：排队预览使用已接纳动作链的合法预计末态及可用时刻，激活时仍从实际状态重求解；立即替换不提前采用预计末态。没有增加任务引擎、Action包装或全任务动力学预演。
+- 校核：修改文件语法及diff检查通过；直接核对r67实际相遇短段，新动态检查拒绝该冲突。B/C模板保留全部规定work，首轮发现把通信范围与服务机体混用的过度限制已撤销，通信范围仍可覆盖巡视区。以上均不等于实际业务通过。
+- 运行：r68原Qt＋独立RViz入口已启动，native镜像d08bc27f、当前Python挂载、4×目标模型时钟、AIR0.6／nominal0.5、WATER0.225、USV60N保持。完整B两AIR86段／两基础三层60段，随后同会话完整C和动态／人工Swarm返航；旧r67失败与锁保留。
+- 依据：r67实际冲突和原安全合同；采用前复核参考Robust MADER，已知自由空间停止尾段参考SUPER，仅借鉴机制，不继承其安全保证。完整B/C和最终HOME尚未验证。
+## 2026-10-04 — r68全部B作业／四实收，但支援末端状态检查失败；原短缺样处理接通
+
+- 实际：r68 B四work100%、4/4报告实收，四作业活动和第一支援已COMPLETED；最后USV到位Action也有匹配SUCCEEDED／terminal_verified，但runner在支援收尾以“actual hold unavailable or outside site”进入UNKNOWN_LOCKED，一项USV预约保留。完整C已排队但未激活；不能写整链通过。
+- 取证：同次闭合bag的失效前后窗口中USV均SURFACE、无物理锁／domain_failure，距声明服务中心1.341–1.346m，处于原1.5m区域内且实际已停止。通用拒因未记录runner当时缓存，所以不能从bag证明某个具体缓存年龄；能排除该窗实际越出服务区。证据support-final-hold-window.json，原runner-exit1和未知锁不改。
+- 修正：原支援收尾不再把独立clock／Odometry／diagnostics流的一次短暂或未来样本直接升级永久失败。仍要求0.25s真实新鲜状态；未知期间维持既有停止状态与预约、UI显示等待，使用已有1ROS秒信息缺口界限等待恢复。实际出区／模式失效／锁定仍立即拒绝，并输出具体距离／模式／锁原因。没有降低安全或服务位置门槛。
+- 运行性能：同次qn模型步backend约5.2–6.1ms、总步约7.1–9.5ms；4×是目标上限而非实际四倍，保留原同源模型和速度，不把加速目标冒充测得速率。原Qt／RViz已确实打开，ROS1官方通知仅影响画面，已关闭且入口禁用重复弹窗。
+- 下一步：旧世界已正常结束、bag闭合；仅加载这项主链修正，r69继续同会话完整B→C、动态调整、驻留和人工Swarm共同返航。r68部分成功不拼接为下一世界通过。
+## 2026-10-04 — r69定位原生切轨零指令，修复后重建同源运动镜像
+
+- 实际：r69在B进场早期因AIR drone0包络越水面进入UNKNOWN_LOCKED，C只排队未激活；旧失败／锁保留、bag闭合、世界已结束。不是动态成员近距失败，实际成员净距仍大于原0.5m。
+- 明确输入证据：air-physical-failure-input-window.json中，drone0的pos_cmd在切到轨迹130／134时发布世界坐标(0,0,0)、零速度／yaw，下一10ms再回约(27,8,3)，单次参考跳28.44m。qn确实采用该来源，随后实际高度跌落；不能把它解释成任务要求后撤或等待同伴。
+- 根因：原traj_server收到新PolyTraj立即替换活动轨迹。start_time比当前ROS时刻稍晚时，t_cur<0分支未填参考，仍发布默认零向量并标READY。先前只拒绝NaN，未覆盖合法未来起点；原生源码错误被本项目精细模型时钟／同刻重规划触发。
+- 修正：在原轨迹服务器保留已提交轨迹；新轨迹到声明开始时刻才生效，首条轨迹未开始时不发指令，时钟尚未覆盖活动起点时也不发未初始化参考。原P/V/A、模型、速度及净距不改，没有在qn侧抹掉运动或伪造状态。
+- 构建：沿原swarm_peer_safety_contract.patch追加唯一原生修正；新facility-peer-motion镜像79d93e0857ba成功编译。原全补丁顺序生成的traj_server源码与增量镜像中编译源码逐字一致；只校核本次安装／构建，没有单机资格序列。
+- 下一步：r70原入口继续完整B→C及动态／驻留／人工Swarm返航，完成量独立从零；支援短缺样修正和WATER／Otter动态输入同时加载，仍以真实执行／终态／实收判断整链。
+## 2026-10-04 — r70同世界完整B闭环，排队C已实际激活
+
+- B实际：mission-0000-final四work100%／4报告实收／13匹配成功step／6活动COMPLETED，零锁HOLDING、规定返航由会话最终管理。不是仅到达航点或拼接旧r68成功；均来自r70同一模型／bag。
+- 切轨：当前三机实际pos_cmd五墙秒观察窗各291条，原点指令0；两个AIR活动最大10ms位置步约0.00490／0.00526m，未重现r69的28m跳变。仅该窗明确，整段运动审计仍待最终闭合bag。
+- C实际：原确认队列c-74ec8241a656-47d51a2c54已从B实际终态重求解／派发；AIR由aav1，外部结构由aav2 native，管路由aav3 native，USV两共享服务，成员身份非固定。AIR已实际累计区间，其余正在跨介质进场，完整C尚未通过。
+- 后续：同一C执行中指定管件2复查／安全替换，再完整C独立计量／终态／实收，目标驻留、人工Swarm返航、返航中替换后继续完成及最终五平台HOME零锁。原World继续，禁止另起世界；所有暂未完成项保留。
+## 2026-10-04 — r70复查支援目标与已声明平台支柱重叠，修正有限候选校核
+
+- 实际：r70同世界B闭环保持成立；第一次C安全替换后，管件2LOCAL实际合格4s／100%，完整C排队预览0.006418s成功，但USV转场OBSERVATION_TIMEOUT_UNVERIFIED，复查报告0实收／两锁UNKNOWN_LOCKED，原bag闭合／世界已结束。完整C和最终返回仍未成立。
+- 首因：所选服务中心(26.1705,-10.2794,0)与已声明设施的production_platform_leg_2机体净距-0.938549m，brace亦重叠。USS实停在(27.534,-9.543)，原生查询持续拒绝正推进的停止尾段；不是新增动态避碰把无关远机锁死，也不能降低原0.2m净距让船钻入支柱。
+- 修正：有限服务候选同时校核输入中已声明风机／平台／管路CAD几何和禁止区；不读取未感知礁石作为导航真值，也不预演全程。区分通信范围8m与USV实际1.5m驻留区，在同一既有机体／环境包络下剔除设施重叠候选；补查潜在ENTER／EXIT的水面投影，避免深水末点三维距离掩盖上浮冲突。
+- 直接校核：原失败服务中心被剔除；B四work和C三work范围不缩减，管件2剩3个有限服务候选，均由设施／作业／现有包络产生。证据declared-facility-support-fix-summary.json及recheck-support-timeout-native-window.json，没有新的单机资格序列。
+- 数据边界：qn命令speed_limit不是实际运动的硬上界，不再发布它作为远处缺样排除依据；当前未提供验证过的物理上界时按UNKNOWN停止／保持和原有限信息缺口处理。坐标系不符的peer样本不混入world。
+- 下一步：r71同一新会话重新取得完整B/C、执行中复查／替换、驻留、人工Swarm返航与返航中换任务。只此主链继续，旧失败／锁和部分进度不升级。
+## 2026-10-04 — r71安全替换与复查闭环，完整C独立激活
+
+- B：同次mission0000四work100%／4实收／13匹配成功step／零锁HOLDING；原队列C从实际状态接续。
+- 动态：C两个WATER作业已实际入水／扫描后提交管件2复查，原四预约经匹配安全终态释放，mission0001为CANCELED_BY_REPLACEMENT／零锁；旧部分区间不算完整C。
+- 复查：c-5b0305b487ce-b3b8c64e92由求解器选aav1 native，实际ENTER／LOCAL4s／EXIT和匹配终态、1报告实收／零锁HOLDING均成立。USS在合法南侧服务点实际驻留；不是用r70失败中心，也不是修改显示时间。
+- 队列：执行中含WATER状态的完整C预览0.002606s通过并确认；实际闭环后重求解激活c-a08d582d893c-8a67ad56aa，三work独立从零，AIR aav1、管路aav3 native、结构aav2 native，USS共享服务。
+- 尚未完成：新完整C全部区间／终态／实收、人工Swarm编队返回、返航中替换后再执行、最终HOME5／零锁／end_session及同次整段审计。只有fe9c2cf53deb世界继续，不另起测试或拼接旧结果。
+## 2026-10-04 — r71原生出水成功后重复AIR驻留触发不连续交接，修复原适配
+
+- 实际：r71 B闭环、动态安全替换和管件2ENTER／LOCAL／EXIT／实收均已成立；独立完整C管路100%／报告实收、原生WATER_PATH／EXIT匹配SUCCEEDED。紧接的重复AIR驻留在0.97s内发生机体包络越面，C仍未完成；四预约UNKNOWN_LOCKED、旧失败保留、bag闭合、旧世界结束。
+- 输入证据：post-exit-air-hold-input-window.json显示实际出水端点z0.8001稳定、yaw0.09092；交给AIR后参考位置仍z约0.8001，无原点指令，但实际采用yaw立即变-2.39927（约2.49rad跳）。同时适配再次用合成trim重置已稳定AIR控制状态。不能把该段解释成时间优化、协同等待或船障碍。
+- 修正：AIR源交接只更新原所有权／参考，不重置已运行的qn控制状态；ENTER／EXIT的原跨介质接线保留。AIR采用yaw从实际交接朝向连续衔接，沿用上游traj_server已有πrad/s范围，原设施1rad/s要求仍保留，不改qn控制律／增益／执行器或位姿。
+- 合并重复：B/C原生任务已经在规定终态验证四秒，移除其后再次下发的AIR／WATER重复驻留Goal；同一既有终端参考继续维持实际位置。不会把缺少终态的任务当成功，真正下一段／Swarm返航仍须原所有权交接。
+- 校核：仅修改相关适配／Plan步骤，语法与diff检查通过；共享几何／计量及GoalID因果不变。下一r72同会话重新验收完整B/C与动态／返回，不拼接r71部分结果。
+## 2026-10-04 — r72船正常推进却被墙时上限截断，修复单位与局部候选粘滞
+
+- 实际：r72两AIR及WATER进度正常，没有先发的AAV物理越界；USS第一个转场OBSERVATION_TIMEOUT_UNVERIFIED导致全链停止。旧失败／预约保留、bag闭合、世界已结束。
+- 证据：usv-before-timeout-query-window.json显示超时前船仍连续从x-3.069到-2.465m前进，peer新鲜、原生指令＋停止尾段FEASIBLE。参考目标正常；此前在支柱中的服务中心不是本次首因。
+- 首因：转场80.37模型秒生成的3×travel＋600模型秒裕量直接作为841墙秒，忙时模型约0.55×，尚未用完模型作业量就被截断；此外局部搜索把一次受限状态下选中的0.25s／30N候选索引5永久保留，场景变宽仍不尝试原已声明的更长安全候选。
+- 修正：USV支援转场／终态和B/C保留成员返回复用既有inspection_wall_budget，按原0.5模型／墙时速率底限与2倍计算裕量换算有限墙时上限，未增加10秒求解预算或降低净距。每个实际正推进短段后从当前状态重新按原候选顺序尝试较长段，失败仍滚动搜索；所有候选依旧经过原生指令／coast／peer校核。
+- 尚未完成：修正后B/C和动态／Swarm返航总验收。下一r73仅重跑同一主链，不做单机系列；r71B／复查历史不得拼接为新世界通过。
+## 2026-10-04 — r73证明垂直交接仍追逐旧AIR yaw，保持实际方向接续
+
+- 实际：r73完整B、执行中安全替换和管件2复查／实收成立；新完整C从真实状态重分配，在aav3出水后第一个AIR垂直升高阶段失败，旧资源／失败保留、bag闭合、世界已结束。
+- 输入：post-exit-air-transfer-input-window.json证实AIR控制状态确实已保留，无原点指令；但垂直参考xy基本不变时，yaw从实际0.0926按πrad/s追到-2.53，继承的是WATER之前的AIR轨迹方向。实际z随该不必要转向下沉，仍按原机体／水面判据拒绝，不能放宽判据掩盖。
+- 修正：沿用上游calculate_yaw“没有水平运动则保持朝向”的语义，在原qn输入适配保持已交接实际yaw；仅有实际水平参考运动或当前任务显式面向结构要求时更新yaw。原源交接／净距／姿态／模型不改，1e-6仅判别数值零水平速度，不是新增业务限制。
+- 下一步：r74继续同一完整B/C及动态／人工Swarm返航链。旧B／复查历史不能拼成新的全链通过，完整C／最终HOME仍待。

@@ -47,6 +47,13 @@ class PvsNode:
         self.backend=PvsBackend(self.model,tuple(rospy.get_param('~initial_position')),
                                 heading_rad=float(rospy.get_param('~initial_heading_rad',0.)),
                                 initialization_mode=initialization)
+        rospy.set_param('/mission/collision_radii/'+self.agent_id,self.backend.collision_radius_m)
+        self.peer_history={member:deque(maxlen=256) for member in
+            ('drone_0','drone_1','drone_2','usv','uuv') if member!=self.agent_id}
+        self.peer_subscribers=[rospy.Subscriber(
+            '/'+member+('_qn' if member.startswith('drone_') else '')+'/odometry',
+            Odometry,self._peer_odom,callback_args=member,queue_size=10)
+            for member in self.peer_history]
         self.terminal_behavior=self.backend.terminal_behavior
         declared_scene=rospy.get_param('/scene',{})
         self.nominal_speed=float(declared_scene.get('inspection_motion_profile',{}).get('usv_nominal_speed_mps',.2))
@@ -116,6 +123,24 @@ class PvsNode:
             self.survey_subscriber=rospy.Subscriber('~survey_cloud',PointCloud2,self._survey_cloud,queue_size=1)
         self.server.start()
 
+    def _peer_odom(self,message,member):
+        from qn_aav_simulator.odometry import parse_standard_odometry,OdometryContractError
+        if message.header.frame_id!=self.world_frame:return
+        try:sample=parse_standard_odometry(message,member)
+        except (OdometryContractError,ValueError,TypeError):return
+        if not all(math.isfinite(value) for value in (*sample.position,*sample.velocity)):return
+        with self.lock:
+            history=self.peer_history[member]
+            if not history or sample.stamp>history[-1].stamp:history.append(sample)
+
+    def _peer_snapshot(self,position,stamp,horizon_s):
+        from qn_aav_simulator.observation_coverage import local_peer_snapshot
+        with self.lock:histories={member:tuple(rows) for member,rows in self.peer_history.items()}
+        return local_peer_snapshot(histories,rospy.get_param_cached('/mission/collision_radii',{}),
+            self.agent_id,stamp,position,self.backend.collision_radius_m,horizon_s,
+            math.inf,
+            rospy.get_param_cached('/mission/peer_speed_bounds',{}))
+
     def _survey_cloud(self,message):
         """Measured map and bounded A* stay outside the native-step lock."""
         from sensor_msgs import point_cloud2
@@ -178,8 +203,16 @@ class PvsNode:
         # An extra static start margin would trap a stopped, physically safe
         # vessel just inside that optional margin and prevent its retreat.
         radius=self.backend.collision_radius_m+(self.scene.clearance if self.scene else 0.)
+        try:
+            observed_map.peer_states=self._peer_snapshot(position,rospy.Time.now().to_sec(),
+                max(1.,2*self.backend.vehicle.L)/max(self.nominal_speed,1e-6)+self.hold_seconds)
+            peer_error=''
+        except ValueError as error:
+            peer_error=str(error)
+        observed_map.peer_body_radius_m=self.backend.collision_radius_m
+        observed_map.peer_speed_mps=self.nominal_speed
         query_end=time.monotonic()+.04
-        if rospy.Time.now().to_sec()-stamp<=1.:
+        if not peer_error and rospy.Time.now().to_sec()-stamp<=1.:
             for goal in goals:
                 target=observed_map.next_target(position,(goal[0],goal[1],position[2]),
                     radius,max_step_m=max(1.,2*self.backend.vehicle.L))
@@ -196,6 +229,8 @@ class PvsNode:
             work['local_command_until']=-math.inf
             work['local_command_end_step']=-1
             work['local_wait']=True
+            work['local_peer_status']=peer_error or 'FRESH_PEER_MOTION_CHECKED'
+            if peer_error:return
             native=copy.deepcopy(self.backend)
             generation=self.generation
             requested=work['efforts'][index]
@@ -265,7 +300,7 @@ class PvsNode:
             # A target-unavailable fallback has a different short list;
             # it must not fold/reset the directional search cursor.
             if target is not None:
-                work['local_candidate_cursor']=selected_index if has_command and selected_effort>0. else next_candidate
+                work['local_candidate_cursor']=0 if has_command and selected_effort>0. else next_candidate
             work.update(local_prediction_status=prediction['status'],local_prediction_reason=prediction['reason'],
                 local_query_wall_s=time.monotonic()-query_started,
                 local_rejected_commands=';'.join(rejected),local_query_budget_wall_s=self.local_query_budget_s,
@@ -295,6 +330,7 @@ class PvsNode:
                 local_rejected_commands=';'.join(rejected),
                 local_geometric_target=target,
                 local_stop_s=prediction.get('predicted_stop_s',0.),
+                local_motion_trace=prediction.get('local_motion_trace',()),
                 local_wait=not has_command or (selected is None and selected_effort==0.),
                 local_survey_done=remaining is not None and not remaining)
 
@@ -352,6 +388,18 @@ class PvsNode:
                 work.update(local_has_command=False,local_command_until=-math.inf,local_command_end_step=-1,
                             local_motion_status='ACTIVATION_STATE_CHANGED',local_wait=True)
                 return None
+            from qn_aav_simulator.observation_coverage import peer_segment_clear
+            trace=work.get('local_motion_trace',())
+            try:
+                peers=self._peer_snapshot(position,rospy.Time.now().to_sec(),trace[-1][0] if trace else .25)
+                previous_position=position;previous_time=0.
+                for elapsed,point in trace:
+                    if not peer_segment_clear(previous_position,point,self.backend.collision_radius_m,
+                            peers,previous_time,elapsed):raise ValueError('PEER_ACTIVATION_CONFLICT')
+                    previous_position=point;previous_time=elapsed
+            except ValueError as error:
+                work.update(local_has_command=False,local_wait=True,local_motion_status=str(error))
+                return None
             work['local_has_command']=True
             work['local_freeze_on_coast']=True
             work['local_wait']=work.get('local_target') is None and work.get('local_effort',0.)==0.
@@ -365,6 +413,24 @@ class PvsNode:
         # expiring every future command from its older query-start timestamp.
         stale_input=(rospy.Time.now().to_sec()-self.survey_stamp>
                 (2. if getattr(self.observation_request,'execution_mode','')=='INSPECTION_CONTROL' else 1.))
+        now=rospy.Time.now().to_sec()
+        if work.get('local_has_command') and now-work.get('local_peer_checked_s',-math.inf)>=.1:
+            from qn_aav_simulator.observation_coverage import peer_segment_clear
+            trace=work.get('local_motion_trace',())
+            elapsed=self.backend.time_s-work.get('local_actual_activation_model_s',self.backend.time_s)
+            remaining=tuple((when-elapsed,point) for when,point in trace if when>elapsed)
+            try:
+                peers=self._peer_snapshot(position,now,remaining[-1][0] if remaining else .25)
+                previous_position=position;previous_time=0.
+                for when,point in remaining:
+                    if not peer_segment_clear(previous_position,point,self.backend.collision_radius_m,
+                            peers,previous_time,when):raise ValueError('PEER_COMMAND_CONFLICT')
+                    previous_position=point;previous_time=when
+            except ValueError as error:
+                self._end_local_command(work,'PEER_COMMAND_RECHECK')
+                work.update(local_wait=True,local_motion_status=str(error),local_peer_status=str(error))
+                return None
+            work['local_peer_checked_s']=now
         if stale_input or self.backend.steps>=work.get('local_command_end_step',-1):
             work['local_wait']=True
             self._end_local_command(work,'ACTUAL_SCAN_STALE' if stale_input else 'PULSE_WINDOW_COMPLETE')
@@ -827,6 +893,7 @@ class PvsNode:
                     'local_coast_prefix_wall_s':self.work.get('local_coast_prefix_wall_s',0.) if self.work else 0.,
                     'local_coast_prefix_phase':self.work.get('local_coast_prefix_phase','') if self.work else '',
                     'local_query_phase':self.work.get('local_query_phase','') if self.work else '',
+                    'local_peer_status':self.work.get('local_peer_status','WAITING_FOR_PEERS') if self.work else 'IDLE',
                     'local_query_execution':self.work.get('local_query_execution','') if self.work else '',
                     'local_candidate_wall_s':self.work.get('local_candidate_wall_s',0.) if self.work else 0.,
                     'local_candidate_model_elapsed_s':self.work.get('local_candidate_model_elapsed_s',0.) if self.work else 0.,

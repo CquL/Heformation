@@ -439,6 +439,7 @@ class SceneTransport:
             threading.Thread(target=self.capture_state_claim,args=(request,),daemon=True).start()
 
     def tick_task_service(self):
+        current_sites=tuple(rospy.get_param_cached('/scene/communication_sites',self.support_sites))
         from qn_aav_simulator.observation_coverage import task_service_ready
         now=rospy.Time.now().to_sec();out=[]
         with self.lock:
@@ -450,6 +451,7 @@ class SceneTransport:
                     if row[0]<=now),(-1.,'UNKNOWN'))
                 if 0<=now-stamp<=.25 and 0<=now-mode_stamp<=.25:
                     states[member]=(pos,mode)
+            self.support_sites=current_sites
             supported=task_service_ready(states,self.support_sites)
             usv=states.get('usv')
             site=next((entry for entry in self.support_sites if usv and usv[1]=='SURFACE' and

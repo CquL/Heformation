@@ -15,6 +15,47 @@ from typing import Dict, Iterable, Mapping, Optional, Sequence, Tuple
 Vector3 = Tuple[float, float, float]
 
 
+def local_peer_snapshot(histories, radii, own_member, stamp, position, own_radius,
+                        horizon_s, own_speed_bound, speed_bounds, clearance_m=.5,
+                        freshness_s=.25):
+    """Measured peers at one query time; stale exclusion needs a motion bound."""
+    states=[]
+    for member,history in histories.items():
+        if member==own_member:continue
+        radius=radii.get(member)
+        if radius is None or not math.isfinite(radius) or radius<=0:
+            raise ValueError('PEER_GEOMETRY_UNKNOWN:'+member)
+        rows=tuple(row for row in history if row.stamp<=stamp)
+        if not rows:raise ValueError('PEER_STATE_UNKNOWN:'+member)
+        sample=rows[-1];age=stamp-sample.stamp
+        if age>freshness_s:
+            bound=speed_bounds.get(member)
+            if (bound is not None and math.isfinite(bound) and bound>0 and
+                    math.dist(position,sample.position)>own_radius+radius+clearance_m+
+                    own_speed_bound*horizon_s+bound*(age+horizon_s)):
+                continue
+            raise ValueError('PEER_STATE_STALE:'+member)
+        states.append(dict(member=member,position=tuple(
+            value+age*speed for value,speed in zip(sample.position,sample.velocity)),
+            velocity=tuple(sample.velocity),radius_m=radius,stamp_s=sample.stamp,
+            query_stamp_s=stamp))
+    return tuple(states)
+
+
+def peer_segment_clear(start,end,radius,peers,start_s=0.,end_s=0.,clearance_m=.5):
+    """Check synchronous short linear motions, using measured world velocities."""
+    for peer in peers:
+        first=tuple(value+speed*start_s for value,speed in zip(peer['position'],peer['velocity']))
+        last=tuple(value+speed*end_s for value,speed in zip(peer['position'],peer['velocity']))
+        relative=tuple(value-other for value,other in zip(start,first))
+        change=tuple((value-origin)-(other-before) for origin,value,before,other in zip(start,end,first,last))
+        square=sum(value*value for value in change)
+        closest=max(0.,min(1.,-sum(value*delta for value,delta in zip(relative,change))/square)) if square else 0.
+        distance=sum((value+closest*delta)**2 for value,delta in zip(relative,change))
+        if distance<(radius+peer['radius_m']+clearance_m)**2:return False
+    return True
+
+
 def segment_box_distance_sq(start,end,low,high):
     """Euclidean segment-to-voxel distance for the declared spherical hull.
 
@@ -71,6 +112,10 @@ class LocalSurveyMap:
         self._forbidden_boxes = []
         self._free_bounding_boxes = set()
         self._nonfree_bounding_boxes = {}
+        self.peer_states=()
+        self.peer_speed_mps=1.
+        self.peer_clearance_m=.5
+        self.peer_body_radius_m=None
 
     def navigation_snapshot(self):
         """Freeze the measured map without recursively copying immutable keys.
@@ -90,7 +135,18 @@ class LocalSurveyMap:
         snapshot._forbidden_boxes=self._forbidden_boxes.copy()
         snapshot._free_bounding_boxes=self._free_bounding_boxes.copy()
         snapshot._nonfree_bounding_boxes=self._nonfree_bounding_boxes.copy()
+        snapshot.peer_states=self.peer_states
+        snapshot.peer_speed_mps=self.peer_speed_mps
+        snapshot.peer_clearance_m=self.peer_clearance_m
+        snapshot.peer_body_radius_m=self.peer_body_radius_m
         return snapshot
+
+    def motion_clear(self,start,end,radius,start_s=0.,end_s=None):
+        if end_s is None:end_s=start_s+math.dist(start,end)/max(self.peer_speed_mps,1e-6)
+        body_radius=radius if self.peer_body_radius_m is None else self.peer_body_radius_m
+        return (self.segment_clear(start,end,radius) and
+            peer_segment_clear(start,end,body_radius,
+                self.peer_states,start_s,end_s,self.peer_clearance_m))
 
     def begin_observation_epoch(self, stamp):
         """Retain navigation knowledge, but require fresh sensing for a new job.
@@ -332,7 +388,7 @@ class LocalSurveyMap:
             self._nonfree_bounding_boxes[bounds]=tuple(nonfree)
         return True
 
-    def next_target(self, current, goal, radius, max_step_m=1., z_bounds=None, peer_positions=(), peer_clearance_m=0., prefer_direct_step=False, allow_vertical=False):
+    def next_target(self, current, goal, radius, max_step_m=1., z_bounds=None, peer_positions=(), peer_clearance_m=0., prefer_direct_step=False, allow_vertical=False, motion_filter=None):
         """Find a bounded short target through the currently observed free map.
 
         A known goal uses A*; an unknown/occupied goal selects a reachable near
@@ -351,7 +407,8 @@ class LocalSurveyMap:
         if not math.isfinite(peer_clearance_m) or peer_clearance_m<0:
             raise ValueError('finite nonnegative peer clearance required')
         def clear(a,b):
-            if not self.segment_clear(a,b,radius):return False
+            if not self.motion_clear(a,b,radius):return False
+            if motion_filter is not None and not motion_filter(a,b):return False
             delta=tuple(y-x for x,y in zip(a,b));length2=sum(v*v for v in delta)
             for peer in peers:
                 t=0. if length2<1e-12 else max(0.,min(1.,sum(

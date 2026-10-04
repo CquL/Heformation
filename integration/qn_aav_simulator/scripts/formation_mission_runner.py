@@ -835,20 +835,35 @@ class MissionRunner:
         if len(sites)!=1:raise RuntimeError('shared support endpoint is not a declared support site')
         radius=float(sites[0]['radius_m'])
         with self.executor_mutex:action.update(phase='WAITING_FOR_RECEIPTS',support_site=position)
+        gap_started=None
         while not rospy.is_shutdown():
             if getattr(self,'session_replacing',False):return
             if getattr(self,'joint_return_abort',''):
                 raise RuntimeError('support blocked by failed commitment: '+self.joint_return_abort)
-            now=rospy.Time.now().to_sec()
             with self.condition:
                 sample=self.actual.get('usv')
                 stamp,values=self.executor_diagnostics.get('usv',(None,{}))
                 goals={key:tuple(value) for key,value in self.goal_ids.items()}
-            if (sample is None or not sample.is_fresh(now,.25) or stamp is None or not 0<=now-stamp<=.25 or
-                    values.get('actual_mode')!='SURFACE' or math.dist(sample.position,position)>radius or
+                now=rospy.Time.now().to_sec()
+            if sample is None or not sample.is_fresh(now,.25) or stamp is None or not 0<=now-stamp<=.25:
+                if gap_started is None:gap_started=now
+                with self.executor_mutex:
+                    action.update(phase='WAITING_FOR_SUPPORT_STATE',support_state_gap=dict(
+                        sample_age_s=None if sample is None else now-sample.stamp,
+                        diagnostic_age_s=None if stamp is None else now-stamp))
+                self._save_executor()
+                if now-gap_started>=1.:
+                    raise RuntimeError('shared support actual state missing for one second; keep reservation')
+                time.sleep(.01);continue
+            gap_started=None
+            with self.executor_mutex:
+                action.pop('support_state_gap',None);action['phase']='WAITING_FOR_RECEIPTS'
+            if (values.get('actual_mode')!='SURFACE' or math.dist(sample.position,position)>radius or
                     any(str(values.get(key,'false')).lower()=='true' for key in
                         ('resource_locked','platform_resource_locked','domain_failure'))):
-                raise RuntimeError('shared support actual hold unavailable or outside site; keep reservation')
+                raise RuntimeError('shared support actual hold invalid: mode={}, distance={:.6f}, radius={:.6f}, '
+                    'resource_locked={}, domain_failure={}; keep reservation'.format(values.get('actual_mode'),
+                        math.dist(sample.position,position),radius,values.get('resource_locked'),values.get('domain_failure')))
             complete=True
             with self.executor_mutex:
                 reports=dict(self.metrics.get('received_terminal_reports',{}))
@@ -1764,7 +1779,11 @@ class MissionRunner:
                 while True:
                     with self.executor_mutex:
                         received_work={e.get('work_id') for e in self.metrics.get('received_products',{}).values()}
-                    if set(support_ids)<=received_work:break
+                    if set(support_ids)<=received_work:
+                        with self.executor_mutex:self.metrics.setdefault('events',[]).append(dict(
+                            kind='INSPECTION_SUPPORT_REPORTS_RECEIVED',execution_id=item.execution_id,
+                            work_ids=list(support_ids),at_ros_s=rospy.Time.now().to_sec()))
+                        break
                     if self.session_replacing:break
                     if (self.metrics.get('status')=='UNKNOWN_LOCKED' or
                             self.metrics.get('operator_stop_requested')):
@@ -1847,7 +1866,7 @@ class MissionRunner:
             rows.append(row)
             if (continuing and index==0 and not item.fulfills_task and item.coalition==('usv',) and
                     not step.target_ref.startswith('return') and
-                    self.request.template_id in ('OFFSHORE_JOINT','WIND_INSPECTION','PLATFORM_PIPELINE_INSPECTION')):
+                    self.request.template_id=='OFFSHORE_JOINT'):
                 self._wait_task_support_receipts(item,step,action)
             if continuing:
                 deferred.append((view,unit,step,state,result,evidence if not step.native_action else None))
@@ -2403,7 +2422,14 @@ class MissionRunner:
         self.metrics['observation_model']='CONTROL_INSPECTION'
         self.metrics['mapping_scope']='actual qualified work intervals; professional sensing external'
 
-    def _session_snapshot(self,preview=False):
+    def _bind_inspection_support_sites(self,plan,scene):
+        selected={step.native_prediction['support_site_id']:step.native_prediction['support_site_position']
+            for item in plan.items for step in item.execution_steps
+            if 'support_site_position' in step.native_prediction}
+        for site in scene.get('communication_sites',()):
+            if site['id'] in selected:site['position']=list(selected[site['id']])
+
+    def _session_snapshot(self,preview=False,policy='queue'):
         states=self._tasklevel_current_states()
         for member,state in states.items():
             state['verified_cross_medium_uses']=self.verified_cross_medium_uses.get(member,0)
@@ -2416,6 +2442,15 @@ class MissionRunner:
                 fault=bool(values.get('scene_failure')) or any(str(values.get(k,'false')).lower()=='true'
                     for k in ('resource_locked','platform_resource_locked','domain_failure','air_domain_violation'))
                 if not fault:state['locked']=False
+                if not fault and policy=='queue':
+                    pending=[item for item in self.plan.items if member in item.coalition and
+                        item.status in ('PLANNED','RUNNING') and item.execution_steps]
+                    if pending:
+                        accepted=max(pending,key=lambda item:item.planned_finish)
+                        terminal=accepted.execution_steps[-1].native_prediction
+                        state.update(position=tuple(terminal['terminal_position']),mode=terminal['terminal_mode'],
+                            available_from=max(0.,accepted.planned_finish-(rospy.Time.now().to_sec()-self.epoch)),
+                            estimate_source='ACCEPTED_PLAN_TERMINAL; REPLAN_FROM_ACTUAL_AT_ACTIVATION')
         return states
 
     def _session_build_plan(self,raw,scene,states):
@@ -2533,7 +2568,7 @@ class MissionRunner:
         pending=self.metrics.get('pending_plan',{})
         if pending.get('state') in ('PLANNING','WAITING_SAFE_STATE'):
             if self.session_preview_future is None:
-                try:states=self._session_snapshot(preview=True)
+                try:states=self._session_snapshot(preview=True,policy=self.session_preview_job['policy'])
                 except RuntimeError:
                     with self.executor_mutex:pending['state']='WAITING_SAFE_STATE'
                 else:
@@ -2615,8 +2650,12 @@ class MissionRunner:
                     duration=math.dist(end,home)/(.2 if member=='usv' else .13)+4.
                     unit=next(u for u in self.units if u.physical_agent_ids==(member,))
                     operation='SURFACE_PATH' if member=='usv' else 'WATER_PATH'
+                    from qn_aav_simulator.inspection_work import inspection_wall_budget
+                    return_budget=dict(model_duration_s=duration+180.)
+                    return_budget.update(inspection_wall_budget(self.request.work_items[0],return_budget))
                     native=NativeActionSpec((NativeSegmentSpec(operation,(end,home),duration),),
-                        'TRIM_PROPULSION' if member=='usv' else 'FIXED_REFERENCE',execution_timeout_s=duration+180.)
+                        'TRIM_PROPULSION' if member=='usv' else 'FIXED_REFERENCE',
+                        execution_timeout_s=return_budget['wall_duration_ceiling_s'])
                     row=ExecutionStep(unit.executor_id,duration,'return:'+member,native_action=native,
                         native_prediction=dict(status='TASK_LEVEL',duration_s=duration,terminal_position=home,
                             terminal_mode='SURFACE' if member=='usv' else 'WATER',geometry_checked=False,
@@ -2628,6 +2667,34 @@ class MissionRunner:
                            if s.native_prediction.get('joint_return_boundary')),None)
             if boundary is not None:
                 self.session_member_returns[item.coalition[0]]=(copy.deepcopy(item),item.execution_steps[boundary:])
+
+    def _formation_return_altitude(self,scene,states,members,slots,altitude):
+        if self.request.execution_mode!='INSPECTION_CONTROL':return altitude
+        import numpy as np
+        from qn_aav_simulator.experiment_verdict import StaticSceneGeometry
+        prefixes=tuple(model['id']+'_' for model in scene.get('world_models',())
+            if model['model'] in ('wind_turbine','production_platform','seabed_pipeline'))
+        objects=[obj for obj in scene.get('objects',())
+            if obj['id'].startswith(prefixes) or obj['kind']=='FORBIDDEN']
+        if not objects:return altitude
+        geometry=StaticSceneGeometry.from_mapping(dict(scene,objects=objects,obstacle_present=False))
+        node=self.server_nodes['aav_formation']
+        radius=float(rospy.get_param(node+'/platform_radius_m',.25))
+        tolerance=float(rospy.get_param(node+'/epsilon_p',.5))
+        navigation_radius=radius+tolerance+.25
+        ceiling=min(float(rospy.get_param('/drone_{}_ego_planner_node/grid_map/virtual_ceil_height'.format(
+            int(member.rsplit('_',1)[1])))) for member in members)
+        center=tuple(sum(states[member]['position'][axis] for member in members)/len(members) for axis in (0,1))
+        heights={altitude}
+        margin=navigation_radius+geometry.clearance
+        for obj in objects:
+            heights.add(float(np.nextafter(obj['center'][2]+obj['size'][2]/2.+margin,np.inf)))
+        for height in sorted(heights):
+            if height<altitude or height+radius+geometry.clearance+tolerance>=ceiling:continue
+            if all(not geometry.violation(tuple(center[axis]+slots[member][axis] for axis in (0,1))+
+                    (height+slots[member][2],),navigation_radius) for member in members):
+                return height
+        raise ValueError('设施几何和现有工作域内没有完整三机集结层，请调整集结位置或后续任务')
 
     def _session_add_retained_returns(self):
         """Also recover a member held after a previous batch was replaced."""
@@ -2663,7 +2730,9 @@ class MissionRunner:
                 # Prediction only for constructing the suffix. Actual release
                 # and AIR entry still require the matching physical EXIT Result.
                 states[m]=dict(states[m],position=end,mode='AIR')
-            altitude=float(scene['air_return_altitude_m'])
+            slots=self.member_slots.get('aav_formation') or {
+                'drone_0':(0.,0.,0.),'drone_1':(0.,-2.,0.),'drone_2':(0.,2.,0.)}
+            altitude=self._formation_return_altitude(scene,states,members,slots,float(scene['air_return_altitude_m']))
             # The barycentre minimizes total squared assembly displacement.
             # It is an intention, not an obstacle-free path: native Swarm uses
             # the actual sensed map and peer trajectories during assembly.
@@ -2672,8 +2741,6 @@ class MissionRunner:
                        for axis in range(3))
             overhead=home[:2]+(altitude,)
             targets=(center,overhead,home)
-            slots=self.member_slots.get('aav_formation') or {
-                'drone_0':(0.,0.,0.),'drone_1':(0.,-2.,0.),'drone_2':(0.,2.,0.)}
             work_ids=tuple(i.execution_id for i in self.plan.items
                            if any(m.startswith('drone_') for m in i.coalition))
             assembly_ids=[]
@@ -2767,6 +2834,7 @@ class MissionRunner:
                 if time.monotonic()>=expiry:raise
                 time.sleep(.05)
         request,plan,tasks,wall=self._session_build_plan(job['request'],job['scene'],states)
+        self._bind_inspection_support_sites(plan,job['scene'])
         self.session_round+=1
         path=self.output/'mission-{:04d}-request.yaml'.format(self.session_round)
         path.write_text(yaml.safe_dump(job['request'],allow_unicode=True,sort_keys=False))
@@ -3015,6 +3083,9 @@ class MissionRunner:
                 self.plan,tasks=build_request_executor_plan(self.request,scene,units,provider,states,
                     budget_s=self.metrics['planning_budget_s'],
                     first_feasible=True)
+                self._bind_inspection_support_sites(self.plan,scene)
+                if self.request.execution_mode=='INSPECTION_CONTROL':
+                    rospy.set_param('/scene/communication_sites',scene['communication_sites'])
             finally:
                 self.metrics['planning_wall_s']=time.monotonic()-began
             if rospy.get_param('/mission/qualification_missing_air_member','')=='SELECTED_AIR':
@@ -3956,7 +4027,8 @@ def main():
     runner = MissionRunner()
     runner.run()
     if runner.metrics["status"] not in ("PASS", "PASS_GEOMETRIC_PROXY",
-                                        "PASS_GEOMETRIC_PROXY_QUALIFICATION", "PASS_SAMPLED_MAPPING", "NOT_CONFIRMED"):
+                                        "PASS_GEOMETRIC_PROXY_QUALIFICATION", "PASS_SAMPLED_MAPPING",
+                                        "SESSION_ENDED", "NOT_CONFIRMED"):
         raise SystemExit(1)
 
 

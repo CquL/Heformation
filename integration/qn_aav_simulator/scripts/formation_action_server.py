@@ -1786,6 +1786,23 @@ class FormationActionServer:
                     reference.get('position') is not None and
                     math.dist(current,reference['position'])<=self.epsilon_p and
                     math.sqrt(sum(v*v for v in current_sample.velocity))<=self.epsilon_v)
+            if facility_mode and len(self.agent_ids)>1 and adoption.verdict().state!='ADOPTED':
+                with self.lock:
+                    sources={agent:dict(self.qn_source.get(agent) or {}) for agent in self.agent_ids}
+                    references={agent:dict(self.used_reference.get(agent) or {}) for agent in self.agent_ids}
+                held=all(self._latest_sample(samples.get(agent,())) is not None and
+                    0.<=now_s-sources[agent].get('stamp_s',0.)<=self.qn_state_timeout and
+                    0.<=now_s-references[agent].get('stamp_s',0.)<=self.odom_timeout and
+                    references[agent].get('position') is not None and
+                    math.dist(self._latest_sample(samples[agent]).position,references[agent]['position'])<=self.epsilon_p and
+                    math.sqrt(sum(value*value for value in self._latest_sample(samples[agent]).velocity))<=self.epsilon_v
+                    for agent in self.agent_ids)
+                pending_retry=held and any(not adoption.evidence[agent].new_trajectory_observed and
+                    sources[agent].get('source_trajectory_id')==adoption.evidence[agent].prior_trajectory_id
+                    for agent in self.agent_ids)
+                if pending_retry:
+                    failed_key=local._key(monitor.center)
+                    local._visits[failed_key]=local._visits.get(failed_key,0)+1
             if len(self.agent_ids)>1:
                 path_clear=path_clear and all(
                     self.survey_maps[m].stamp is not None and
@@ -1811,10 +1828,13 @@ class FormationActionServer:
                 local_floor=cruise
                 destination=goals[0]
                 horizontal=math.hypot(current[0]-destination[0],current[1]-destination[1])
+                if horizontal<=self.epsilon_p:
+                    local_floor=min(local_floor,current[2],destination[2])
                 if (not diagnostics.get('facility_launch_complete') and horizontal>2. and
                         current[2]<cruise-self.epsilon_p):
                     anchor=diagnostics.setdefault('facility_climb_anchor',list(current[:2]))
                     goals=[(anchor[0],anchor[1],cruise)]
+                    local_floor=min(local_floor,current[2])
                     diagnostics['navigation_phase']='CLIMB_TO_COMMON_TRANSFER_LAYER'
                 else:
                     diagnostics['facility_launch_complete']=True
@@ -1844,10 +1864,19 @@ class FormationActionServer:
                             if 0.<=now_s-sample.stamp<=self.odom_timeout) if facility_mode else ()
             peer_distance=float(rospy.get_param(
                 '/drone_{}_ego_planner_node/optimization/hard_swarm_clearance'.format(member),0.))
+            def group_motion_clear(first,last):
+                return all(self.survey_maps[other].segment_clear(
+                    (self._latest_sample(samples[other]).position if math.dist(first,current)<=1e-8 else
+                     tuple(first[axis]+self.scale*self.slots[other][axis] for axis in range(3))),
+                    tuple(last[axis]+self.scale*self.slots[other][axis] for axis in range(3)),radius)
+                    for other in self.agent_ids[1:])
             for goal in goals:
                 target = local.next_target(current, goal, radius, max_step_m=2. if facility_mode else 1.,
                     z_bounds=(local_floor,self.air_ceiling_m-radius) if facility_mode else None,
-                    peer_positions=peers,peer_clearance_m=peer_distance,allow_vertical=facility_mode)
+                    peer_positions=peers,peer_clearance_m=peer_distance,
+                    allow_vertical=facility_mode and abs(current[2]-goal[2])>local.resolution_m,
+                    prefer_direct_step=facility_mode,
+                    motion_filter=group_motion_clear if len(self.agent_ids)>1 else None)
                 if target is not None and math.dist(current, target) > .05:
                     break
                 if window is not None and not complete and math.dist(current, goal) <= self.epsilon_p:

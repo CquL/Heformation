@@ -229,7 +229,7 @@ class QnAavNode:
         if (heading and heading.get('active') and context and context[0]=='AIR_SWARM' and owner.active and
                 not context[3] and context[4]=='AIR' and
                 current_heading):
-            old=self.latest_command['yaw_rad'] if self.latest_command else float(message.yaw)
+            old=self.latest_command['yaw_rad'] if self.latest_command else self.platform_action.hold_yaw
             dt=max(0.,min(.1,snapshot_fields['stamp_s']-(self.latest_command or {}).get('stamp_s',snapshot_fields['stamp_s']-.02)))
             delta=math.remainder(heading['yaw']-old,2*math.pi)
             snapshot_fields['yaw_rad']=old+max(-dt,min(dt,delta))
@@ -243,6 +243,20 @@ class QnAavNode:
             # it cannot adopt a newly received stale heading or restore a
             # different raw Swarm yaw after the heading publisher goes quiet.
             snapshot_fields['yaw_rad']=self.inspection_yaw_reference['yaw']
+        if context is not None and context[0]=='AIR_SWARM':
+            previous=self.latest_command
+            if (previous is not None and previous.get('reference_source')=='AIR_SWARM' and
+                    previous.get('reference_generation')==context[2]):
+                previous_yaw=previous['yaw_rad']
+                elapsed=max(0.,min(.1,snapshot_fields['stamp_s']-previous['stamp_s']))
+            else:
+                previous_yaw=self.platform_action.hold_yaw;elapsed=self.outer_dt_s
+            change=math.remainder(snapshot_fields['yaw_rad']-previous_yaw,2*math.pi)
+            if (not (current_heading and heading.get('active')) and self.inspection_yaw_reference is None and
+                    math.hypot(snapshot_fields['velocity'][0],snapshot_fields['velocity'][1])<=1e-6):
+                change=0.
+            limit=math.pi*elapsed
+            snapshot_fields['yaw_rad']=previous_yaw+max(-limit,min(limit,change))
         self.commands.note(snapshot_fields)
         with self.lock:
             self.latest_command = snapshot_fields

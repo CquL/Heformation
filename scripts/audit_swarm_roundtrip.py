@@ -118,7 +118,8 @@ def audit(path,include_marine=False,scene_file=None,scene_bag=None):
     interval_start=min(action_starts) if action_starts else min(result_goal_starts) if result_goal_starts else None
     interval_end=max(action_finishes) if action_finishes else None
     if interval_start is None or interval_end is None:failures.append('missing Action interval')
-    monitor=TimeAlignmentMonitor(tuple(str(i) for i in members))
+    monitor=TimeAlignmentMonitor(tuple(str(i) for i in members),
+        max_samples_per_agent=max(2,max(len(series) for series in diagnostics.values())))
     for i,series in diagnostics.items():
         series.sort(key=lambda x:x[0])
         for stamp,values in series:

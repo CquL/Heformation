@@ -667,8 +667,51 @@ def joint_mission_mappings(base_request,base_scene,selection):
         first=work['sections'][0]['points'][0];last=work['sections'][-1]['points'][-1]
         if work['domain']=='WATER':
             transitions.append(dict(id=work['work_id'],position=[first[0],first[1],0.]))
-            sites.append(dict(id=work['work_id'],position=[last[0],last[1]-3.,0.],radius_m=1.5,
-                              acoustic_contact_m=8.,mother_contact_m=30.))
+            from .inspection_work import work_legs,inspection_exit_runout
+            service_radius=1.5
+            vessel_radius=1.1891593669479295
+            separation=vessel_radius+.25+.5
+            points=[point for item in works for section in item['sections'] for point in section['points']]
+            for item in works:
+                if item['domain']=='WATER':
+                    entry=item['sections'][0]['points'][0];runout=inspection_exit_runout(item)
+                    points.extend((tuple(entry[:2])+(0.,),tuple(runout[:2])+(0.,)))
+            from .experiment_verdict import StaticSceneGeometry
+            facility_prefixes=tuple(model['id']+'_' for model in models.values()
+                if model['model'] in ('wind_turbine','production_platform','seabed_pipeline'))
+            declared_objects=[obj for obj in scene.get('objects',())
+                if obj['id'].startswith(facility_prefixes) or obj['kind']=='FORBIDDEN']
+            facility_geometry=(StaticSceneGeometry.from_mapping(dict(scene,objects=declared_objects,
+                obstacle_present=False)) if declared_objects else None)
+            lower=[min(point[axis] for section in work['sections'] for point in section['points']) for axis in (0,1)]
+            upper=[max(point[axis] for section in work['sections'] for point in section['points']) for axis in (0,1)]
+            distance=separation+service_radius
+            candidates=[(lower[0]-distance,last[1],0.),(upper[0]+distance,last[1],0.),
+                        (last[0],lower[1]-distance,0.),(last[0],upper[1]+distance,0.)]
+            candidates.extend((east,north,0.) for east in (lower[0]-distance,upper[0]+distance)
+                              for north in (lower[1]-distance,upper[1]+distance))
+            safe=[]
+            for candidate in candidates:
+                if math.dist(candidate,last)>8.:continue
+                if facility_geometry and facility_geometry.violation(candidate,vessel_radius+service_radius):continue
+                blocked=False
+                for item in works:
+                    for leg in work_legs(item):
+                        origin,target=leg['start'],leg['end']
+                        delta=tuple(b-a for a,b in zip(origin,target));square=sum(value*value for value in delta)
+                        along=max(0.,min(1.,sum((value-start)*direction for value,start,direction in
+                            zip(candidate,origin,delta))/square)) if square else 0.
+                        closest=tuple(start+along*direction for start,direction in zip(origin,delta))
+                        if math.dist(candidate,closest)<separation+service_radius:
+                            blocked=True;break
+                    if blocked:break
+                if not blocked and all(math.dist(candidate,point)>=separation+service_radius for point in points):
+                    safe.append(candidate)
+            if not safe:raise ValueError('no safe shared support position for '+work['work_id'])
+            home=scene['return_sites']['usv']['position']
+            safe.sort(key=lambda point:math.dist(point,home))
+            sites.append(dict(id=work['work_id'],position=list(safe[0]),position_candidates=[list(point) for point in safe],
+                              radius_m=service_radius,acoustic_contact_m=8.,mother_contact_m=30.))
     if not sites:
         p=works[0]['sections'][0]['points'][0]
         sites=[dict(id='air_support',position=[p[0],p[1]-4.,0.],radius_m=1.5,acoustic_contact_m=8.,mother_contact_m=30.)]

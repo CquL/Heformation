@@ -14,6 +14,7 @@ from collections import deque
 import actionlib
 import rospy
 from diagnostic_msgs.msg import DiagnosticArray
+from nav_msgs.msg import Odometry
 from qn_aav_simulator.msg import PlatformTaskAction, PlatformTaskFeedback, PlatformTaskResult, FormationActionResult
 from qn_aav_simulator.srv import TakeReference, TakeReferenceResponse
 from qn_aav_simulator.platform_execution import ReferenceOwnership, Segment, actual_mode, validate_fragment, PlannerAcknowledgement, segment_terminal_ready, QN_PLATFORM_POSITION_TOLERANCE_M
@@ -34,6 +35,9 @@ class LocalPlatformAction:
         self.scene=StaticSceneGeometry.from_mapping(rospy.get_param('/scene',{}))
         if self.scene and self.scene.frame!=node.world_frame:raise ValueError('scene frame mismatch')
         self.scene_radius=float(rospy.get_param('~platform_radius_m',.25))
+        rospy.set_param('/mission/collision_radii/'+node.agent_id,self.scene_radius)
+        self.peer_history={member:deque(maxlen=256) for member in
+            ('drone_0','drone_1','drone_2','usv','uuv') if member!=node.agent_id}
         self.scene_failure=''
         from .inspection_work import inspection_motion_profile
         motion_profile=inspection_motion_profile(rospy.get_param('/scene',{}))
@@ -103,6 +107,10 @@ class LocalPlatformAction:
         from qn_aav_simulator.srv import StartPreparedAction
         self.start_service=rospy.Service('~start_prepared',StartPreparedAction,self.start_prepared)
         self.subscribers=[]
+        self.subscribers.extend(rospy.Subscriber(
+            '/'+member+('_qn' if member.startswith('drone_') else '')+'/odometry',
+            Odometry,self._peer_odom,callback_args=member,queue_size=10)
+            for member in self.peer_history)
         if self.online_mapping:
             from sensor_msgs.msg import PointCloud2
             prefix='/'+node.agent_id+('_qn' if node.agent_id.startswith('drone_') else '')
@@ -115,6 +123,23 @@ class LocalPlatformAction:
             self.subscribers.extend(rospy.Subscriber(endpoint+'/result',FormationActionResult,
                 self._air_result,queue_size=10) for endpoint in endpoints)
         self.server.start()
+
+    def _peer_odom(self,message,member):
+        from .odometry import parse_standard_odometry,OdometryContractError
+        if message.header.frame_id!=self.node.world_frame:return
+        try:sample=parse_standard_odometry(message,member)
+        except (OdometryContractError,ValueError,TypeError):return
+        if not all(math.isfinite(value) for value in (*sample.position,*sample.velocity)):return
+        with self.node.lock:
+            history=self.peer_history[member]
+            if not history or sample.stamp>history[-1].stamp:history.append(sample)
+
+    def _peer_snapshot(self,position,stamp,horizon_s):
+        from .observation_coverage import local_peer_snapshot
+        with self.node.lock:histories={member:tuple(rows) for member,rows in self.peer_history.items()}
+        return local_peer_snapshot(histories,rospy.get_param_cached('/mission/collision_radii',{}),
+            self.node.agent_id,stamp,position,self.scene_radius,horizon_s,math.inf,
+            rospy.get_param_cached('/mission/peer_speed_bounds',{}))
 
     def _survey_cloud(self,message):
         """Build measured map and query paths outside the physical-step lock."""
@@ -167,9 +192,18 @@ class LocalPlatformAction:
             # Goal arrival tolerance is not a measured tracking-error bound.
             # Navigation uses the same physical envelope/clearance as safety.
             radius=self.scene_radius+(self.scene.clearance if self.scene else 0.)
+            try:
+                peers=self._peer_snapshot(position,rospy.Time.now().to_sec(),
+                    1./max(self.water_reference_speed,1e-6)+self.hold_duration)
+                peer_error=''
+            except ValueError as error:
+                peers=();peer_error=str(error)
+            self.survey_map.peer_states=peers
+            self.survey_map.peer_body_radius_m=self.scene_radius
+            self.survey_map.peer_speed_mps=self.water_reference_speed
             waypoint=None
             query_end=time.monotonic()+.04
-            if rospy.Time.now().to_sec()-stamp<=1.:
+            if not peer_error and rospy.Time.now().to_sec()-stamp<=1.:
                 for goal in goals:
                     if segment.operation!='WATER_PATH':
                         # The accepted conversion is a fixed vertical line.
@@ -180,7 +214,7 @@ class LocalPlatformAction:
                         # a measured-clear short part, then acquire the next.
                         dz=goal[2]-reference[2]
                         short=(goal[0],goal[1],reference[2]+max(-1.,min(1.,dz)))
-                        if self.survey_map.segment_clear(position,short,radius):waypoint=short
+                        if self.survey_map.motion_clear(position,short,radius):waypoint=short
                     elif (not remaining and (not inspection_active or work['inspection_progress']['complete']) and
                           math.dist(position,segment.points[-1])<=self.position_tolerance and
                           math.dist(reference,segment.points[-1])<=self.position_tolerance):
@@ -204,13 +238,25 @@ class LocalPlatformAction:
                             # stopping point with a point one metre beyond it.
                             if not stop_intention and 1e-6<distance<.8:
                                 forward=tuple(a+(b-a)/distance for a,b in zip(position,waypoint))
-                                if self.survey_map.segment_clear(position,forward,radius):waypoint=forward
+                                if self.survey_map.motion_clear(position,forward,radius):waypoint=forward
                     if waypoint is not None or time.monotonic()>=query_end:break
             # An observation or query that raced a Goal/segment change cannot
             # become the new reference. The qn state itself is never replaced.
             with self.node.lock:
                 if self.work is not work or work['index']!=index or work['cause']:return
                 if math.dist(self.node.state.position,position)>self.position_tolerance:return
+                if waypoint is not None:
+                    from .observation_coverage import peer_segment_clear
+                    try:
+                        current=tuple(self.node.state.position)
+                        peers=self._peer_snapshot(current,rospy.Time.now().to_sec(),
+                            math.dist(current,waypoint)/max(self.water_reference_speed,1e-6))
+                        if not peer_segment_clear(current,waypoint,self.scene_radius,peers,0.,
+                                math.dist(current,waypoint)/max(self.water_reference_speed,1e-6)):
+                            waypoint=None;peer_error='PEER_MOTION_CHANGED'
+                    except ValueError as error:
+                        waypoint=None;peer_error=str(error)
+                work['local_peer_status']=peer_error or 'FRESH_PEER_MOTION_CHECKED'
                 work['local_plan_seq']=work.get('local_plan_seq',0)+1
                 work['local_plan_stamp']=stamp
                 work['local_wait']=waypoint is None and bool(goals)
@@ -426,13 +472,10 @@ class LocalPlatformAction:
                                   request.source=='AIR_SWARM')
             if accepted and (before!=self.owner.generation or repeated_air_refresh):
                 if request.source=='AIR_SWARM':
-                    try:
-                        self.last_controller_handover=(
-                            self.node.backend.prepare_bumpless_vertical_transition('AIR_REFERENCE'))
-                    except ValueError as error:
-                        self.owner.finish(request.goal_id,False)
-                        return TakeReferenceResponse(False,self.owner.generation,
-                            'AIR_CONTROLLER_HANDOVER_FAILED:'+str(error))
+                    self.last_controller_handover=dict(operation='AIR_REFERENCE',entry_mode=self.mode(),
+                        position=list(self.node.state.position),
+                        speed_mps=math.sqrt(sum(value*value for value in self.node.state.velocity)),
+                        plant_state_preserved=True,controller_state_preserved=True)
                 if not repeated_air_refresh:self._flush_reference()
                 if request.source=='AIR_SWARM' and not repeated_air_refresh:
                     self.water_terminal_hold=False
@@ -962,6 +1005,7 @@ class LocalPlatformAction:
                 ('last_air_controller_handover',json.dumps(self.last_controller_handover)),
                 ('action_model_clock_drift_s',str(self.action_model_clock_drift_s)),
                 ('local_plan_seq',str(self.work.get('local_plan_seq',0) if self.work else 0)),
+                ('local_peer_status',str(self.work.get('local_peer_status','WAITING_FOR_PEERS') if self.work else 'IDLE')),
                 ('local_plan_stamp',str(self.work.get('local_plan_stamp',0.) if self.work else 0.)),
                 ('local_target',json.dumps(self.work.get('local_waypoint')) if self.work else 'null'),
                 ('local_wait',str(self.work.get('local_wait',False) if self.work else False).lower()),

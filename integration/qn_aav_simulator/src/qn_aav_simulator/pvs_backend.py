@@ -198,7 +198,7 @@ class PvsBackend:
         model=copy.deepcopy(self)
         radius=self.collision_radius_m+clearance
         previous=self.snapshot()['position']
-        if not observed_map.segment_clear(previous,previous,radius):
+        if not observed_map.motion_clear(previous,previous,radius,0.,0.):
             return dict(status='UNKNOWN',reason='CURRENT_BODY_NOT_OBSERVED_FREE',
                 query_phase='COAST_PREFIX',query_wall_s=time.monotonic()-began)
         delay_steps=int(math.ceil(coast_delay_s/dt-1e-9))
@@ -208,7 +208,7 @@ class PvsBackend:
                     query_model_elapsed_s=index*dt,query_wall_s=time.monotonic()-began)
             model._advance(dt,None,0.,None)
             state=model._motion_snapshot()
-            if not observed_map.segment_clear(previous,state['position'],radius):
+            if not observed_map.motion_clear(previous,state['position'],radius,index*dt,(index+1)*dt):
                 return dict(status='INFEASIBLE',reason='NATIVE_QUERY_COAST_PREFIX_NOT_OBSERVED_FREE',
                     query_phase='COAST_PREFIX',query_model_elapsed_s=(index+1)*dt,
                     query_wall_s=time.monotonic()-began)
@@ -231,18 +231,45 @@ class PvsBackend:
         order=[(first_candidate+i)%len(candidates) for i in range(len(candidates))]
         next_candidate=first_candidate;selected_index=None;attempted=[];rejected=[]
         prefix=native.prepare_local_coast_prefix(observed_map,clearance,deadline,dt,coast_delay)
+        if prefix['status']=='FEASIBLE' and native.model=='otter':
+            position=prefix['backend'].snapshot()['position']
+            steering=[index for index in order if candidates[index][0] is not None and candidates[index][1]==0.]
+            if steering:
+                target=candidates[steering[0]][0]
+                heading=math.atan2(target[0]-position[0],target[1]-position[1])
+                turn=abs(math.remainder(heading-float(prefix['backend'].eta[5]),2*math.pi))
+                pulse=max((candidate[3] for candidate in candidates
+                    if candidate[0] is not None and candidate[1]>0.),
+                    default=min(candidate[3] for candidate in candidates))
+                if turn>float(native.vehicle.r_max)*pulse:
+                    first=candidates[first_candidate]
+                    retreat=[first_candidate] if first[0] is None and first[1]<0. else []
+                    priority=retreat+steering
+                    order=priority+[index for index in order if index not in priority]
         if prefix['status']!='FEASIBLE':
             prediction={key:value for key,value in prefix.items() if key not in ('backend','observed_map')}
         for candidate_index in order if prefix['status']=='FEASIBLE' else ():
             proposed,effort,leg,horizon=candidates[candidate_index]
             next_candidate=(candidate_index+1)%len(candidates)
-            prediction=native.predict_local_command(proposed,effort,leg,observed_map,clearance,deadline,
-                dt=dt,terminal_speed=terminal_speed,hold_duration=hold_duration,
-                coast_delay_s=coast_delay,command_duration=horizon,coast_prefix=prefix)
-            attempted.append('{}:{}:{}:{}'.format(candidate_index,horizon,effort,prediction['status']))
+            horizons=(horizon,)
+            if native.model=='otter' and proposed is not None and effort==0.:
+                position=prefix['backend'].snapshot()['position']
+                heading=math.atan2(proposed[0]-position[0],proposed[1]-position[1])
+                turn=abs(math.remainder(heading-float(prefix['backend'].eta[5]),2*math.pi))
+                steering_duration=turn/max(float(native.vehicle.r_max),1e-6)
+                horizons=tuple(dict.fromkeys((max(horizon,steering_duration),horizon)))
+            for duration in horizons:
+                prediction=native.predict_local_command(proposed,effort,leg,observed_map,clearance,deadline,
+                    dt=dt,terminal_speed=terminal_speed,hold_duration=hold_duration,
+                    coast_delay_s=coast_delay,command_duration=duration,coast_prefix=prefix)
+                attempted.append('{}:{}:{}:{}'.format(candidate_index,duration,effort,prediction['status']))
+                if prediction['status']=='FEASIBLE' or time.monotonic()>=deadline:break
+                rejected.append(str(effort)+':'+prediction['reason'])
             if prediction['status']=='FEASIBLE':
                 selected=proposed;selected_effort=effort;selected_leg=leg
-                has_command=True;selected_index=candidate_index;break
+                has_command=True;selected_index=candidate_index
+                if proposed is not None:next_candidate=0
+                break
             rejected.append(str(effort)+':'+prediction['reason'])
             if time.monotonic()>=deadline:break
         return dict(prediction=prediction,selected=selected,selected_effort=selected_effort,
@@ -284,7 +311,8 @@ class PvsBackend:
         activation_step=prefix['activation_step']
         command_steps=max(1,int(math.ceil(command_duration/dt-1e-9)))
         activation_digest=prefix['activation_state_digest']
-        settled=None;elapsed=0.;next_check=0.;coast_started=False;executed_steps=0
+        settled=None;elapsed=0.;next_check=0.;checked_elapsed=0.;coast_started=False;executed_steps=0
+        local_trace=[(0.,tuple(previous))]
         # A bounded native coast must actually settle; exhausting this horizon
         # is UNKNOWN, never permission to assume an instantaneous stop.
         # The terminal reference is frozen at the actual heading when the
@@ -309,21 +337,25 @@ class PvsBackend:
             elapsed=executed_steps*dt
             speed=math.sqrt(sum(value*value for value in state['world_velocity']))
             if elapsed+1e-9>=next_check:
-                if not observed_map.segment_clear(previous,state['position'],radius):
+                if not observed_map.motion_clear(previous,state['position'],radius,
+                        coast_delay_s+checked_elapsed,coast_delay_s+elapsed):
                     return dict(status='INFEASIBLE',reason='NATIVE_BRAKING_PATH_NOT_OBSERVED_FREE')
-                previous=state['position'];next_check=elapsed+.1
+                previous=state['position'];next_check=elapsed+.1;checked_elapsed=elapsed
+                local_trace.append((elapsed,tuple(previous)))
             if state['actual_mode']!=initial['actual_mode']:
                 return dict(status='INFEASIBLE',reason='NATIVE_LOCAL_DOMAIN')
             if not moving and speed<=terminal_speed:
                 if settled is None:settled=elapsed
             else:settled=None
             if settled is not None and elapsed-settled>=hold_duration:
-                if not observed_map.segment_clear(previous,state['position'],radius):
+                if not observed_map.motion_clear(previous,state['position'],radius,
+                        coast_delay_s+checked_elapsed,coast_delay_s+elapsed):
                     return dict(status='INFEASIBLE',reason='NATIVE_BRAKING_TERMINAL_NOT_OBSERVED_FREE')
                 return dict(status='FEASIBLE',reason='NATIVE_COMMAND_AND_COAST',
                     source_model_time_s=self.time_s,command_duration_s=command_duration,
                     activation_model_time_s=activation_time,activation_step=activation_step,
                     command_end_step=activation_step+command_steps,activation_state_digest=activation_digest,
+                    local_motion_trace=tuple(local_trace)+((elapsed,tuple(state['position'])),),
                     predicted_stop_s=elapsed-hold_duration,effort=effort,
                     query_phase='COMPLETE',query_model_elapsed_s=elapsed,query_wall_s=time.monotonic()-began)
         return dict(status='UNKNOWN',reason='NATIVE_LOCAL_COAST_NOT_SETTLED',

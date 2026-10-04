@@ -616,3 +616,76 @@
          }
  
          // GaaiLam
+--- a/src/planner/plan_manage/src/traj_server.cpp
++++ b/src/planner/plan_manage/src/traj_server.cpp
+@@ -23,6 +23,10 @@
+ double traj_duration_;
+ ros::Time start_time_;
+ int traj_id_;
++boost::shared_ptr<poly_traj::Trajectory> pending_traj_;
++double pending_traj_duration_;
++ros::Time pending_start_time_;
++int pending_traj_id_;
+
+ // yaw control
+ double last_yaw_, last_yaw_dot_;
+@@ -94,13 +98,10 @@
+     dura[i] = msg->duration[i];
+   }
+
+-  traj_.reset(new poly_traj::Trajectory(dura, cMats));
+-
+-  start_time_ = msg->start_time;
+-  traj_duration_ = traj_->getTotalDuration();
+-  traj_id_ = msg->traj_id;
+-
+-  receive_traj_ = true;
++  pending_traj_.reset(new poly_traj::Trajectory(dura, cMats));
++  pending_start_time_ = msg->start_time;
++  pending_traj_duration_ = pending_traj_->getTotalDuration();
++  pending_traj_id_ = msg->traj_id;
+ }
+
+ void finishCallback(const std_msgs::Bool::ConstPtr& msg) {
+@@ -138,12 +139,22 @@
+
+ void cmdCallback(const ros::TimerEvent &e)
+ {
++  ros::Time time_now = ros::Time::now();
++  if (pending_traj_ && time_now >= pending_start_time_)
++  {
++    traj_ = pending_traj_;
++    pending_traj_.reset();
++    start_time_ = pending_start_time_;
++    traj_duration_ = pending_traj_duration_;
++    traj_id_ = pending_traj_id_;
++    receive_traj_ = true;
++  }
+   /* no publishing before receive traj_ */
+   if (!receive_traj_)
+     return;
+
+-  ros::Time time_now = ros::Time::now();
+   double t_cur = (time_now - start_time_).toSec();
++  if (t_cur < 0.0) return;
+
+
+   Eigen::Vector3d pos(Eigen::Vector3d::Zero()), vel(Eigen::Vector3d::Zero()), acc(Eigen::Vector3d::Zero()), jerk(Eigen::Vector3d::Zero()), pos_f;
+--- a/src/planner/plan_manage/src/ego_replan_fsm.cpp
++++ b/src/planner/plan_manage/src/ego_replan_fsm.cpp
+@@ -226,8 +226,13 @@
+       }
+       else
+       {
+-        have_target_ = false;
+-        changeFSMExecState(WAIT_TARGET, "FSM");
++        if (reference_handover_enabled_)
++          changeFSMExecState(GEN_NEW_TRAJ, "PLANNING_WAIT");
++        else
++        {
++          have_target_ = false;
++          changeFSMExecState(WAIT_TARGET, "FSM");
++        }
+       }
+
+       break;

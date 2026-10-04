@@ -8,7 +8,7 @@
 
 主命令沿用下方入口。资产准备根据场景的 `world_models` 生成COLLADA资源及 `visual-assets/expanded-scene.yaml`，UI、感知和净距共用此展开几何；有/无界面时一致。新增主要结构使用同组件尺寸生成的保守盒体，精细显示网格不是精确曲面碰撞模型。原Swarm/qn/PVS、任务权威、GoalID及安全门槛保留；设施 AIR 工作域已接入声明的三维高度，地图顶界为13m。
 
-RViz“Views”提供全景、风机、平台/管路与部署近景。实际点云显示默认隐藏，可手动开启，感知/导航仍持续接收。UI显示同一区域及设施示意。**2026-10-02：B/C 请求、联合分配、设施 AIR/WATER 作业与实际区间进度已接入原链路，完整 B/C 及同会话动态验收仍未通过。** 当前可加载[风机模板](integration/qn_aav_simulator/config/monitoring_request_wind.yaml)和[平台／管路模板](integration/qn_aav_simulator/config/monitoring_request_platform_pipeline.yaml)。实际失败与剩余工作记录于[WORKLOG](docs/WORKLOG.md)，不能把模板预览或部分进度当成完整业务完成。
+RViz“Views”提供全景、风机、平台/管路与部署近景。实际点云显示默认隐藏，可手动开启，感知/导航仍持续接收。UI显示同一区域及设施示意。**2026-10-04：B/C各自完整控制任务链已实际闭合。** B r75四项100%/4实收/五HOME/零锁；C r78三项100%/3实收/三AAV真实Swarm返回及USV返回，UUV本请求待命且实际HOME，零锁并明确结束会话。快速联合Plan分别0.012174/0.006674墙秒，当前任务内支援时序调整实际执行；任务间切换按用户最新要求不列本轮验收。边界和证据见[完成记录](docs/reviews/bc-task-chains-completion-20261004.md)。可加载[风机模板](integration/qn_aav_simulator/config/monitoring_request_wind.yaml)和[平台／管路模板](integration/qn_aav_simulator/config/monitoring_request_platform_pipeline.yaml)，不能把模板预览或旧失败世界部分进度当作完成。
 
 [场景配置](integration/qn_aav_simulator/config/five_scene_offshore.yaml)把三台 AAV、USV、UUV 和母船放在同一岸边部署区；[任务请求](integration/qn_aav_simulator/config/monitoring_request_offshore.yaml)声明障碍通道另一侧的空中与水下观测、必要结果接收及返回。RViz 显示同一 ROS 会话中的实际平台状态。坐标以米计，是现有模型的缩比任务场景，不能解释为真实数公里航程或设备通信性能。
 
@@ -37,17 +37,17 @@ USV 局部指令在完整实际 Otter 状态副本上校核短命令与原生减
 在桌面终端打开实时场景与任务入口：
 
 ```bash
-cd /home/lhj/Swarm-Formation
-JOINT_GPU_RENDER=true JOINT_VISUAL_TIMING_RELAX=true \
+cd /data/lhj/codes/Heformation
+JOINT_GPU_RENDER=false JOINT_VISUAL_TIMING_RELAX=true \
   bash scripts/docker_run_three_class_qualification.sh \
   "experiments/$(date -u +%Y%m%dT%H%M%SZ)-offshore-live"
 ```
 
-主入口默认 `JOINT_SIM_SPEED=2.0`，可显式设置1～4，例如在上述命令前加 `JOINT_SIM_SPEED=3`。2倍时一秒现实时间对应两秒 ROS 仿真时间，Qt 显示倍速与仿真用时。qn、Otter/PVS、Swarm、感知与任务使用同一个时钟；模型方程、积分步长和各平台物理速度比例保持不变。实际模型推进可能受计算负载限制，倍速设置不是模型持续达到该速率的证明，运行记录保留模型时间和时钟偏差。
+主入口默认 `JOINT_SIM_SPEED=2.0`，可显式设置1～4，例如在上述命令前加 `JOINT_SIM_SPEED=4`。这是目标倍速，Qt显示目标与实际仿真用时；时钟按原模型已经完成的步数推进，不跳过积分来追赶墙时。qn、Otter/PVS、Swarm、感知与任务使用同一个时钟；模型方程、积分步长和各平台物理速度比例保持不变。实际模型推进受计算负载限制，目标4倍不代表实测4倍，运行记录保留模型时间和时钟偏差。
 
 本机桌面入口的仿真核组默认扩大为 `0-23`，求解使用 `16-19`，界面使用 `24-31`，避免把主要运行过程限制在六个物理核的兄弟线程上。可分别用 `JOINT_SIM_CPUSET`、`JOINT_PLANNER_CPUSET` 和 `JOINT_VIEW_CPUSET` 覆盖；其他硬件使用下述通用入口并按自身CPU设置。
 
-默认共享规划预算为10秒。命令中的 `JOINT_VISUAL_TIMING_RELAX=true` 按用户已授权的可视化政策，仅允许时间审计不合格时在真实终态／采用／安全条件通过后继续；严格时间报告保留原结论，不能据此宣称时间资格通过。UI显示的是原runner同一份Plan与实际结果；预计时间不驱动完成判定，实际模式/支援状态在未收到或过期时显示未知。可选 `JOINT_GPU_RENDER=true` 只影响RViz渲染。这个入口使用本机CPU核组、Docker和Noto CJK字体，本机时钟处理需要非交互式sudo。其他机器可使用 `scripts/docker_run_joint_request.sh` 并按自身环境设置核组。
+默认共享规划预算为10秒。命令中的 `JOINT_VISUAL_TIMING_RELAX=true` 按用户已授权的可视化政策，仅允许时间审计不合格时在真实终态／采用／安全条件通过后继续；严格时间报告保留原结论，不能据此宣称时间资格通过。UI显示的是原runner同一份Plan与实际结果；预计时间不驱动完成判定，实际模式/支援状态在未收到或过期时显示未知。可选 `JOINT_GPU_RENDER=true` 只影响RViz渲染，并需要已安装NVIDIA容器运行时。入口使用服务器CPU核组、Docker和Noto CJK字体；模型时钟模式不需要sudo修改宿主时间服务。其他机器可使用 `scripts/docker_run_joint_request.sh` 并按自身环境设置核组。
 
 默认使用圈区和连续会话主入口（`JOINT_CONTINUOUS_SESSION=true`）。关闭圈区的非图形复现必须通过 `JOINT_REQUEST_FILE` 和 `JOINT_SCENE_FILE` 显式提供同次已生成的请求与场景（包含部署先验），不能直接把基础 BOX 配置当作本次圆区建图验收。UI 初始圆是选择建议，不代表所有区域都已验证。可在一次运行中继续选择区域，任务事实、成果和 GoalID 按请求隔离，已感知的导航知识保留。
 

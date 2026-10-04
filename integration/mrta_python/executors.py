@@ -3065,7 +3065,8 @@ def build_inspection_executor_plan(executors,tasks,request,scene,states,budget_s
         if index==len(ordered):
             # Service ordering is part of each complete candidate, not accepted
             # after independently fixing an assignment. Try finite site orders.
-            sites=list(scene['communication_sites'])
+            sites=[dict(site,position=min(site.get('position_candidates',[site['position']]),
+                key=lambda point:math.dist(states['usv']['position'],point))) for site in scene['communication_sites']]
             service_groups=[]
             for site in sites:
                 ids=[w['work_id'] for w in request.work_items if w['domain']=='WATER' and w['work_id']==site['id']]
@@ -3084,13 +3085,19 @@ def build_inspection_executor_plan(executors,tasks,request,scene,states,budget_s
                     travel=max(4.,math.dist(position,site['position'])/motion_profile['usv_nominal_speed_mps'])
                     waiting=max([clock+travel]+[i.planned_finish for i in items
                         if any(s.work_id in ids or (s.native_action and s.native_action.work_id in ids) for s in i.execution_steps)])
+                    service_budget=dict(model_duration_s=travel*3.+600.)
+                    service_budget.update(inspection_wall_budget(works[ids[0]],service_budget,
+                        states['usv'].get('sampled_model_wall_rate'),states['usv'].get('declared_simulation_speed',1.)))
                     route=NativeActionSpec((NativeSegmentSpec('SURFACE_PATH',(tuple(position),tuple(site['position'])),travel),),
-                        'TRIM_PROPULSION',execution_timeout_s=travel*3.+600.)
-                    move=step(usv,'inspection-support:'+site['id'],position,site['position'],'SURFACE',travel+4.,native=route)
+                        'TRIM_PROPULSION',execution_timeout_s=service_budget['wall_duration_ceiling_s'])
+                    move=step(usv,'inspection-support:'+site['id'],position,site['position'],'SURFACE',travel+4.,
+                        native=route,inspection_work_budget=service_budget)
+                    hold_budget=inspection_wall_budget(works[ids[0]],dict(model_duration_s=184.))
                     hold=NativeActionSpec((NativeSegmentSpec('SURFACE_PATH',(tuple(site['position']),tuple(site['position'])),4.),),
-                        'TRIM_PROPULSION',execution_timeout_s=184.)
+                        'TRIM_PROPULSION',execution_timeout_s=hold_budget['wall_duration_ceiling_s'])
                     wait=step(usv,'inspection-support-receipt:'+site['id'],site['position'],site['position'],'SURFACE',
-                        max(4.,waiting-clock-travel),native=hold,support_work_ids=tuple(ids),support_site_id=site['id'])
+                        max(4.,waiting-clock-travel),native=hold,support_work_ids=tuple(ids),support_site_id=site['id'],
+                        support_site_position=tuple(site['position']))
                     ident=request.request_id+'::support:'+str(n)
                     activity=ExecutorPlanItem(ident,request.request_id+'::'+ids[0],usv.executor_id,('usv',),clock,
                         max(clock+travel+8.,waiting+4.),travel,0.,0.,execution_steps=(move,wait),fulfills_task=False)
@@ -3165,10 +3172,6 @@ def build_inspection_executor_plan(executors,tasks,request,scene,states,budget_s
                 native=NativeActionSpec(tuple(segments),'FIXED_REFERENCE',execution_timeout_s=execution_budget['wall_duration_s'],work_id=work['work_id'])
                 rows.append(step(unit,task.target_ref,source,end,end_mode,duration,native=native,
                     inspection_work_id=work['work_id'],inspection_work_budget=execution_budget))
-                if member.startswith('drone_'):rows.append(step(air,'inspection-hold:'+work['work_id'],end,end,'AIR',4.))
-                else:
-                    hold=NativeActionSpec((NativeSegmentSpec('WATER_PATH',(last,last),4.),),'FIXED_REFERENCE',execution_timeout_s=184.)
-                    rows.append(step(unit,'inspection-hold:'+work['work_id'],last,last,'WATER',4.,native=hold))
             finish=start+sum(r.duration_s for r in rows)
             item=ExecutorPlanItem(task.task_id,task.task_id,unit.executor_id,(member,),start,finish,
                 sum(r.duration_s for r in rows),0.,0.,execution_steps=tuple(rows))

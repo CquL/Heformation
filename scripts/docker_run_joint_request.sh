@@ -59,6 +59,7 @@ if [[ "$JOINT_VISUALIZE" == true ]]; then
   JOINT_GUI_ARGS+=(
     --env DISPLAY --env HOME=/tmp --env QT_X11_NO_MITSHM=1
     --env MPLCONFIGDIR=/tmp/mpl --env XDG_CONFIG_HOME=/tmp/config
+    --env DISABLE_ROS1_EOL_WARNINGS=1
     --volume /tmp/.X11-unix:/tmp/.X11-unix:rw
     --volume /usr/share/fonts/opentype/noto:/usr/share/fonts/opentype/noto:ro
     --volume "$JOINT_FONT:/opt/ros/noetic/share/rviz/ogre_media/fonts/liberation-sans/HeformationCJK.ttc:ro"
@@ -221,7 +222,8 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
       /uuv/used_reference_pose /uuv/used_reference_twist
       /drone_0_planning/pos_cmd /drone_1_planning/pos_cmd /drone_2_planning/pos_cmd
       /drone_0_planning/member_goal /drone_1_planning/member_goal /drone_2_planning/member_goal
-      /drone_0_member_goal /drone_1_member_goal /drone_2_member_goal)
+      /drone_0_member_goal /drone_1_member_goal /drone_2_member_goal
+      /drone_0_formation_goal /drone_1_formation_goal /drone_2_formation_goal)
     if [[ -n "$JOINT_VIEW_CPUSET" ]]; then record_cmd=(taskset -c "$JOINT_VIEW_CPUSET" "${record_cmd[@]}"); fi
     "${record_cmd[@]}" > /experiments/current/recorder.log 2>&1 &
     recorder_pid=$!

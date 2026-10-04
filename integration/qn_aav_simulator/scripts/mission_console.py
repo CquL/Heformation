@@ -23,7 +23,7 @@ from python_qt_binding.QtSvg import QSvgRenderer
 from python_qt_binding.QtWidgets import (QApplication,QFileDialog,QHBoxLayout,QLabel,
     QMessageBox,QPlainTextEdit,QPushButton,QSplitter,QVBoxLayout,QWidget,
     QDialog,QFrame,QTableWidget,QTableWidgetItem,
-    QHeaderView,QAbstractItemView,QProgressBar,QStackedWidget,QComboBox,QCheckBox,QSpinBox)
+    QHeaderView,QAbstractItemView,QProgressBar,QStackedWidget,QComboBox,QCheckBox,QSpinBox,QScrollArea)
 from qn_aav_simulator.task_line import load_request
 from qn_aav_simulator.monitoring_request import circle_joint_mission_mappings,joint_mission_mappings
 
@@ -585,7 +585,9 @@ class JointMissionPanel(QWidget):
         self.plan_info=QLabel('生成后显示方案版本与决策用时');self.plan_info.setWordWrap(True);self.plan_info.setObjectName('muted')
         explain_layout.addWidget(self.plan_info);left_layout.addWidget(explain)
         muted=QLabel('预计时刻仅供调度参考。');muted.setObjectName('muted');left_layout.addWidget(muted)
-        body.addWidget(left)
+        left_scroll=QScrollArea();left_scroll.setWidget(left);left_scroll.setWidgetResizable(True)
+        left_scroll.setFrameShape(QFrame.NoFrame);left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        left_scroll.setFixedWidth(316);body.addWidget(left_scroll)
         middle=QFrame();middle.setObjectName('panel');middle_layout=QVBoxLayout(middle);middle_layout.setContentsMargins(0,0,0,0);middle_layout.setSpacing(0)
         toolbar=QHBoxLayout();toolbar.setContentsMargins(11,8,11,8);toolbar.addWidget(icon_label('link',size=24))
         title=QLabel('区域与协同方案');title.setObjectName('section');toolbar.addWidget(title);toolbar.addStretch()
@@ -746,7 +748,11 @@ class JointMissionPanel(QWidget):
         else:self.center,self.radius=tuple(center),radius;self.update_region()
 
     def update_region(self):
-        if self.select_region:
+        works=self.base_request.get('work_items',())
+        if works:
+            objects='、'.join(dict.fromkeys(work['object_id'] for work in works))
+            self.region.setText('<b>设施巡检范围</b><br>{}<br>{} 项必做作业'.format(objects,len(works)))
+        elif self.select_region:
             self.region.setText('<b>圆形监测区</b><br>圆心 ({:.2f}, {:.2f}) m<br>半径 {:.2f} m'.format(*self.center,self.radius))
         else:self.region.setText('已加载配置中的监测区域\n'+self.base_request['request_id'])
 
@@ -1049,6 +1055,7 @@ class JointMissionPanel(QWidget):
             'WAITING_FOR_SUPPORT_CLEARANCE':'等待无人船到达侧向支援位',
             'SUPPORT_CLEARANCE_CONFIRMED':'支援到位，释放跨介质进场',
             'REGION_MAPPING':'区域扫描建图','FACILITY_INSPECTION':'设施巡视','WAIT_LOCAL_OBSERVATION':'等待安全局部运动',
+            'WAITING_FOR_SUPPORT_STATE':'等待支援实际状态更新',
             'TRIM_PROPULSION':'减速与终态确认','COAST_STOP':'滑行减速',
             'WAITING_FOR_RECEIPTS':'等待作业结果','WAITING_FOR_GROUP_RETURN':'等待共同返航',
             'DISPATCHING':'正在派发','SAFETY_HOLD':'安全保持','UNKNOWN_LOCKED':'异常锁定'}
@@ -1068,6 +1075,8 @@ class JointMissionPanel(QWidget):
                     step=step_label(steps[index])
                     if step in ('返航','扫测','等待出发','编队集结','编队返航','编队返回部署区'):
                         phase=step+('中' if step!='等待出发' else '')
+                if action.get('work_id') and action.get('phase')=='MOVING':
+                    phase='设施巡视' if action.get('work_progress',0.)>0 else '接近设施'
                 resource=('异常锁定' if status=='UNKNOWN_LOCKED' else '执行占用') if item['executor_id'] in state.get('resource_locks',()) else '未占用'
                 if item.get('status') in ('COMPLETED','CANCELED_BY_REPLACEMENT'):resource='已释放'
                 elif terminal:
@@ -1109,11 +1118,19 @@ class JointMissionPanel(QWidget):
                  for i in items for s in i.get('execution_steps',())]
         budgets=[b for b in budgets if b]
         if budgets:
-            self.plan_info.setText(self.plan_info.text()+' · 一遍作业＋一次完整补扫量的时间余量 · 估计工作时间 {:.0f}～{:.0f} 模型秒'.format(
+            self.plan_info.setText(self.plan_info.text()+' · 估计动作观察预算 {:.0f}～{:.0f} 模型秒'.format(
                 min(b['model_duration_s'] for b in budgets),max(b['model_duration_s'] for b in budgets)))
-            self.plan_info.setToolTip('\n'.join('工作 {:.2f}m · 连接 {:.2f}m · 驻留 {:.1f}s · 裕量 {:.0f}模型秒 · 有限墙上观察 {:.0f}s'.format(
-                b['required_movement_length_m'],b['navigation_length_m'],b['required_local_hold_s'],
-                b['model_search_margin_s'],b['wall_duration_s']) for b in budgets))
+            details=[]
+            for budget in budgets:
+                if 'required_movement_length_m' in budget:
+                    details.append('工作 {:.2f}m · 连接 {:.2f}m · 驻留 {:.1f}s · 裕量 {:.0f}模型秒 · 有限墙上观察 {:.0f}s'.format(
+                        budget['required_movement_length_m'],budget['navigation_length_m'],budget['required_local_hold_s'],
+                        budget['model_search_margin_s'],budget['wall_duration_s']))
+                else:
+                    details.append('运动／支援观察预算 {:.0f}模型秒 · 有限墙上观察 {:.0f}s'.format(
+                        budget['model_duration_s'],budget['wall_duration_s']))
+            self.plan_info.setToolTip('\n'.join(details))
+        else:self.plan_info.setToolTip('')
         service_fresh=time.monotonic()-transport.get('received_monotonic',0)<2
         support_active=service_fresh and transport.get('support_active',False)
         self.support_status.setText('支援已结束' if kind=='success' or session_phase=='HOME' else '支援已中止' if kind in ('failure','stopped') else
@@ -1172,7 +1189,7 @@ class JointMissionPanel(QWidget):
         epoch=(state.get('confirmation') or {}).get('at_ros_s')
         elapsed=max(0,state.get('updated_at_ros_s',epoch or 0)-(epoch or 0)) if epoch else 0
         speed=float(state.get('simulation_speed',1.))
-        self.elapsed.setText(('仿真 {:02d}:{:02d} · {:g}×'.format(int(elapsed)//60,int(elapsed)%60,speed)
+        self.elapsed.setText(('仿真 {:02d}:{:02d} · 目标 {:g}×'.format(int(elapsed)//60,int(elapsed)%60,speed)
             if speed!=1. else '已运行 {:02d}:{:02d}'.format(int(elapsed)//60,int(elapsed)%60))
             if epoch else '尚未开始 · {:g}×'.format(speed))
         events=[]
@@ -1369,7 +1386,8 @@ def main():
         if args.output is None:p.error('--output is required for the mission console')
         window=MissionConsole(args.request,args.output,args.serial=='true',bool(args.smoke_image))
     window.show()
-    if args.joint_panel and args.select_region=='false':QTimer.singleShot(250,window.generate)
+    if args.joint_panel and args.select_region=='false' and not window.submitted:
+        QTimer.singleShot(250,window.generate)
     if args.smoke_image:
         app.processEvents()
         window.grab().save(str(args.smoke_image))
