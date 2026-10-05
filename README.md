@@ -93,6 +93,10 @@ docker build -f docker/Dockerfile.qn -t swarm-formation-qn:joint-wip .
 
 旧港口实验的大型本地产物和独立 VRX/Gazebo 试接已按用户要求删除。现有 Swarm、qn、PVS、任务求解与七机控制回归源码仍保留；旧港口结论不作为新远域任务验收。
 
+## 中期报告
+
+报告相关文件统一在[项目报告目录](docs/reports/README.md)：[统一理论PDF](docs/reports/midterm-unified-theory-20261005.pdf)、[TeX源码](docs/reports/midterm-unified-theory-20261005.tex)及原Word模板。文稿对应“二、取得的重要进展及成果／1.课题中期重要进展及成果”，包含三项成果与整体可行性推导。
+
 ## 目录
 
 ```text

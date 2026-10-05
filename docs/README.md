@@ -7,3 +7,4 @@
 
 - [`WORKLOG.md`](WORKLOG.md)：每次改动或实验的计划 / 实际 / 效果记录，持续追加，跨会话记忆。
 - [`QN_INTEGRATION.md`](QN_INTEGRATION.md)：接口语义与运行方法的权威来源。
+- [`reports/`](reports/README.md)：项目报告独立目录，包含中期报告原Word模板、统一理论TeX源码及PDF。

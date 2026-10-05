@@ -1,0 +1,621 @@
+% !TeX program = xelatex
+% !TeX encoding = UTF-8
+\documentclass[UTF8,fontset=fandol,a4paper,11pt]{ctexart}
+\usepackage[margin=24mm,headheight=15pt]{geometry}
+\usepackage{amsmath,amssymb,amsthm,bm,booktabs,array,enumitem,fancyhdr}
+\usepackage[hidelinks,unicode]{hyperref}
+\hypersetup{pdftitle={异构无人航行器集群协同任务闭环统一理论：中期重要进展},pdfauthor={Heformation课题研究文稿}}
+\setlength{\parindent}{2em}
+\setlength{\parskip}{0.3em}
+\setlength{\emergencystretch}{2em}
+\linespread{1.18}
+\setlist{nosep,leftmargin=2em}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small 课题中期重要进展及成果：理论建模与方法推导}
+\fancyhead[R]{\small 2026年10月}
+\fancyfoot[C]{\small\thepage}
+\ctexset{section={format=\large\bfseries,number=（\chinese{section}）,aftername=\quad},subsection={format=\normalsize\bfseries}}
+\newtheorem{proposition}{命题}
+\newtheorem{theorem}{定理}
+\renewcommand{\proofname}{推导}
+\newcommand{\R}{\mathbb R}
+\newcommand{\ind}{\mathbf 1}
+\newcommand{\norm}[1]{\left\lVert #1\right\rVert}
+\newcommand{\Pred}{\operatorname{Pred}}
+\newcommand{\dist}{\operatorname{dist}}
+\newcommand{\wrap}{\operatorname{wrap}}
+
+\begin{document}
+\begin{center}
+  {\LARGE\bfseries 异构无人航行器集群协同任务闭环统一理论}\\[0.6em]
+  {\large 中期重要进展及成果——理论建模与方法推导稿}\\[0.5em]
+  {\small 对应“海洋科技”重大专项旗舰项目中期执行情况报告指定章节}
+\end{center}
+
+\section*{二、取得的重要进展及成果}
+\subsection*{1.课题中期重要进展及成果}
+
+围绕异构无人多航行器集群任务规划与协同控制、路径自主规划和跨域运动控制，课题建立了面向区域调查、海上风电装备巡检及海上作业平台／海底管路巡检的任务闭环统一理论框架。三类业务统一为“作业意图—成员及方法选择—资源与支援安排—运动执行—合格进度与结果反馈”的耦合问题。本阶段给出统一模型、快速联合决策方法及整体可行性推导，重要进展归纳为以下三项。
+
+研究范围为控制侧的任务规划、资源调度、自主路径、编队及跨域运动，专业识别和精细重建由外部模块提供业务结果。理论以可达作业、有界跟踪与扰动、有效模式转换及有限支援事件为适用条件，证明\textbf{任务级可行方案能够通过运动与信息闭环实现合格作业、必要实收及规定返回}。这些条件在后文定理中明确给出，方法依据在参考文献中说明。
+
+\section{形成面向三类业务的异构跨域任务—资源—运动统一模型}
+\subsection{物理成员唯一性与模式相关能力}
+
+令物理平台集合为 $\mathcal R=\{1,\ldots,N\}$。当前系统由三台同型两栖无人机（Aerial--Aquatic Vehicle，AAV）、一台无人水面艇（Unmanned Surface Vehicle，USV）和一台无人水下航行器（Unmanned Underwater Vehicle，UUV）构成；数学表述不限定于该数量。执行单元集合为 $\mathcal E$，每个单元 $e$ 对应物理成员子集 $P_e\subseteq\mathcal R$。单机、跨介质执行及编队可以使用不同逻辑入口，但必须映射到同一物理身份：
+\begin{equation}
+ a_{ie}=\ind\{i\in P_e\},\qquad
+ P_{i,\mathrm{AIR}}=P_{i,\mathrm{WATER}}=\{i\}.
+ \label{eq:identity}
+\end{equation}
+因此，一台AAV的空中入口和水下入口不能被当成两台可同时占用的机器人。
+
+平台状态取为
+\begin{equation}
+ \zeta_i=(x_i,\sigma_i,\eta_i^{\rm ctrl},\ell_i),\qquad
+ \dot x_i=f_i^{\sigma_i}(x_i,u_i,w_i),\quad
+ u_i=\kappa_i^{\sigma_i}(x_i,r_i,\eta_i^{\rm ctrl}),
+ \label{eq:hybrid}
+\end{equation}
+其中，$x_i$ 是真实动力学状态，$\sigma_i$ 为空中（AIR）、水面（SURFACE）、水下（WATER）或已声明的转换阶段；$\eta_i^{\rm ctrl}$ 是控制器内部状态，$\ell_i$ 是任务占用状态，$r_i$ 是当前已采用运动参考，$w_i$ 为扰动。能力是模式、状态和工作要求的函数，而非任意开关：
+\begin{equation}
+ \mathrm{Cap}_{i,m}(t)=
+ \mathrm{Base}_{i,m}\land
+ \mathrm{Guard}_{i,m}\bigl(\zeta_i(t)\bigr).
+ \label{eq:capability}
+\end{equation}
+同型AAV具有相同基础能力，但当前位置、介质、占用及可合法转换状态不同，故具体身份仍由求解选择。
+
+在线决策只使用已收到的信息集合 $I_t$、模型参数 $\Theta$ 及当前生效承诺构造估计 $\widehat\zeta(t)=\mathcal E(I_t;\Theta)$。实际状态 $x_i$、接收估计 $\widehat x_i$ 和参考 $r_i$ 是不同对象；地图也区分已声明设施几何、局部感知和仅用于评估的仿真真值，后者不作为控制输入。
+
+海洋平台的动力学可用Fossen的标准结构表述\cite{fossenmodel}：
+\begin{equation}
+ \dot{\bm\eta}=J(\bm\eta)\bm\nu,\qquad
+ M\dot{\bm\nu}+C(\bm\nu)\bm\nu+D(\bm\nu)\bm\nu+g(\bm\eta)
+ =\bm\tau+\bm\tau_w.
+ \label{eq:marine}
+\end{equation}
+式中 $\bm\eta$、$\bm\nu$ 分别为位姿和体坐标速度；各平台保留自己的质量、附加质量、阻尼、恢复力及控制分配。空中平台使用自己的刚体／推进模型，\textbf{通过模式相关动力学和公共任务状态实现统一，而保留各平台的真实驱动特性}。现有实现中，AIR由Swarm规划参考并由qn模型跟踪，AAV水下与固定WATER的UUV使用qn模型，USV保留Otter及Python Vehicle Simulator（PVS）模型。
+
+跨域转换由入口集合 $G_i^{\sigma\to\sigma'}$ 和状态交接映射 $R_i^{\sigma\to\sigma'}$ 定义：
+\begin{equation}
+ \zeta_i^-\in G_i^{\sigma\to\sigma'},\qquad
+ \zeta_i^+=R_i^{\sigma\to\sigma'}(\zeta_i^-).
+ \label{eq:transition}
+\end{equation}
+软件接管本身不改变物理位置和速度；控制状态是否保留、转换或重新初始化须依据原模型。介质切换不是修改模式标签，更不能把实际状态重置到计划预测位置。
+
+\subsection{业务意图与作业完成条件的统一表达}
+
+令必做作业集合为 $\mathcal W$，每个作业定义为
+\begin{equation}
+ W_k=(\mathrm{id}_k,v_k,\mathcal G_k,\mathcal M_k,
+        \mathcal Q_k,\mathcal C_k),
+ \label{eq:work}
+\end{equation}
+其中 $v_k$ 为几何／作业版本，$\mathcal G_k$ 为对象和范围，$\mathcal M_k$ 为允许方法，$\mathcal Q_k$ 为高度或深度、偏距、速度和规定朝向，$\mathcal C_k$ 为完成条件。作业定义约束“完成什么”，不预先指定从当前平台位置出发的整条运动轨迹。
+
+空间作业要求可以写成 $\dist(p_i,\Gamma_k)\leq\delta_k$、$\norm{\dot p_i}\leq v_k^{\max}$ 及 $|\wrap(\psi_i-\psi_k^{\rm req})|\leq\delta_{\psi,k}$，其中 $\Gamma_k$ 为声明作业几何，版本 $v_k$ 与速度上限 $v_k^{\max}$ 含义不同。AIR有结构朝向要求时取面向可见目标的航向；WATER沿线作业主要取曲线切向航向。这些量由任务与平台能力给出，不通过随意放宽完成条件提高成功率。
+
+\begin{center}
+\small
+\begin{tabular}{p{0.15\textwidth}p{0.29\textwidth}p{0.43\textwidth}}
+\toprule
+业务 & 作业对象 & 控制侧统一表达 \\
+\midrule
+A：区域调查 & 用户选择的监测区域 & 范围及扫描意图；按声明控制侧覆盖／作业标准完成 \\
+B：风机巡检 & 停机且姿态已知的水上结构、水下基础 & 分层外轮廓、选定沿线作业；按介质与可达性选择成员 \\
+C：平台／管路 & 海上设施外侧、水下外部结构、连续管段 & 外轮廓、偏置沿线和指定位置局部作业 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+轮廓、沿线和局部作业是共享的几何表达。结构巡视的偏置距离与分层方式参考水下结构覆盖研究\cite{galceran}，但不移植其重建系统或假定本平台具有论文中所有独立运动自由度。水下前进式巡视以路线切向作为主要航向，不能同时要求欠驱动航行器横向前进且机头始终垂直正对结构。
+
+对作业 $k$、执行单元 $e$ 和方法 $m$ 定义 $z_{kem}\in\{0,1\}$。联合选择满足
+\begin{align}
+ &\sum_{e\in\mathcal E}\sum_{m\in\mathcal M_k}z_{kem}=1,
+       &&k\in\mathcal W,\label{eq:assignment}\\
+ &z_{kem}=1\ \Longrightarrow\
+   \mathrm{Compatible}(W_k,e,m,\widehat\zeta)=1.
+       \label{eq:compatibility}
+\end{align}
+需要多成员协作的作业由包含相应物理成员的执行单元表达，不通过删减必做作业取得“可行”。本模型的作业可以在内部细分为执行活动，成员可从上一设施末端直接接续下一设施，无须每做完一项都返回部署区。
+
+\subsection{真实资源互斥、共享支援与结果依赖}
+
+所选计划展开为活动集合 $\mathcal A$。活动 $a$ 的占用成员、开始和结束时刻分别为 $P_a,s_a,f_a$；占用区间包含进场、作业、必要等待和退出／停稳尾段。每个物理成员满足
+\begin{equation}
+ \sum_{a\in\mathcal A}\ind\{i\in P_a\}
+       \ind_{[s_a,f_a)}(t)\leq 1,
+ \qquad i\in\mathcal R.
+ \label{eq:resource}
+\end{equation}
+转换、单机和组级动作共用该约束。状态未知或未核实停稳的成员保留原占用，而不是按名义结束时间自动释放。
+
+活动先后关系形成图 $\mathcal D=(\mathcal A,\mathcal H)$：
+\begin{equation}
+ (a,b)\in\mathcal H\ \Longrightarrow\ s_b\geq f_a.
+ \label{eq:precedence}
+\end{equation}
+图中只包含作业依赖、真实成员冲突及必要运动先后关系，不要求不同平台同时完成各自段落。
+
+USV支援不是每个作业各复制一份无人艇动作。对共享服务阶段 $h$ 定义服务位置 $q_h$、活动区间 $[s_h,f_h]$ 和引用作业集合 $K_h$。服务范围是任务级条件，USV机体及运动包络仍独立参与避碰。若作业 $k$ 的报告必须通过该阶段交付，则实际交付事件 $t_k^{\rm recv}$ 满足
+\begin{equation}
+ t_k^{\rm gen}\leq t_k^{\rm recv},\qquad
+ t_k^{\rm recv}\in[s_h,f_h],\qquad
+ \mathrm{Ready}_h(t_k^{\rm recv})=1.
+ \label{eq:service}
+\end{equation}
+$\mathrm{Ready}_h$ 必须由实际到位及已接纳支援状态确定，不能由预计到达时刻替代。会合支援思想可参考间歇通信数据采集研究\cite{guo}；当前模型不据此宣称实现其缓存约束、通信协议或全部理论保证。
+
+令 $\mathcal I_R$ 为本请求规定返回的成员集合，$\mathcal W_R$ 为规定实收的报告作业集合，完整任务完成时刻定义为
+\begin{equation}
+ T_{\rm complete}=
+ \max\Bigl(\{t_k^{\rm work}:k\in\mathcal W\}
+       \cup\{t_k^{\rm recv}:k\in\mathcal W_R\}
+       \cup\{t_i^{\rm home}:i\in\mathcal I_R\}\Bigr).
+ \label{eq:completiontime}
+\end{equation}
+监测完成、必要实收和规定返回分别核实；完成监测后驻留与人工授权返回是两个事件。式\eqref{eq:completiontime}定义真实终止条件，\textbf{不要求初次决策精确预知海上任务总工期}。
+
+\paragraph{阶段贡献与前景。}
+本阶段方法贡献是将物理身份、模式能力、作业意图、共享支援和结果终止条件纳入同一耦合模型，使异构分配及修复研究基础\cite{calvo,ditags}与跨介质运动、真实完成条件建立联系。该模型可继续接纳其他设施几何和外部作业要求，保持同一任务权威和各平台原动力学。
+
+\section{形成面向快速决策的完整候选联合求解与事件反馈修复方法}
+\subsection{硬可行条件与名义评价量分离}
+
+任务级变量记为
+\begin{equation}
+ \Pi=(z,\pi,\mathbf s,\mathbf f,\mathbf q,\sigma),
+ \qquad \Pi\in\mathcal F_{\rm task}(\widehat\zeta,W).
+ \label{eq:plan}
+\end{equation}
+其中 $z$ 为成员／方法选择，$\pi$ 为成员接续和共享服务顺序，$\mathbf q$ 为有限支援位置选择，$\sigma$ 为合法模式序列。$\mathcal F_{\rm task}$ 包括必做作业完整性、能力匹配、物理资源互斥、前置关系、支援引用及请求终止要求。真实运动可行域还需满足动力学、障碍、实际跟踪与环境条件，故在相同抽象与状态下
+\begin{equation}
+ \mathcal F_{\rm dyn}\subseteq\mathcal F_{\rm task}.
+ \label{eq:relaxation}
+\end{equation}
+通过任务级校核意味着“可接纳并下发”，并非整项任务已完成动力学证明。没有声明截止或可信能源模型时，不额外强加截止、能源最优或经验权重要求。
+
+现有设施分支按当前状态、可用时刻和声明速度构造快速排序估计。对某一作业候选可写为
+\begin{equation}
+ \widehat c_{kem}=widehat t_e^{\rm free}
+ +\frac{\norm{\widehat p_e-p_k^{\rm entry}}}{v_e^{\rm nominal}}
+ +\frac{L_{km}}{v_{em}^{\rm work}}+D_{km}+\widehat\tau_{kem}^{\rm trans}.
+ \label{eq:score}
+\end{equation}
+$L_{km}$ 为声明巡视长度，$D_{km}$ 为局部作业驻留时间，$\widehat\tau_{kem}^{\rm trans}$ 表示该方法所需转换、连接和现有裕量估计。距离项只是排序用的粗略接近代价，\textbf{不是预设直线路径，也不是可达性证明}。真实耗时满足
+\begin{equation}
+ \tau_a=\widehat\tau_a+\Delta\tau_a,
+ \label{eq:timeuncertainty}
+\end{equation}
+未知的 $\Delta\tau_a$ 随运动反馈修正，不赋予未经论证的精确分布。预计工期可以作为比较和支援排序信息，但安全、必做作业及实收要求不能用低预计工期抵换。
+
+联合性的关键是：成员选择改变该成员后续可用状态、模式及作业末端，从而改变设施间接续和USV服务安排；服务不可接纳时，必须回到同一候选搜索，不能接受只完成成员分配的半份方案。固定候选\emph{展开}次序不意味着不同成员必须按该次序实际执行。任务、调度、运动反馈交错及定向修复的思路参考D-ITAGS\cite{ditags}，本项目不继承其最优性界。
+
+\subsection{有限预算下返回首个完整可派发方案}
+
+给定当前状态与任务模板，形成有限候选集 $\mathcal P$，按式\eqref{eq:score}及已有服务排序生成候选序列。当前算法采用深度优先的完整分支构造：
+\begin{enumerate}[label=\arabic*.]
+ \item 按模式能力及实际占用筛选可用执行单元，不预先固定AAV身份。
+ \item 选择作业成员与方法，递推该成员的预计末态与可用时刻；保留不同成员的并行活动。
+ \item 为完整分工选择共享支援阶段、服务位置和必要接续关系。
+ \item 校核整份任务级候选；失败则回溯相关选择，不删减必做作业。
+ \item 首个完整可接纳候选生成后立即返回；未取得候选则报告具体拒因或预算耗尽。
+\end{enumerate}
+形式上，令 $\mathrm{Check}_{\rm task}(\Pi_j)$ 为完整校核谓词，返回
+\begin{equation}
+ j_* =\min\{j:\mathrm{Check}_{\rm task}(\Pi_j)=1,
+                    \ b_j\leq B\},\qquad \Pi_* =\Pi_{j_*},
+ \label{eq:firstfeasible}
+\end{equation}
+其中 $b_j$ 为累计决策墙上时间，$B$ 为预算；当前初次求解与修复采用10秒共享预算。式\eqref{eq:firstfeasible}不是 $\arg\min T_{\rm complete}$，也不要求把每份方案先完整仿真一次。合作作业的原始组合困难及启发式在线处理有既有研究基础\cite{calvo}。
+
+\begin{proposition}[有限候选的接受正确性与搜索边界]
+假定完整校核对所定义任务级约束是可靠的，所返回 $\Pi_*$ 必属于 $\mathcal F_{\rm task}$。若有限候选生成覆盖 $\mathcal P$、遍历完毕且校核均能终止，则没有返回只能说明 $\mathcal P$ 内无通过校核的方案。预算中断或存在未知校核结果时，不能推断 $\mathcal F_{\rm dyn}$ 或整个数学问题无解。
+\end{proposition}
+\begin{proof}
+返回语句仅对 $\mathrm{Check}_{\rm task}=1$ 的完整候选执行，故由校核可靠性得到第一结论。穷尽有限候选后，所有候选均已被可靠拒绝才得到集合 $\mathcal P$ 内的结论；超时、未知分支和未生成方法均不满足该前提。由式\eqref{eq:relaxation}也不能把任务级接受扩大为动力学全程成功。
+\end{proof}
+这一命题是方法的逻辑性质，不是硬实时证明；10秒配置仍依赖各调用能在预算边界返回或中断。
+
+\subsection{名义时序可构造，实际执行按事件放行}
+
+对选定完整候选，把同成员活动的先后边与必要前置边一起纳入 $\mathcal D$，并在服务交付处展开“实际到位—报告生成—实收”事件；不能把共享支援写成双方互相等待结束的环。
+
+\begin{proposition}[固定候选的调度可构造性]
+若展开后的图 $\mathcal D$ 是有向无环图，活动持续时间 $\widehat\tau_a\geq0$ 有限，资源冲突已通过成员先后边消除，服务阶段及声明时间窗通过校核，则按拓扑顺序可构造满足这些名义条件的调度。
+\end{proposition}
+\begin{proof}
+令 $r_a$ 为由当前实际状态给出的活动最早可用时刻，递推
+\begin{equation}
+ \widehat s_a=\max\left\{r_a,
+       \max_{b\in\Pred(a)}\widehat f_b\right\},\qquad
+ \widehat f_a=\widehat s_a+\widehat\tau_a.
+ \label{eq:earliest}
+\end{equation}
+无前驱时内层最大值取0。无环性保证每个活动递推时前驱已求出；有限节点和有限持续时间保证所得时刻有限。先后不等式自动满足，同成员活动不重叠，服务及时间窗由附加完整校核保障。该构造不能单独证明任意给定截止均可满足。
+\end{proof}
+
+实际派发不以 $t\geq\widehat s_a$ 作为充分条件，而使用
+\begin{equation}
+ \mathrm{Enable}_a(t)=\mathrm{PredDone}_a(t)\land
+ \mathrm{LockFree}_{P_a}(t)\land\mathrm{ModeReady}_a(t)
+ \land\mathrm{InfoReady}_a(t).
+ \label{eq:dispatch}
+\end{equation}
+只有本次动作确需的前置、支援或结果信息才进入谓词；不人为要求所有平台同步。因局部避障或支援延迟导致实际时刻变化时，后继等待实际事件，避免“预计完成即提前返回”。
+
+若各活动确实可在有限时间内执行，必要支援和实收可在有限时间内完成，停止／转换能合法结束，且没有无限次外部修改，则可对拓扑序归纳得到有限完成；这些是\emph{活性假设}，不是由调度模型自动得到的海上任务保证。
+
+\subsection{同请求的残余作业修复}
+
+令 $\mathcal K(t)$ 为已核实完成且版本仍有效的作业部分，$\mathcal U(t)$ 为未完成部分。偏差事件 $\varepsilon_t$ 到达后，只调整受影响的未开始活动及其依赖后继：
+\begin{equation}
+ \Pi^+=\mathrm{Solve}_{B}\bigl(\mathcal U(t),\widehat\zeta(t),
+             \mathcal K(t),\mathcal L(t),\varepsilon_t\bigr),
+ \label{eq:repair}
+\end{equation}
+$\mathcal L(t)$ 是仍生效的物理占用与动作承诺。正在执行的活动先由原执行端局部处理；无法继续、设施定义失效或支援失效才反馈上层。修复不重置物理状态、不继承失效几何进度，也不根据旧动作报告释放新动作的资源。执行修复参考Calvo／Capitán和D-ITAGS\cite{calvo,ditags}，但本模型采用本项目的真实状态、作业版本和接收语义。
+
+\paragraph{阶段贡献与前景。}
+形成了“硬约束优先、粗估计排序、完整候选接纳、实际事件放行、残余作业修复”的方法表述。它把实时决策和长时运动分开，却保持成员、方法、接续和共享服务处于同一求解。后续可在不改变任务语义的前提下改进候选排序及经验证的时间估计，不必恢复逐候选全动力学预演或追求在线全局最优。
+
+\section{建立自主运动、编队及跨域执行的条件可行性与结果闭环}
+\subsection{作业几何生成与局部运动规划分工}
+
+对层高／深度 $z_j$、结构外轮廓 $c_j(s)$、偏距 $d_j$，定义作业意图曲线
+\begin{equation}
+ \gamma_j(s)=c_j(s)+d_j n_j(s),\qquad s\in[0,L_j],
+ \label{eq:contour}
+\end{equation}
+其中 $n_j$ 为所选可达侧的法向，必须检查偏置曲线是否自交、落入结构或超过平台能力。管路中心线 $c(s)$ 是设施几何，沿线作业采用声明的侧向／高度偏置，而不是直接让机器人走在管体中心线上。局部作业是在指定位置满足连续合格时间。区域扫描可采用按范围生成的条带意图；这些均不代替起点到入口、段间连接及绕障规划。
+
+执行端每次从实际状态出发，结合已知设施几何和局部感知生成当前有限短段 $r_i^{(n)}$。未探测空间保持未知，不等于“无障碍”；探测到障碍物也不意味着必须穿过该物体才能完成外部巡视。障碍表面可由外部感知模块提供观察结果，运动侧只处理可达性、安全及声明作业要求。
+
+以局部已核实自由空间 $\mathcal F_{m known}(t)$ 表示运动可检查的环境。一个连续时间充分条件为
+\begin{equation}
+ \mathcal T_i^{\rm motion}(t)\cup\mathcal T_i^{\rm brake}(t)
+       \subseteq\mathcal F_{m known}(t),
+ \label{eq:brake}
+\end{equation}
+其中 $\mathcal T$ 包含机体、跟踪和状态误差包络，检查区间覆盖计算、采用及执行过程。已提交轨迹、新候选及采用前复核的机制参考Robust MADER\cite{rmader}，停稳包络思想参考SUPER\cite{super}；本文以式\eqref{eq:brake}建立自己的组合分析条件。
+
+\subsection{编队图与个体跟踪的耦合}
+
+编队转场沿用Swarm的图相似度表达\cite{swarm}。对参与AAV位置 $p_i$，定义
+\begin{equation}
+ A_{ij}=\norm{p_i-p_j}^2\quad(i\ne j),\quad A_{ii}=0,
+ \quad D_{ii}=\sum_j A_{ij},\quad
+ \widehat L=I-D^{-1/2}AD^{-1/2}.
+ \label{eq:formationgraph}
+\end{equation}
+在节点度均非零时，图形状代价为
+\begin{equation}
+ J_F=\norm{\widehat L-\widehat L_{\rm des}}_F^2.
+ \label{eq:formationcost}
+\end{equation}
+若 $p_i'=\alpha Rp_i+b$，$\alpha>0$ 且 $R$ 为正交矩阵，则 $A'=\alpha^2A$、$D'=\alpha^2D$，故 $\widehat L'=\widehat L$。该性质解释了编队形状可在平移、旋转及尺度变化时保持比较语义；它\emph{不提供}固定绝对间距，碰撞及工作域必须另行约束。式\eqref{eq:formationgraph}--\eqref{eq:formationcost}来自Swarm原方法和源码，不是本课题提出的新图指标。
+
+原规划器在平滑、编队形状、障碍、邻机和运动限幅的共同作用下产生参考；罚项较小不等于所有约束已满足。组级运动从各成员实际位置和已采用边界状态起步，不能将未采用的理想槽位当成机体已经到位。新旧参考在可衔接情形下至少满足
+\begin{equation}
+ r_i^+(t_s)=r_i^-(t_s),\qquad
+ \dot r_i^+(t_s)=\dot r_i^-(t_s).
+ \label{eq:referencecontinuity}
+\end{equation}
+后端要求更高阶连续性时，按其支持的边界条件补充；停止阶段按实际动力学生成减速或保持过程。跨介质接管满足式\eqref{eq:transition}，保持物理状态连续，并以唯一参考所有权和实际采用事件完成控制交接。
+
+\subsection{欠驱动水下巡视的局部跟踪推导}
+
+水下前进式控制使用速度与航向引导，不增加独立侧移控制。对一条局部直线短段，令切向角为 $\gamma$，有符号横向误差为 $e_\perp$，地速为 $U>0$。考虑视线引导（Line-of-Sight，LOS）的一种标准形式\cite{los2014}：
+\begin{equation}
+ \psi_d=\gamma-\widehat\beta-arctan(e_\perp/\Delta),
+       \qquad \Delta>0,
+ \label{eq:los}
+\end{equation}
+$\widehat\beta$ 表示侧滑补偿；未获得可靠估计时不补造估计，而把侧滑、海流和有限航向跟踪误差合并为扰动。理想几何部分由
+\begin{equation}
+ \dot e_\perp=U\sin(\psi+\beta-\gamma)
+       =-\frac{Ue_\perp}{\sqrt{\Delta^2+e_\perp^2}}+d_\perp
+ \label{eq:loserror}
+\end{equation}
+给出。式\eqref{eq:los}用于分析前进式局部路径跟随，推进、航向及深度内环分别保留其执行器分配与饱和条件。
+
+\begin{proposition}[有限工作域内的横向误差充分界]
+若当前短段上 $U\geq U_{\min}>0$，$|d_\perp|\leq\overline d$，且误差处于经检查的不变域 $|e_\perp|\leq E$，则令 $k=U_{\min}/\sqrt{\Delta^2+E^2}$，有
+\begin{equation}
+ e_\perp^2(t)\leq e_\perp^2(0)e^{-kt}
+       +\frac{\overline d^2}{k^2}(1-e^{-kt}).
+ \label{eq:losbound}
+\end{equation}
+\end{proposition}
+\begin{proof}
+取 $V=e_\perp^2/2$，由式\eqref{eq:loserror}和Young不等式得
+\begin{align}
+ \dot V&\leq -ke_\perp^2+\overline d|e_\perp|\\
+       &\leq -\frac{k}{2}e_\perp^2+
+                 \frac{\overline d^2}{2k}
+        =-kV+\frac{\overline d^2}{2k}.
+ \label{eq:loslyapunov}
+\end{align}
+积分比较即得式\eqref{eq:losbound}。若初值在域内且 $\overline d<kE$，则在边界 $|e_\perp|=E$ 有 $\dot V<0$，为该标量子模型提供不变域的充分条件。
+\end{proof}
+
+该结果给出速度、扰动与前视距离共同决定的横向误差界，支持欠驱动航行器以沿切向前进的方式完成巡视。尖角由可执行连接段平滑处理，停稳与转换分别使用相应模式条件。三维自适应LOS研究\cite{alos2024}为进一步选择和分析专门引导律提供依据。
+
+对AIR及其他可控跟踪子系统，可采用模式相关误差条件
+\begin{equation}
+ \underline c_\sigma\norm{e_i}^2\leq V_i^\sigma
+ \leq\overline c_\sigma\norm{e_i}^2,
+ \qquad \dot V_i^\sigma\leq-\alpha_\sigma V_i^\sigma+\chi_\sigma,
+ \label{eq:trackingcontract}
+\end{equation}
+进而推得
+\begin{equation}
+ \norm{e_i(t)}^2\leq
+ \frac{V_i^\sigma(t_0)e^{-\alpha_\sigma(t-t_0)}}{\underline c_\sigma}
+ +\frac{\chi_\sigma}{\alpha_\sigma\underline c_\sigma}
+       (1-e^{-\alpha_\sigma(t-t_0)}).
+ \label{eq:trackingbound}
+\end{equation}
+式中 $\alpha_\sigma>0$、$\chi_\sigma\geq0$ 由相应控制器分析或可靠界给出，误差 $e_i$ 可包含位置、速度及姿态误差。qn保留原径向基函数（Radial Basis Function，RBF）观测／控制通道，工程水下前进式引导作为单独分支；本节以式\eqref{eq:trackingcontract}表达各模式进入统一理论的控制条件。转换后按式\eqref{eq:transition}重新计算 $V_i^{\sigma'}(t_s)$，将其作为下一模式的初值代入式\eqref{eq:trackingbound}，不要求所有平台使用同一个Lyapunov函数。
+
+\subsection{从参考安全到实际安全的条件传递}
+
+令 $\widehat p_i$ 为检查用参考位置，$\rho_i$ 为机体外接包络半径。若在整个检查区间内存在可靠界 $\norm{p_i-\widehat p_i}\leq\epsilon_i$，且
+\begin{equation}
+ \norm{\widehat p_i-\widehat p_j}
+       \geq\rho_i+\rho_j+d_{\min}+\epsilon_i+\epsilon_j,
+ \label{eq:referencesafety}
+\end{equation}
+则由三角不等式
+\begin{equation}
+ \norm{p_i-p_j}\geq
+ \norm{\widehat p_i-\widehat p_j}-\epsilon_i-\epsilon_j
+       \geq\rho_i+\rho_j+d_{\min}.
+ \label{eq:actualsafety}
+\end{equation}
+环境障碍可同样用膨胀集合处理。该推导是标准安全余量关系，不单独作为创新；非球形机体可使用更准确的支撑／占据包络。
+
+动态邻机按物理身份去重，统一坐标和仿真时刻。缺样成员仅在已有状态、有效时间与运动界足以证明不相交时被排除；否则沿原停止／保持流程反馈。由此把邻机信息年龄与物理运动包络联系起来，既保留必要安全义务，也避免无关远处成员造成全局等待。连续安全分析使用整个检查区间上的误差界，采样实现则按其时间与状态包络验证。
+
+该排除条件可用接收时刻 $t_j$ 的状态集合 $\mathcal X_j(t_j)$ 及运动可达集表示：
+\begin{equation}
+ \mathcal X_j(t)=\operatorname{Reach}_{f_j}
+                      \bigl(\mathcal X_j(t_j),t-t_j\bigr).
+ \label{eq:peerreach}
+\end{equation}
+只有本机待执行／制动包络与含机体的该可达集不相交时，才有分析依据排除邻机；若没有适用输入和扰动界，则无法据此获得确定性排除结论。这里是误差分析条件，不增加一个运行时状态管理层。
+
+\subsection{实际合格区间、报告因果与任务闭合}
+
+为每个空间作业段建立参数域 $S_k=[0,L_k]$；轮廓使用弧长，沿线使用长度，区域业务使用声明的控制侧覆盖域。实际样本必须满足
+\begin{equation}
+ Q_k(t)=\ind\{\text{模式、偏距、速度及规定朝向均合格}\}.
+ \label{eq:qualified}
+\end{equation}
+只有连续、关联到当前合法作业段且通过样本间隔／跳变检查的运动片段才能记入合格区间；连接、绕障及缺样不补齐未观测部分。令第 $n$ 次新增有效区间为 $I_{k,n}$，累计
+\begin{equation}
+ C_k(t)=\bigcup_{n:\,t_n\leq t} I_{k,n},\qquad
+ P_k(t)=\frac{\mu(C_k(t))}{\mu(S_k)}\in[0,1].
+ \label{eq:unionprogress}
+\end{equation}
+多个段落的显示进度可对无量纲 $P_k$ 加权，但完整完成要求每个必做段达到规定标准，不能把米与秒直接相加，或用一个段落的超额运动抵消另一段缺失。
+
+局部驻留单独定义连续合格时间
+\begin{equation}
+ H_k(t)=\sup\{h\geq0:Q_k(\tau)=1\text{且有效样本连续，}
+                         \ \forall\tau\in[t-h,t]\},
+ \quad H_k(t)\geq D_k^{\rm req}.
+ \label{eq:dwell}
+\end{equation}
+合格条件中断则本次连续时间重新累计，不用两次不连续驻留拼出一次完整作业。式\eqref{eq:unionprogress}的空间累计在版本有效时单调，式\eqref{eq:dwell}的连续驻留计时则可因中断归零。数学分析以连续合格轨迹为对象，离散实现利用有效样本、时间界和跳变检查形成相应控制侧计量。
+
+\begin{proposition}[不重复计量与版本隔离]
+同一有效作业版本下，空间累计 $C_k$ 单调，$P_k$ 不超过1，重复巡视已计区间不增量。新请求或几何／作业版本失效时，旧区间不能直接计入新定义。
+\end{proposition}
+\begin{proof}
+$C_k^{n+1}=C_k^n\cup I_{k,n+1}$，故 $C_k^n\subseteq C_k^{n+1}\subseteq S_k$。若 $I_{k,n+1}\subseteq C_k^n$ 则并集不变。账本以请求、作业及版本为键；不同键不共享集合，只能在同请求且定义有效的修复中保留已核实区间。
+\end{proof}
+
+控制报告键定义为
+\begin{equation}
+ K=(r,w,v,g),
+ \label{eq:reportkey}
+\end{equation}
+其中 $r,w,v,g$ 分别为请求、作业、版本和实际动作Goal标识。区分合格报告产生 $G_K$、匹配动作成功终态 $A_K$ 和母船实际接收 $R_K$；动作释放还需相应真实停止／终态证据。必要实收的作业闭合为
+\begin{equation}
+ \mathrm{Done}_k=\mathrm{WorkQualified}_k\land G_K\land A_K\land R_K.
+ \label{eq:workdone}
+\end{equation}
+无需实收的普通运动不人为增加收件依赖。资源释放检查当前占用的Goal：
+\begin{equation}
+ \mathrm{Release}(i,g)\Longrightarrow
+       \mathrm{Owner}(\ell_i)=g\ \land\ \mathrm{VerifiedTerminal}(g).
+ \label{eq:release}
+\end{equation}
+旧版本或旧Goal的报告可以按历史归档，但不能解除当前Goal的锁；同请求有效历史进度与当前动作释放是两件不同的事。
+
+在资源锁更新原子化、事件可靠关联且报告只能由合格定义产生的假设下，按事件次序归纳：初始没有重复占用；接纳新动作前检查同成员空闲，运行／未知保持原占用，只有式\eqref{eq:release}释放，因此保持物理互斥；匹配接收才置 $R_K$，因此不会把产生报告当作实收。规定返航的会话最终条件为
+\begin{equation}
+ \mathrm{Complete}=
+  \bigwedge_{k\in\mathcal W}\mathrm{Done}_k
+  \ \land\!\bigwedge_{i\in\mathcal I_R}\mathrm{VerifiedHome}_i
+  \ \land\ \{\mathcal L=\varnothing\}.
+ \label{eq:final}
+\end{equation}
+若用户尚未授权返航，状态是已完成作业后的驻留，而不是伪造式\eqref{eq:final}。编队返航占用所有参与AAV；处于WATER的AAV先合法出水，再由原Swarm组织集结和共同运动。共同返航的“共同”表示协同放行和执行，不要求异构平台同速或同时抵达。
+
+\subsection{从跟踪界推导作业有限完成}
+
+为避免将“各作业能够完成”直接作为假设，进一步由可达几何和运动误差推导其完成性质。令当前巡视曲线 $\gamma_a(s)$ 按弧长参数化、长度为 $L_a$，曲率界为 $\kappa_a^{\max}$，且在半径 $\epsilon_{p,a}$ 的工作管内最近点投影唯一。开放曲线在安全包络允许范围内与入口前、出口后的连接段平滑延伸，使实际投影从不大于0推进至不小于 $L_a$，延伸不计入作业量；闭合轮廓的 $s$ 取连续展开弧长，而不是在每圈起点重新计数。
+
+由位置误差界和合格要求选取
+\begin{equation}
+ \epsilon_{p,a}<\delta_a,\qquad
+ \kappa_a^{\max}\epsilon_{p,a}<1,\qquad
+ v_a^{\min}>\epsilon_{\parallel,a},\qquad
+ v_a^{\max}+\epsilon_{v,a}\leq v_a^{\rm limit}.
+ \label{eq:progressconditions}
+\end{equation}
+其中 $\delta_a$ 为作业偏距容差；$\epsilon_{\parallel,a}$ 是相对当前曲线切向的速度误差界，$\epsilon_{v,a}$ 为速度模误差界；AIR面向结构或WATER沿切向的航向误差同时不超过规定容差。这些界须从对应跟踪模型、初始误差和工作几何取得。
+
+令 $e_n=p_i-\gamma_a(s_i)$，最近点条件为 $e_n^\top\gamma_a'(s_i)=0$。对其求导，并利用 $\norm{\gamma_a'}=1$，得到
+\begin{equation}
+ \dot s_i=
+ \frac{\gamma_a'(s_i)^\top\dot p_i}
+      {1-e_n^\top\gamma_a''(s_i)}
+ \geq
+ \frac{v_a^{\min}-\epsilon_{\parallel,a}}
+      {1+\kappa_a^{\max}\epsilon_{p,a}}
+ =:\nu_a>0.
+ \label{eq:positiveprogress}
+\end{equation}
+这说明真实机体沿作业曲线的进度保持正增长；正增长来自沿线引导及实际误差界，不是由显示时间推动。式\eqref{eq:losbound}给出WATER横向误差的一类充分界，速度／航向内环的适用误差界则给出切向速度条件。各条件同时成立时，整个经过区间均满足作业要求，故合格区间并集在至多 $L_a/\nu_a$ 的巡视时间内覆盖 $[0,L_a]$。已完成区间的重复经过不改变计量；同请求修复只需再次覆盖残余区间。
+
+局部作业在合格位置和姿态保持 $D_a^{\rm req}$ 后由式\eqref{eq:dwell}完成。对于ENTER／EXIT，若合法转换柱内有指向目标介质入口的实际垂向速度界 $\nu_{z,a}>0$，高度／深度差为 $\Delta z_a$，则转换时间不超过 $\Delta z_a/\nu_{z,a}$；守卫条件成立时按式\eqref{eq:transition}交接。该垂向界来自转换动力学和控制条件，不以模式标签切换代替物理穿越。
+
+进场、连接和返航同样按可达曲线与切向进度界处理，终端进入声明的位置／速度合格集合后执行核实停稳。对分配给活动 $a$ 的有限子段集合 $\mathcal S_a$，可构造持续时间上界
+\begin{equation}
+ \overline\tau_a=
+ \sum_{b\in\mathcal S_a^{\rm path}}\frac{L_b}{\nu_b}
+ +\sum_{b\in\mathcal S_a^{\rm local}}D_b^{\rm req}
+ +\sum_{b\in\mathcal S_a^{\rm trans}}\frac{\Delta z_b}{\nu_{z,b}}
+ +\overline\tau_a^{\rm settle}+\overline\tau_a^{\rm handover}.
+ \label{eq:activitybound}
+\end{equation}
+该式是控制条件成立时的充分上界，与初次排序使用的粗估计 $\widehat\tau_a$ 含义不同。它不要求在线逐方案精确预演，而为统一理论的有限完成推导提供依据。
+
+\subsection{协同任务闭环整体可行性定理}
+
+将连续运动、离散计划和执行信息合并为一个混杂状态
+\begin{equation}
+ \Xi=(\{\zeta_i\}_{i\in\mathcal R},\Pi,\{C_k,H_k,G_K,A_K,R_K\},
+                 \mathcal L),\qquad
+ \dot\Xi=F_\sigma(\Xi),\quad
+ \Xi^+=\mathcal R_{\varepsilon}(\Xi).
+ \label{eq:unifiedstate}
+\end{equation}
+连续流由平台运动、控制和合格驻留计时决定，事件跃迁由参考采用、转换、合格区间更新、报告接收、资源释放及计划修复决定。由式\eqref{eq:resource}和实际安全条件定义中间允许集合 $\mathcal X_{\rm safe}$，由式\eqref{eq:final}定义终止集合 $\mathcal X_{\rm final}$。
+
+\begin{theorem}[整体协同任务的条件可行性]
+对于一个有限作业请求，设以下条件成立：
+\begin{enumerate}[label=（\arabic*）]
+ \item 成员／方法／支援的完整候选满足任务级约束，展开活动和报告事件图无环；初始物理身份、占用和版本一致。
+ \item 所需进场、作业、连接及返回具有可达曲线；各曲线工作管和机体包络满足式\eqref{eq:brake}及\eqref{eq:referencesafety}，模式跟踪满足式\eqref{eq:trackingcontract}及\eqref{eq:progressconditions}；转换柱和有限停稳／接管满足上述垂向与终端条件。
+ \item USV服务位置可达，服务保持覆盖实际交付事件；匹配报告在生成且服务就绪后存在有限接收延迟界，动作终态核实也在有限时间内返回。
+ \item 外部修改与修复次数有限，修复后的剩余候选仍满足上述条件，人工返回授权在有限时刻给出。
+\end{enumerate}
+则存在按式\eqref{eq:dispatch}实施的联合执行，使
+\begin{equation}
+ \Xi(t)\in\mathcal X_{\rm safe}\quad(0\leq t\leq T),\qquad
+ \Xi(T)\in\mathcal X_{\rm final},\qquad T<\infty.
+ \label{eq:wholefeasibility}
+\end{equation}
+\end{theorem}
+\begin{proof}
+先由式\eqref{eq:trackingbound}得到各模式的误差包络，转换后的真实初值继续作为下一模式的入口，故运动分析与物理状态一致。式\eqref{eq:actualsafety}将参考包络约束传递到实际机体净距，式\eqref{eq:brake}保障环境及制动包络；资源事件不变量同时保证没有成员重复占用，故允许执行保持在 $\mathcal X_{\rm safe}$。
+
+再由式\eqref{eq:positiveprogress}积分，有 $s_i(t)-s_i(t_0)\geq\nu_a(t-t_0)$。有限长度的必做空间段在有限时间内被真实经过且全段合格；局部驻留、转换及连接的上界由式\eqref{eq:activitybound}给出。因此各作业的有限完成不是独立假设，而是由几何可达、跟踪和正进度条件推得。
+
+把报告生成、服务就绪、实际接收和动作终态分别展开为事件节点。无环性使各后继只等待有限个前驱；前驱运动的有限上界和信息延迟界保证这些等待有限。对拓扑序递推
+\begin{equation}
+ \overline f_a=
+ \max\left\{r_a,\max_{b\in\Pred(a)}\overline f_b\right\}
+          +\overline\tau_a,\qquad
+ \overline T=\max_{a}\overline f_a<\infty,
+ \label{eq:wholebound}
+\end{equation}
+其中事件节点的 $\overline\tau_a$ 取相应核实／接收延迟界，$r_a$ 包含实际可用及人工授权时刻。共享服务在需要的实际接收完成前保持，不以名义服务结束时间提前离开。
+
+同请求修复保留有效已完成集合，安全交接后从实际状态重构有限剩余图；有限次修复的有限区间之和仍有限。最终每个规定作业合格、必要报告匹配实收、规定成员核实返回且锁释放，故达到 $\mathcal X_{\rm final}$。
+\end{proof}
+
+定理把任务、运动和信息条件合成为同一个从输入到终态的可行性结论。可达曲线、扰动／误差界和支援条件定义其适用任务集合；初次任务级接纳与执行中持续检查共同落实这些条件，局部条件失效时按式\eqref{eq:repair}调整剩余作业。有限完成上界用于理论分析，在线快速决策仍使用式\eqref{eq:firstfeasible}而不遍历所有真实工期。
+
+\paragraph{阶段贡献与前景。}
+本阶段将作业意图、实际运动、合格区间、共享支援及报告终态置于同一混杂系统，给出资源／计量不变量、局部跟踪界、真实进度正增长及整体可行性定理。由此形成\textbf{“完整联合方案—受约束运动—合格作业与实收—规定返回”的统一理论链条}，以实际任务闭合而非仅到达固定点作为完成标准。
+
+该理论可扩展到更多设施类型与成员规模，并为型号相关控制条件、复杂环境停稳能力和候选效率改进提供一致分析入口。业务范围依据项目申报书与子课题03实施方案；本课题的贡献是各层耦合及闭环可行性分析，已有动力学、图指标和引导方法的来源如下。
+
+\begingroup
+\linespread{1.02}\selectfont
+\setlength{\parskip}{0pt}
+\begin{thebibliography}{10}
+\small
+\setlength{\itemsep}{3pt}
+\bibitem{calvo}
+Calvo A, Capitán J.
+Heterogeneous Multi-robot Task Allocation for Long-Endurance Missions in Dynamic Scenarios.
+\textit{IEEE Transactions on Robotics}, 2025.
+\href{https://doi.org/10.1109/TRO.2025.3626651}{doi:10.1109/TRO.2025.3626651}.
+用于异构合作任务、启发式求解和执行修复的方法背景，不沿用原生产排序或其全部问题假设。
+
+\bibitem{ditags}
+Neville G, Chernova S, Ravichandar H.
+D-ITAGS: A Dynamic Interleaved Approach to Resilient Task Allocation, Scheduling, and Motion Planning.
+\textit{IEEE Robotics and Automation Letters / IROS}, 2023.
+\url{https://star-lab.cc.gatech.edu/papers/neville-ditags/}.
+用于交错求解与受影响部分修复，不移植原算法的解质量界。
+
+\bibitem{swarm}
+Quan L, Yin L, Xu C, Gao F.
+Distributed Swarm Trajectory Optimization for Formation Flight in Dense Environments.
+\textit{IEEE International Conference on Robotics and Automation}, 2022.
+\url{https://arxiv.org/abs/2109.07682}.
+本系统复用官方Swarm-Formation源码并施加项目补丁，图指标来源于原文／原源码。
+
+\bibitem{fossenmodel}
+Fossen T I. Fossen's Marine Craft Model.
+作者公开模型说明与PVS源码：
+\url{https://www.fossen.biz/html/marineCraftModel.html}；
+\url{https://github.com/cybergalactic/PythonVehicleSimulator}.
+用于海洋动力学表述；不将Otter模型与qn模型视为同一套参数。
+
+\bibitem{galceran}
+Galceran E, Campos R, Palomeras N, Ribas D, Carreras M, Ridao P.
+Coverage Path Planning with Real-time Replanning and Surface Reconstruction for Inspection of Three-dimensional Underwater Structures using Autonomous Underwater Vehicles.
+\textit{Journal of Field Robotics}, 2015, 32(7): 952--983.
+\href{https://doi.org/10.1002/rob.21554}{doi:10.1002/rob.21554}.
+仅参考结构轮廓和运动安排，不将其重建成果列作本课题成果。
+
+\bibitem{guo}
+Guo M, Zavlanos M M.
+Multirobot Data Gathering under Buffer Constraints and Intermittent Communication.
+\textit{IEEE Transactions on Robotics}, 2018, 34(4): 1082--1097.
+\href{https://doi.org/10.1109/TRO.2018.2830370}{doi:10.1109/TRO.2018.2830370}.
+用于移动支援与会合协调背景，本项目仅采用任务级支援及实际收件。
+
+\bibitem{rmader}
+Kondo K, Figueroa R, Rached J, Tordesillas J, Lusk P C, How J P.
+Robust MADER: Decentralized Multiagent Trajectory Planner Robust to Communication Delay in Dynamic Environments.
+作者公开稿，arXiv:2303.06222, 2023.
+\url{https://arxiv.org/abs/2303.06222}.
+与标题不同的ICRA版本区分；本文仅参考候选／提交参考检查机制，不移用其递归可行性定理。
+
+\bibitem{super}
+Ren Y, Zhu F, Lu G, et al.
+Safety-assured high-speed navigation for MAVs.
+\textit{Science Robotics}, 2025, 10(98): eado6187.
+\href{https://doi.org/10.1126/scirobotics.ado6187}{doi:10.1126/scirobotics.ado6187}；
+\url{https://github.com/hku-mars/SUPER}.
+仅参考备份停稳运动思想，本系统未移植完整SUPER。
+
+\bibitem{los2014}
+Fossen T I, Pettersen K Y.
+On uniform semiglobal exponential stability (USGES) of proportional line-of-sight guidance laws.
+\textit{Automatica}, 2014, 50(11): 2912--2917.
+\href{https://doi.org/10.1016/j.automatica.2014.10.018}{doi:10.1016/j.automatica.2014.10.018}.
+用于LOS基本引导几何；本文扰动界推导只针对声明的局部子模型。
+
+\bibitem{alos2024}
+Fossen T I, Aguiar A P.
+A uniform semiglobal exponential stable adaptive line-of-sight (ALOS) guidance law for 3-D path following.
+\textit{Automatica}, 2024, 163: 111556.
+\href{https://doi.org/10.1016/j.automatica.2024.111556}{doi:10.1016/j.automatica.2024.111556}.
+作为三维自适应引导的研究对照，尚未在本项目完整部署。
+\end{thebibliography}
+\endgroup
+\end{document}
