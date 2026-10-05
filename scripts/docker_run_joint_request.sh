@@ -28,7 +28,7 @@ case "$JOINT_GPU_RENDER" in true|false) ;; *) echo 'JOINT_GPU_RENDER must be tru
 case "$JOINT_REGION_UI" in true|false) ;; *) echo 'JOINT_REGION_UI must be true or false' >&2; exit 2 ;; esac
 case "$JOINT_TASK_UI" in true|false) ;; *) echo 'JOINT_TASK_UI must be true or false' >&2; exit 2 ;; esac
 case "$JOINT_CONTINUOUS_SESSION" in true|false) ;; *) echo 'JOINT_CONTINUOUS_SESSION must be true or false' >&2; exit 2 ;; esac
-python3 -c 'import math,sys; n=float(sys.argv[1]); assert math.isfinite(n) and 1<=n<=4, "JOINT_SIM_SPEED must be between 1 and 4"' "$JOINT_SIM_SPEED"
+python3 -c 'import math,sys; n=float(sys.argv[1]); assert math.isfinite(n) and 1<=n<=16, "JOINT_SIM_SPEED must be between 1 and 16"' "$JOINT_SIM_SPEED"
 if [[ "$JOINT_TASK_UI" == true && "$JOINT_VISUALIZE" != true ]]; then
   echo 'JOINT_TASK_UI=true requires JOINT_VISUALIZE=true' >&2; exit 2
 fi

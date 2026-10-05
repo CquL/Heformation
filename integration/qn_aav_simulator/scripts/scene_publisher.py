@@ -815,7 +815,7 @@ def cloud_message(frame_id, stamp, points):
 def main():
     rospy.init_node("scene_publisher")
     speed=float(rospy.get_param('/mission/simulation_speed',1.))
-    if not math.isfinite(speed) or not 1.<=speed<=4.:raise ValueError('simulation speed must be between 1 and 4')
+    if not math.isfinite(speed) or not 1.<=speed<=16.:raise ValueError('simulation speed must be between 1 and 16')
     if rospy.get_param('/use_sim_time',False):
         from rosgraph_msgs.msg import Clock
         clock_pub=rospy.Publisher('/clock',Clock,queue_size=1,latch=True)

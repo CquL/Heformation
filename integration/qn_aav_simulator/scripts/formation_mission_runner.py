@@ -950,11 +950,22 @@ class MissionRunner:
                     raise RuntimeError('joint return blocked by failed commitment: '+self.joint_return_abort)
                 # Validate one coherent callback snapshot of every ready member,
                 # including those that arrived long before the last platform.
+                hold_snapshot={ident:(dict(hold),self.actual.get(hold['member']),
+                    self.executor_diagnostics.get(hold['member'],(None,{})))
+                    for ident,hold in self.joint_return_holds.items()}
+                snapshot_stamp=max((stamp for hold,sample,diagnostic in hold_snapshot.values()
+                    for stamp in (None if sample is None else sample.stamp,diagnostic[0])
+                    if stamp is not None and math.isfinite(stamp)),default=0.)
                 now=rospy.Time.now().to_sec()
+                clock_deadline=time.monotonic()+.25
+                while now<snapshot_stamp and time.monotonic()<clock_deadline and not rospy.is_shutdown():
+                    self.condition.wait(.005)
+                    now=rospy.Time.now().to_sec()
+                if (set(hold_snapshot)!=set(self.joint_return_holds) or
+                        getattr(self,'session_replacing',False) or self.joint_return_abort or rospy.is_shutdown()):
+                    continue
                 ready_states={}
-                for ident,hold in self.joint_return_holds.items():
-                    sample=self.actual.get(hold['member'])
-                    stamp,values=self.executor_diagnostics.get(hold['member'],(None,{}))
+                for ident,(hold,sample,(stamp,values)) in hold_snapshot.items():
                     if (sample is None or not sample.is_fresh(now,.25) or stamp is None or not 0<=now-stamp<=.25 or
                             values.get('actual_mode')!=hold['mode'] or
                             math.dist(sample.position,hold['position'])>hold['radius_m'] or

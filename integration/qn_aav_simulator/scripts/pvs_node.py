@@ -260,7 +260,7 @@ class PvsNode:
                         if target is not None else 1.)
         # Define a desired local leg duration from the declared nominal speed;
         # the native pulse AND stopping rollout must still prove it admissible.
-        horizons=tuple(dict.fromkeys((local_duration,1.,.5,.25))) if facility else (.25,)
+        horizons=tuple(dict.fromkeys((local_duration,1.,.5,.25)))
         candidates=([(target,effort,position,horizon) for horizon in horizons
                      for effort in (requested,requested*.5)] if target is not None else [])
         if target is not None:
@@ -932,7 +932,7 @@ class PvsNode:
     def run(self):
         simulated=bool(rospy.get_param('/use_sim_time',False))
         speed=float(rospy.get_param('/mission/simulation_speed',1.))
-        if simulated and (not math.isfinite(speed) or not 1.<=speed<=4.):
+        if simulated and (not math.isfinite(speed) or not 1.<=speed<=16.):
             raise ValueError('configured shared scene clock speed required')
         while simulated and not rospy.is_shutdown() and rospy.Time.now().to_sec()==0.:time.sleep(.005)
         next_tick=time.monotonic()

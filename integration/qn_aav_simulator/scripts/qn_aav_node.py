@@ -684,7 +684,7 @@ class QnAavNode:
     def run(self):
         simulated=bool(rospy.get_param('/use_sim_time',False))
         speed=float(rospy.get_param('/mission/simulation_speed',1.))
-        if simulated and (not math.isfinite(speed) or not 1.<=speed<=4.):
+        if simulated and (not math.isfinite(speed) or not 1.<=speed<=16.):
             raise ValueError('configured shared scene clock speed required')
         while simulated and not rospy.is_shutdown() and rospy.Time.now().to_sec()==0.:time.sleep(.005)
         # Passive timing evidence; collector policy and model steps are unchanged.
