@@ -1,6 +1,40 @@
 # Heformation
 
+![Heformation 空—海—潜协同任务控制](docs/videos/20261005/cover.svg)
+
 空中两栖无人机（AAV）、无人船（USV）与潜航器（UUV）的协同任务研究工程。当前固定场景使用 Swarm-Formation 空中规划、三台 AAV 的 qn 跨介质模型、一台固定 WATER 的 qn 水下 UUV 代理，以及 Otter/PVS 水面艇；运行环境为 ROS 1 Noetic、Docker 和 RViz。UUV 代理不是 REMUS100 水动力学验证。任务层在 `integration/mrta_python`，执行与场景在 `integration/qn_aav_simulator`。
+
+## 三业务仿真视频
+
+**16倍真实记录快进 · 物理速度不变。** 三段包含作业、共享支援、结果实收和规定返回；A为本次完整实跑记录，B/C来自此前完整成功记录。点击封面打开视频文件，或下载完整MP4。
+
+| A · 海域调查 | B · 风机巡检 | C · 平台／管路巡检 |
+| :---: | :---: | :---: |
+| [![A海域调查视频封面](docs/videos/20261005/A-cover.jpg)](docs/videos/20261005/A-16x.mp4) | [![B风机巡检视频封面](docs/videos/20261005/B-cover.jpg)](docs/videos/20261005/B-16x.mp4) | [![C平台／管路巡检视频封面](docs/videos/20261005/C-cover.jpg)](docs/videos/20261005/C-16x.mp4) |
+| **[▶ 完整视频 · 47秒](docs/videos/20261005/A-16x.mp4)** · [下载MP4](https://github.com/CquL/Heformation/raw/refs/heads/main/docs/videos/20261005/A-16x.mp4) | **[▶ 完整视频 · 2分07秒](docs/videos/20261005/B-16x.mp4)** · [下载MP4](https://github.com/CquL/Heformation/raw/refs/heads/main/docs/videos/20261005/B-16x.mp4) | **[▶ 完整视频 · 2分22秒](docs/videos/20261005/C-16x.mp4)** · [下载MP4](https://github.com/CquL/Heformation/raw/refs/heads/main/docs/videos/20261005/C-16x.mp4) |
+
+<details>
+<summary><strong>▶ A 海域调查：展开完整页内动图</strong></summary>
+
+![A海域调查完整低帧率动图](docs/videos/20261005/A-preview.gif)
+
+</details>
+
+<details>
+<summary><strong>▶ B 风机巡检：展开完整页内动图</strong></summary>
+
+![B风机巡检完整低帧率动图](docs/videos/20261005/B-preview.gif)
+
+</details>
+
+<details>
+<summary><strong>▶ C 平台／管路巡检：展开完整页内动图</strong></summary>
+
+![C平台／管路巡检完整低帧率动图](docs/videos/20261005/C-preview.gif)
+
+</details>
+
+页内动图保留整段视频内容，以5fps低帧率展示，仍按模型时间16倍快进；原画MP4为15fps。完整成片、来源与校验信息见[视频目录](docs/videos/20261005/README.md)。
 
 ## 当前远域场景
 
