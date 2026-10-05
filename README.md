@@ -6,35 +6,32 @@
 
 ## 三业务仿真视频
 
-**16倍真实记录快进 · 物理速度不变。** 三段包含作业、共享支援、结果实收和规定返回；A为本次完整实跑记录，B/C来自此前完整成功记录。点击封面打开视频文件，或下载完整MP4。
+**16倍真实记录快进 · 物理速度不变。** 三段包含作业、共享支援、结果实收和规定返回；A为本次完整实跑记录，B/C来自此前完整成功记录。点击封面跳到页内播放器，可以播放、暂停、拖动进度及全屏观看，也可下载完整MP4。
 
 | A · 海域调查 | B · 风机巡检 | C · 平台／管路巡检 |
 | :---: | :---: | :---: |
-| [![A海域调查视频封面](docs/videos/20261005/A-cover.jpg)](docs/videos/20261005/A-16x.mp4) | [![B风机巡检视频封面](docs/videos/20261005/B-cover.jpg)](docs/videos/20261005/B-16x.mp4) | [![C平台／管路巡检视频封面](docs/videos/20261005/C-cover.jpg)](docs/videos/20261005/C-16x.mp4) |
-| **[▶ 完整视频 · 47秒](docs/videos/20261005/A-16x.mp4)** · [下载MP4](https://github.com/CquL/Heformation/raw/refs/heads/main/docs/videos/20261005/A-16x.mp4) | **[▶ 完整视频 · 2分07秒](docs/videos/20261005/B-16x.mp4)** · [下载MP4](https://github.com/CquL/Heformation/raw/refs/heads/main/docs/videos/20261005/B-16x.mp4) | **[▶ 完整视频 · 2分22秒](docs/videos/20261005/C-16x.mp4)** · [下载MP4](https://github.com/CquL/Heformation/raw/refs/heads/main/docs/videos/20261005/C-16x.mp4) |
+| [![A海域调查视频封面](docs/videos/20261005/A-cover.jpg)](#a-海域调查) | [![B风机巡检视频封面](docs/videos/20261005/B-cover.jpg)](#b-风机巡检) | [![C平台／管路巡检视频封面](docs/videos/20261005/C-cover.jpg)](#c-平台管路巡检) |
+| **[▶ 页内播放 · 47秒](#a-海域调查)** · [下载MP4](https://github.com/CquL/Heformation/raw/refs/heads/main/docs/videos/20261005/A-16x.mp4) | **[▶ 页内播放 · 2分07秒](#b-风机巡检)** · [下载MP4](https://github.com/CquL/Heformation/raw/refs/heads/main/docs/videos/20261005/B-16x.mp4) | **[▶ 页内播放 · 2分22秒](#c-平台管路巡检)** · [下载MP4](https://github.com/CquL/Heformation/raw/refs/heads/main/docs/videos/20261005/C-16x.mp4) |
 
-<details>
-<summary><strong>▶ A 海域调查：展开完整页内动图</strong></summary>
+### A 海域调查
 
-![A海域调查完整低帧率动图](docs/videos/20261005/A-preview.gif)
+47秒 · 区域扫描、跨介质作业、共享支援与共同返航。
 
-</details>
+https://github.com/user-attachments/assets/4f84570b-6b02-4700-8596-b1fba4e89e3d
 
-<details>
-<summary><strong>▶ B 风机巡检：展开完整页内动图</strong></summary>
+### B 风机巡检
 
-![B风机巡检完整低帧率动图](docs/videos/20261005/B-preview.gif)
+2分07秒 · 两台风机水上结构及水下基础巡视、实收与规定返航。
 
-</details>
+https://github.com/user-attachments/assets/727d47d8-b579-4681-9b14-071112a5cbf7
 
-<details>
-<summary><strong>▶ C 平台／管路巡检：展开完整页内动图</strong></summary>
+### C 平台管路巡检
 
-![C平台／管路巡检完整低帧率动图](docs/videos/20261005/C-preview.gif)
+2分22秒 · 平台外侧、水下结构与连续管路巡视、共享支援与返回。
 
-</details>
+https://github.com/user-attachments/assets/40e4a38b-5945-4012-8673-6bb384a4b7b3
 
-页内动图保留整段视频内容，以5fps低帧率展示，仍按模型时间16倍快进；原画MP4为15fps。完整成片、来源与校验信息见[视频目录](docs/videos/20261005/README.md)。
+以上为GitHub原生15fps视频播放器，使用媒体附件而非仓库文件下载链接；完整成片、来源与校验信息见[视频目录](docs/videos/20261005/README.md)。
 
 ## 当前远域场景
 

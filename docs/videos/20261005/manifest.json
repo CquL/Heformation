@@ -8,6 +8,7 @@
     {
       "business": "A",
       "file": "A-16x.mp4",
+      "github_attachment_url": "https://github.com/user-attachments/assets/4f84570b-6b02-4700-8596-b1fba4e89e3d",
       "request_id": "circle-2.00-4.00-r2.00-mapping",
       "source_record": "experiments/20261005-abc-16x-videos/A",
       "source_type": "new complete simulation",
@@ -29,6 +30,7 @@
     {
       "business": "B",
       "file": "B-16x.mp4",
+      "github_attachment_url": "https://github.com/user-attachments/assets/727d47d8-b579-4681-9b14-071112a5cbf7",
       "request_id": "b-09b8504be510",
       "source_record": "experiments/20261004-server715-b-complete-r75",
       "source_type": "previous complete simulation",
@@ -50,6 +52,7 @@
     {
       "business": "C",
       "file": "C-16x.mp4",
+      "github_attachment_url": "https://github.com/user-attachments/assets/40e4a38b-5945-4012-8673-6bb384a4b7b3",
       "request_id": "c-45b0c96d0f75",
       "source_record": "experiments/20261004-server715-c-complete-r78",
       "source_type": "previous complete simulation",
