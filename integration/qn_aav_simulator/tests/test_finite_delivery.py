@@ -2,6 +2,42 @@ import pytest
 from qn_aav_simulator.observation_coverage import DeliveryProduct,FiniteDelivery
 
 
+def test_propagation_arrival_precedes_forwarding_and_cannot_duplicate_capacity():
+    ledger=FiniteDelivery()
+    ledger.produce('report',DeliveryProduct('uuv','mother',100,0.,True))
+    channels={'acoustic':(100.,[('report','uuv','usv',True)]),
+              'radio':(100.,[('report','usv','mother',True)])}
+    delays={('acoustic','report','uuv','usv'):.5}
+    assert ledger.advance_all(1.,channels,delays)==()
+    assert ledger.products['report'].received_prefix.get('usv',0.)==0
+    assert ledger.advance_all(1.25,channels,delays)==()
+    assert sum(event['bytes'] for event in ledger.transfers)==100
+    assert ledger.advance_all(1.5,channels,delays)==()
+    assert ledger.products['report'].received_prefix['usv']==100
+    assert ledger.advance_all(2.5,channels,delays)==('report',)
+
+
+def test_carried_report_stays_on_usv_until_radio_upload_is_available():
+    from qn_aav_simulator.observation_coverage import communication_settings,declared_delivery_channels
+    ledger=FiniteDelivery()
+    ledger.produce('report',DeliveryProduct('uuv','mother',100,0.,True))
+    settings=communication_settings({})
+    offshore={'mother':((0.,0.,3.),'SURFACE'),'uuv':((50.,0.,-2.),'WATER'),
+              'usv':((50.,0.,0.),'SURFACE')}
+    for stamp in (.1,.2,.3):
+        delays={}
+        channels=declared_delivery_channels(ledger.products,offshore,offshore,settings=settings,propagation_delays=delays)
+        assert ledger.advance_all(stamp,channels,delays)==()
+    assert ledger.products['report'].received_prefix['usv']==100
+    assert ledger.products['report'].received_prefix.get('mother',0.)==0
+    uploaded=dict(offshore,usv=((20.,0.,0.),'SURFACE'))
+    for stamp in (.4,.5):
+        delays={}
+        channels=declared_delivery_channels(ledger.products,uploaded,uploaded,settings=settings,propagation_delays=delays)
+        ledger.advance_all(stamp,channels,delays)
+    assert ledger.products['report'].delivered
+
+
 def test_delivery_prediction_cannot_extend_a_finished_physical_commitment():
     import time
     from pathlib import Path

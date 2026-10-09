@@ -3038,9 +3038,12 @@ def build_inspection_executor_plan(executors,tasks,request,scene,states,budget_s
     safety certificate is produced. Construction order is not execution order.
     """
     import itertools
+    from qn_aav_simulator.observation_coverage import communication_settings,service_upload_candidates
     from qn_aav_simulator.inspection_work import work_legs,inspection_work_budget,inspection_wall_budget,inspection_motion_profile,inspection_reference_speed,inspection_exit_runout
     deadline=time.monotonic()+budget_s
     motion_profile=inspection_motion_profile(scene)
+    communication=communication_settings(scene)
+    mother=tuple(scene.get('mother_ship_receiver_position',scene['mother_ship_position']))
     units=[e for e in executors if len(e.physical_agent_ids)==1]
     works={w['work_id']:w for w in request.work_items}
     def expansion_key(task):
@@ -3074,7 +3077,8 @@ def build_inspection_executor_plan(executors,tasks,request,scene,states,budget_s
             for work in request.work_items:
                 if work['domain']=='AIR':
                     end=work_legs(work)[-1]['end']
-                    min(service_groups,key=lambda pair:math.dist(end,pair[0]['position']))[1].append(work['work_id'])
+                    if math.dist(end,mother)>communication['radio_range_m']:
+                        min(service_groups,key=lambda pair:math.dist(end,pair[0]['position']))[1].append(work['work_id'])
             service_groups.sort(key=lambda pair:(
                 max([0.]+[i.planned_finish for i in items if any(s.work_id in pair[1] or
                     s.native_action and s.native_action.work_id in pair[1] for s in i.execution_steps)])+
@@ -3097,13 +3101,28 @@ def build_inspection_executor_plan(executors,tasks,request,scene,states,budget_s
                         'TRIM_PROPULSION',execution_timeout_s=hold_budget['wall_duration_ceiling_s'])
                     wait=step(usv,'inspection-support-receipt:'+site['id'],site['position'],site['position'],'SURFACE',
                         max(4.,waiting-clock-travel),native=hold,support_work_ids=tuple(ids),support_site_id=site['id'],
-                        support_site_position=tuple(site['position']))
+                        support_site_position=tuple(site['position']),support_receiver='usv',communication_phase='COLLECT')
+                    upload=service_upload_candidates(scene,site['position'],site['radius_m'])[0]
+                    upload_duration=max(4.,math.dist(site['position'],upload)/motion_profile['usv_nominal_speed_mps'])
+                    upload_budget=inspection_wall_budget(works[ids[0]],dict(model_duration_s=upload_duration+180.))
+                    upload_action=NativeActionSpec((NativeSegmentSpec('SURFACE_PATH',
+                        (tuple(site['position']),upload),upload_duration),),'TRIM_PROPULSION',
+                        execution_timeout_s=upload_budget['wall_duration_ceiling_s'])
+                    transfer=step(usv,'inspection-upload:'+site['id'],site['position'],upload,'SURFACE',
+                        upload_duration,native=upload_action,communication_phase='CARRY',upload_position=upload,
+                        inspection_work_budget=upload_budget)
+                    upload_hold=NativeActionSpec((NativeSegmentSpec('SURFACE_PATH',(upload,upload),4.),),
+                        'TRIM_PROPULSION',execution_timeout_s=hold_budget['wall_duration_ceiling_s'])
+                    receipt_wait=step(usv,'inspection-upload-receipt:'+site['id'],upload,upload,'SURFACE',4.,
+                        native=upload_hold,support_work_ids=tuple(ids),support_receiver='mother',
+                        communication_phase='UPLOAD',upload_position=upload)
                     ident=request.request_id+'::support:'+str(n)
                     activity=ExecutorPlanItem(ident,request.request_id+'::'+ids[0],usv.executor_id,('usv',),clock,
-                        max(clock+travel+8.,waiting+4.),travel,0.,0.,execution_steps=(move,wait),fulfills_task=False)
+                        max(clock+travel+8.,waiting+4.)+upload_duration+4.,travel+upload_duration,0.,0.,
+                        execution_steps=(move,wait,transfer,receipt_wait),fulfills_task=False)
                     plan_items.append(activity)
                     if previous:links.append((previous,ident))
-                    previous=ident;clock=activity.planned_finish;position=tuple(site['position'])
+                    previous=ident;clock=activity.planned_finish;position=upload
                     for item in plan_items:
                         if any(s.work_id in ids or (s.native_action and s.native_action.work_id in ids) for s in item.execution_steps):
                             item.support_execution_ids=tuple(set(item.support_execution_ids)|{ident})

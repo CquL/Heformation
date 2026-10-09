@@ -1,12 +1,111 @@
 version: 2
 generated: '2026-09-19'
-updated: '2026-10-01'
+updated: '2026-10-09'
 policy:
   pdfs_committed: false
   gitignore_rule: research/literature/papers/*.pdf
   structure: papers/<category>/ per prompt/wenxianSKILL.md
   pdf_acceptance: file reports PDF and size > 50 kB
 papers:
+- key: mocha-icra2024
+  title: Enabling Large-scale Heterogeneous Collaboration with Opportunistic Communications
+  year: 2024
+  venue: ICRA 2024
+  doi: 10.1109/ICRA57147.2024.10611469
+  category: communication
+  url: https://arxiv.org/abs/2309.15975
+  pdf_file: papers/communication/mocha-icra2024.pdf
+  pdf_status: downloaded
+  pdf_pages: 7
+  pdf_size_bytes: 6137800
+  pdf_sha256: 6addc3afd4e33efa8d7757fea2cde2691325afc5e7c5aa7189e790c448ad3f70
+  downloaded_from: https://arxiv.org/pdf/2309.15975
+  downloaded_on: '2026-10-09'
+  version_note: Author preprint arXiv 2309.15975; local research copy
+  read_scope: abstract-and-author-repository-implementation-interfaces
+  notes: notes/mocha-icra2024.md
+  code: [https://github.com/KumarRobotics/MOCHA, https://github.com/KumarRobotics/air_router]
+- key: ihero-rss2024
+  title: 'iHERO: Interactive Human-oriented Exploration and Supervision Under Scarce Communication'
+  year: 2024
+  venue: RSS 2024
+  doi: 10.15607/RSS.2024.XX.115
+  category: task_motion
+  url: https://www.roboticsproceedings.org/rss20/p115.html
+  pdf_file: papers/task_motion/ihero-rss2024.pdf
+  pdf_status: downloaded
+  pdf_pages: 17
+  pdf_size_bytes: 10304978
+  pdf_sha256: 3bc1b72f1708ddd0b6ee1d61d038a6d89aac7fe3d9022c1bcef29e649e0641a8
+  downloaded_from: https://www.roboticsproceedings.org/rss20/p115.pdf
+  downloaded_on: '2026-10-09'
+  version_note: Official conference PDF including supplemental material
+  read_scope: abstract-and-author-project-description
+  notes: notes/ihero-rss2024.md
+- key: willners-cooperative-localization-ral2019
+  title: Sampling-Based Path Planning for Cooperative Autonomous Maritime Vehicles to Reduce Uncertainty in Range-Only Localization
+  year: 2019
+  venue: IEEE Robotics and Automation Letters 4(4):3987–3994
+  doi: 10.1109/LRA.2019.2926947
+  category: maritime
+  url: https://jonatansw.github.io/files/papers/jswiros2019.pdf
+  pdf_file: papers/maritime/willners-cooperative-localization-ral2019.pdf
+  pdf_status: downloaded
+  pdf_pages: 8
+  pdf_size_bytes: 3578209
+  pdf_sha256: dfef0226cc101590dc3f5752f7794c376114f33fd4927fe021e14a4517f9d1b2
+  downloaded_from: https://jonatansw.github.io/files/papers/jswiros2019.pdf
+  downloaded_on: '2026-10-09'
+  read_scope: abstract-section-III-algorithms-1-3-and-limitations
+  notes: notes/willners-cooperative-localization-ral2019.md
+- key: zavlanos-connectivity-tro2008
+  title: Distributed Connectivity Control of Mobile Networks
+  year: 2008
+  venue: IEEE Transactions on Robotics 24(6):1416–1428
+  doi: 10.1109/TRO.2008.2006233
+  category: communication
+  url: https://www.georgejpappas.org/publications/
+  pdf_file: papers/communication/zavlanos-connectivity-tro2008.pdf
+  pdf_status: downloaded
+  pdf_pages: 13
+  pdf_size_bytes: 884797
+  pdf_sha256: af6c92a79ff0538a8155026001fab732f08bcf89312328f58c693f87ca31eeb9
+  downloaded_from: https://www.georgejpappas.org/wp-content/uploads/2024/04/ZP08-Connectivity.pdf
+  downloaded_on: '2026-10-09'
+  read_scope: abstract-and-connectivity-control-decomposition
+  notes: notes/zavlanos-connectivity-tro2008.md
+- key: ama-transmedia-access2025
+  title: A Modular Execution Architecture for Robust Multi-Robot Planning and Acting in Trans-Media Environments
+  year: 2025
+  venue: IEEE Access 13:186208–186230
+  doi: 10.1109/ACCESS.2025.3625646
+  category: mrta
+  url: https://laas.hal.science/hal-05244656v2
+  pdf_file: papers/mrta/ama-transmedia-access2025.pdf
+  pdf_status: downloaded
+  pdf_pages: 47
+  pdf_size_bytes: 1452101
+  pdf_sha256: bef7343d31f46eecd431ceea5e791fbc5b4efa4912a06684cdb99b86b1c5b22f
+  downloaded_from: https://laas.hal.science/hal-05244656v2/document
+  downloaded_on: '2026-10-09'
+  version_note: HAL author manuscript v2, CC BY 4.0; pagination differs from publisher version
+  read_scope: abstract-planning-execution-interfaces-and-transmedia-action-model
+  notes: notes/ama-transmedia-access2025.md
+  code: https://github.com/ViDLR/Ros2PLAN_ws
+- key: jiang-relay-aware-oceaneng2026
+  title: Cross-medium relay-aware motion planning of unmanned surface vehicles for remote underwater target localization
+  year: 2026
+  venue: Ocean Engineering 365:127351
+  doi: 10.1016/j.oceaneng.2026.127351
+  category: maritime
+  url: https://www.sciencedirect.com/science/article/pii/S0029801826031859
+  pdf_file: null
+  pdf_status: access-unresolved
+  read_scope: publisher-indexed-abstract-and-introduction-only
+  notes: notes/jiang-relay-aware-oceaneng2026.md
+  access_attempts:
+  - {url: 'https://www.sciencedirect.com/science/article/pii/S0029801826031859/pdfft?isDTMRedir=true&download=true', error: 'HTTP 403; no PDF saved'}
+  - {url: 'https://api.openalex.org/works/https://doi.org/10.1016/j.oceaneng.2026.127351', error: 'HTTP 429; no verified open manuscript located'}
 - key: castelar-wembers-wind-inspection-jfr2024
   title: LiDAR-based automated UAV inspection of wind turbine rotor blades
   authors: [Carlos Castelar Wembers, Jasper Pflughaupt, Ludmila Moshagen, Michael Kurenkov, Tim Lewejohann, Georg Schildbach]

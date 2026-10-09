@@ -10,6 +10,7 @@ import math
 from dataclasses import dataclass, field
 import copy
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from .observation_coverage import communication_settings
 
 SURFACE = "SURFACE"
 SHORELINE = "SHORELINE"
@@ -212,7 +213,8 @@ def circle_joint_mission_mappings(base_request, base_scene, center, radius_m):
         # actually occupied.
         support=(entry[0]-3.*uy,entry[1]+3.*ux,0.)
         scene['communication_sites']=[dict(id='mapping_support',position=list(support),radius_m=2.,
-            acoustic_contact_m=8.,mother_contact_m=30.,departure_wait_candidates_s=[0.])]
+            acoustic_contact_m=communication_settings(scene)['acoustic_range_m'],
+            mother_contact_m=communication_settings(scene)['radio_range_m'],departure_wait_candidates_s=[0.])]
         scene['return_sites']['uuv']['staging_position']=list(stage)
         scene['online_mapping']=True
         scene['selected_monitoring_area']=dict(shape='CIRCLE',center=[cx,cy,0.],radius_m=r,
@@ -658,7 +660,10 @@ def joint_mission_mappings(base_request,base_scene,selection):
     raw.update(request_id=business.lower()+'-'+uuid.uuid4().hex[:12],
         template_id='WIND_INSPECTION' if business=='B' else 'PLATFORM_PIPELINE_INSPECTION',
         execution_mode='INSPECTION_CONTROL',regions=[],work_items=works,return_required=True,
-        requires_underwater=any(w['domain']=='WATER' for w in works),requires_relay_delivery=True)
+        requires_underwater=any(w['domain']=='WATER' for w in works),
+        requires_relay_delivery=any(w['domain']=='WATER' or
+            math.dist(w['sections'][-1]['points'][-1],scene.get('mother_ship_receiver_position',scene['mother_ship_position']))>
+            communication_settings(scene)['radio_range_m'] for w in works))
     scene['online_mapping']=True;scene['aav_return_policy']='SWARM_FORMATION'
     scene['amphibious_return_altitude_m']=max(2.1891593669479295,float(scene.get('amphibious_return_altitude_m',0.)))
     # Services are intentions next to the work, not obstacle-free approach paths.
@@ -711,10 +716,13 @@ def joint_mission_mappings(base_request,base_scene,selection):
             home=scene['return_sites']['usv']['position']
             safe.sort(key=lambda point:math.dist(point,home))
             sites.append(dict(id=work['work_id'],position=list(safe[0]),position_candidates=[list(point) for point in safe],
-                              radius_m=service_radius,acoustic_contact_m=8.,mother_contact_m=30.))
+                              radius_m=service_radius,acoustic_contact_m=communication_settings(scene)['acoustic_range_m'],
+                              mother_contact_m=communication_settings(scene)['radio_range_m']))
     if not sites:
         p=works[0]['sections'][0]['points'][0]
-        sites=[dict(id='air_support',position=[p[0],p[1]-4.,0.],radius_m=1.5,acoustic_contact_m=8.,mother_contact_m=30.)]
+        sites=[dict(id='air_support',position=[p[0],p[1]-4.,0.],radius_m=1.5,
+            acoustic_contact_m=communication_settings(scene)['acoustic_range_m'],
+            mother_contact_m=communication_settings(scene)['radio_range_m'])] if raw['requires_relay_delivery'] else []
     scene.update(communication_sites=sites,transition_sites=transitions,inspection_selection=copy.deepcopy({k:v for k,v in selection.items() if v is not None}),
                  observation_targets=[dict(id=w['work_id'],position=list(w['sections'][0]['points'][0]),domain=w['domain']) for w in works],
                  selected_monitoring_area=dict(center=list(selection.get('center',models[chosen[0]]['position'][:2])),

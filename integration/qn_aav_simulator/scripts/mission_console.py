@@ -1058,7 +1058,8 @@ class JointMissionPanel(QWidget):
             'WAITING_FOR_SUPPORT_STATE':'等待支援实际状态更新',
             'TRIM_PROPULSION':'减速与终态确认','COAST_STOP':'滑行减速',
             'WAITING_FOR_RECEIPTS':'等待作业结果','WAITING_FOR_GROUP_RETURN':'等待共同返航',
-            'DISPATCHING':'正在派发','SAFETY_HOLD':'安全保持','UNKNOWN_LOCKED':'异常锁定'}
+            'DISPATCHING':'正在派发','COLLECTING_REPORTS':'收集消息','UPLOADING_REPORTS':'上传消息',
+            'SAFETY_HOLD':'安全保持','UNKNOWN_LOCKED':'异常锁定'}
         selected={m for item in items for m in item.get('coalition',())}
         for row,member in enumerate(MEMBERS):
             item=next((i for i in reversed(items) if member in i.get('coalition',()) and
@@ -1138,8 +1139,14 @@ class JointMissionPanel(QWidget):
         self.support_status.setStyleSheet('color: '+(color if terminal else '#069e67' if support_active else '#8190a7')+'; background: #effaf5; border-radius: 11px; padding: 4px 7px; font-size: 11px;')
         clients=[MEMBER_NAMES.get(i.get('coalition',[''])[0],'') for i in items if i.get('fulfills_task',True)]
         self.support_members.setText('服务对象：'+'、'.join(clients) if clients else '等待方案选择服务对象')
-        self.cooperation.setText('USV 同时支援作业平台\n结果收齐、作业到位后共同返航' if items else '按当前状态选择分工与支援\n必要条件满足后共同返航')
-        if session_phase:self.cooperation.setText('USV 同时支援作业平台\n完成后驻留，可继续新任务或确认返航')
+        if transport.get('model')=='FINITE_STAGE_SERVICE':
+            packets=transport.get('products',())
+            relay=sum(packet.get('relay_bytes',0.) for packet in packets)
+            received=sum(packet.get('mother_bytes',0.) for packet in packets)
+            self.support_members.setText(self.support_members.text()+'\nUSV缓存 {:.1f} KiB · 母船已收 {:.1f} KiB\n待传 {:.1f} KiB'.format(
+                relay/1024.,received/1024.,transport.get('queued_bytes',0.)/1024.))
+        self.cooperation.setText('按作业阶段提供共享支援\n收集、必要携带、上传后确认结果' if items else '按当前状态选择分工与支援\n必要条件满足后共同返航')
+        if session_phase:self.cooperation.setText('按作业阶段提供共享支援\n实收完成后驻留，可确认返航')
         returned=state.get('return_completion',{})
         if session_phase=='SWITCHING':
             self.return_title.setText('ⓘ 新任务已确认 · 正在切换')

@@ -4,6 +4,7 @@
   <arg name="output_dir" default="/experiments/current"/>
   <arg name="record" default="true"/>
   <arg name="observed_mapping" default="false"/>
+  <arg name="swarm_run_launch" default="$(find ego_planner)/launch/run_in_sim.launch"/>
   <arg name="transition_fault_behavior" default="FIXED_REFERENCE"/>
   <arg name="planner_speed" default="0.35"/>
   <!-- A user-selected offshore region can put a member target more than 30 m
@@ -12,6 +13,7 @@
        existing hold, clearance and reference-adoption checks. -->
   <arg name="air_observation_timeout_s" default="350.0"/>
   <include file="$(find qn_aav_simulator)/launch/formation_aav3.launch">
+    <arg name="swarm_run_launch" value="$(arg swarm_run_launch)"/>
     <arg name="observed_mapping" value="$(arg observed_mapping)"/>
     <arg name="planner_speed" value="$(arg planner_speed)"/>
     <arg name="safety_hold_timeout_s" value="$(arg air_observation_timeout_s)"/>

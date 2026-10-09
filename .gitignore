@@ -33,3 +33,10 @@ auth.json
 
 # VRX official pinned checkout; fetched by docker_build_vrx.sh, not vendored twice.
 upstream/VRX/
+
+research/literature/papers/communication/mocha-icra2024.pdf
+research/literature/papers/communication/zavlanos-connectivity-tro2008.pdf
+research/literature/papers/task_motion/ihero-rss2024.pdf
+research/literature/papers/maritime/willners-cooperative-localization-ral2019.pdf
+research/literature/papers/mrta/ama-transmedia-access2025.pdf
+research/literature/papers/maritime/jiang-relay-aware-oceaneng2026.pdf

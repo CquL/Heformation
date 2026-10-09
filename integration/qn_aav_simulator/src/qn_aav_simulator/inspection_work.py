@@ -556,15 +556,19 @@ def sample_progress(work,progress,stamp,position,velocity,yaw,mode):
 def control_report(request_id,work,progress,producer,goal_id,stamp):
     if not progress['complete'] or progress['fraction']<1.-1e-8:
         raise ValueError('cannot report incomplete inspection work')
-    return dict(event_type='INSPECTION_CONTROL_REPORT',product_id=goal_id+':work:'+work['work_id'],
+    event=dict(event_type='INSPECTION_CONTROL_REPORT',product_id=goal_id+':work:'+work['work_id'],
         request_id=request_id,work_id=work['work_id'],work_version=work['version'],
         object_id=work['object_id'],point_id=work['work_id'],producer=producer,goal_id=goal_id,
-        generated_at=float(stamp),observed=True,required_bytes=0,
+        generated_at=float(stamp),observed=True,required_bytes=1,
         result=dict(model='CONTROL_INSPECTION',dwell_s=0.,domain=work['domain'],
                     qualified_intervals=copy.deepcopy(progress['intervals']),
                     qualified_work_units=progress['qualified'],required_work_units=progress['total'],fraction=progress['fraction'],
                     measured_length_m=sum(l['length']*sum(b-a for a,b in progress['intervals'].get(str(i),())) for i,l in enumerate(progress['_legs']) if l['kind']!='LOCAL'),
                     qualified_hold_s=sum(l['length']*sum(b-a for a,b in progress['intervals'].get(str(i),())) for i,l in enumerate(progress['_legs']) if l['kind']=='LOCAL')))
+    from .observation_coverage import message_wire_size
+    while event['required_bytes']!=message_wire_size(event):
+        event['required_bytes']=message_wire_size(event)
+    return event
 
 
 def definition_version(value):

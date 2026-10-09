@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 import heapq
 import time
+import json
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, Mapping, Optional, Sequence, Tuple
 
@@ -534,6 +535,42 @@ class DeliveryProduct:
         return self.observed and self.received_at is not None
 
 
+def communication_settings(scene):
+    values=dict(model='FINITE_STAGE_SERVICE',acoustic_range_m=8.,radio_range_m=30.,
+                acoustic_bytes_per_s=2048.,radio_bytes_per_s=32768.,
+                acoustic_propagation_mps=1500.,radio_propagation_mps=299792458.)
+    values.update(scene.get('communication',{}))
+    for key,value in values.items():
+        if key=='model':continue
+        if not isinstance(value,(int,float)) or not math.isfinite(value) or value<=0:
+            raise ValueError('positive finite communication parameter required: '+key)
+    return values
+
+
+def message_wire_size(event):
+    return 4+len(json.dumps(event,allow_nan=False).encode('utf-8'))
+
+
+def service_upload_candidates(scene,position,radius_m=1.5):
+    from .experiment_verdict import StaticSceneGeometry
+    settings=communication_settings(scene)
+    mother=tuple(scene.get('mother_ship_receiver_position',scene['mother_ship_position']))
+    reach=settings['radio_range_m']-radius_m
+    if reach<=abs(mother[2]):
+        raise ValueError('radio range cannot provide a surface upload window')
+    horizontal=math.sqrt(reach*reach-mother[2]*mother[2])
+    angle=math.atan2(position[1]-mother[1],position[0]-mother[0])
+    candidates=[tuple(position[:2])+(0.,)]
+    candidates.extend((mother[0]+horizontal*math.cos(angle+index*math.pi/8),
+        mother[1]+horizontal*math.sin(angle+index*math.pi/8),0.) for index in range(16))
+    candidates.append(tuple(scene['return_sites']['usv']['position']))
+    geometry=StaticSceneGeometry.from_mapping(scene)
+    candidates=[point for point in dict.fromkeys(candidates) if math.dist(point,mother)<=reach+1e-8 and
+        (geometry is None or not geometry.violation(point,1.1891593669479295))]
+    if not candidates:raise ValueError('no declared safe surface upload position')
+    return tuple(sorted(candidates,key=lambda point:math.dist(point,position)))
+
+
 class FiniteDelivery:
     """Apply a shared-channel byte budget exactly once per model interval.
 
@@ -550,6 +587,10 @@ class FiniteDelivery:
         self.start_time=start_time
         self._epoch_time=None
         self._epoch_prefixes={}
+        self.in_flight=[]
+        self.sent_prefixes={}
+        self.committed_prefixes={}
+        self.transfers=[]
 
     def produce(self,product_id,product):
         if product_id in self.products:
@@ -560,7 +601,7 @@ class FiniteDelivery:
         """Legacy single-channel boundary; same-time calls share a snapshot."""
         return self.advance_all(now_s,{channel:(bytes_per_second,flows)})
 
-    def advance_all(self,now_s,channels):
+    def advance_all(self,now_s,channels,propagation_delays=None):
         """One shared step-start snapshot across all acoustic/RF channels.
 
         ``channels`` maps channel identity to (effective rate, ordered flows).
@@ -573,6 +614,7 @@ class FiniteDelivery:
         if self._epoch_time is not None and now_s<self._epoch_time:
             raise ValueError('communication time moved backwards')
         updates={name:(rate,tuple(flows)) for name,(rate,flows) in channels.items()}
+        propagation_delays=propagation_delays or {}
         # Validate every channel before modifying any ledger or epoch.
         for name,(rate,flows) in updates.items():
             if not name or not math.isfinite(rate) or rate<0:
@@ -580,22 +622,43 @@ class FiniteDelivery:
             for key,source,destination,available in flows:
                 if key not in self.products or not source or not destination or source==destination or type(available) is not bool:
                     raise ValueError('invalid delivery flow')
+                delay=propagation_delays.get((name,key,source,destination),0.)
+                if not math.isfinite(delay) or delay<0:
+                    raise ValueError('finite nonnegative propagation delay required')
         if self._epoch_time!=now_s:
             self._epoch_prefixes={k:dict(p.received_prefix) for k,p in self.products.items()}
             self._epoch_time=now_s
         receipts=[]
+        pending=[]
+        for arrival,key,destination,prefix in self.in_flight:
+            if arrival>now_s:
+                pending.append((arrival,key,destination,prefix));continue
+            product=self.products[key]
+            product.received_prefix[destination]=max(product.received_prefix.get(destination,0.),prefix)
+            if destination==product.receiver and prefix>=product.required_bytes and product.received_at is None:
+                product.received_at=now_s;receipts.append(key)
+        self.in_flight=pending
         for channel,(rate,flows) in updates.items():
             before=self.channel_time.get(channel,self.start_time)
             budget=rate*(now_s-before)
             for key,source,destination,available in flows:
                 product=self.products[key]
                 if not available or product.generated_at>before:continue
-                old=product.received_prefix.get(destination,0.)
+                flow=(channel,key,source,destination)
+                old=max(product.received_prefix.get(destination,0.),self.committed_prefixes.get((key,destination),0.))
                 amount=min(budget,max(0.,self._epoch_prefixes.get(key,{}).get(source,0.)-old))
                 if amount<=0:continue
-                product.received_prefix[destination]=old+amount
+                prefix=old+amount
+                self.sent_prefixes[flow]=prefix
+                self.committed_prefixes[(key,destination)]=prefix
                 budget-=amount
-                if destination==product.receiver and old+amount>=product.required_bytes and product.received_at is None:
+                delay=propagation_delays.get(flow,0.)
+                self.transfers.append(dict(channel=channel,product_id=key,sender=source,
+                    receiver=destination,bytes=amount,sent_at=now_s,arrival_at=now_s+delay))
+                if delay>0:
+                    self.in_flight.append((now_s+delay,key,destination,prefix));continue
+                product.received_prefix[destination]=prefix
+                if destination==product.receiver and prefix>=product.required_bytes and product.received_at is None:
                     product.received_at=now_s
                     receipts.append(key)
             self.channel_time[channel]=now_s
@@ -611,7 +674,7 @@ def radio_link_available(samples, source, destination, obstacles=()):
             math.dist(a,b)<=30. and not any(o.blocks(a,b) for o in obstacles))
 
 
-def declared_delivery_channels(products,previous,states,obstacles=(),continuous=True):
+def declared_delivery_channels(products,previous,states,obstacles=(),continuous=True,settings=None,propagation_delays=None):
     """The frozen sampled link model, shared by prediction and live transport.
 
     State values are (position, actual medium). The mother ship knows neither
@@ -623,12 +686,22 @@ def declared_delivery_channels(products,previous,states,obstacles=(),continuous=
         if water:
             if {ma,mb}!={'WATER','SURFACE'}:return False
         else:
+            if settings is not None:
+                return (ma in ('AIR','SURFACE') and mb in ('AIR','SURFACE') and
+                    math.dist(a,b)<=settings['radio_range_m'])
             return radio_link_available(samples,source,destination,obstacles)
+        if settings is not None:
+            return math.dist(a,b)<=settings['acoustic_range_m']
         return math.dist(a,b)<=8. and not any(o.blocks(a,b) for o in obstacles)
     acoustic=[];radio=[]
     for ident,product in products.items():
         if product.received_at is not None:continue
         source=product.producer
+        if source!='mother' and product.receiver!='mother':
+            destination=product.receiver
+            radio.append((ident,source,destination,continuous and
+                link(previous,source,destination,False) and link(states,source,destination,False)))
+            continue
         if source=='mother':
             destination=product.receiver
             radio.append((ident,'mother',destination,continuous and
@@ -652,6 +725,15 @@ def declared_delivery_channels(products,previous,states,obstacles=(),continuous=
         for sender in dict.fromkeys((source,'usv')):
             radio.append((ident,sender,'mother',continuous and
                 link(previous,sender,'mother',False) and link(states,sender,'mother',False)))
+    if settings is not None:
+        if propagation_delays is not None:
+            for channel,flows in (('acoustic',acoustic),('radio',radio)):
+                speed=settings[channel+'_propagation_mps']
+                for key,source,destination,available in flows:
+                    if source in states and destination in states:
+                        propagation_delays[(channel,key,source,destination)]=math.dist(states[source][0],states[destination][0])/speed
+        return {'acoustic':(settings['acoustic_bytes_per_s'],acoustic),
+                'radio':(settings['radio_bytes_per_s'],radio)}
     return {'acoustic':(2*1024,acoustic),'radio':(32*1024,radio)}
 
 

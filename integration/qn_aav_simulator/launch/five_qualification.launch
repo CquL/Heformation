@@ -7,6 +7,7 @@
   <arg name="record" default="true"/>
   <arg name="request_file" default=""/>
   <arg name="observed_mapping" default="false"/>
+  <arg name="swarm_run_launch" default="$(find ego_planner)/launch/run_in_sim.launch"/>
   <arg name="visual_timing_relaxation" default="false"/>
   <arg name="simulation_speed" default="1.0"/>
   <arg name="air_planner_speed" default="0.35"/>
@@ -19,6 +20,7 @@
   </group>
   <param name="scene_publisher/visualize" value="$(arg visualize)"/>
   <include file="$(find qn_aav_simulator)/launch/swarm_roundtrip.launch">
+    <arg name="swarm_run_launch" value="$(arg swarm_run_launch)"/>
     <arg name="observed_mapping" value="$(arg observed_mapping)"/>
     <arg name="output_dir" value="$(arg output_dir)"/>
     <arg name="record" value="$(arg record)"/>

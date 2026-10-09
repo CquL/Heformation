@@ -1,5 +1,7 @@
 # 研究地图（RESEARCH_MAP）
 
+> **2026-10-09 通信实施参考归档**：复用CoCoPlan、ACHORD、Guo／Zavlanos、Xiroi II和Robust MADER；新增取得MOCHA、iHERO、Willners、T-RO连通控制及AMA共5份合法PDF，分类及SHA256在manifest。Ocean Engineering 2026中继规划全文未取得，保留摘要级标记。第三方新PDF按用户要求仅本地研究，笔记分别标明阅读范围；未迁入这些代码框架，不把下载或参考等同于工程验收。
+
 按 `prompt/wenxianSKILL.md` 第 2 节的状态标签维护。**禁止**把"论文提出 / 框架具备"写成"本项目已实现"。
 
 > **2026-10-01 本轮：B/C 模板只设计，未实施/实跑。** 设计见 `docs/requirements/inspection-business-templates-20261001.md`。Castelar Wembers 2024 已重点核查开放 HTML 正文，PDF 未取得，Lübeck 元数据 HTML 已下载；Galceran 2015 的机构公开 PDF 已取得并逐页核查重点段；Guo/APEX-MR 复用已有 PDF；DNV 仅下载官方公开页，F116 完整标准未取得/未读。归档索引 `sources/inspection-templates-20261001/README.md`，书目/取得状态见 manifest。本轮不引入新求解框架、不开展控制测试，专业视觉/识别/精细重建不属本部门。下方早期文献建议不是当前用户政策；当前执行事实以 context/02、15 和 WORKLOG 为准。

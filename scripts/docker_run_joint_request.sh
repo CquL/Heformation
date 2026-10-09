@@ -151,12 +151,33 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
       active_request=/experiments/current/ui-request.yaml
       active_scene=/experiments/current/ui-scene.yaml
     fi
+    swarm_run_launch=$(python3 - "$active_scene" <<PY
+import pathlib, subprocess, sys, yaml
+from qn_aav_simulator.observation_coverage import communication_settings
+scene=yaml.safe_load(open(sys.argv[1])).get("scene",{})
+package=subprocess.check_output(["rospack","find","ego_planner"],text=True).strip()
+launch=pathlib.Path(package)/"launch/run_in_sim.launch"
+if communication_settings(scene)["model"]=="FINITE_STAGE_SERVICE":
+    target=pathlib.Path(package)/"launch/advanced_param.xml"
+    text=target.read_text()
+    topic="/drone_"+chr(36)+"(arg drone_id)_received_traj"
+    directory=pathlib.Path("/tmp/heformation-communication-launch")
+    directory.mkdir(exist_ok=True)
+    advanced=directory/"advanced_param.xml"
+    advanced.write_text(text.replace("/broadcast_traj_to_planner",topic))
+    run=directory/"run_in_sim.launch"
+    run.write_text(launch.read_text().replace(chr(36)+"(find ego_planner)/launch/advanced_param.xml",str(advanced)))
+    launch=run
+print(launch)
+PY
+    )
     sim_prefix=()
     observed_mapping=$(python3 -c "import yaml,sys; print(str(yaml.safe_load(open(sys.argv[1])).get(\"execution_mode\") in (\"ONLINE_MAPPING\",\"INSPECTION_CONTROL\")).lower())" "$active_request")
     read -r air_planner_speed usv_propulsion_effort usv_local_query_budget <<< "$(python3 -c "import yaml,sys; from qn_aav_simulator.inspection_work import inspection_motion_profile; p=inspection_motion_profile(yaml.safe_load(open(sys.argv[1])).get(\"scene\",{})); print(p[\"air_planner_speed_mps\"],p[\"usv_propulsion_effort_n\"],p[\"usv_local_query_budget_s\"])" "$active_scene")"
     if [[ -n "$JOINT_SIM_CPUSET" ]]; then sim_prefix=(taskset -c "$JOINT_SIM_CPUSET"); fi
     "${sim_prefix[@]}" roslaunch qn_aav_simulator five_qualification.launch record:=false \
       simulation_speed:="$JOINT_SIM_SPEED" \
+      swarm_run_launch:="$swarm_run_launch" \
       air_planner_speed:="$air_planner_speed" usv_propulsion_effort:="$usv_propulsion_effort" usv_local_query_budget:="$usv_local_query_budget" \
       observed_mapping:="$observed_mapping" \
       visual_timing_relaxation:="$JOINT_VISUAL_TIMING_RELAX" \
@@ -190,7 +211,10 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
     timeout 15 rosbag record --lz4 -l 1 -O /experiments/current/scene-once.bag \
       /scene/global_cloud > /experiments/current/scene-recorder.log 2>&1
     record_cmd=(rosbag record --lz4 --buffsize=256 -O /experiments/current/execution.bag
-      /clock /aav_1/formation_action/goal /aav_1/formation_action/result
+      /clock /scene/communication_transfers /usv/received_products /mother/received_states
+      /mother/command_requests /mother/command_deliveries
+      /drone_0_received_traj /drone_1_received_traj /drone_2_received_traj
+      /aav_1/formation_action/goal /aav_1/formation_action/result
       /aav_2/formation_action/goal /aav_2/formation_action/result
       /aav_3/formation_action/goal /aav_3/formation_action/result
       /aav_formation/formation_action/goal /aav_formation/formation_action/result

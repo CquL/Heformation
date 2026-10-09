@@ -7,6 +7,14 @@ scene:
   topic: /scene/global_cloud
   frame_id: world
   surface_z_m: 0.0
+  communication:
+    model: FINITE_STAGE_SERVICE
+    acoustic_range_m: 8.0
+    radio_range_m: 30.0
+    acoustic_bytes_per_s: 2048.0
+    radio_bytes_per_s: 32768.0
+    acoustic_propagation_mps: 1500.0
+    radio_propagation_mps: 299792458.0
   seabed_z_m: -6.0
   required_clearance_m: 0.2
   resolution: 0.2
