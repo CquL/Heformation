@@ -95,7 +95,7 @@ docker build -f docker/Dockerfile.qn -t swarm-formation-qn:joint-wip .
 
 ## 中期报告
 
-报告相关文件统一在[项目报告目录](docs/reports/README.md)：[统一理论PDF](docs/reports/midterm-unified-theory-20261005.pdf)、[TeX源码](docs/reports/midterm-unified-theory-20261005.tex)及原Word模板。文稿对应“二、取得的重要进展及成果／1.课题中期重要进展及成果”，包含三项成果与整体可行性推导。
+报告相关文件统一在[项目报告目录](docs/reports/README.md)。当前按新正文模板编写的[专题技术报告Word](docs/reports/20261009-technical-report/异构无人航行器集群任务规划与协同控制技术研究-正文.docx)及[PDF](docs/reports/20261009-technical-report/异构无人航行器集群任务规划与协同控制技术研究-正文.pdf)从目录页开始，包含统一模型、联合求解、自主路径与协同控制、整体可行性及三业务仿真结果，图位预留。原12页理论稿作为历史素材保留。
 
 ## 目录
 
