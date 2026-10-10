@@ -154,7 +154,7 @@ def inspection_wall_budget(work,budget,measured_rate=None,declared_speed=1.):
         raise ValueError('invalid inspection wall reserve')
     observed=measured_rate is not None and math.isfinite(measured_rate) and measured_rate>0
     rate=max(floor,min(declared_speed,measured_rate if observed else fallback))
-    return dict(wall_duration_s=budget['model_duration_s']*reserve/rate,
+    return dict(model_duration_s=budget['model_duration_s'],wall_duration_s=budget['model_duration_s']*reserve/rate,
                 wall_duration_ceiling_s=budget['model_duration_s']*reserve/floor,
                 sampled_model_wall_rate=measured_rate if observed else None,
                 watchdog_model_wall_rate=rate,wall_rate_source='ACTUAL_RECENT_WINDOW' if observed else 'FINITE_1X_FALLBACK',

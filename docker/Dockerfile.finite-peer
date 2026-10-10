@@ -1,0 +1,6 @@
+ARG BASE_IMAGE=swarm-formation-qn:joint-wip
+FROM ${BASE_IMAGE}
+USER root
+COPY integration/swarm_qn_bridge/patches/swarm_finite_peer_transport.patch /tmp/swarm_finite_peer_transport.patch
+RUN patch -p1 -d /workspace/src --batch --forward < /tmp/swarm_finite_peer_transport.patch
+RUN /bin/bash -lc 'source /opt/ros/noetic/setup.bash && cd /workspace && catkin_make --pkg ego_planner -j2'

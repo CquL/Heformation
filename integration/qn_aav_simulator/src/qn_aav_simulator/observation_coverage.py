@@ -579,7 +579,7 @@ class FiniteDelivery:
     sampled model cannot instantly forward a newly received hop in the same tick.
     The caller is the simulated transport, not the mother-ship truth reader.
     """
-    def __init__(self, start_time=0.):
+    def __init__(self, start_time=0., fair=False):
         if not math.isfinite(start_time) or start_time<0:
             raise ValueError('finite nonnegative start time required')
         self.products={}
@@ -591,11 +591,23 @@ class FiniteDelivery:
         self.sent_prefixes={}
         self.committed_prefixes={}
         self.transfers=[]
+        self.fair=fair
 
     def produce(self,product_id,product):
         if product_id in self.products:
             raise ValueError('product already generated')
         self.products[product_id]=product
+
+    def retire_received(self,product_ids):
+        in_flight={key for arrival,key,destination,prefix in self.in_flight}
+        retired={key for key in product_ids if key in self.products and
+            self.products[key].received_at is not None and key not in in_flight}
+        for key in retired:
+            self.products.pop(key)
+            self._epoch_prefixes.pop(key,None)
+        self.sent_prefixes={flow:prefix for flow,prefix in self.sent_prefixes.items() if flow[1] not in retired}
+        self.committed_prefixes={flow:prefix for flow,prefix in self.committed_prefixes.items() if flow[0] not in retired}
+        return retired
 
     def advance(self,channel,now_s,bytes_per_second,flows):
         """Legacy single-channel boundary; same-time calls share a snapshot."""
@@ -641,12 +653,19 @@ class FiniteDelivery:
         for channel,(rate,flows) in updates.items():
             before=self.channel_time.get(channel,self.start_time)
             budget=rate*(now_s-before)
+            eligible=[]
             for key,source,destination,available in flows:
+                product=self.products[key]
+                if not available or product.generated_at>before:continue
+                old=max(product.received_prefix.get(destination,0.),self.committed_prefixes.get((key,destination),0.))
+                if self._epoch_prefixes.get(key,{}).get(source,0.)>old:eligible.append((key,source,destination,available))
+            for index,(key,source,destination,available) in enumerate(eligible):
                 product=self.products[key]
                 if not available or product.generated_at>before:continue
                 flow=(channel,key,source,destination)
                 old=max(product.received_prefix.get(destination,0.),self.committed_prefixes.get((key,destination),0.))
-                amount=min(budget,max(0.,self._epoch_prefixes.get(key,{}).get(source,0.)-old))
+                allocation=budget/(len(eligible)-index) if self.fair else budget
+                amount=min(allocation,max(0.,self._epoch_prefixes.get(key,{}).get(source,0.)-old))
                 if amount<=0:continue
                 prefix=old+amount
                 self.sent_prefixes[flow]=prefix
@@ -699,8 +718,20 @@ def declared_delivery_channels(products,previous,states,obstacles=(),continuous=
         source=product.producer
         if source!='mother' and product.receiver!='mother':
             destination=product.receiver
-            radio.append((ident,source,destination,continuous and
-                link(previous,source,destination,False) and link(states,source,destination,False)))
+            direct=(continuous and link(previous,source,destination,False) and
+                link(states,source,destination,False))
+            radio.append((ident,source,destination,direct))
+            if settings is not None and not direct:
+                if source!='usv':
+                    radio.append((ident,source,'usv',continuous and
+                        link(previous,source,'usv',False) and link(states,source,'usv',False)))
+                    acoustic.append((ident,source,'usv',continuous and
+                        link(previous,source,'usv',True) and link(states,source,'usv',True)))
+                if destination!='usv':
+                    radio.append((ident,'usv',destination,continuous and
+                        link(previous,'usv',destination,False) and link(states,'usv',destination,False)))
+                    acoustic.append((ident,'usv',destination,continuous and
+                        link(previous,'usv',destination,True) and link(states,'usv',destination,True)))
             continue
         if source=='mother':
             destination=product.receiver
@@ -713,6 +744,9 @@ def declared_delivery_channels(products,previous,states,obstacles=(),continuous=
                     link(previous,'usv',destination,False) and link(states,'usv',destination,False)))
                 acoustic.append((ident,'usv',destination,continuous and
                     link(previous,'usv',destination,True) and link(states,'usv',destination,True)))
+            continue
+        if settings is not None and continuous and link(previous,source,'mother',False) and link(states,source,'mother',False):
+            radio.append((ident,source,'mother',True))
             continue
         if source!='usv':
             acoustic.append((ident,source,'usv',continuous and

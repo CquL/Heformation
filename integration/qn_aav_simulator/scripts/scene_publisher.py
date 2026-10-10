@@ -67,7 +67,9 @@ class SceneTransport:
             raise ValueError('declared mother receiver lies inside a solid; set its exterior attachment position')
         self.lock=threading.Lock();self.states={};self.modes={};self.local_diagnostics={};self.events={}
         self.state_samples={};self.state_sample_history={};self.diagnostic_history={};self.pending_states={}
-        self.peer_payloads={};self.peer_publishers={}
+        self.peer_payloads={};self.peer_publishers={};self.pending_peers={}
+        self.pending_feedback={}
+        self.received_state_times={}
         self.scan_poses={};self.scan_sent={}
         self.survey_publishers={}
         if self.request.execution_mode in ('ONLINE_MAPPING','INSPECTION_CONTROL'):
@@ -92,15 +94,20 @@ class SceneTransport:
                 self.survey_publishers[member]=rospy.Publisher(prefix+'/survey_cloud',PointCloud2,queue_size=1)
         self.last_time=math.floor(rospy.Time.now().to_sec()*10.)/10.;self.previous={}
         self.started_at=self.last_time
-        self.delivery=None if self.task_service else FiniteDelivery(self.last_time)
+        self.delivery=None if self.task_service else FiniteDelivery(self.last_time,fair=self.stage_service)
         self.delivered=set()
         self.task_relayed={}
         self.relay_receipts=set()
+        self.command_cache_receipts=set();self.command_ack_cache=set()
         self.receipts=rospy.Publisher('/mother/received_products',String,queue_size=100)
         self.notifications=rospy.Publisher('/mother/received_notifications',String,queue_size=100)
         self.state_receipts=rospy.Publisher('/mother/received_states',String,queue_size=100)
         self.command_deliveries=rospy.Publisher('/mother/command_deliveries',String,queue_size=100)
         self.local_receipts=rospy.Publisher('/usv/received_products',String,queue_size=100,latch=True)
+        self.local_commands=rospy.Publisher('/usv/received_commands',String,queue_size=100)
+        self.local_command_acks=rospy.Publisher('/usv/received_command_acks',String,queue_size=100)
+        self.receiver_commands={member:rospy.Publisher('/'+member+'/received_commands',String,queue_size=100)
+            for member in ('drone_0','drone_1','drone_2','usv','uuv')}
         # Passive evaluation view only. The runner never consumes relay truth.
         self.progress=rospy.Publisher('/scene/delivery_progress',String,queue_size=1,latch=True)
         self.transfer_events=rospy.Publisher('/scene/communication_transfers',String,queue_size=100)
@@ -137,10 +144,20 @@ class SceneTransport:
         with self.lock:
             for receiver in self.peer_publishers:
                 if receiver==source:continue
-                ident='peer:'+source+':'+str(message.traj_id)+':'+receiver
+                pair=(source,receiver)
+                previous=self.pending_peers.get(pair)
+                ident='peer:'+source+':'+str(message.traj_id)+':'+str(message.start_time.to_nsec())+':'+receiver
+                if previous and message.start_time.to_nsec()<=int(previous.rsplit(':',2)[-2]):continue
+                old=self.delivery.products.get(previous)
+                if old is not None and old.received_at is None:
+                    if any(key==previous and prefix>0 for (key,destination),prefix in self.delivery.committed_prefixes.items()):continue
+                    if old.generated_at>self.last_time-.1:continue
+                    self.delivery.products.pop(previous,None)
+                    self.peer_payloads.pop(previous,None)
                 if ident in self.delivery.products:continue
                 self.peer_payloads[ident]=(receiver,copy.deepcopy(message))
-                self.delivery.produce(ident,DeliveryProduct(source,receiver,len(encoded.getvalue()),now,True))
+                self.delivery.produce(ident,DeliveryProduct(source,receiver,4+len(encoded.getvalue()),now,True))
+                self.pending_peers[pair]=ident
 
     def replace_request(self,request_file,task_scene):
         """Adopt a new business batch after the runner ends the old workers.
@@ -273,6 +290,11 @@ class SceneTransport:
                 points.add(work['work_id'])
             terminal=event.get('event_type')=='OBSERVATION_TERMINAL'
             action_terminal=event.get('event_type')=='ACTION_TERMINAL'
+            feedback=event.get('event_type')=='ACTION_FEEDBACK'
+            if feedback and (not event.get('goal_id') or not event.get('execution_id') or
+                not isinstance(event.get('phase'),str) or not math.isfinite(event.get('work_progress',float('nan'))) or
+                not 0<=event['work_progress']<=1.):
+                raise ValueError('invalid local Action feedback')
             if terminal:
                 declared=event['point_ids'];observed=event['observed_ids']
                 if (not isinstance(declared,list) or not declared or len(declared)!=len(set(declared)) or
@@ -294,7 +316,7 @@ class SceneTransport:
                 raise ValueError('invalid native terminal state digest')
             if (not isinstance(ident,str) or not ident or event['producer']!=member or
                     event['request_id']!=self.request.request_id or
-                    (not terminal and not action_terminal and (event['point_id'] not in points or
+                    (not terminal and not action_terminal and not feedback and (event['point_id'] not in points or
                      event['observed'] is not True or
                      not self.task_service and not self.stage_service and event['required_bytes']!=32*1024))):
                 raise ValueError('product identity or declared size mismatch')
@@ -308,6 +330,14 @@ class SceneTransport:
                 # new batch even when its payload happened to pass earlier.
                 if event['request_id']!=self.request.request_id:
                     raise ValueError('product belongs to the previous request')
+                if feedback:
+                    previous=self.pending_feedback.get(member)
+                    old=self.delivery.products.get(previous) if previous else None
+                    if old is not None and old.received_at is None:
+                        sent=any(key==previous and prefix>0 for (key,destination),prefix in self.delivery.committed_prefixes.items())
+                        if sent or old.generated_at>self.last_time-.1:return
+                        self.delivery.products.pop(previous,None)
+                        self.events.pop(previous.split(':',1)[1],None)
                 if ident in self.events:
                     if self.events[ident]!=event:raise ValueError('conflicting duplicate product')
                     return
@@ -324,8 +354,10 @@ class SceneTransport:
                 if not self.task_service:
                     size=4+len(json.dumps(event,allow_nan=False).encode('utf-8'))
                     if self.stage_service:
-                        self.delivery.produce(('notice:' if terminal or action_terminal else 'data:')+ident,
+                        key=('notice:' if terminal or action_terminal or feedback else 'data:')+ident
+                        self.delivery.produce(key,
                             DeliveryProduct(member,'mother',size,generated,True))
+                        if feedback:self.pending_feedback[member]=key
                     else:
                         self.delivery.produce('notice:'+ident,DeliveryProduct(member,'mother',size,generated,True))
                     if not self.stage_service and not terminal and not action_terminal:
@@ -423,7 +455,10 @@ class SceneTransport:
             if (sample is None or diagnostic is None or
                     not 0<=stamp-sample[0]<=.25 or
                     not 0<=stamp-diagnostic[0]<=.25):return
-            values=diagnostic[1]
+            values={key:value for key,value in diagnostic[1].items() if key in (
+                'actual_mode','active_goal_id','pending_goal_id','resource_locked','platform_resource_locked',
+                'reference_active','platform_action_active','domain_failure','air_domain_violation','scene_failure',
+                'sampled_model_wall_rate','model_wall_sample_window_s','model_time_s','reference_source')}
             if model_time is None:
                 try:model_time=float(values['model_time_s'])
                 except (KeyError,TypeError,ValueError):return
@@ -456,10 +491,15 @@ class SceneTransport:
             sample=next((row for row in reversed(self.state_sample_history.get(member,())) if row.stamp<=now),None)
             diagnostic=next((row for row in reversed(self.diagnostic_history.get(member,())) if row[0]<=now),None)
             if sample is None or diagnostic is None or not 0<=now-sample.stamp<=.25:continue
-            values=diagnostic[1]
+            values={key:value for key,value in diagnostic[1].items() if key in (
+                'actual_mode','active_goal_id','pending_goal_id','resource_locked','platform_resource_locked',
+                'reference_active','platform_action_active','domain_failure','air_domain_violation','scene_failure',
+                'sampled_model_wall_rate','model_wall_sample_window_s','model_time_s','reference_source')}
             signature=tuple(str(values.get(key,'')) for key in
                 ('actual_mode','active_goal_id','pending_goal_id','resource_locked','platform_resource_locked','reference_active'))
             previous=self.pending_states.get(member)
+            ident='state:'+member+':'+str(sample.stamp)+':'+str(diagnostic[0])
+            if previous and previous[0]==ident:continue
             if previous:
                 old_key,old_signature=previous
                 old=self.delivery.products.get(old_key)
@@ -470,7 +510,6 @@ class SceneTransport:
                         if old.generated_at>self.last_time-(now-self.last_time):continue
                         self.delivery.products.pop(old_key,None)
                         self.events.pop(old_key,None)
-            ident='state:'+member+':'+str(sample.stamp)
             if ident in self.delivery.products:continue
             event=dict(event_type='PLATFORM_STATE',product_id=ident,request_id=self.request.request_id,
                 producer=member,generated_at=max(sample.stamp,diagnostic[0]),position=sample.position,velocity=sample.velocity,
@@ -514,8 +553,21 @@ class SceneTransport:
             for ident in receipts:
                 kind,key=ident.split(':',1)
                 if kind=='claim-request':requests.append(self.events[ident])
-                elif kind=='command':out.append((self.command_deliveries,dict(self.events[ident],received_at=now)))
-                elif kind=='state':out.append((self.state_receipts,dict(self.events[ident],received_at=now)))
+                elif kind=='command':
+                    if self.stage_service:
+                        from qn_aav_simulator.observation_coverage import DeliveryProduct,message_wire_size
+                        request=self.events[ident]
+                        out.append((self.receiver_commands[request['receiver']],dict(request,received_at=now)))
+                        ack='command-ack:'+key
+                        event=dict(request,delivered_at=now)
+                        self.events[ack]=event
+                        self.delivery.produce(ack,DeliveryProduct(request['receiver'],'mother',message_wire_size(event),now,True))
+                    else:out.append((self.command_deliveries,dict(self.events[ident],received_at=now)))
+                elif kind=='command-ack':out.append((self.command_deliveries,dict(self.events[ident],received_at=now)))
+                elif kind=='state':
+                    member=self.events[ident]['producer']
+                    self.received_state_times[member]=max(self.received_state_times.get(member,0.),self.events[ident]['generated_at'])
+                    out.append((self.state_receipts,dict(self.events[ident],received_at=now)))
                 elif kind=='peer':
                     receiver,payload=self.peer_payloads.pop(ident)
                     out.append((self.peer_publishers[receiver],payload))
@@ -524,7 +576,13 @@ class SceneTransport:
             self.last_time=now;self.previous=states
             if self.stage_service:
                 for ident,product in self.delivery.products.items():
-                    if not ident.startswith('data:') or ident in self.relay_receipts:continue
+                    if ident.startswith('command:') and ident not in self.command_cache_receipts and product.received_prefix.get('usv',0.)>=product.required_bytes:
+                        self.command_cache_receipts.add(ident)
+                        out.append((self.local_commands,dict(self.events[ident],cached_at=now)))
+                    if ident.startswith('command-ack:') and ident not in self.command_ack_cache and product.received_prefix.get('usv',0.)>=product.required_bytes:
+                        self.command_ack_cache.add(ident)
+                        out.append((self.local_command_acks,dict(self.events[ident],cached_at=now)))
+                    if not ident.startswith(('data:','notice:')) or ident in self.relay_receipts:continue
                     if product.received_prefix.get('usv',0.)>=product.required_bytes:
                         self.relay_receipts.add(ident)
                         out.append((self.local_receipts,dict(self.events[ident.split(':',1)[1]],
@@ -539,9 +597,7 @@ class SceneTransport:
                         for member,state in states.items())),
                     queued_bytes=sum(max(0.,product.required_bytes-product.received_prefix.get(product.receiver,0.))
                         for product in self.delivery.products.values()),
-                    received_state_age_s={member:now-self.events[key]['generated_at']
-                        for member,(key,signature) in self.pending_states.items()
-                        if key in self.delivery.products and self.delivery.products[key].received_at is not None},
+                    received_state_age_s={member:now-stamp for member,stamp in self.received_state_times.items()},
                     products=[
                     dict(point_id=self.events[key]['point_id'],
                          required_bytes=p.required_bytes,
@@ -552,6 +608,12 @@ class SceneTransport:
                     for ident,p in self.delivery.products.items() if ident.startswith('data:')
                     for key in [ident.split(':',1)[1]]])
                 self.last_progress=now
+            if self.stage_service:
+                ephemeral=[ident for ident in self.delivery.products if ident.startswith(('peer:','state:')) or
+                    ident.startswith('notice:') and self.events.get(ident.split(':',1)[1],{}).get('event_type')=='ACTION_FEEDBACK']
+                for ident in self.delivery.retire_received(ephemeral):
+                    self.events.pop(ident.split(':',1)[1] if ident.startswith('notice:') else ident,None)
+                self.delivery.transfers.clear();self.transfer_cursor=0
         if progress is not None:
             self.progress.publish(self.String(data=json.dumps(progress,allow_nan=False)))
         for transfer in transfers:self.transfer_events.publish(self.String(data=json.dumps(transfer,allow_nan=False)))
@@ -679,7 +741,7 @@ class SceneView:
                 self.trails[key].append(msg.pose.pose.position)
                 self.last_sample[key] = now
 
-    def publish(self):
+    def publish(self,link_states=None,communication_started_at=None):
         now = time.monotonic()
         if now-self.last_publish < .25:
             return
@@ -855,6 +917,31 @@ class SceneView:
         with self.lock:
             poses = dict(self.poses)
             trails = {k:list(v) for k,v in self.trails.items()}
+        if communication_started_at is not None:
+            label('truth_view_scope',(-4.,21.,5.),'实际运动：仿真世界真值 · 任务与收件：母船实收',.55)
+        if link_states:
+            from geometry_msgs.msg import Point
+            from qn_aav_simulator.observation_coverage import communication_settings
+            settings=communication_settings(self.scene)
+            radio=add('radio_links',M.LINE_LIST,(0.,0.,0.),(.045,0.,0.),(.2,.8,1.,.8))
+            acoustic=add('acoustic_links',M.LINE_LIST,(0.,0.,0.),(.055,0.,0.),(1.,.7,.1,.8))
+            blocked=add('blocked_links',M.LINE_LIST,(0.,0.,0.),(.06,0.,0.),(1.,.2,.2,.8))
+            elapsed=rospy.Time.now().to_sec()-communication_started_at if communication_started_at is not None else None
+            outages=rospy.get_param_cached('/scene/communication_outages',[])
+            for index,source in enumerate(link_states):
+                for receiver in tuple(link_states)[index+1:]:
+                    first,mode_a=link_states[source];second,mode_b=link_states[receiver]
+                    if mode_a in ('AIR','SURFACE') and mode_b in ('AIR','SURFACE'):
+                        available=math.dist(first,second)<=settings['radio_range_m'];line=radio;channel='radio'
+                    elif 'usv' in (source,receiver) and {mode_a,mode_b}=={'WATER','SURFACE'}:
+                        available=math.dist(first,second)<=settings['acoustic_range_m'];line=acoustic;channel='acoustic'
+                    else:continue
+                    if elapsed is not None and any(entry['start_s']<=elapsed<entry['end_s'] and
+                        entry.get('channel',channel)==channel and any(
+                            entry.get('sender',sender)==sender and entry.get('receiver',destination)==destination
+                            for sender,destination in ((source,receiver),(receiver,source))) for entry in outages):line=blocked
+                    if available:line.points.extend((Point(*first),Point(*second)))
+            label('communication_legend',(-4.,19.,5.),'蓝：无线电 · 黄：声学 · 红：含单向中断',.6)
         for i, key in enumerate(self.members):
             name = ('AAV 1','AAV 2','AAV 3','USV','UUV')[i]
             if key not in poses:
@@ -1044,7 +1131,8 @@ def main():
         publisher.publish(cloud)
         if view:
             try:
-                view.publish()
+                view.publish(transport.previous if transport and transport.stage_service else None,
+                             transport.started_at if transport and transport.stage_service else None)
             except Exception as error:
                 rospy.logerr_throttle(5., 'Scene view failed; sensor map continues: %s', str(error))
         rate.sleep()

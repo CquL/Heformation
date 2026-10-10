@@ -1,0 +1,24 @@
+--- a/src/planner/plan_manage/src/ego_replan_fsm.cpp
++++ b/src/planner/plan_manage/src/ego_replan_fsm.cpp
+@@ -557,6 +557,20 @@
+       return;
+     }
+-    if (abs((ros::Time::now() - msg->start_time).toSec()) > 0.25)
++    static const bool finite_peer_transport = []() {
++      bool enabled = false;
++      ros::param::get(ros::this_node::getName() + "/fsm/finite_peer_transport", enabled);
++      return enabled;
++    }();
++    const double age = (ros::Time::now() - msg->start_time).toSec();
++    if (!std::isfinite(msg->start_time.toSec()) ||
++        !std::all_of(msg->duration.begin(), msg->duration.end(),
++                     [](double value) { return std::isfinite(value) && value > 0.0; }))
++    {
++      ROS_WARN("Reject invalid finite peer trajectory timing");
++      return;
++    }
++    if ((!finite_peer_transport && std::abs(age) > 0.25) ||
++        (finite_peer_transport && age < -0.25))
+     {
+       ROS_WARN("Time stamp diff: Local - Remote Agent %d = %fs",
+                msg->drone_id, (ros::Time::now() - msg->start_time).toSec());

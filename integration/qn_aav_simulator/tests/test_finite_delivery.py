@@ -2,6 +2,36 @@ import pytest
 from qn_aav_simulator.observation_coverage import DeliveryProduct,FiniteDelivery
 
 
+def test_received_retirement_preserves_inflight_and_unreceived_work():
+    ledger=FiniteDelivery()
+    ledger.produce('peer',DeliveryProduct('drone_0','drone_1',100,0.,True))
+    ledger.produce('work',DeliveryProduct('uuv','mother',100,0.,True))
+    ledger.products['peer'].received_at=1.
+    ledger.in_flight=[(2.,'peer','usv',100.)]
+    assert not ledger.retire_received(('peer','work'))
+    ledger.in_flight=[]
+    assert ledger.retire_received(('peer','work'))=={'peer'}
+    assert 'work' in ledger.products
+
+
+def test_water_peer_reference_uses_acoustic_usv_then_radio_without_instant_forwarding():
+    from qn_aav_simulator.observation_coverage import communication_settings,declared_delivery_channels
+    ledger=FiniteDelivery()
+    ledger.produce('peer',DeliveryProduct('drone_1','drone_2',100,0.,True))
+    states={'drone_1':((23.,8.,-4.8),'WATER'),'drone_2':((23.6,12.1,2.2),'AIR'),
+            'usv':((23.,4.8,0.),'SURFACE')}
+    settings=communication_settings({})
+    for stamp in (.1,.2,.3,.4):
+        delays={}
+        channels=declared_delivery_channels(ledger.products,states,states,settings=settings,propagation_delays=delays)
+        assert not any(available for key,sender,receiver,available in channels['radio'][1]
+                       if sender=='drone_1')
+        ledger.advance_all(stamp,channels,delays)
+    assert ledger.products['peer'].received_at==.4
+    first_radio=next(event for event in ledger.transfers if event['sender']=='usv')
+    assert first_radio['sent_at']>=.3
+
+
 def test_propagation_arrival_precedes_forwarding_and_cannot_duplicate_capacity():
     ledger=FiniteDelivery()
     ledger.produce('report',DeliveryProduct('uuv','mother',100,0.,True))
@@ -36,6 +66,16 @@ def test_carried_report_stays_on_usv_until_radio_upload_is_available():
         channels=declared_delivery_channels(ledger.products,uploaded,uploaded,settings=settings,propagation_delays=delays)
         ledger.advance_all(stamp,channels,delays)
     assert ledger.products['report'].delivered
+
+
+def test_fair_shared_channel_gives_large_pending_state_a_send_opportunity():
+    ledger=FiniteDelivery(fair=True)
+    for key,size in (('small-a',10),('small-b',10),('large',10000)):
+        ledger.produce(key,DeliveryProduct('usv','mother',size,0.,True))
+    channels={'radio':(100.,[(key,'usv','mother',True) for key in ledger.products])}
+    ledger.advance_all(1.,channels)
+    assert ledger.products['large'].received_prefix.get('mother',0.)>0
+    assert sum(event['bytes'] for event in ledger.transfers)<=100.
 
 
 def test_delivery_prediction_cannot_extend_a_finished_physical_commitment():

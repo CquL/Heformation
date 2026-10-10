@@ -564,7 +564,9 @@ class PvsNode:
                        deadline=time.monotonic()+timeout,observations=observations,ros_start=rospy.Time.now().to_sec(),
                        terminal_wait_s=terminal_wait_s,return_left=False,return_reentered=False,
                        admission='LOCAL_STATE_AND_PATH',region_id=region_id,local_wait=True,local_target=None)
-        if getattr(self.observation_request,'execution_mode','')=='INSPECTION_CONTROL':
+        if (getattr(self.observation_request,'execution_mode','')=='INSPECTION_CONTROL' or
+                getattr(self.observation_request,'execution_mode','')=='ONLINE_MAPPING' and
+                rospy.get_param('/scene/communication/model','')=='FINITE_STAGE_SERVICE'):
             site=next((s for s in rospy.get_param('/scene/communication_sites',())
                        if math.dist(paths[-1][-1],s['position'])<1e-6),None)
             if site is not None:self.work['support_radius_m']=float(site['radius_m'])

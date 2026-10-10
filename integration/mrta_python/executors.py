@@ -3039,7 +3039,7 @@ def build_inspection_executor_plan(executors,tasks,request,scene,states,budget_s
     """
     import itertools
     from qn_aav_simulator.observation_coverage import communication_settings,service_upload_candidates
-    from qn_aav_simulator.inspection_work import work_legs,inspection_work_budget,inspection_wall_budget,inspection_motion_profile,inspection_reference_speed,inspection_exit_runout
+    from qn_aav_simulator.inspection_work import work_legs,inspection_work_budget,inspection_wall_budget,inspection_motion_profile,inspection_reference_speed,inspection_exit_runout,new_progress,control_report
     deadline=time.monotonic()+budget_s
     motion_profile=inspection_motion_profile(scene)
     communication=communication_settings(scene)
@@ -3068,8 +3068,7 @@ def build_inspection_executor_plan(executors,tasks,request,scene,states,budget_s
         if index==len(ordered):
             # Service ordering is part of each complete candidate, not accepted
             # after independently fixing an assignment. Try finite site orders.
-            sites=[dict(site,position=min(site.get('position_candidates',[site['position']]),
-                key=lambda point:math.dist(states['usv']['position'],point))) for site in scene['communication_sites']]
+            sites=[dict(site) for site in scene['communication_sites']]
             service_groups=[]
             for site in sites:
                 ids=[w['work_id'] for w in request.work_items if w['domain']=='WATER' and w['work_id']==site['id']]
@@ -3078,7 +3077,29 @@ def build_inspection_executor_plan(executors,tasks,request,scene,states,budget_s
                 if work['domain']=='AIR':
                     end=work_legs(work)[-1]['end']
                     if math.dist(end,mother)>communication['radio_range_m']:
+                        if not service_groups:return None
                         min(service_groups,key=lambda pair:math.dist(end,pair[0]['position']))[1].append(work['work_id'])
+            report_sizes={}
+            for site,ids in service_groups:
+                sources={}
+                for work_id in ids:
+                    item=next(item for item in items if any(step.work_id==work_id or
+                        step.native_action and step.native_action.work_id==work_id for step in item.execution_steps))
+                    terminal=item.execution_steps[-1].native_prediction
+                    sources[work_id]=(terminal['terminal_position'],terminal['terminal_mode'])
+                    progress=new_progress(works[work_id])
+                    progress.update(complete=True,fraction=1.,qualified=progress['total'],
+                        intervals={str(index):[[0.,1.]] for index in range(len(progress['_legs']))})
+                    report_sizes[work_id]=control_report(request.request_id,works[work_id],progress,
+                        item.coalition[0],'/formation_mission_runner-000-0000000000.000',0.)['required_bytes']
+                candidates=[point for point in site.get('position_candidates',[site['position']]) if all(
+                    math.dist(point,position)<=communication['acoustic_range_m' if mode=='WATER' else 'radio_range_m']
+                    for position,mode in sources.values())]
+                if not candidates:return None
+                site['position']=min(candidates,key=lambda point:math.dist(states['usv']['position'],point))
+                site['report_bytes_estimate']=sum(report_sizes[work_id] for work_id in ids)
+                site['collect_report_time_estimate_s']=sum(report_sizes[work_id]/communication[
+                    'acoustic_bytes_per_s' if sources[work_id][1]=='WATER' else 'radio_bytes_per_s'] for work_id in ids)
             service_groups.sort(key=lambda pair:(
                 max([0.]+[i.planned_finish for i in items if any(s.work_id in pair[1] or
                     s.native_action and s.native_action.work_id in pair[1] for s in i.execution_steps)])+
@@ -3100,8 +3121,11 @@ def build_inspection_executor_plan(executors,tasks,request,scene,states,budget_s
                     hold=NativeActionSpec((NativeSegmentSpec('SURFACE_PATH',(tuple(site['position']),tuple(site['position'])),4.),),
                         'TRIM_PROPULSION',execution_timeout_s=hold_budget['wall_duration_ceiling_s'])
                     wait=step(usv,'inspection-support-receipt:'+site['id'],site['position'],site['position'],'SURFACE',
-                        max(4.,waiting-clock-travel),native=hold,support_work_ids=tuple(ids),support_site_id=site['id'],
-                        support_site_position=tuple(site['position']),support_receiver='usv',communication_phase='COLLECT')
+                        max(4.,waiting-clock-travel)+site['collect_report_time_estimate_s'],native=hold,
+                        support_work_ids=tuple(ids),support_site_id=site['id'],support_site_position=tuple(site['position']),
+                        support_receiver='usv',communication_phase='COLLECT',communication_estimate=dict(
+                            report_bytes=site['report_bytes_estimate'],report_transfer_s=site['collect_report_time_estimate_s'],
+                            scope='NOMINAL_TERMINAL_CONTACT_AND_SHARED_REPORT_CAPACITY'))
                     upload=service_upload_candidates(scene,site['position'],site['radius_m'])[0]
                     upload_duration=max(4.,math.dist(site['position'],upload)/motion_profile['usv_nominal_speed_mps'])
                     upload_budget=inspection_wall_budget(works[ids[0]],dict(model_duration_s=upload_duration+180.))
@@ -3110,15 +3134,16 @@ def build_inspection_executor_plan(executors,tasks,request,scene,states,budget_s
                         execution_timeout_s=upload_budget['wall_duration_ceiling_s'])
                     transfer=step(usv,'inspection-upload:'+site['id'],site['position'],upload,'SURFACE',
                         upload_duration,native=upload_action,communication_phase='CARRY',upload_position=upload,
-                        inspection_work_budget=upload_budget)
+                        upload_radius_m=site['radius_m'],inspection_work_budget=upload_budget)
                     upload_hold=NativeActionSpec((NativeSegmentSpec('SURFACE_PATH',(upload,upload),4.),),
                         'TRIM_PROPULSION',execution_timeout_s=hold_budget['wall_duration_ceiling_s'])
-                    receipt_wait=step(usv,'inspection-upload-receipt:'+site['id'],upload,upload,'SURFACE',4.,
+                    upload_wait=max(4.,site['report_bytes_estimate']/communication['radio_bytes_per_s'])
+                    receipt_wait=step(usv,'inspection-upload-receipt:'+site['id'],upload,upload,'SURFACE',upload_wait,
                         native=upload_hold,support_work_ids=tuple(ids),support_receiver='mother',
-                        communication_phase='UPLOAD',upload_position=upload)
+                        communication_phase='UPLOAD',upload_position=upload,upload_radius_m=site['radius_m'])
                     ident=request.request_id+'::support:'+str(n)
                     activity=ExecutorPlanItem(ident,request.request_id+'::'+ids[0],usv.executor_id,('usv',),clock,
-                        max(clock+travel+8.,waiting+4.)+upload_duration+4.,travel+upload_duration,0.,0.,
+                        clock+sum(stage.duration_s for stage in (move,wait,transfer,receipt_wait)),travel+upload_duration,0.,0.,
                         execution_steps=(move,wait,transfer,receipt_wait),fulfills_task=False)
                     plan_items.append(activity)
                     if previous:links.append((previous,ident))

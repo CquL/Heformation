@@ -1,0 +1,37 @@
+{
+  "scope": "Three separate completed model-scale control runs; one run per business, not repeated-trial statistics.",
+  "time_origin": "Median(result_received_at - matching plan.actual_finish); relative simulation seconds.",
+  "goal_start": "Timestamp encoded in ROS GoalID; dispatch event, not physical motion onset; about 1 ms resolution.",
+  "report_wait": "Task-level software event wait; not measured acoustic/RF transmission delay.",
+  "clearance": "B/C sampled declared collision proxies, not continuous equipment certification; A has no comparable full audit here.",
+  "style_reference": "https://github.com/ChenLiu-1996/figures4papers",
+  "style_commit": "0ba898c8024ed4ce5bd06c8e5500d189fcd7a160",
+  "diagram_style_reference": "https://github.com/Sleepy-Avacado/FigGenie-paper-diagram-skill",
+  "diagram_style_commit": "82be26d6f2954c8bfc4089d70d8dcf82fe395864",
+  "source_files": [
+    {
+      "path": "experiments/20261005-abc-16x-videos/A/metrics.json",
+      "sha256": "c186041efb2dc2d6104a95118780581ab38bfbe7e0c6d048eaa4244f2a52f695"
+    },
+    {
+      "path": "experiments/20261004-server715-b-complete-r75/metrics.json",
+      "sha256": "a55074331031415c8828e5c2bb042513e34d4c0017583f3f38097bf82fe8d3b1"
+    },
+    {
+      "path": "experiments/20261004-server715-b-complete-r75/b-audit-summary.json",
+      "sha256": "c776f344d24ce80afb2cd189152657f3d0aa9eafc7a0a95033c56abeddadd032"
+    },
+    {
+      "path": "experiments/20261004-server715-c-complete-r78/metrics.json",
+      "sha256": "26d353d17047eb61e2127c8213069e09ed3db29f7fda727e4064ceba2c76fa07"
+    },
+    {
+      "path": "experiments/20261004-server715-c-complete-r78/c-full-audit-summary.json",
+      "sha256": "f534c8e09135744585951bc1fec49e81529beb161b645ad238576fb2c30d4c42"
+    },
+    {
+      "path": "docs/images/three-business-scene-overview.png",
+      "sha256": "684f7cc0665f5c93e9c91b992ad5cffafffb55e42a1de05b06cb871d1261738b"
+    }
+  ]
+}

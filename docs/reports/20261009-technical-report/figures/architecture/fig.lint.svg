@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 432 246" width="432pt" height="246pt" font-family="Arimo, 'Source Han Sans CN', Arial, sans-serif" font-size="9" data-spec="heformation-task-loop" data-spec-version="2">
+  <defs>
+    <marker id="arrow" viewBox="0 0 5 5" refX="4.5" refY="2.5" markerWidth="4.5" markerHeight="4.5" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0 0 L5 2.5 L0 5Z" fill="#40464e"/></marker>
+    <marker id="blue-arrow" viewBox="0 0 5 5" refX="4.5" refY="2.5" markerWidth="4.5" markerHeight="4.5" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L5 2.5 L0 5Z" fill="#4472c4"/></marker>
+  </defs>
+  <g id="c:input" data-kind="container" data-role="external">
+    <rect x="8" y="12" width="96" height="155" rx="2" fill="none" stroke="#b0b5bd" stroke-width="0.6"/>
+    <text x="56" y="27" text-anchor="middle" font-size="10" font-weight="bold" fill="#272727">作业与状态输入</text>
+  </g>
+  <g id="c:planning" data-kind="container" data-role="novel">
+    <rect x="124" y="12" width="174" height="155" rx="2" fill="none" stroke="#8ea9d0" stroke-width="0.6"/>
+    <text x="211" y="27" text-anchor="middle" font-size="10" font-weight="bold" fill="#272727">统一建模与联合方案</text>
+  </g>
+  <g id="c:execution" data-kind="container" data-role="existing">
+    <rect x="318" y="12" width="106" height="155" rx="2" fill="none" stroke="#b0b5bd" stroke-width="0.6"/>
+    <text x="371" y="27" text-anchor="middle" font-size="10" font-weight="bold" fill="#272727">原平台执行端</text>
+  </g>
+  <g id="e:request-model" data-kind="edge" data-from="request" data-to="model" data-edge-kind="data"><path d="M98 58 H130" fill="none" stroke="#40464e" stroke-width="0.9" marker-end="url(#arrow)"/></g>
+  <g id="e:state-model" data-kind="edge" data-from="state" data-to="model" data-edge-kind="data"><path d="M98 140 H116 V69 H130" fill="none" stroke="#40464e" stroke-width="0.6" marker-end="url(#arrow)"/></g>
+  <g id="e:model-joint" data-kind="edge" data-from="model" data-to="joint" data-edge-kind="data"><path d="M206 58 H216" fill="none" stroke="#40464e" stroke-width="0.9" marker-end="url(#arrow)"/></g>
+  <g id="e:joint-plan" data-kind="edge" data-from="joint" data-to="plan" data-edge-kind="data"><path d="M254 77 V103 H211 V114" fill="none" stroke="#40464e" stroke-width="0.9" marker-end="url(#arrow)"/></g>
+  <g id="e:plan-dispatch" data-kind="edge" data-from="plan" data-to="dispatch" data-edge-kind="control"><path d="M292 135 H310 V48 H324" fill="none" stroke="#40464e" stroke-width="0.9" marker-end="url(#arrow)"/></g>
+  <g id="e:dispatch-air" data-kind="edge" data-from="dispatch" data-to="air" data-edge-kind="control"><path d="M371 59 V70 H320 V85 H324" fill="none" stroke="#40464e" stroke-width="0.6" marker-end="url(#arrow)"/></g>
+  <g id="e:dispatch-water" data-kind="edge" data-from="dispatch" data-to="water" data-edge-kind="control"><path d="M371 59 V70 H320 V117 H324" fill="none" stroke="#40464e" stroke-width="0.6" marker-end="url(#arrow)"/></g>
+  <g id="e:dispatch-usv" data-kind="edge" data-from="dispatch" data-to="usv" data-edge-kind="control"><path d="M371 59 V70 H320 V149 H324" fill="none" stroke="#40464e" stroke-width="0.6" marker-end="url(#arrow)"/></g>
+  <g id="e:execution-actual" data-kind="edge" data-from="execution" data-to="actual" data-edge-kind="data"><path d="M371 167 V183 H215 V194" fill="none" stroke="#40464e" stroke-width="0.9" marker-end="url(#arrow)"/><text x="357" y="178" text-anchor="middle" font-size="8.5" fill="#595959">实际运动与事件</text></g>
+  <g id="e:actual-joint" data-kind="edge" data-from="actual" data-to="joint" data-edge-kind="feedback"><path d="M285 226 V234 H428 V6 H282 V38" fill="none" stroke="#4472c4" stroke-width="0.6" stroke-dasharray="3 2" marker-end="url(#blue-arrow)"/></g>
+  <g id="e:actual-closed" data-kind="edge" data-from="actual" data-to="closed" data-edge-kind="data"><path d="M132 210 H108" fill="none" stroke="#40464e" stroke-width="0.9" marker-end="url(#arrow)"/></g>
+  <g id="e:actual-views" data-kind="edge" data-from="actual" data-to="views" data-edge-kind="data"><path d="M298 210 H324" fill="none" stroke="#40464e" stroke-width="0.6" marker-end="url(#arrow)"/></g>
+  <g id="n:request" data-kind="node" data-role="external" data-parent="input">
+    <rect x="14" y="38" width="84" height="77" rx="2" fill="#f3f4f6" stroke="#aeb4bd" stroke-width="0.6"/>
+    <text x="56" y="51" text-anchor="middle" font-weight="bold" fill="#272727">A/B/C作业输入</text>
+    <text x="24" y="68" font-size="8.5" fill="#272727">A　区域调查</text>
+    <text x="24" y="86" font-size="8.5" fill="#272727">B　风机巡检</text>
+    <text x="24" y="104" font-size="8.5" fill="#272727">C　平台与管路</text>
+  </g>
+  <g id="n:state" data-kind="node" data-role="existing" data-parent="input">
+    <rect x="14" y="124" width="84" height="31" rx="2" fill="#f3f4f6" stroke="#aeb4bd" stroke-width="0.6"/>
+    <text x="56" y="137" text-anchor="middle" font-weight="bold" fill="#272727">实际状态与能力</text>
+    <text x="56" y="150" text-anchor="middle" font-size="8.5" fill="#595959">3 AAV · USV · UUV</text>
+  </g>
+  <g id="n:model" data-kind="node" data-role="novel" data-parent="planning">
+    <rect x="130" y="38" width="76" height="39" rx="2" fill="#eaf1fb" stroke="#8ea9d0" stroke-width="0.6"/>
+    <text x="168" y="52" text-anchor="middle" font-weight="bold" fill="#272727">统一模型</text>
+    <text x="168" y="68" text-anchor="middle" font-size="8.5" fill="#272727">成员／模式／作业</text>
+  </g>
+  <g id="n:joint" data-kind="node" data-role="novel" data-parent="planning">
+    <rect x="216" y="38" width="76" height="39" rx="2" fill="#4472c4" stroke="#4472c4" stroke-width="0.6"/>
+    <text x="254" y="52" text-anchor="middle" font-weight="bold" fill="#ffffff">快速联合决策</text>
+    <text x="254" y="68" text-anchor="middle" font-size="8.5" fill="#ffffff">分配／方法／支援</text>
+  </g>
+  <g id="n:plan" data-kind="node" data-role="novel" data-parent="planning">
+    <rect x="130" y="114" width="162" height="41" rx="2" fill="#eaf1fb" stroke="#8ea9d0" stroke-width="0.6"/>
+    <text x="211" y="129" text-anchor="middle" font-weight="bold" fill="#272727">完整可派发Plan</text>
+    <text x="211" y="144" text-anchor="middle" font-size="8.5" fill="#272727">并行接续／预计时序／必要前置</text>
+  </g>
+  <g id="n:dispatch" data-kind="node" data-role="existing" data-parent="execution">
+    <rect x="324" y="38" width="94" height="21" rx="2" fill="#f3f4f6" stroke="#aeb4bd" stroke-width="0.6"/>
+    <text x="371" y="51" text-anchor="middle" font-weight="bold" fill="#272727">确认／Action派发</text>
+  </g>
+  <g id="n:air" data-kind="node" data-role="existing" data-parent="execution">
+    <rect x="324" y="76" width="94" height="18" rx="2" fill="#f3f4f6" stroke="#aeb4bd" stroke-width="0.6"/>
+    <text x="371" y="88" text-anchor="middle" fill="#272727">AIR：Swarm＋qn</text>
+  </g>
+  <g id="n:water" data-kind="node" data-role="existing" data-parent="execution">
+    <rect x="324" y="108" width="94" height="18" rx="2" fill="#f3f4f6" stroke="#aeb4bd" stroke-width="0.6"/>
+    <text x="371" y="120" text-anchor="middle" fill="#272727">WATER：qn</text>
+  </g>
+  <g id="n:usv" data-kind="node" data-role="existing" data-parent="execution">
+    <rect x="324" y="140" width="94" height="18" rx="2" fill="#f3f4f6" stroke="#aeb4bd" stroke-width="0.6"/>
+    <text x="371" y="152" text-anchor="middle" fill="#272727">USV：Otter/PVS</text>
+  </g>
+  <g id="n:actual" data-kind="node" data-role="novel">
+    <rect x="132" y="194" width="166" height="32" rx="2" fill="#eaf1fb" stroke="#8ea9d0" stroke-width="0.6"/>
+    <text x="215" y="207" text-anchor="middle" font-weight="bold" fill="#272727">实际进度与结果</text>
+    <text x="215" y="220" text-anchor="middle" font-size="8.5" fill="#272727">合格区间／匹配终态／实收</text>
+  </g>
+  <g id="n:closed" data-kind="node" data-role="novel">
+    <rect x="14" y="194" width="94" height="32" rx="2" fill="#eaf1fb" stroke="#8ea9d0" stroke-width="0.6"/>
+    <text x="61" y="207" text-anchor="middle" font-weight="bold" fill="#272727">任务闭合</text>
+    <text x="61" y="220" text-anchor="middle" font-size="8.5" fill="#272727">驻留／人工返航</text>
+  </g>
+  <g id="n:views" data-kind="node" data-role="existing">
+    <rect x="324" y="194" width="94" height="32" rx="2" fill="#f3f4f6" stroke="#aeb4bd" stroke-width="0.6"/>
+    <text x="371" y="207" text-anchor="middle" font-weight="bold" fill="#272727">Qt／独立RViz</text>
+    <text x="371" y="220" text-anchor="middle" font-size="8.5" fill="#595959">同一任务状态</text>
+  </g>
+  <g id="a:budget" data-kind="annotation"><text x="212" y="94" text-anchor="middle" font-size="8.5" fill="#595959">10 s预算</text></g>
+  <g id="legend" data-kind="legend">
+    <g id="legend:feedback" data-kind="legend-item"><path d="M132 238 H153" fill="none" stroke="#4472c4" stroke-width="0.6" stroke-dasharray="3 2" marker-end="url(#blue-arrow)"/><text x="160" y="241" font-size="8.5" fill="#595959">剩余作业反馈调整</text></g>
+  </g>
+<g id="lint-overlay" pointer-events="none" font-family="Arimo, Arial, sans-serif">
+<rect x="368.50" y="56.50" width="5.00" height="5.00" fill="#ff8c00" fill-opacity="0.12" stroke="#ff8c00" stroke-width="0.6" stroke-dasharray="1.5 1"/>
+<text x="369.00" y="56.00" font-size="3.5" fill="#ff8c00">1 edge.tail-near-line</text>
+<rect x="368.50" y="56.50" width="5.00" height="5.00" fill="#ff8c00" fill-opacity="0.12" stroke="#ff8c00" stroke-width="0.6" stroke-dasharray="1.5 1"/>
+<text x="369.00" y="65.00" font-size="3.5" fill="#ff8c00">2 edge.tail-near-line</text>
+<rect x="368.50" y="56.50" width="5.00" height="5.00" fill="#ff8c00" fill-opacity="0.12" stroke="#ff8c00" stroke-width="0.6" stroke-dasharray="1.5 1"/>
+<text x="369.00" y="56.00" font-size="3.5" fill="#ff8c00">3 edge.tail-near-line</text>
+</g>
+</svg>

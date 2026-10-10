@@ -333,6 +333,46 @@ def build_request_executor_plan(request,scene,executors,provider,member_states,*
                     aav_return_policy='SWARM_FORMATION',
                     estimate_basis='group return estimate; Swarm group targets bound at actual authorization'))
             item.execution_steps=item.execution_steps[:boundary]+(handoff,)
+    if task_level and scene.get('communication',{}).get('model','FINITE_STAGE_SERVICE')=='FINITE_STAGE_SERVICE':
+        from dataclasses import replace
+        from mrta_python.executors import ExecutionStep,NativeActionSpec,NativeSegmentSpec
+        from .observation_coverage import communication_settings,service_upload_candidates
+        from .inspection_work import inspection_motion_profile,inspection_wall_budget
+        settings=communication_settings(scene);profile=inspection_motion_profile(scene)
+        mother=tuple(scene.get('mother_ship_receiver_position',scene['mother_ship_position']))
+        relay_points=set()
+        for item in plan.items:
+            if not item.fulfills_task:continue
+            boundary=next((index for index,step in enumerate(item.execution_steps) if step.native_prediction.get('joint_return_boundary')),len(item.execution_steps))
+            if not boundary:continue
+            terminal=item.execution_steps[boundary-1].native_prediction
+            if terminal.get('terminal_mode')=='WATER' or math.dist(terminal['terminal_position'],mother)>settings['radio_range_m']:
+                task=next(task for task in tasks if task.task_id==item.task_id)
+                relay_points.update(task.covers)
+        for item in plan.items:
+            if item.coalition!=('usv',):continue
+            boundary=next(index for index,step in enumerate(item.execution_steps) if step.native_prediction.get('joint_return_boundary'))
+            position=tuple(item.execution_steps[boundary-1].native_prediction['terminal_position'])
+            upload=service_upload_candidates(scene,position)[0]
+            duration=max(4.,math.dist(position,upload)/profile['usv_nominal_speed_mps'])
+            additions=[]
+            for phase,start,end,seconds,receiver,ids in (
+                ('COLLECT',position,position,4.,'usv',tuple(sorted(relay_points))),
+                ('CARRY',position,upload,duration,'',()),
+                ('UPLOAD',upload,upload,4.,'mother',tuple(sorted(relay_points)))):
+                budget=inspection_wall_budget({},dict(model_duration_s=seconds+180.))
+                native=NativeActionSpec((NativeSegmentSpec('SURFACE_PATH',(start,end),seconds),),
+                    'TRIM_PROPULSION',execution_timeout_s=budget['wall_duration_ceiling_s'])
+                additions.append(ExecutionStep(item.executor_id,seconds,'communication-'+phase.lower(),native_action=native,
+                    native_prediction=dict(status='TASK_LEVEL',duration_s=seconds,terminal_position=end,terminal_mode='SURFACE',
+                        reference_path=(start,end),communication_phase=phase,support_receiver=receiver,
+                        support_work_ids=ids,upload_position=upload if phase in ('CARRY','UPLOAD') else None,
+                        upload_radius_m=1.5 if phase in ('CARRY','UPLOAD') else None,
+                        estimate_basis='finite message service estimate; actual local motion and receipts required',
+                        inspection_work_budget=budget,geometry_checked=False,dynamic_safety_certified=False)))
+            item.execution_steps=item.execution_steps[:boundary]+tuple(additions)+item.execution_steps[boundary:]
+            item.planned_finish+=sum(step.duration_s for step in additions)
+            item.travel_time+=duration
     return plan,tasks
 
 

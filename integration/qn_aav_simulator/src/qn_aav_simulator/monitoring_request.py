@@ -177,6 +177,7 @@ def circle_joint_mission_mappings(base_request, base_scene, center, radius_m):
     from .experiment_verdict import StaticSceneGeometry
     request=circle_joint_request_mapping(base_request,center,radius_m)
     root=copy.deepcopy(base_scene);scene=root['scene'] if 'scene' in root else root
+    scene.setdefault('communication',communication_settings(scene))
     geometry=StaticSceneGeometry.from_mapping(scene)
     if geometry is None:raise ValueError('circle selection needs declared static geometry')
     regions={entry['region_id']:entry for entry in request['regions']}
@@ -557,6 +558,7 @@ def joint_mission_mappings(base_request,base_scene,selection):
         return circle_joint_mission_mappings(base,base_scene,selection['center'],selection['radius_m'])
     if business not in ('B','C'):raise ValueError('unknown mission business')
     root=copy.deepcopy(base_scene);scene=root.get('scene',root)
+    scene.setdefault('communication',communication_settings(scene))
     models={m['id']:m for m in scene.get('world_models',())}
     chosen=selection.get('object_ids')
     if chosen is None:chosen=([m['id'] for m in models.values() if m['model']=='wind_turbine']

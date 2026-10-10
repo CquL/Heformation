@@ -74,7 +74,9 @@ RUN patch -p1 -d /workspace/src \
 RUN patch -p1 -d /workspace/src \
       < /tmp/swarm_qn_patches/swarm_peer_safety_contract.patch
 RUN patch -p1 -d /workspace/src \
-      < /tmp/swarm_qn_patches/swarm_reference_sampling.patch
+      < /tmp/swarm_qn_patches/swarm_reference_sampling.patch && \
+    patch -p1 -d /workspace/src --batch --forward \
+      < /tmp/swarm_qn_patches/swarm_finite_peer_transport.patch
 COPY integration/swarm_qn_bridge/src/swarm_readonly_query.cpp \
   /workspace/src/src/planner/plan_manage/src/swarm_readonly_query.cpp
 

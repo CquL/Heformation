@@ -230,7 +230,9 @@ class CircleMap(QWidget):
             painter.drawEllipse(c,r,r);painter.drawText(c+QPointF(12,r+20),'新任务草稿 · 尚未采用')
         painter.setPen(QColor('#b5c9d7'))
         painter.drawText(QRectF(14,self.height()-30,self.width()-28,22),Qt.AlignLeft,
-            '青色点：实测命中 · 虚线仅为目标意图 · 填色仅来自母船实际收件' if self.online_mapping else
+            ('环境/命中：仿真评估 · 进度/填色：母船实收 · 虚线：作业意图' if
+             self.scene.get('communication',{}).get('model')=='FINITE_STAGE_SERVICE' else
+             '青色点：实测命中 · 虚线仅为目标意图 · 填色仅来自母船实际收件') if self.online_mapping else
             '二维区域与预计路线 · 实际运动请查看独立 RViz' if self.plan_items else '按住并拖动鼠标绘制监测圆 · 已知场景几何')
 
 
@@ -1140,11 +1142,21 @@ class JointMissionPanel(QWidget):
         clients=[MEMBER_NAMES.get(i.get('coalition',[''])[0],'') for i in items if i.get('fulfills_task',True)]
         self.support_members.setText('服务对象：'+'、'.join(clients) if clients else '等待方案选择服务对象')
         if transport.get('model')=='FINITE_STAGE_SERVICE':
+            service=next((action for action in actions.values() if action.get('endpoint')=='/usv/platform_task'),{})
+            phase=service.get('communication_phase')
+            phase_labels={'COLLECT':'● 收集中','CARRY':'● 携带上传中','UPLOAD':'● 上传中',
+                          'DELIVER_COMMANDS':'● 下行交付中','COMMAND_CONFIRMATION':'● 等待命令确认'}
+            if phase in phase_labels and not terminal:self.support_status.setText(phase_labels[phase])
+            if service.get('service_work_ids'):
+                self.support_members.setText('本阶段服务：'+'、'.join(service['service_work_ids']))
             packets=transport.get('products',())
             relay=sum(packet.get('relay_bytes',0.) for packet in packets)
             received=sum(packet.get('mother_bytes',0.) for packet in packets)
             self.support_members.setText(self.support_members.text()+'\nUSV缓存 {:.1f} KiB · 母船已收 {:.1f} KiB\n待传 {:.1f} KiB'.format(
                 relay/1024.,received/1024.,transport.get('queued_bytes',0.)/1024.))
+            ages=[max(0.,state.get('updated_at_ros_s',0.)-action['feedback_generated_at'])
+                for action in actions.values() if action.get('feedback_generated_at') is not None]
+            if ages:self.support_members.setText(self.support_members.text()+'\n母船进度信息最老 {:.1f} 模型秒'.format(max(ages)))
         self.cooperation.setText('按作业阶段提供共享支援\n收集、必要携带、上传后确认结果' if items else '按当前状态选择分工与支援\n必要条件满足后共同返航')
         if session_phase:self.cooperation.setText('按作业阶段提供共享支援\n实收完成后驻留，可确认返航')
         returned=state.get('return_completion',{})

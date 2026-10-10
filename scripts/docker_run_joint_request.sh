@@ -152,7 +152,7 @@ docker run --rm --init -i --user "$(id -u):$(id -g)" \
       active_scene=/experiments/current/ui-scene.yaml
     fi
     swarm_run_launch=$(python3 - "$active_scene" <<PY
-import pathlib, subprocess, sys, yaml
+import pathlib, subprocess, sys, yaml, xml.etree.ElementTree as ET
 from qn_aav_simulator.observation_coverage import communication_settings
 scene=yaml.safe_load(open(sys.argv[1])).get("scene",{})
 package=subprocess.check_output(["rospack","find","ego_planner"],text=True).strip()
@@ -165,6 +165,10 @@ if communication_settings(scene)["model"]=="FINITE_STAGE_SERVICE":
     directory.mkdir(exist_ok=True)
     advanced=directory/"advanced_param.xml"
     advanced.write_text(text.replace("/broadcast_traj_to_planner",topic))
+    document=ET.parse(advanced)
+    planner=document.getroot().find("node")
+    ET.SubElement(planner,"param",name="fsm/finite_peer_transport",value="true")
+    document.write(str(advanced))
     run=directory/"run_in_sim.launch"
     run.write_text(launch.read_text().replace(chr(36)+"(find ego_planner)/launch/advanced_param.xml",str(advanced)))
     launch=run
@@ -211,7 +215,8 @@ PY
     timeout 15 rosbag record --lz4 -l 1 -O /experiments/current/scene-once.bag \
       /scene/global_cloud > /experiments/current/scene-recorder.log 2>&1
     record_cmd=(rosbag record --lz4 --buffsize=256 -O /experiments/current/execution.bag
-      /clock /scene/communication_transfers /usv/received_products /mother/received_states
+      /clock /scene/communication_transfers /scene/delivery_progress
+      /usv/received_products /usv/received_commands /usv/received_command_acks /mother/received_states
       /mother/command_requests /mother/command_deliveries
       /drone_0_received_traj /drone_1_received_traj /drone_2_received_traj
       /aav_1/formation_action/goal /aav_1/formation_action/result

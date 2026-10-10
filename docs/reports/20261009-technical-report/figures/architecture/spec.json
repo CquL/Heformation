@@ -1,0 +1,50 @@
+{
+  "meta": {
+    "id": "heformation-task-loop", "title": "异构集群任务规划与协同执行闭环",
+    "system": {"name": "Heformation", "one_liner": "三业务共用的任务规划、资源调度和异构协同控制"},
+    "kind": "architecture", "figure_kind": "whole-system", "column": "double",
+    "width_pt": 432, "max_height_pt": 246, "template": "control-loop",
+    "modifiers": [], "direction": "left-right", "panels": 1,
+    "palette": "blue-outline", "font": "arial", "font_cjk": "source-han-sans",
+    "language": "zh", "step_markers": "none", "version": 2,
+    "caption_draft": "三业务共享统一任务和联合决策，确认后使用原运动后端，按实际反馈推进和调整。",
+    "open_questions": [],
+    "notes": "内容沿用已确认报告；novel表示项目任务组织而非宣称基础算法原创。中文报告允许246pt高。"
+  },
+  "containers": [
+    {"id": "input", "label": "作业与状态输入", "kind": "solid", "role": "external"},
+    {"id": "planning", "label": "统一建模与联合方案", "kind": "solid", "role": "novel"},
+    {"id": "execution", "label": "原平台执行端", "kind": "solid", "role": "existing"}
+  ],
+  "nodes": [
+    {"id": "request", "label": "A/B/C作业输入", "sublabel": "区域调查／风机／平台与管路", "parent": "input", "role": "external"},
+    {"id": "state", "label": "实际状态与能力", "parent": "input", "role": "existing"},
+    {"id": "model", "label": "统一模型", "sublabel": "成员／模式／作业", "parent": "planning", "role": "novel"},
+    {"id": "joint", "label": "快速联合决策", "sublabel": "分配／方法／支援", "parent": "planning", "role": "novel", "emphasis": "accent"},
+    {"id": "plan", "label": "完整可派发Plan", "sublabel": "并行接续／预计时序／前置", "parent": "planning", "role": "novel"},
+    {"id": "dispatch", "label": "确认／Action派发", "parent": "execution", "role": "existing"},
+    {"id": "air", "label": "AIR：Swarm＋qn", "parent": "execution", "role": "existing"},
+    {"id": "water", "label": "WATER：qn", "parent": "execution", "role": "existing"},
+    {"id": "usv", "label": "USV：Otter/PVS", "parent": "execution", "role": "existing"},
+    {"id": "actual", "label": "实际进度与结果", "sublabel": "合格区间／匹配终态／实收", "role": "novel"},
+    {"id": "closed", "label": "任务闭合", "sublabel": "驻留／人工返航", "role": "novel"},
+    {"id": "views", "label": "Qt／独立RViz", "sublabel": "同一任务状态", "role": "existing"}
+  ],
+  "edges": [
+    {"id": "request-model", "from": "request", "to": "model", "kind": "data", "weight": "main", "route": "orthogonal"},
+    {"id": "state-model", "from": "state", "to": "model", "kind": "data", "route": "orthogonal"},
+    {"id": "model-joint", "from": "model", "to": "joint", "kind": "data", "weight": "main"},
+    {"id": "joint-plan", "from": "joint", "to": "plan", "kind": "data", "weight": "main", "route": "orthogonal"},
+    {"id": "plan-dispatch", "from": "plan", "to": "dispatch", "kind": "control", "weight": "main", "route": "orthogonal"},
+    {"id": "dispatch-air", "from": "dispatch", "to": "air", "kind": "control", "route": "orthogonal"},
+    {"id": "dispatch-water", "from": "dispatch", "to": "water", "kind": "control", "route": "orthogonal"},
+    {"id": "dispatch-usv", "from": "dispatch", "to": "usv", "kind": "control", "route": "orthogonal"},
+    {"id": "execution-actual", "from": "execution", "to": "actual", "label": "实际运动与事件", "kind": "data", "route": "orthogonal", "notes": "从整个执行分区汇聚实际运动与事件，不逐项绘制回边。"},
+    {"id": "actual-joint", "from": "actual", "to": "joint", "kind": "feedback", "style": "dashed", "legend_ref": "feedback", "route": "orthogonal"},
+    {"id": "actual-closed", "from": "actual", "to": "closed", "kind": "data"},
+    {"id": "actual-views", "from": "actual", "to": "views", "kind": "data"}
+  ],
+  "annotations": [{"id": "budget", "text": "10 s预算", "kind": "label"}],
+  "legend": {"mode": "explicit", "placement": "inside", "items": [{"id": "feedback", "label": "剩余作业反馈调整"}]},
+  "style_overrides": {"font_size_pt": {"title": 10, "label": 9, "small": 8.5, "notes": "按报告插图宽度保证中文可读性。"}}
+}

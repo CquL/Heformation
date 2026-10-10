@@ -227,7 +227,10 @@ class MissionRunner:
             self.request.template_id in ('OFFSHORE_JOINT','WIND_INSPECTION','PLATFORM_PIPELINE_INSPECTION'))
         self.accepted_action_lists=set()
         self.executor_local_receipts={}
+        self.executor_local_commands={};self.executor_local_command_acks={}
         self.received_states={}
+        self.local_feedback_publishers={}
+        self.local_cancel_receipts={};self.pending_cancel_ids=set()
         self.command_delivery_required=(self.finite_delivery and self.planning_mode=='joint_request' and
             (self.finite_stage_service or self.request.template_id not in ('OFFSHORE_JOINT','WIND_INSPECTION','PLATFORM_PIPELINE_INSPECTION')))
         if self.finite_delivery:
@@ -243,10 +246,20 @@ class MissionRunner:
                 self._on_received_notification,queue_size=100))
             if self.finite_stage_service:
                 self.metrics['delivery_model']='FINITE_STAGE_SERVICE'
+                self.local_feedback_publishers={member:rospy.Publisher('/'+member+
+                    ('_qn_aav' if member.startswith('drone_') else '')+'/local_products',String,queue_size=20)
+                    for member in self.fleet}
                 self.action_subs.append(rospy.Subscriber('/usv/received_products',String,
                     self._on_executor_local_receipt,queue_size=100))
                 self.action_subs.append(rospy.Subscriber('/mother/received_states',String,
                     self._on_received_state,queue_size=100))
+                self.action_subs.append(rospy.Subscriber('/usv/received_commands',String,
+                    lambda message:self._on_executor_local_command(message,False),queue_size=100))
+                self.action_subs.append(rospy.Subscriber('/usv/received_command_acks',String,
+                    lambda message:self._on_executor_local_command(message,True),queue_size=100))
+                for member in self.fleet:
+                    self.action_subs.append(rospy.Subscriber('/'+member+'/received_commands',String,
+                        lambda message,receiver=member:self._on_local_cancel(message,receiver),queue_size=100))
             if self.request.template_id in ('OFFSHORE_JOINT','WIND_INSPECTION','PLATFORM_PIPELINE_INSPECTION'):
                 self.state_claim_requests=rospy.Publisher('/mother/state_claim_requests',String,queue_size=20)
                 self.metrics['state_claim_requests']={}
@@ -318,6 +331,53 @@ class MissionRunner:
                     self.received_states[event['producer']]=event
         except (ValueError,KeyError,TypeError):return
 
+    def _on_executor_local_command(self,message,ack):
+        try:
+            event=json.loads(message.data)
+            if event['request_id']!=self.request.request_id:return
+            with self.executor_mutex:
+                bucket=self.executor_local_command_acks if ack else self.executor_local_commands
+                bucket[event['command_id']]=event
+        except (ValueError,KeyError,TypeError):return
+
+    def _on_local_cancel(self,message,receiver):
+        try:
+            event=json.loads(message.data)
+            if (event['request_id']!=self.request.request_id or event.get('command_kind')!='cancel' or
+                    event['receiver']!=receiver or event.get('received_at') is None):return
+            with self.executor_mutex:
+                expected=self.metrics['command_requests'].get(event['command_id'])
+                if expected is None or any(event.get(key)!=value for key,value in expected.items()):return
+                self.local_cancel_receipts[event['command_id']]=event
+                related=[packet for packet in self.metrics['command_requests'].values()
+                    if packet.get('command_kind')=='cancel' and packet.get('cancel_goal_id')==event['cancel_goal_id']]
+                if not all(packet['command_id'] in self.local_cancel_receipts for packet in related):return
+                action=next((action for action in self.metrics.get('current_actions',{}).values()
+                    if action.get('step_execution_id',action.get('execution_id'))==event['execution_id']),None)
+                if action is None or action.get('goal_id')!=event['cancel_goal_id']:return
+                unit=next(unit for unit in self.units if unit.action_endpoint==action.get('endpoint'))
+            with self.condition:goals=self.goal_ids.get(event['execution_id'],set())
+            if (event['cancel_goal_id'] in goals and self.clients[unit.executor_id].get_state() in
+                    (GoalStatus.PENDING,GoalStatus.ACTIVE,GoalStatus.PREEMPTING)):
+                self.clients[unit.executor_id].cancel_goal()
+        except (ValueError,KeyError,TypeError,StopIteration):return
+
+    def _cancel_executor_goal(self,unit):
+        if self.clients[unit.executor_id].get_state() not in (GoalStatus.PENDING,GoalStatus.ACTIVE,GoalStatus.PREEMPTING):return
+        if not getattr(self,'finite_stage_service',False):
+            self.clients[unit.executor_id].cancel_goal();return
+        with self.executor_mutex:
+            action=next((action for action in self.metrics.get('current_actions',{}).values()
+                if action.get('endpoint')==unit.action_endpoint),None)
+        if action is None:return
+        execution=action.get('step_execution_id',action['execution_id'])
+        with self.condition:goals=tuple(self.goal_ids.get(execution,()))
+        if len(goals)!=1 or goals[0] in self.pending_cancel_ids:return
+        self.pending_cancel_ids.add(goals[0])
+        item=self.plan.item(action['execution_id'])
+        view=replace(item,execution_id=execution)
+        self._announce_command(view,unit,dict(goal_id=goals[0]),kind='cancel')
+
     def _on_received_product(self,message):
         """Task authority consumes receiver events, never transport truth/state."""
         from qn_aav_simulator.observation_coverage import PointObservation,record_delivery
@@ -375,6 +435,18 @@ class MissionRunner:
                 return
             if event.get('event_type')=='STATE_CLAIM':
                 self._record_state_claim(event)
+                return
+            if event.get('event_type')=='ACTION_FEEDBACK':
+                with self.executor_mutex:
+                    action=next((value for value in self.metrics.get('current_actions',{}).values()
+                        if value.get('step_execution_id',value.get('execution_id'))==event['execution_id']),None)
+                    if action is not None:
+                        action['phase']=event['phase']
+                        action['feedback_generated_at']=event['generated_at']
+                        action['feedback_received_at']=event['received_at']
+                        if event.get('work_id'):
+                            action.update(work_id=event['work_id'],work_progress=event['work_progress'])
+                            self.metrics.setdefault('inspection_progress',{})[event['work_id']]=event['work_progress']
                 return
             if event.get('event_type')!='OBSERVATION_TERMINAL':return
             if (event['request_id']!=self.request.request_id or
@@ -495,7 +567,7 @@ class MissionRunner:
                 if previous!=event:raise ValueError('conflicting repeated Action terminal notice')
                 return
             bucket[event['producer']]=event
-        if self.finite_stage_service and event.get('local_state'):
+        if getattr(self,'finite_stage_service',False) and event.get('local_state'):
             from types import SimpleNamespace
             state=dict(event['local_state'],request_id=event['request_id'],producer=event['producer'],
                 received_at=event['received_at'])
@@ -541,6 +613,13 @@ class MissionRunner:
                         plan_revision=self.plan_revision,execution_id=item.execution_id,
                         receiver=member,goal_digest=digest,required_bytes=len(data),
                         generated_at=rospy.Time.now().to_sec())
+                    if getattr(self,'finite_stage_service',False):
+                        previous['command_kind']=kind
+                        if kind=='cancel':previous['cancel_goal_id']=payload['goal_id']
+                        previous['payload_bytes']=len(data)
+                        from qn_aav_simulator.observation_coverage import message_wire_size
+                        while previous['required_bytes']!=len(data)+message_wire_size(previous):
+                            previous['required_bytes']=len(data)+message_wire_size(previous)
                     self.metrics['command_requests'][ident]=previous
             self.command_requests.publish(String(data=json.dumps(previous,allow_nan=False)))
             identities.append(ident)
@@ -548,9 +627,11 @@ class MissionRunner:
         return tuple(identities)
 
     def _preload_action_lists(self):
-        if not self.finite_stage_service:return
+        if not getattr(self,'finite_stage_service',False):return
         pending=[item for item in self.plan.items if item.status=='PLANNED' and
             (self.request.request_id,item.execution_id) not in self.accepted_action_lists]
+        carrier=self._command_delivery_service(pending)
+        if carrier is not None:pending.append(carrier)
         identities=[]
         for item in pending:
             unit=self.routing[item.executor_id]
@@ -561,10 +642,85 @@ class MissionRunner:
                     for step in item.execution_steps)])
             identities.extend(self._announce_command(item,unit,payload,kind='accepted-action-list'))
         if identities:
+            if carrier is not None:
+                own=[ident for ident in identities if self.metrics['command_requests'][ident]['execution_id']==carrier.execution_id]
+                self._await_command_delivery(own,time.monotonic()+600.)
+                until=time.monotonic()+600.
+                while True:
+                    with self.executor_mutex:
+                        buffered=all(ident in self.executor_local_commands or ident in self.metrics['command_deliveries'] for ident in identities)
+                    if buffered:break
+                    if rospy.is_shutdown() or time.monotonic()>=until:
+                        raise RuntimeError('USV did not receive the pending command payloads')
+                    time.sleep(.05)
+                self.accepted_action_lists.add((self.request.request_id,carrier.execution_id))
+                self._dispatch_executor_item(carrier)
             self._await_command_delivery(identities,time.monotonic()+max(600.,self.plan.makespan+600.))
             self.accepted_action_lists.update((self.request.request_id,item.execution_id) for item in pending)
             self.metrics.setdefault('events',[]).append(dict(kind='FINITE_ACTION_LISTS_ACCEPTED',
                 executions=[item.execution_id for item in pending],at_ros_s=rospy.Time.now().to_sec()))
+
+    def _command_delivery_service(self,pending):
+        if not pending:return None
+        from mrta_python.models import Task
+        from mrta_python.executors import ExecutionStep,ExecutorPlanItem,NativeActionSpec,NativeSegmentSpec
+        from qn_aav_simulator.observation_coverage import communication_settings
+        from qn_aav_simulator.inspection_work import inspection_motion_profile,inspection_wall_budget
+        from qn_aav_simulator.experiment_verdict import StaticSceneGeometry
+        scene=rospy.get_param('/scene',{});settings=communication_settings(scene)
+        states=self._tasklevel_current_states();source=tuple(states['usv']['position'])
+        mother=tuple(scene.get('mother_ship_receiver_position',scene['mother_ship_position']))
+        members={member for item in pending for member in item.coalition if member!='usv'}
+        unresolved=[member for member in members if not (
+            states[member]['mode']=='AIR' and math.dist(states[member]['position'],mother)<=settings['radio_range_m']) and
+            math.dist(states[member]['position'],source)>(settings['acoustic_range_m'] if states[member]['mode']=='WATER' else settings['radio_range_m'])]
+        if not unresolved:return None
+        geometry=StaticSceneGeometry.from_mapping(scene)
+        positions=[]
+        for member in sorted(unresolved,key=lambda name:states[name]['mode']!='WATER'):
+            radius=settings['acoustic_range_m'] if states[member]['mode']=='WATER' else settings['radio_range_m']
+            target=tuple(states[member]['position'])
+            if any(math.dist(point,target)<=radius for point in positions):continue
+            candidates=[tuple(point) for site in scene.get('communication_sites',())
+                for point in site.get('position_candidates',[site['position']])]
+            candidates=[point for point in candidates if math.dist(point,target)<=radius and
+                (geometry is None or not geometry.violation(point,1.1891593669479295))]
+            if not candidates:raise RuntimeError('no declared safe command delivery position for '+member)
+            positions.append(min(candidates,key=lambda point:math.dist(point,positions[-1] if positions else source)))
+        profile=inspection_motion_profile(scene);steps=[];position=source
+        for index,target in enumerate(positions+[source]):
+            duration=max(4.,math.dist(position,target)/profile['usv_nominal_speed_mps'])
+            budget=inspection_wall_budget({},dict(model_duration_s=duration+180.))
+            native=NativeActionSpec((NativeSegmentSpec('SURFACE_PATH',(position,target),duration),),
+                'TRIM_PROPULSION',execution_timeout_s=budget['wall_duration_ceiling_s'])
+            receivers=tuple(member for member in unresolved if math.dist(states[member]['position'],target)<=
+                (settings['acoustic_range_m'] if states[member]['mode']=='WATER' else settings['radio_range_m'])) if index<len(positions) else ()
+            steps.append(ExecutionStep('usv_native',duration,'communication-downlink:'+str(index),native_action=native,
+                native_prediction=dict(status='TASK_LEVEL',duration_s=duration,terminal_position=target,terminal_mode='SURFACE',
+                    reference_path=(position,target),communication_phase='DELIVER_COMMANDS',
+                    inspection_work_budget=budget,dynamic_safety_certified=False,geometry_checked=False,
+                    estimate_basis='received-state command service estimate; actual local motion and confirmations required')))
+            if receivers:
+                hold=NativeActionSpec((NativeSegmentSpec('SURFACE_PATH',(target,target),4.),),'TRIM_PROPULSION',
+                    execution_timeout_s=budget['wall_duration_ceiling_s'])
+                steps.append(ExecutionStep('usv_native',4.,'communication-command-confirmation:'+str(index),native_action=hold,
+                    native_prediction=dict(status='TASK_LEVEL',duration_s=4.,terminal_position=target,terminal_mode='SURFACE',
+                        reference_path=(target,target),communication_phase='COMMAND_CONFIRMATION',command_receivers=receivers,
+                        dynamic_safety_certified=False,geometry_checked=False,
+                        estimate_basis='received-state command service hold; actual confirmations required')))
+            position=target
+        unit=next(unit for unit in self.units if unit.physical_agent_ids==('usv',))
+        steps=[replace(step,executor_id=unit.executor_id) for step in steps]
+        ident=self.request.request_id+'::command-service:'+str(self.plan_revision)
+        self.tasks_by_id[ident]=Task(ident,frozenset({'SURFACE'}),1,0.,None,'communication-downlink')
+        duration=sum(step.duration_s for step in steps)
+        carrier=ExecutorPlanItem(ident,ident,unit.executor_id,('usv',),0.,duration,duration,0.,0.,
+            execution_steps=tuple(steps),fulfills_task=False)
+        self.plan.items.append(carrier)
+        self.plan.activity_edges=tuple(self.plan.activity_edges)+tuple((ident,item.execution_id) for item in pending)
+        self.plan_revision+=1
+        self.metrics['plan_history'].append(dict(revision=self.plan_revision,plan=asdict(self.plan)))
+        return carrier
 
     def _await_command_delivery(self,identities,deadline):
         if not identities:return
@@ -572,8 +728,10 @@ class MissionRunner:
             with self.executor_mutex:
                 requests=self.metrics['command_requests']
                 delivered=self.metrics['command_deliveries']
-                if any(requests[ident]['plan_revision']!=self.plan_revision for ident in identities):
-                    raise RuntimeError('plan changed before finite command delivery; retain member reservation')
+                valid={item.execution_id for item in self.plan.items if item.status!='CANCELED'}
+                if any(requests[ident]['request_id']!=self.request.request_id or
+                        requests[ident]['execution_id'].rsplit(':step:',1)[0] not in valid for ident in identities):
+                    raise RuntimeError('accepted execution retired before finite command delivery; retain member reservation')
                 if all(ident in delivered for ident in identities):return
             if time.monotonic()>=deadline:
                 raise RuntimeError('finite command delivery unverified before observation deadline; retain member reservation')
@@ -713,7 +871,7 @@ class MissionRunner:
                     for member in self.routing[ident].physical_agent_ids}
         states={}
         for member,sample in samples.items():
-            if self.finite_stage_service and not local:
+            if getattr(self,'finite_stage_service',False) and not local:
                 received=self.received_states.get(member)
                 if received is None:raise RuntimeError('task-level planning needs received state: '+member)
                 values=received['diagnostics'];age=max(0.,now-received['generated_at'])
@@ -868,6 +1026,24 @@ class MissionRunner:
                     if len(points)==1:points.append(points[0])
                     projected.append(replace(segment,points=tuple(points)))
                 segments=projected
+                stationary=all(math.dist(segment.points[0],point)<1e-8
+                    for segment in native.segments for point in segment.points[1:])
+                if stationary and item.native_prediction.get('communication_phase'):
+                    from qn_aav_simulator.observation_coverage import communication_settings
+                    scene=rospy.get_param('/scene',{});settings=communication_settings(scene)
+                    phase=item.native_prediction['communication_phase']
+                    if phase=='UPLOAD':
+                        receiver=tuple(scene.get('mother_ship_receiver_position',scene['mother_ship_position']))
+                        if math.dist(actual_start,receiver)>settings['radio_range_m']:
+                            raise RuntimeError('actual upload hold is outside the declared radio range')
+                    if phase=='COLLECT':
+                        site=next((site for site in scene.get('communication_sites',())
+                            if site['id']==item.native_prediction.get('support_site_id')),None)
+                        if site is not None and math.dist(actual_start,site['position'])>site['radius_m']:
+                            raise RuntimeError('actual collection hold is outside the declared service region')
+                    hold=(actual_start[0],actual_start[1],0.)
+                    segments=[replace(segment,points=tuple(hold for point in segment.points)) for segment in segments]
+                    item.native_prediction['actual_communication_hold_position']=actual_start
         segments[0]=replace(segments[0],points=(start,)+segments[0].points[1:])
         bound=replace(native,segments=tuple(segments))
         geometry=getattr(self,'task_geometry',None) or StaticSceneGeometry.from_mapping(rospy.get_param('/scene',{}))
@@ -1448,6 +1624,17 @@ class MissionRunner:
                                            require_products=self.request.template_id not in ('OFFSHORE_JOINT','WIND_INSPECTION','PLATFORM_PIPELINE_INSPECTION'))
 
     def _wait_action_terminal_receipt(self,goal_id,members,state,timeout):
+        if getattr(self,'finite_stage_service',False):
+            with self.executor_mutex:
+                pending=[item for item in self.plan.items if item.status not in ('COMPLETED','CANCELED')]
+                work_wall=max([0.]+[step.native_prediction.get('inspection_work_budget',{}).get('wall_duration_ceiling_s',0.)
+                    for item in pending if item.fulfills_task for step in item.execution_steps])
+                service_wall=sum(max(step.native_prediction.get('inspection_work_budget',{}).get('wall_duration_ceiling_s',0.),
+                    step.native_action.execution_timeout_s if step.native_action else step.duration_s)
+                    for item in pending if item.coalition==('usv',) and not item.fulfills_task for step in item.execution_steps)
+                timeout=max(timeout,work_wall+service_wall)
+                self.metrics.setdefault('communication_receipt_windows',{})[goal_id]=dict(
+                    wall_timeout_s=timeout,basis='PENDING_WORK_AND_SELECTED_FINITE_SERVICE_BUDGETS')
         deadline=time.monotonic()+timeout
         expected={GoalStatus.SUCCEEDED:'SUCCEEDED',GoalStatus.PREEMPTED:'CANCELED',
                   GoalStatus.RECALLED:'CANCELED',GoalStatus.ABORTED:'ABORTED'}.get(state)
@@ -1459,6 +1646,8 @@ class MissionRunner:
                 if any(delivered[member]['terminal_state']!=expected for member in members):
                     raise RuntimeError('finite Action notice disagrees with Goal terminal state; keep member reserved')
                 return
+            if self.metrics.get('status')=='UNKNOWN_LOCKED' or self.metrics.get('operator_stop_requested'):
+                raise RuntimeError('finite Action receipt interrupted by task failure or stop; keep member reserved')
             if time.monotonic()>=deadline:
                 raise RuntimeError('Action terminal notice not received through finite link; keep member reserved')
             time.sleep(.05)
@@ -1532,6 +1721,19 @@ class MissionRunner:
         client = self.clients[unit.executor_id]
         node=self.server_nodes[unit.executor_id]
         def feedback(message):
+            if getattr(self,'finite_stage_service',False):
+                with self.condition:ids=tuple(self.goal_ids.get(item.execution_id,()))
+                if len(ids)!=1:return
+                generated=rospy.Time.now().to_sec()
+                phase=(message.operation if native else 'HOLDING' if message.phase==1 else 'MOVING')
+                for member in unit.physical_agent_ids:
+                    event=dict(event_type='ACTION_FEEDBACK',request_id=self.request.request_id,
+                        product_id=ids[-1]+':feedback:'+member+':'+str(generated),producer=member,
+                        goal_id=ids[-1],execution_id=item.execution_id,generated_at=generated,phase=phase,
+                        work_id=str(getattr(message,'work_id','')),work_progress=float(getattr(message,'work_progress',0.)))
+                    from std_msgs.msg import String
+                    self.local_feedback_publishers[member].publish(String(data=json.dumps(event,allow_nan=False)))
+                return
             with self.executor_mutex:
                 current=action.get('step_execution_id',action.get('execution_id'))
                 if current is not None and current!=item.execution_id:return
@@ -1543,7 +1745,7 @@ class MissionRunner:
         if sent_deadline is None:
             parent=item.execution_id.rsplit(':step:',1)[0]
             if (getattr(self,'command_delivery_required',False) and
-                    (self.request.request_id,parent) not in self.accepted_action_lists):
+                    (self.request.request_id,parent) not in getattr(self,'accepted_action_lists',set())):
                 command_budget=(native.execution_timeout_s if native else
                     float(rospy.get_param(node+'/execution_timeout',180.)))
                 identities=self._announce_command(item,unit,goal)
@@ -1860,15 +2062,40 @@ class MissionRunner:
                 self._save_executor()
                 raise
             step=view.execution_steps[0]
+            action['communication_phase']=step.native_prediction.get('communication_phase','')
+            action['service_work_ids']=list(dict.fromkeys(work_id for stage in item.execution_steps
+                for work_id in stage.native_prediction.get('support_work_ids',())))
+            command_receivers=step.native_prediction.get('command_receivers',())
+            if command_receivers:
+                until=time.monotonic()+max(600.,self.plan.makespan+600.)
+                while True:
+                    with self.executor_mutex:
+                        expected={ident for ident,event in self.executor_local_commands.items()
+                            if event['request_id']==self.request.request_id and event['plan_revision']==self.plan_revision and
+                            event['receiver'] in command_receivers}
+                        ready=bool(expected) and expected<=set(self.executor_local_command_acks)
+                    if ready:break
+                    if rospy.is_shutdown() or time.monotonic()>=until:
+                        raise RuntimeError('local command confirmations missing at USV delivery position')
+                    action['phase']='WAITING_COMMAND_CONFIRMATIONS';self._save_executor();time.sleep(.05)
             support_ids=step.native_prediction.get('support_work_ids',())
             if support_ids:
-                until=time.monotonic()+max(600.,self.plan.makespan+600.)
+                allowed_work_wall=[max(
+                    candidate.native_prediction.get('inspection_work_budget',{}).get('wall_duration_ceiling_s',0.),
+                    candidate.native_action.execution_timeout_s if candidate.native_action else 0.)
+                    for activity in self.plan.items for candidate in activity.execution_steps
+                    if candidate.work_id in support_ids or candidate.native_action and candidate.native_action.work_id in support_ids]
+                until=time.monotonic()+max([600.,self.plan.makespan+600.]+allowed_work_wall)
                 while True:
                     with self.executor_mutex:
                         local=step.native_prediction.get('support_receiver')=='usv'
                         events=self.executor_local_receipts if local else self.metrics.get('received_products',{})
                         received_work={e.get('work_id') or e.get('point_id') for e in events.values()}
-                    if set(support_ids)<=received_work:
+                        goals={(event['goal_id'],event['producer']) for event in events.values()
+                            if (event.get('work_id') or event.get('point_id')) in support_ids}
+                        terminals={(event['goal_id'],event['producer']) for event in events.values()
+                            if event.get('event_type')=='ACTION_TERMINAL'}
+                    if set(support_ids)<=received_work and (not local or goals<=terminals):
                         with self.executor_mutex:self.metrics.setdefault('events',[]).append(dict(
                             kind='INSPECTION_SUPPORT_REPORTS_RECEIVED',execution_id=item.execution_id,
                             work_ids=list(support_ids),at_ros_s=rospy.Time.now().to_sec()))
@@ -2264,7 +2491,7 @@ class MissionRunner:
                         occupied_units=set(self.active_executor_ids)
                     for unit in self.units:
                         if unit.action_endpoint in endpoints or unit.executor_id in occupied_units:
-                            self.clients[unit.executor_id].cancel_goal()
+                            self._cancel_executor_goal(unit)
                     # Native disposition may take time. Publish the actual
                     # failure now, while retaining every uncertain booking;
                     # the UI must not keep saying RUNNING until all workers end.
@@ -2491,7 +2718,7 @@ class MissionRunner:
                         command['plan_revision']==self.plan_revision and
                         command.get('decision') in ('confirm','decline')):
                     self.metrics.pop('confirmation_error',None)
-                    self.metrics['confirmation_source']='TASK_UI'
+                    self.metrics['confirmation_source']=command.get('source','TASK_UI')
                     return command['decision']=='confirm'
                 self.metrics['confirmation_error']='确认的请求或方案版本已失效，请查看当前方案后重新确认。'
             self._save_executor()
@@ -2518,6 +2745,18 @@ class MissionRunner:
             if 'support_site_position' in step.native_prediction}
         for site in scene.get('communication_sites',()):
             if site['id'] in selected:site['position']=list(selected[site['id']])
+        for item in plan.items:
+            for step in item.execution_steps:
+                if step.native_prediction.get('communication_phase')!='CARRY':continue
+                position=tuple(step.native_prediction['upload_position'])
+                radius=float(step.native_prediction['upload_radius_m'])
+                ident='upload:'+item.execution_id
+                if not any(site['id']==ident for site in scene.get('communication_sites',())):
+                    from qn_aav_simulator.observation_coverage import communication_settings
+                    settings=communication_settings(scene)
+                    scene.setdefault('communication_sites',[]).append(dict(id=ident,position=list(position),
+                        radius_m=radius,acoustic_contact_m=settings['acoustic_range_m'],
+                        mother_contact_m=settings['radio_range_m'],service_kind='UPLOAD'))
 
     def _session_snapshot(self,preview=False,policy='queue'):
         states=self._tasklevel_current_states()
@@ -3094,7 +3333,8 @@ class MissionRunner:
                     {unit.executor_id:(.2 if 'usv' in unit.physical_agent_ids else
                      .13 if 'uuv' in unit.physical_agent_ids else .4) for unit in units},
                     member_positions=positions,native_models={},native_efforts=efforts)
-                self.metrics['planning_state_source']='CURRENT_ODOMETRY_DIAGNOSTICS_AND_LOCKS'
+                self.metrics['planning_state_source']=('FINITE_RECEIVED_STATE_AND_AUTHORITY_LOCKS' if self.finite_stage_service
+                    else 'CURRENT_ODOMETRY_DIAGNOSTICS_AND_LOCKS')
                 def checked_start():
                     expiry=time.monotonic()+2.
                     while True:
@@ -3180,7 +3420,7 @@ class MissionRunner:
                     budget_s=self.metrics['planning_budget_s'],
                     first_feasible=True)
                 self._bind_inspection_support_sites(self.plan,scene)
-                if self.request.execution_mode=='INSPECTION_CONTROL':
+                if self.request.execution_mode=='INSPECTION_CONTROL' or self.finite_stage_service:
                     rospy.set_param('/scene/communication_sites',scene['communication_sites'])
             finally:
                 self.metrics['planning_wall_s']=time.monotonic()-began
