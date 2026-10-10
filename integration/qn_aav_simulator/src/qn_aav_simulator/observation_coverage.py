@@ -117,6 +117,8 @@ class LocalSurveyMap:
         self.peer_speed_mps=1.
         self.peer_clearance_m=.5
         self.peer_body_radius_m=None
+        self._clearance_recovery={}
+        self._recovery_radius_m=None
 
     def navigation_snapshot(self):
         """Freeze the measured map without recursively copying immutable keys.
@@ -141,6 +143,50 @@ class LocalSurveyMap:
         snapshot.peer_clearance_m=self.peer_clearance_m
         snapshot.peer_body_radius_m=self.peer_body_radius_m
         return snapshot
+
+    def configure_clearance_recovery(self, position, body_radius, clearance):
+        """Escape newly measured voxel inflation without entering new space.
+
+        An occupied voxel can invalidate the clearance shell after a scan even
+        though the physical hull and its measured hits remain clear (B r14).
+        Only those initial shell cells may be traversed, with nondecreasing
+        distance on every checked segment. UNKNOWN, hull overlap and forbidden
+        space remain blocking. A native candidate must restore the full margin
+        before its stopping continuation can be accepted.
+        """
+        position=self._point(position);radius=body_radius+clearance
+        self._clearance_recovery={};self._recovery_radius_m=radius
+        if self.segment_clear(position,position,radius):return 'OBSERVED_FREE'
+        if not self.spherical_hull or not self.segment_clear(position,position,body_radius):
+            return 'CURRENT_HULL_NOT_OBSERVED_FREE'
+        cells={}
+        low=[math.floor((v-radius-1e-10)/self.resolution_m) for v in position]
+        high=[math.floor((v+radius+1e-10)/self.resolution_m) for v in position]
+        for x in range(low[0],high[0]+1):
+            for y in range(low[1],high[1]+1):
+                for z in range(low[2],high[2]+1):
+                    key=(x,y,z)
+                    if key in self.free and key not in self.occupied:continue
+                    box_low=tuple(v*self.resolution_m for v in key)
+                    box_high=tuple((v+1)*self.resolution_m for v in key)
+                    gap=segment_box_distance_sq(position,position,box_low,box_high)
+                    if gap>radius*radius+1e-12:continue
+                    if key not in self.occupied:return 'CURRENT_CLEARANCE_UNKNOWN'
+                    hit=self._hits.get(key)
+                    if hit is None or math.dist(position,hit)<=radius:
+                        return 'CURRENT_MEASURED_CLEARANCE_OCCUPIED'
+                    cells[key]=gap
+        if not cells:return 'CURRENT_FORBIDDEN_CLEARANCE'
+        self._clearance_recovery=cells
+        return 'OCCUPIED_VOXEL_MARGIN_EGRESS'
+
+    def clearance_restored(self, position, radius):
+        for key in self._clearance_recovery:
+            low=tuple(v*self.resolution_m for v in key)
+            high=tuple((v+1)*self.resolution_m for v in key)
+            if segment_box_distance_sq(position,position,low,high)<=radius*radius+1e-12:
+                return False
+        return True
 
     def motion_clear(self,start,end,radius,start_s=0.,end_s=None):
         if end_s is None:end_s=start_s+math.dist(start,end)/max(self.peer_speed_mps,1e-6)
@@ -366,7 +412,12 @@ class LocalSurveyMap:
             low=tuple(k*self.resolution_m for k in key)
             high=tuple((k+1)*self.resolution_m for k in key)
             if not self.spherical_hull:return True
-            return segment_box_distance_sq(start,end,low,high)<=radius*radius+1e-12
+            gap=segment_box_distance_sq(start,end,low,high)
+            if key in self._clearance_recovery and radius==self._recovery_radius_m:
+                initial=self._clearance_recovery[key]
+                at_start=segment_box_distance_sq(start,start,low,high)
+                return gap<max(initial,at_start)-1e-12
+            return gap<=radius*radius+1e-12
         nonfree=self._nonfree_bounding_boxes.get(bounds)
         if nonfree is not None:
             # A successful prior segment supplies only this box's exact

@@ -351,6 +351,8 @@ class PvsBackend:
                 if not observed_map.motion_clear(previous,state['position'],radius,
                         coast_delay_s+checked_elapsed,coast_delay_s+elapsed):
                     return dict(status='INFEASIBLE',reason='NATIVE_BRAKING_TERMINAL_NOT_OBSERVED_FREE')
+                if not observed_map.clearance_restored(state['position'],radius):
+                    return dict(status='INFEASIBLE',reason='NATIVE_COAST_CLEARANCE_NOT_RESTORED')
                 return dict(status='FEASIBLE',reason='NATIVE_COMMAND_AND_COAST',
                     source_model_time_s=self.time_s,command_duration_s=command_duration,
                     activation_model_time_s=activation_time,activation_step=activation_step,

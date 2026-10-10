@@ -203,6 +203,8 @@ class PvsNode:
         # An extra static start margin would trap a stopped, physically safe
         # vessel just inside that optional margin and prevent its retreat.
         radius=self.backend.collision_radius_m+(self.scene.clearance if self.scene else 0.)
+        body_status=observed_map.configure_clearance_recovery(position,
+            self.backend.collision_radius_m,self.scene.clearance if self.scene else 0.)
         try:
             observed_map.peer_states=self._peer_snapshot(position,rospy.Time.now().to_sec(),
                 max(1.,2*self.backend.vehicle.L)/max(self.nominal_speed,1e-6)+self.hold_seconds)
@@ -232,6 +234,12 @@ class PvsNode:
             work['local_peer_status']=peer_error or 'FRESH_PEER_MOTION_CHECKED'
             if peer_error:return
             native=copy.deepcopy(self.backend)
+            query_stamp=rospy.Time.now().to_sec()
+            position=tuple(native.snapshot()['position'])
+            body_status=observed_map.configure_clearance_recovery(position,
+                native.collision_radius_m,self.scene.clearance if self.scene else 0.)
+            observed_map.peer_states=self._peer_snapshot(position,query_stamp,
+                max(1.,2*self.backend.vehicle.L)/max(self.nominal_speed,1e-6)+self.hold_seconds)
             generation=self.generation
             requested=work['efforts'][index]
             stopped=math.sqrt(sum(v*v for v in native.snapshot()['world_velocity']))<=self.speed_limit
@@ -269,8 +277,9 @@ class PvsNode:
             # One bounded reverse pulse preserves the last native heading.
             # It is selected only if its real reverse-thrust/coast rollout
             # is known-free, never by kinematic backstepping/teleporting.
-            retreat=(None,-requested*.5,None,.25)
-            candidates.insert(0 if retreat_first else len(candidates),retreat)
+            retreats=[(None,-requested*.5,None,horizon) for horizon in (.25,.5,1.,2.)]
+            if retreat_first or body_status=='OCCUPIED_VOXEL_MARGIN_EGRESS':candidates=retreats+candidates
+            else:candidates.extend(retreats)
         candidates.append((None,0.,None,.25))
         rejected=[]
         attempted=[]
@@ -314,6 +323,9 @@ class PvsNode:
                 local_attempted_candidates=';'.join(attempted),
                 local_query_coast_prefix_s=coast_delay,
                 local_query_model_elapsed_s=self.backend.time_s-native.time_s)
+            work.update(local_body_status=body_status,local_map_stamp_s=stamp,
+                local_query_stamp_s=query_stamp,local_query_model_stamp_s=native.time_s,
+                local_recovery_voxel_count=len(observed_map._clearance_recovery))
             activation=prediction.get('activation_model_time_s',native.time_s+coast_delay)
             activation_step=prediction.get('activation_step',native.steps+int(math.ceil(coast_delay/self.dt-1e-9)))
             if self.backend.steps>=activation_step:
@@ -916,6 +928,10 @@ class PvsNode:
                     'local_command_end_step':self.work.get('local_command_end_step',-1) if self.work else -1,
                     'local_stop_s':self.work.get('local_stop_s',0.) if self.work else 0.,
                     'pending_goal_id':self.pending['id'] if self.pending else '',
+                    'local_body_status':self.work.get('local_body_status','') if self.work else '',
+                    'local_recovery_voxel_count':self.work.get('local_recovery_voxel_count',0) if self.work else 0,
+                    'local_map_stamp_s':self.work.get('local_map_stamp_s',0.) if self.work else 0.,
+                    'local_query_stamp_s':self.work.get('local_query_stamp_s',0.) if self.work else 0.,
                     'native_prediction':json.dumps(self.last_prediction),
                     'reference_generation':self.generation,
                     'execution_phase':('PREPARED' if self.work and self.work['waiting_commit'] else
